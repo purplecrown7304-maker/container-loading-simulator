@@ -15,6 +15,8 @@ export type CargoItem = {
   quantity: number;
   maxStackLayers?: number;
   maxTopLoadKg?: number;
+  /** 바닥면 기준 90도 회전 허용. 생략 시 허용으로 간주한다. */
+  allowRotation?: boolean;
 };
 
 export type Placement = {
@@ -26,6 +28,8 @@ export type Placement = {
   width: number;
   height: number;
   weightKg: number;
+  /** 원래 길이/폭 대비 90도 회전되어 배치됐는지 여부 */
+  rotated?: boolean;
 };
 
 export type ValidationIssue = {
