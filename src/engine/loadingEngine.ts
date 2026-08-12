@@ -1,4 +1,6 @@
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
+import { findMixedPlacement } from './mixedPacking';
+import { validatePlacements } from './constraints';
 
 const cbm = (item: CargoItem) => item.length * item.width * item.height;
 
@@ -7,6 +9,7 @@ export function loadContainer(
   cargo: CargoItem[],
 ): LoadingResult {
   const placements: Placement[] = [];
+  const deferred: Array<{ item: CargoItem; quantity: number }> = [];
   const remaining: LoadingResult['remaining'] = [];
   let loadedWeightKg = 0;
   let usedVolumeM3 = 0;
@@ -38,6 +41,8 @@ export function loadContainer(
       if (!isFullSlice) break;
       if (cursorX + item.length > container.length) break;
 
+      let slicePlaced = 0;
+
       for (let layer = 0; layer < layersHigh && placed < item.quantity; layer += 1) {
         for (let col = 0; col < columnsAcross && placed < item.quantity; col += 1) {
           if (loadedWeightKg + item.weightKg > container.maxPayloadKg) break;
@@ -53,22 +58,60 @@ export function loadContainer(
             weightKg: item.weightKg,
           });
           placed += 1;
+          slicePlaced += 1;
           loadedWeightKg += item.weightKg;
           usedVolumeM3 += cbm(item);
         }
+
+        if (loadedWeightKg >= container.maxPayloadKg) break;
       }
 
+      if (slicePlaced === 0) break;
       cursorX += item.length;
+
+      if (slicePlaced < boxesPerSlice) break;
     }
 
     if (placed < item.quantity) {
+      deferred.push({ item, quantity: item.quantity - placed });
+    }
+  }
+
+  for (const { item, quantity } of deferred) {
+    let mixedPlaced = 0;
+
+    for (let i = 0; i < quantity; i += 1) {
+      if (loadedWeightKg + item.weightKg > container.maxPayloadKg) break;
+
+      const placement = findMixedPlacement(container, item, placements);
+      if (!placement) break;
+
+      placements.push(placement);
+      mixedPlaced += 1;
+      loadedWeightKg += item.weightKg;
+      usedVolumeM3 += cbm(item);
+    }
+
+    const left = quantity - mixedPlaced;
+    if (left > 0) {
       remaining.push({
         cargoId: item.id,
-        quantity: item.quantity - placed,
-        reason: '동일 종류 완전 블록을 만들 수 없어 혼합 적재 단계로 이월',
+        quantity: left,
+        reason:
+          loadedWeightKg >= container.maxPayloadKg
+            ? '컨테이너 최대 적재 중량에 도달하여 적재하지 못함'
+            : '동일 종류 완전 블록 및 혼합 적재 가능한 안정 공간을 찾지 못함',
       });
     }
   }
 
-  return { placements, remaining, loadedWeightKg, usedVolumeM3 };
+  const validationIssues = validatePlacements(container, placements);
+
+  return {
+    placements,
+    remaining,
+    loadedWeightKg,
+    usedVolumeM3,
+    validationIssues,
+  };
 }
