@@ -1,10 +1,10 @@
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { loadContainer } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 
-const container: ContainerSpec = {
+const defaultContainer: ContainerSpec = {
   length: 12.03,
   width: 2.35,
   height: 2.69,
@@ -50,7 +50,24 @@ const emptyDraft: CargoDraft = {
   maxTopLoadKg: 100,
 };
 
-function Scene({ result }: { result: LoadingResult }) {
+const STORAGE_KEY = 'container-loading-simulator-v1';
+
+type StoredState = {
+  container: ContainerSpec;
+  cargo: CargoItem[];
+};
+
+function readStoredState(): StoredState | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as StoredState;
+  } catch {
+    return null;
+  }
+}
+
+function Scene({ result, container }: { result: LoadingResult; container: ContainerSpec }) {
   const scale = 0.45;
 
   return (
@@ -98,14 +115,27 @@ function Scene({ result }: { result: LoadingResult }) {
 }
 
 export default function App() {
-  const [cargo, setCargo] = useState<CargoItem[]>(initialCargo);
+  const stored = useMemo(() => readStoredState(), []);
+  const [container, setContainer] = useState<ContainerSpec>(stored?.container ?? defaultContainer);
+  const [cargo, setCargo] = useState<CargoItem[]>(stored?.cargo ?? initialCargo);
   const [draft, setDraft] = useState<CargoDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [result, setResult] = useState<LoadingResult>(() => loadContainer(container, initialCargo));
+  const [result, setResult] = useState<LoadingResult>(() =>
+    loadContainer(stored?.container ?? defaultContainer, stored?.cargo ?? initialCargo),
+  );
+  const [saveMessage, setSaveMessage] = useState('');
 
   const totalVolume = container.length * container.width * container.height;
   const fillRate = totalVolume > 0 ? (result.usedVolumeM3 / totalVolume) * 100 : 0;
   const waitingCount = useMemo(() => cargo.reduce((sum, item) => sum + item.quantity, 0), [cargo]);
+
+  useEffect(() => {
+    setResult(loadContainer(container, cargo.filter((item) => item.quantity > 0)));
+  }, [container.length, container.width, container.height, container.maxPayloadKg]);
+
+  const updateContainer = (field: keyof ContainerSpec, value: string) => {
+    setContainer((current) => ({ ...current, [field]: Number(value) }));
+  };
 
   const updateDraft = (field: keyof CargoDraft, value: string) => {
     const numericFields: Array<keyof CargoDraft> = [
@@ -186,25 +216,61 @@ export default function App() {
     setResult(loadContainer(container, cargo.filter((item) => item.quantity > 0)));
   };
 
+  const saveLocal = () => {
+    const state: StoredState = { container, cargo };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    setSaveMessage('현재 데이터가 이 브라우저에 저장되었습니다.');
+  };
+
+  const loadLocal = () => {
+    const state = readStoredState();
+    if (!state) {
+      setSaveMessage('저장된 데이터가 없습니다.');
+      return;
+    }
+    setContainer(state.container);
+    setCargo(state.cargo);
+    setResult(loadContainer(state.container, state.cargo.filter((item) => item.quantity > 0)));
+    setSaveMessage('저장된 데이터를 불러왔습니다.');
+  };
+
+  const resetAll = () => {
+    setContainer(defaultContainer);
+    setCargo([]);
+    setResult(loadContainer(defaultContainer, []));
+    localStorage.removeItem(STORAGE_KEY);
+    resetDraft();
+    setSaveMessage('컨테이너와 박스 데이터를 초기화했습니다.');
+  };
+
   return (
     <main className="app-shell">
       <header className="topbar">
         <div>
           <strong>Container Loading Simulator</strong>
-          <span>Codex development v0.4.0</span>
+          <span>Codex development v0.5.0</span>
         </div>
-        <button onClick={runLoading}>적재 실행</button>
+        <div className="top-actions">
+          <button className="secondary" onClick={saveLocal}>저장</button>
+          <button className="secondary" onClick={loadLocal}>불러오기</button>
+          <button onClick={runLoading}>적재 실행</button>
+        </div>
       </header>
 
       <section className="workspace">
         <aside className="panel left-panel">
           <h2>컨테이너 설정</h2>
-          <dl>
-            <div><dt>길이</dt><dd>{container.length} m</dd></div>
-            <div><dt>폭</dt><dd>{container.width} m</dd></div>
-            <div><dt>높이</dt><dd>{container.height} m</dd></div>
-            <div><dt>최대 중량</dt><dd>{container.maxPayloadKg.toLocaleString()} kg</dd></div>
-          </dl>
+          <div className="form-grid container-form">
+            <label>길이(m)<input type="number" step="0.01" min="0.1" value={container.length} onChange={(e) => updateContainer('length', e.target.value)} /></label>
+            <label>폭(m)<input type="number" step="0.01" min="0.1" value={container.width} onChange={(e) => updateContainer('width', e.target.value)} /></label>
+            <label>높이(m)<input type="number" step="0.01" min="0.1" value={container.height} onChange={(e) => updateContainer('height', e.target.value)} /></label>
+            <label>최대중량(kg)<input type="number" step="100" min="1" value={container.maxPayloadKg} onChange={(e) => updateContainer('maxPayloadKg', e.target.value)} /></label>
+          </div>
+          <div className="form-actions utility-actions">
+            <button className="secondary" onClick={saveLocal}>현재 데이터 저장</button>
+            <button className="danger" onClick={resetAll}>전체 초기화</button>
+          </div>
+          {saveMessage && <p className="muted status-message">{saveMessage}</p>}
 
           <h2>{editingId ? '박스 수정' : '박스 등록'}</h2>
           <div className="cargo-form">
@@ -253,7 +319,7 @@ export default function App() {
 
         <section className="viewer">
           <Canvas camera={{ position: [5.5, 4.2, 6.5], fov: 48 }}>
-            <Scene result={result} />
+            <Scene result={result} container={container} />
           </Canvas>
         </section>
 
