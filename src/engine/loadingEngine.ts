@@ -2,6 +2,7 @@ import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types
 import { findMixedPlacement } from './mixedPacking';
 import { validatePlacements } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
+import { optimizeLoadingShape } from './shapeOptimizer';
 
 const EPS = 1e-9;
 const cbm = (item: CargoItem) => item.length * item.width * item.height;
@@ -35,7 +36,7 @@ function bestBlockOrientation(container: ContainerSpec, item: CargoItem) {
 }
 
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): LoadingResult {
-  const placements: Placement[] = [];
+  let placements: Placement[] = [];
   const deferred: Array<{ item: CargoItem; quantity: number }> = [];
   const remaining: LoadingResult['remaining'] = [];
   let loadedWeightKg = 0;
@@ -131,6 +132,10 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): Loa
       });
     }
   }
+
+  // 최종 형상 후처리: 위 박스를 받치지 않는 최상단 박스만 재탐색하고,
+  // 중앙 낱개·돌출·품목 분산 패널티가 실제로 감소할 때만 이동을 확정한다.
+  placements = optimizeLoadingShape(container, placements, cargoById).placements;
 
   return {
     placements,
