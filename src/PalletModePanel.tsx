@@ -26,16 +26,16 @@ function PalletScene({ state, result, spec }: { state: StoredState; result: Pall
     <mesh position={[0,container.height*scale/2,0]}><boxGeometry args={[container.length*scale,container.height*scale,container.width*scale]} /><meshBasicMaterial wireframe transparent opacity={0.2} /></mesh>
     {result.pallets.map((p) => {
       const px = (p.x + p.length/2)*scale - container.length*scale/2;
+      const py = (p.z + spec.height/2)*scale;
       const pz = (p.y + p.width/2)*scale - container.width*scale/2;
       const cogX = p.centerOfGravity.x*scale - container.length*scale/2;
       const cogY = p.centerOfGravity.z*scale;
       const cogZ = p.centerOfGravity.y*scale - container.width*scale/2;
       return <group key={p.palletIndex}>
-        <mesh position={[px,spec.height*scale/2,pz]}><boxGeometry args={[p.length*scale,spec.height*scale,p.width*scale]} /><meshStandardMaterial color="#9b6a3b" roughness={0.85} /></mesh>
-        <Text position={[px,spec.height*scale+0.04,pz]} fontSize={0.07}>{`P${p.palletIndex}`}</Text>
+        <mesh position={[px,py,pz]}><boxGeometry args={[p.length*scale,spec.height*scale,p.width*scale]} /><meshStandardMaterial color="#9b6a3b" roughness={0.85} /></mesh>
+        <Text position={[px,(p.z+spec.height)*scale+0.04,pz]} fontSize={0.065}>{`P${p.palletIndex} · ${p.stackLevel}단`}</Text>
         {p.cargoPlacements.map((box,index) => <mesh key={`${box.cargoId}-${index}`} position={[(box.x+box.length/2)*scale-container.length*scale/2,(box.z+box.height/2)*scale,(box.y+box.width/2)*scale-container.width*scale/2]}><boxGeometry args={[box.length*scale,box.height*scale,box.width*scale]} /><meshStandardMaterial color={colorFor(box.cargoId)} roughness={0.65} /></mesh>)}
         <mesh position={[cogX,cogY,cogZ]}><sphereGeometry args={[0.045,18,18]} /><meshStandardMaterial emissiveIntensity={1.1} /></mesh>
-        <Text position={[cogX,cogY+0.07,cogZ]} fontSize={0.045}>{`P${p.palletIndex} COG`}</Text>
       </group>;
     })}
     <OrbitControls makeDefault />
@@ -51,6 +51,8 @@ export default function PalletModePanel() {
 
   const summary = useMemo(() => result ? result.pallets.map((p) => ({
     index:p.palletIndex,
+    level:p.stackLevel,
+    column:p.stackColumn,
     boxes:p.cargoPlacements.length,
     cargoWeight:p.cargoWeightKg,
     totalWeight:p.totalWeightKg,
@@ -61,9 +63,11 @@ export default function PalletModePanel() {
   const run = () => {
     const stored = readStored();
     if (!stored) { setMessage('먼저 메인 화면에서 현재 데이터를 저장하세요.'); setResult(null); setState(null); return; }
-    const next = packOnPallets(stored.container, stored.cargo, spec);
+    const safeSpec = { ...spec, maxStackLevels: Math.max(1, Math.min(3, Math.floor(spec.maxStackLevels || 1))) };
+    setSpec(safeSpec);
+    const next = packOnPallets(stored.container, stored.cargo, safeSpec);
     setState(stored); setResult(next);
-    setMessage(`팔레트 ${next.palletCount}개 · 화물 ${next.placements.length}EA 계산 완료${next.consolidatedPallets ? ` · ${next.consolidatedPallets}개 팔레트 통합` : ''}`);
+    setMessage(`팔레트 ${next.palletCount}개 · 화물 ${next.placements.length}EA · 최대 ${next.maxUsedStackLevel}단 적층`);
   };
 
   return <div className="pallet-mode-widget">
@@ -76,17 +80,19 @@ export default function PalletModePanel() {
         <label>높이(m)<input type="number" step="0.01" value={spec.height} onChange={(e)=>setSpec({...spec,height:Number(e.target.value)})} /></label>
         <label>팔레트 중량(kg)<input type="number" value={spec.tareWeightKg} onChange={(e)=>setSpec({...spec,tareWeightKg:Number(e.target.value)})} /></label>
         <label>최대 적재중량(kg)<input type="number" value={spec.maxLoadKg} onChange={(e)=>setSpec({...spec,maxLoadKg:Number(e.target.value)})} /></label>
+        <label>최대 팔레트 적층단<input type="number" min="1" max="3" value={spec.maxStackLevels} onChange={(e)=>setSpec({...spec,maxStackLevels:Number(e.target.value)})} /></label>
+        <label>상부 팔레트 허용중량(kg)<input type="number" min="0" value={spec.maxSupportedTopWeightKg} onChange={(e)=>setSpec({...spec,maxSupportedTopWeightKg:Number(e.target.value)})} /></label>
       </div>
       <button className="pallet-run" onClick={run}>팔레트 적재 계산</button>
       {message && <p className="muted">{message}</p>}
       {result && state && <>
         <div className="pallet-preview"><Canvas camera={{ position:[5.5,4.5,6.2], fov:48 }}><PalletScene state={state} result={result} spec={spec} /></Canvas></div>
         <div className="pallet-metrics">
-          <div><span>사용 팔레트</span><strong>{result.palletCount}</strong></div><div><span>적재 화물</span><strong>{result.placements.length} EA</strong></div><div><span>화물 중량</span><strong>{result.loadedCargoWeightKg.toLocaleString()} kg</strong></div><div><span>좌우 중량 차이</span><strong>{result.lateralImbalanceKg.toFixed(0)} kg</strong></div>
+          <div><span>사용 팔레트</span><strong>{result.palletCount}</strong></div><div><span>적층 팔레트</span><strong>{result.stackedPallets}</strong></div><div><span>최대 적층단</span><strong>{result.maxUsedStackLevel}단</strong></div><div><span>좌우 중량 차이</span><strong>{result.lateralImbalanceKg.toFixed(0)} kg</strong></div>
         </div>
-        <div className="pallet-balance-note">무거운 팔레트를 안쪽부터 배치하고, 같은 깊이에서는 좌우 누적 중량 차이가 작아지도록 위치를 선택합니다.</div>
+        <div className="pallet-balance-note">팔레트 적층은 최대 3단까지 허용하며, 컨테이너 높이·팔레트 상부 허용중량·아래 박스의 상부 허용중량·화물 윗면 평탄 조건을 모두 통과할 때만 적용합니다.</div>
         {result.consolidatedPallets > 0 && <div className="pallet-consolidation">마지막 잔여 팔레트 중 <b>{result.consolidatedPallets}개</b>를 앞 팔레트로 통합해 팔레트 수를 줄였습니다.</div>}
-        <div className="pallet-list">{summary.map((p)=><article key={p.index}><b>P{p.index}</b><span>{p.boxes} EA · 화물 {p.cargoWeight.toLocaleString()}kg · 총 {p.totalWeight.toLocaleString()}kg</span><small>{p.cargoIds}</small><small>COG X {p.cog.x.toFixed(2)} · Y {p.cog.y.toFixed(2)} · Z {p.cog.z.toFixed(2)}m</small></article>)}</div>
+        <div className="pallet-list">{summary.map((p)=><article key={p.index}><b>P{p.index}</b><span>{p.column}열 · {p.level}단 · {p.boxes} EA · 총 {p.totalWeight.toLocaleString()}kg</span><small>{p.cargoIds}</small><small>COG X {p.cog.x.toFixed(2)} · Y {p.cog.y.toFixed(2)} · Z {p.cog.z.toFixed(2)}m</small></article>)}</div>
         {result.remaining.length > 0 && <div className="pallet-remaining"><b>미적재</b>{result.remaining.map((r)=><span key={r.cargoId}>{r.cargoId} {r.quantity}EA · {r.reason}</span>)}</div>}
       </>}
     </section>}
