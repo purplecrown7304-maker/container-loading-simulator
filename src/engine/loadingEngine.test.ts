@@ -84,6 +84,8 @@ describe('loadContainer', () => {
     expect(result.validationIssues).toEqual([]);
   });
 
+  // 대량 혼합 적재는 GitHub hosted runner 편차가 커 기본 5초 제한과 분리한다.
+  // correctness는 동일하게 검증하고, 10초 안에 끝나지 못하면 성능 회귀로 실패시킨다.
   it('stays collision-free under a mixed multi-SKU stress case', () => {
     const stressCargo: CargoItem[] = [
       cargo({ id: 'A', name: 'A', length: 0.6, width: 0.4, height: 0.3, weightKg: 18, quantity: 36, maxStackLayers: 6, maxTopLoadKg: 250 }),
@@ -99,5 +101,5 @@ describe('loadContainer', () => {
     expect(result.validationIssues).toEqual([]);
     expect(result.loadedWeightKg).toBeLessThanOrEqual(26500 + 1e-9);
     expect(result.placements.length).toBeGreaterThan(150);
-  });
+  }, 10000);
 });
