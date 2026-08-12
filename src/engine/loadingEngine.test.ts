@@ -74,4 +74,30 @@ describe('loadContainer', () => {
     );
     expect(result.placements.every((p) => !p.rotated)).toBe(true);
   });
+
+  it('counts decimal dimensions that fit exactly without losing a slot', () => {
+    const result = loadContainer(
+      { length: 1.2, width: 0.9, height: 0.6, maxPayloadKg: 1000 },
+      [cargo({ length: 0.4, width: 0.3, height: 0.3, quantity: 18, maxStackLayers: 2, allowRotation: false })],
+    );
+    expect(result.placements).toHaveLength(18);
+    expect(result.validationIssues).toEqual([]);
+  });
+
+  it('stays collision-free under a mixed multi-SKU stress case', () => {
+    const stressCargo: CargoItem[] = [
+      cargo({ id: 'A', name: 'A', length: 0.6, width: 0.4, height: 0.3, weightKg: 18, quantity: 36, maxStackLayers: 6, maxTopLoadKg: 250 }),
+      cargo({ id: 'B', name: 'B', length: 0.5, width: 0.35, height: 0.25, weightKg: 14, quantity: 42, maxStackLayers: 7, maxTopLoadKg: 220 }),
+      cargo({ id: 'C', name: 'C', length: 0.45, width: 0.3, height: 0.3, weightKg: 12, quantity: 48, maxStackLayers: 6, maxTopLoadKg: 180 }),
+      cargo({ id: 'D', name: 'D', length: 0.4, width: 0.4, height: 0.2, weightKg: 10, quantity: 54, maxStackLayers: 7, maxTopLoadKg: 160 }),
+      cargo({ id: 'E', name: 'E', length: 0.35, width: 0.25, height: 0.25, weightKg: 8, quantity: 60, maxStackLayers: 7, maxTopLoadKg: 140 }),
+    ];
+    const result = loadContainer(
+      { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 },
+      stressCargo,
+    );
+    expect(result.validationIssues).toEqual([]);
+    expect(result.loadedWeightKg).toBeLessThanOrEqual(26500 + 1e-9);
+    expect(result.placements.length).toBeGreaterThan(150);
+  });
 });
