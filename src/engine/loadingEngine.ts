@@ -3,24 +3,26 @@ import { findMixedPlacement } from './mixedPacking';
 import { validatePlacements } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
 
+const EPS = 1e-9;
 const cbm = (item: CargoItem) => item.length * item.width * item.height;
+const fitCount = (available: number, size: number) => size > 0 ? Math.floor((available + EPS) / size) : 0;
 
 function bestBlockOrientation(container: ContainerSpec, item: CargoItem) {
   const options = [
     { length: item.length, width: item.width, rotated: false },
-    ...(item.allowRotation === false || Math.abs(item.length - item.width) < 1e-9
+    ...(item.allowRotation === false || Math.abs(item.length - item.width) < EPS
       ? []
       : [{ length: item.width, width: item.length, rotated: true }]),
   ];
 
   return options
     .map((option) => {
-      const columnsAcross = Math.floor(container.width / option.width);
+      const columnsAcross = fitCount(container.width, option.width);
       const layersHigh = Math.min(
         item.maxStackLayers ?? Number.POSITIVE_INFINITY,
-        Math.floor(container.height / item.height),
+        fitCount(container.height, item.height),
       );
-      const slicesDeep = Math.floor(container.length / option.length);
+      const slicesDeep = fitCount(container.length, option.length);
       return {
         ...option,
         columnsAcross,
@@ -59,14 +61,14 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): Loa
     while (placed < item.quantity) {
       const left = item.quantity - placed;
       if (left < boxesPerSlice) break;
-      if (cursorX + orientation.length > container.length) break;
+      if (cursorX + orientation.length > container.length + EPS) break;
 
       let slicePlaced = 0;
       let sliceBlocked = false;
 
       for (let layer = 0; layer < layersHigh && placed < item.quantity; layer += 1) {
         for (let col = 0; col < columnsAcross && placed < item.quantity; col += 1) {
-          if (loadedWeightKg + item.weightKg > container.maxPayloadKg) {
+          if (loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS) {
             sliceBlocked = true;
             break;
           }
@@ -95,7 +97,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): Loa
           usedVolumeM3 += cbm(item);
         }
 
-        if (sliceBlocked || loadedWeightKg >= container.maxPayloadKg) break;
+        if (sliceBlocked || loadedWeightKg + EPS >= container.maxPayloadKg) break;
       }
 
       if (slicePlaced === 0) break;
@@ -109,7 +111,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): Loa
   for (const { item, quantity } of deferred) {
     let mixedPlaced = 0;
     for (let i = 0; i < quantity; i += 1) {
-      if (loadedWeightKg + item.weightKg > container.maxPayloadKg) break;
+      if (loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS) break;
       const placement = findMixedPlacement(container, item, placements, cargoById);
       if (!placement) break;
       placements.push(placement);
@@ -123,7 +125,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): Loa
       remaining.push({
         cargoId: item.id,
         quantity: left,
-        reason: loadedWeightKg >= container.maxPayloadKg
+        reason: loadedWeightKg + EPS >= container.maxPayloadKg
           ? '컨테이너 최대 적재 중량에 도달하여 적재하지 못함'
           : '회전을 포함해 적층단·상부 허용중량 또는 안정 공간 조건을 만족하는 위치를 찾지 못함',
       });
