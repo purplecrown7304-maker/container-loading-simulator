@@ -158,11 +158,24 @@ function canSupportUpper(lower: PalletLoad, upperWeightKg: number, cargoMap: Map
   });
 }
 
+function columnSupportsNewLoad(loads: PalletLoad[], newLoad: PalletLoad, cargoMap: Map<string, CargoItem>, pallet: PalletSpec) {
+  for (let lowerIndex = 0; lowerIndex < loads.length; lowerIndex += 1) {
+    const lower = loads[lowerIndex];
+    const existingAbove = loads.slice(lowerIndex + 1).reduce((sum, p) => sum + p.totalWeightKg, 0);
+    if (!canSupportUpper(lower, existingAbove + newLoad.totalWeightKg, cargoMap, pallet)) return false;
+  }
+  return true;
+}
+
 function moveLoad(load: PalletLoad, x: number, y: number, z: number, level: number, column: number, pallet: PalletSpec) {
   const dx = x - load.x;
   const dy = y - load.y;
   const dz = z - load.z;
-  load.x = x; load.y = y; load.z = z; load.stackLevel = level; load.stackColumn = column;
+  load.x = x;
+  load.y = y;
+  load.z = z;
+  load.stackLevel = level;
+  load.stackColumn = column;
   load.cargoPlacements = load.cargoPlacements.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy, z: p.z + dz }));
   load.centerOfGravity = palletCog(load, pallet);
 }
@@ -181,8 +194,7 @@ function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number
       const z = palletTop(lower);
       const movedTop = z + (palletTop(load) - load.z);
       if (movedTop > container.height + EPS) continue;
-      const weightAboveEachLower = load.totalWeightKg + column.loads.slice(lower.stackLevel).reduce((sum, x) => sum + x.totalWeightKg, 0);
-      if (!canSupportUpper(lower, weightAboveEachLower, cargoMap, pallet)) continue;
+      if (!columnSupportsNewLoad(column.loads, load, cargoMap, pallet)) continue;
       const score = column.positionIndex * 10 + column.loads.length;
       if (!best || score < best.score) best = { column: c, level: column.loads.length + 1, z, score };
     }
@@ -222,7 +234,12 @@ function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number
     if (pos.y + pallet.width / 2 < container.width / 2) leftWeight += column.totalWeightKg;
     else rightWeight += column.totalWeightKg;
   }
-  pallets.forEach((p, i) => { p.palletIndex = i + 1; p.centerOfGravity = palletCog(p, pallet); });
+
+  pallets.forEach((p, i) => {
+    p.palletIndex = i + 1;
+    p.centerOfGravity = palletCog(p, pallet);
+  });
+
   return {
     lateralImbalanceKg: Math.abs(leftWeight - rightWeight),
     stackedPallets: pallets.filter((p) => p.stackLevel > 1).length,
@@ -244,7 +261,21 @@ export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pall
       let load = pallets[p];
       if (!load) {
         const pos = positions[p];
-        load = { palletIndex: p + 1, x: pos.x, y: pos.y, z: 0, stackLevel: 1, stackColumn: p + 1, length: pallet.length, width: pallet.width, height: pallet.height, cargoPlacements: [], cargoWeightKg: 0, totalWeightKg: pallet.tareWeightKg, centerOfGravity: { x: pos.x + pallet.length / 2, y: pos.y + pallet.width / 2, z: pallet.height / 2 } };
+        load = {
+          palletIndex: p + 1,
+          x: pos.x,
+          y: pos.y,
+          z: 0,
+          stackLevel: 1,
+          stackColumn: p + 1,
+          length: pallet.length,
+          width: pallet.width,
+          height: pallet.height,
+          cargoPlacements: [],
+          cargoWeightKg: 0,
+          totalWeightKg: pallet.tareWeightKg,
+          centerOfGravity: { x: pos.x + pallet.length / 2, y: pos.y + pallet.width / 2, z: pallet.height / 2 },
+        };
         pallets[p] = load;
       }
       while (left > 0) {
