@@ -73,6 +73,7 @@ export const defaultPalletSpec: PalletSpec = {
 const EPS = 1e-9;
 const FLAT_TOP_TOLERANCE = 0.03;
 const cargoVolume = (item: CargoItem) => item.length * item.width * item.height;
+const fitCount = (available: number, size: number) => size > 0 ? Math.floor((available + EPS) / size) : 0;
 
 function palletPositions(container: ContainerSpec, pallet: PalletSpec) {
   const positions: Array<{ x: number; y: number }> = [];
@@ -144,11 +145,11 @@ function slotFor(load: PalletLoad, item: CargoItem, pallet: PalletSpec, containe
   if (load.cargoWeightKg + item.weightKg > pallet.maxLoadKg + EPS) return null;
   const reserveHeight = pallet.minimizePackaging ? 0 : (pallet.useCornerGuards ? pallet.cornerGuardExtraHeightM : 0) + (pallet.useWrapping ? pallet.wrappingExtraHeightM : 0);
   const availableHeight = container.height - pallet.height - reserveHeight;
-  const maxLayers = Math.max(0, Math.min(item.maxStackLayers ?? Infinity, Math.floor(availableHeight / item.height)));
+  const maxLayers = Math.max(0, Math.min(item.maxStackLayers ?? Infinity, fitCount(availableHeight, item.height)));
   if (maxLayers < 1) return null;
 
   const options = orientations(item)
-    .map((o) => ({ ...o, colsX: Math.floor(pallet.length / o.length), colsY: Math.floor(pallet.width / o.width) }))
+    .map((o) => ({ ...o, colsX: fitCount(pallet.length, o.length), colsY: fitCount(pallet.width, o.width) }))
     .filter((o) => o.colsX > 0 && o.colsY > 0)
     .sort((a, b) => (b.colsX * b.colsY) - (a.colsX * a.colsY) || Number(a.rotated) - Number(b.rotated));
 
