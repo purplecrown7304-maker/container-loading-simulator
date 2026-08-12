@@ -29,35 +29,24 @@ function hasFullSupport(candidate: Placement, placements: Placement[]): boolean 
     const top = round3(placement.z + placement.height);
     if (Math.abs(top - candidate.z) > 0.001) return false;
 
-    const xOverlap = Math.max(
-      0,
-      Math.min(candidate.x + candidate.length, placement.x + placement.length) -
-        Math.max(candidate.x, placement.x),
-    );
-    const yOverlap = Math.max(
-      0,
-      Math.min(candidate.y + candidate.width, placement.y + placement.width) -
-        Math.max(candidate.y, placement.y),
-    );
-
+    const xOverlap = Math.max(0, Math.min(candidate.x + candidate.length, placement.x + placement.length) - Math.max(candidate.x, placement.x));
+    const yOverlap = Math.max(0, Math.min(candidate.y + candidate.width, placement.y + placement.width) - Math.max(candidate.y, placement.y));
     return xOverlap > 0 && yOverlap > 0;
   });
 
   const supportedArea = supporting.reduce((sum, placement) => {
-    const xOverlap = Math.max(
-      0,
-      Math.min(candidate.x + candidate.length, placement.x + placement.length) -
-        Math.max(candidate.x, placement.x),
-    );
-    const yOverlap = Math.max(
-      0,
-      Math.min(candidate.y + candidate.width, placement.y + placement.width) -
-        Math.max(candidate.y, placement.y),
-    );
+    const xOverlap = Math.max(0, Math.min(candidate.x + candidate.length, placement.x + placement.length) - Math.max(candidate.x, placement.x));
+    const yOverlap = Math.max(0, Math.min(candidate.y + candidate.width, placement.y + placement.width) - Math.max(candidate.y, placement.y));
     return sum + xOverlap * yOverlap;
   }, 0);
 
   return supportedArea + 1e-9 >= candidate.length * candidate.width;
+}
+
+function orientations(item: CargoItem) {
+  const normal = { length: item.length, width: item.width, rotated: false };
+  if (item.allowRotation === false || Math.abs(item.length - item.width) < 1e-9) return [normal];
+  return [normal, { length: item.width, width: item.length, rotated: true }];
 }
 
 export function findMixedPlacement(
@@ -67,30 +56,41 @@ export function findMixedPlacement(
   cargoById: Map<string, CargoItem>,
 ): Placement | null {
   const axes = candidateAxes(container, placements);
+  let best: Placement | null = null;
+  let bestScore = Number.POSITIVE_INFINITY;
 
-  for (const x of axes.xs) {
-    for (const z of axes.zs) {
-      for (const y of axes.ys) {
-        const candidate: Placement = {
-          cargoId: item.id,
-          x,
-          y,
-          z,
-          length: item.length,
-          width: item.width,
-          height: item.height,
-          weightKg: item.weightKg,
-        };
+  for (const orientation of orientations(item)) {
+    for (const x of axes.xs) {
+      for (const z of axes.zs) {
+        for (const y of axes.ys) {
+          const candidate: Placement = {
+            cargoId: item.id,
+            x,
+            y,
+            z,
+            length: orientation.length,
+            width: orientation.width,
+            height: item.height,
+            weightKg: item.weightKg,
+            rotated: orientation.rotated,
+          };
 
-        if (!isInsideContainer(container, candidate)) continue;
-        if (placements.some((placement) => overlaps(candidate, placement))) continue;
-        if (!hasFullSupport(candidate, placements)) continue;
-        if (!canPlaceByStackingRules(item, candidate, placements, cargoById)) continue;
+          if (!isInsideContainer(container, candidate)) continue;
+          if (placements.some((placement) => overlaps(candidate, placement))) continue;
+          if (!hasFullSupport(candidate, placements)) continue;
+          if (!canPlaceByStackingRules(item, candidate, placements, cargoById)) continue;
 
-        return candidate;
+          // 안쪽(x 작음), 낮은 위치(z 작음), 좌측부터(y 작음)를 우선하되
+          // 회전으로 더 앞쪽/낮은 빈 공간을 채울 수 있으면 회전 배치를 선택한다.
+          const score = x * 10000 + z * 100 + y;
+          if (score < bestScore) {
+            best = candidate;
+            bestScore = score;
+          }
+        }
       }
     }
   }
 
-  return null;
+  return best;
 }
