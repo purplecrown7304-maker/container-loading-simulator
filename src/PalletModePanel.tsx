@@ -31,10 +31,12 @@ function PalletScene({ state, result, spec }: { state: StoredState; result: Pall
       const cogX = p.centerOfGravity.x*scale - container.length*scale/2;
       const cogY = p.centerOfGravity.z*scale;
       const cogZ = p.centerOfGravity.y*scale - container.width*scale/2;
+      const top = Math.max(p.z + spec.height, ...p.cargoPlacements.map((b)=>b.z+b.height));
       return <group key={p.palletIndex}>
         <mesh position={[px,py,pz]}><boxGeometry args={[p.length*scale,spec.height*scale,p.width*scale]} /><meshStandardMaterial color="#9b6a3b" roughness={0.85} /></mesh>
         <Text position={[px,(p.z+spec.height)*scale+0.04,pz]} fontSize={0.065}>{`P${p.palletIndex} · ${p.stackLevel}단`}</Text>
         {p.cargoPlacements.map((box,index) => <mesh key={`${box.cargoId}-${index}`} position={[(box.x+box.length/2)*scale-container.length*scale/2,(box.z+box.height/2)*scale,(box.y+box.width/2)*scale-container.width*scale/2]}><boxGeometry args={[box.length*scale,box.height*scale,box.width*scale]} /><meshStandardMaterial color={colorFor(box.cargoId)} roughness={0.65} /></mesh>)}
+        {p.packagingExtraHeightM > 0 && <mesh position={[px,(top+p.packagingExtraHeightM/2)*scale,pz]}><boxGeometry args={[p.length*scale,p.packagingExtraHeightM*scale,p.width*scale]} /><meshStandardMaterial transparent opacity={0.18} /></mesh>}
         <mesh position={[cogX,cogY,cogZ]}><sphereGeometry args={[0.045,18,18]} /><meshStandardMaterial emissiveIntensity={1.1} /></mesh>
       </group>;
     })}
@@ -49,16 +51,7 @@ export default function PalletModePanel() {
   const [state, setState] = useState<StoredState | null>(null);
   const [message, setMessage] = useState('');
 
-  const summary = useMemo(() => result ? result.pallets.map((p) => ({
-    index:p.palletIndex,
-    level:p.stackLevel,
-    column:p.stackColumn,
-    boxes:p.cargoPlacements.length,
-    cargoWeight:p.cargoWeightKg,
-    totalWeight:p.totalWeightKg,
-    cargoIds:[...new Set(p.cargoPlacements.map((x)=>x.cargoId))].join(', '),
-    cog:p.centerOfGravity,
-  })) : [], [result]);
+  const summary = useMemo(() => result ? result.pallets.map((p) => ({ index:p.palletIndex, level:p.stackLevel, column:p.stackColumn, boxes:p.cargoPlacements.length, cargoWeight:p.cargoWeightKg, packagingWeight:p.packagingWeightKg, packagingHeight:p.packagingExtraHeightM, totalWeight:p.totalWeightKg, cargoIds:[...new Set(p.cargoPlacements.map((x)=>x.cargoId))].join(', '), cog:p.centerOfGravity })) : [], [result]);
 
   const run = () => {
     const stored = readStored();
@@ -67,7 +60,7 @@ export default function PalletModePanel() {
     setSpec(safeSpec);
     const next = packOnPallets(stored.container, stored.cargo, safeSpec);
     setState(stored); setResult(next);
-    setMessage(`팔레트 ${next.palletCount}개 · 화물 ${next.placements.length}EA · 최대 ${next.maxUsedStackLevel}단 적층`);
+    setMessage(`팔레트 ${next.palletCount}개 · 화물 ${next.placements.length}EA · 포장재 ${next.totalPackagingWeightKg.toFixed(1)}kg`);
   };
 
   return <div className="pallet-mode-widget">
@@ -83,16 +76,20 @@ export default function PalletModePanel() {
         <label>최대 팔레트 적층단<input type="number" min="1" max="3" value={spec.maxStackLevels} onChange={(e)=>setSpec({...spec,maxStackLevels:Number(e.target.value)})} /></label>
         <label>상부 팔레트 허용중량(kg)<input type="number" min="0" value={spec.maxSupportedTopWeightKg} onChange={(e)=>setSpec({...spec,maxSupportedTopWeightKg:Number(e.target.value)})} /></label>
       </div>
+      <div className="packaging-options">
+        <label className="packaging-toggle"><input type="checkbox" checked={spec.useCornerGuards} onChange={(e)=>setSpec({...spec,useCornerGuards:e.target.checked})} /><span>각대 사용</span></label>
+        <div className="packaging-fields"><label>각대 중량(kg)<input type="number" step="0.1" disabled={!spec.useCornerGuards} value={spec.cornerGuardWeightKg} onChange={(e)=>setSpec({...spec,cornerGuardWeightKg:Number(e.target.value)})} /></label><label>추가 높이(m)<input type="number" step="0.01" disabled={!spec.useCornerGuards} value={spec.cornerGuardExtraHeightM} onChange={(e)=>setSpec({...spec,cornerGuardExtraHeightM:Number(e.target.value)})} /></label></div>
+        <label className="packaging-toggle"><input type="checkbox" checked={spec.useWrapping} onChange={(e)=>setSpec({...spec,useWrapping:e.target.checked})} /><span>랩핑 사용</span></label>
+        <div className="packaging-fields"><label>랩핑 중량(kg)<input type="number" step="0.1" disabled={!spec.useWrapping} value={spec.wrappingWeightKg} onChange={(e)=>setSpec({...spec,wrappingWeightKg:Number(e.target.value)})} /></label><label>추가 높이(m)<input type="number" step="0.01" disabled={!spec.useWrapping} value={spec.wrappingExtraHeightM} onChange={(e)=>setSpec({...spec,wrappingExtraHeightM:Number(e.target.value)})} /></label></div>
+      </div>
       <button className="pallet-run" onClick={run}>팔레트 적재 계산</button>
       {message && <p className="muted">{message}</p>}
       {result && state && <>
         <div className="pallet-preview"><Canvas camera={{ position:[5.5,4.5,6.2], fov:48 }}><PalletScene state={state} result={result} spec={spec} /></Canvas></div>
-        <div className="pallet-metrics">
-          <div><span>사용 팔레트</span><strong>{result.palletCount}</strong></div><div><span>적층 팔레트</span><strong>{result.stackedPallets}</strong></div><div><span>최대 적층단</span><strong>{result.maxUsedStackLevel}단</strong></div><div><span>좌우 중량 차이</span><strong>{result.lateralImbalanceKg.toFixed(0)} kg</strong></div>
-        </div>
-        <div className="pallet-balance-note">팔레트 적층은 최대 3단까지 허용하며, 컨테이너 높이·팔레트 상부 허용중량·아래 박스의 상부 허용중량·화물 윗면 평탄 조건을 모두 통과할 때만 적용합니다.</div>
-        {result.consolidatedPallets > 0 && <div className="pallet-consolidation">마지막 잔여 팔레트 중 <b>{result.consolidatedPallets}개</b>를 앞 팔레트로 통합해 팔레트 수를 줄였습니다.</div>}
-        <div className="pallet-list">{summary.map((p)=><article key={p.index}><b>P{p.index}</b><span>{p.column}열 · {p.level}단 · {p.boxes} EA · 총 {p.totalWeight.toLocaleString()}kg</span><small>{p.cargoIds}</small><small>COG X {p.cog.x.toFixed(2)} · Y {p.cog.y.toFixed(2)} · Z {p.cog.z.toFixed(2)}m</small></article>)}</div>
+        <div className="pallet-metrics"><div><span>사용 팔레트</span><strong>{result.palletCount}</strong></div><div><span>적층 팔레트</span><strong>{result.stackedPallets}</strong></div><div><span>포장재 중량</span><strong>{result.totalPackagingWeightKg.toFixed(1)} kg</strong></div><div><span>좌우 중량 차이</span><strong>{result.lateralImbalanceKg.toFixed(0)} kg</strong></div></div>
+        <div className="pallet-balance-note">각대·랩핑의 추가 높이와 중량은 컨테이너 높이, 총중량, 무게중심, 2~3단 팔레트 적층 가능 여부에 실제로 반영됩니다.</div>
+        {result.consolidatedPallets > 0 && <div className="pallet-consolidation">마지막 잔여 팔레트 중 <b>{result.consolidatedPallets}개</b>를 앞 팔레트로 통합했습니다.</div>}
+        <div className="pallet-list">{summary.map((p)=><article key={p.index}><b>P{p.index}</b><span>{p.column}열 · {p.level}단 · {p.boxes} EA · 총 {p.totalWeight.toLocaleString()}kg</span><small>{p.cargoIds}</small><small>포장재 {p.packagingWeight.toFixed(1)}kg · 높이 +{p.packagingHeight.toFixed(2)}m · COG Z {p.cog.z.toFixed(2)}m</small></article>)}</div>
         {result.remaining.length > 0 && <div className="pallet-remaining"><b>미적재</b>{result.remaining.map((r)=><span key={r.cargoId}>{r.cargoId} {r.quantity}EA · {r.reason}</span>)}</div>}
       </>}
     </section>}
