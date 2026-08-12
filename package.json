@@ -1,11 +1,14 @@
 {
   "name": "container-loading-simulator",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.22.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.app.json && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run test && npm run build",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -22,6 +25,7 @@
     "@types/three": "latest",
     "@vitejs/plugin-react": "latest",
     "typescript": "latest",
-    "vite": "latest"
+    "vite": "latest",
+    "vitest": "latest"
   }
 }
