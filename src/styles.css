@@ -47,6 +47,12 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color:
 .mini { width: 34px; height: 30px; padding: 0; border-radius: 8px; }
 .metric { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #eef1f5; font-size: 13px; }
 .metric span { color: #687286; }
+.quality-score { display: flex; justify-content: space-between; align-items: center; padding: 14px; margin-bottom: 4px; border-radius: 12px; background: #eef4ff; font-size: 13px; }
+.quality-score span { color: #52617a; }
+.quality-score strong { font-size: 15px; }
+.quality-note { display: flex; flex-direction: column; gap: 5px; padding: 12px; margin-top: 10px; border-radius: 10px; background: #f6f8fb; font-size: 12px; }
+.quality-note span { color: #687286; line-height: 1.45; }
+.quality-message { margin: 7px 0 0; color: #687286; font-size: 12px; line-height: 1.45; }
 @media (max-width: 1100px) {
   .workspace { grid-template-columns: 290px minmax(0, 1fr) 270px; }
 }
