@@ -28,9 +28,16 @@ export type Placement = {
   weightKg: number;
 };
 
+export type ValidationIssue = {
+  type: 'OUT_OF_BOUNDS' | 'COLLISION';
+  message: string;
+  placementIndexes: number[];
+};
+
 export type LoadingResult = {
   placements: Placement[];
   remaining: Array<{ cargoId: string; quantity: number; reason: string }>;
   loadedWeightKg: number;
   usedVolumeM3: number;
+  validationIssues: ValidationIssue[];
 };
