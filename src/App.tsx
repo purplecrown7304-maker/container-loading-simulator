@@ -1,5 +1,5 @@
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { OrbitControls, Text } from '@react-three/drei';
 import { useEffect, useMemo, useState } from 'react';
 import { loadContainer } from './engine/loadingEngine';
 import { assessWeightBalance } from './engine/weightBalance';
@@ -36,6 +36,13 @@ function readStoredState(): StoredState | null {
   }
 }
 
+function cargoColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) hash = ((hash << 5) - hash + id.charCodeAt(i)) | 0;
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue} 68% 54%)`;
+}
+
 function Scene({ result, container }: { result: LoadingResult; container: ContainerSpec }) {
   const scale = 0.45;
   const quality = assessWeightBalance(container, result);
@@ -45,6 +52,9 @@ function Scene({ result, container }: { result: LoadingResult; container: Contai
   const cogX = quality.centerOfGravity.x * scale - (container.length * scale) / 2;
   const cogY = quality.centerOfGravity.z * scale;
   const cogZ = quality.centerOfGravity.y * scale - (container.width * scale) / 2;
+  const insideX = -(container.length * scale) / 2;
+  const doorX = (container.length * scale) / 2;
+  const markerY = container.height * scale + 0.18;
 
   return (
     <>
@@ -54,6 +64,17 @@ function Scene({ result, container }: { result: LoadingResult; container: Contai
       <mesh position={[0, (container.height * scale) / 2, 0]}>
         <boxGeometry args={[container.length * scale, container.height * scale, container.width * scale]} />
         <meshBasicMaterial wireframe transparent opacity={0.22} />
+      </mesh>
+
+      <Text position={[insideX + 0.28, markerY, 0]} fontSize={0.13} anchorX="left" anchorY="middle">안쪽</Text>
+      <Text position={[doorX - 0.22, markerY, 0]} fontSize={0.13} anchorX="right" anchorY="middle">문</Text>
+      <mesh position={[doorX + 0.08, markerY, 0]} rotation={[0, 0, -Math.PI / 2]}>
+        <coneGeometry args={[0.07, 0.18, 16]} />
+        <meshStandardMaterial />
+      </mesh>
+      <mesh position={[0, markerY, 0]}>
+        <boxGeometry args={[container.length * scale, 0.018, 0.018]} />
+        <meshBasicMaterial transparent opacity={0.35} />
       </mesh>
 
       <mesh position={[cx, cy, cz]}>
@@ -87,7 +108,7 @@ function Scene({ result, container }: { result: LoadingResult; container: Contai
           ]}
         >
           <boxGeometry args={[placement.length * scale, placement.height * scale, placement.width * scale]} />
-          <meshStandardMaterial />
+          <meshStandardMaterial color={cargoColor(placement.cargoId)} roughness={0.65} metalness={0.04} />
         </mesh>
       ))}
 
@@ -121,6 +142,8 @@ export default function App() {
   const fillRate = totalVolume > 0 ? (result.usedVolumeM3 / totalVolume) * 100 : 0;
   const waitingCount = useMemo(() => cargo.reduce((sum, item) => sum + item.quantity, 0), [cargo]);
   const quality = useMemo(() => assessWeightBalance(container, result), [container, result]);
+  const loadedCargoIds = useMemo(() => new Set(result.placements.map((placement) => placement.cargoId)), [result]);
+  const legendItems = useMemo(() => cargo.filter((item) => loadedCargoIds.has(item.id)), [cargo, loadedCargoIds]);
 
   useEffect(() => {
     setResult(loadContainer(container, cargo.filter((item) => item.quantity > 0)));
@@ -186,7 +209,7 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div><strong>Container Loading Simulator</strong><span>Codex development v0.9.0</span></div>
+        <div><strong>Container Loading Simulator</strong><span>Codex development v0.10.0</span></div>
         <div className="top-actions">
           <button className="secondary" onClick={saveLocal}>저장</button>
           <button className="secondary" onClick={loadLocal}>불러오기</button>
@@ -240,7 +263,24 @@ export default function App() {
           ))}
         </aside>
 
-        <section className="viewer"><Canvas camera={{ position: [5.5, 4.2, 6.5], fov: 48 }}><Scene result={result} container={container} /></Canvas></section>
+        <section className="viewer">
+          <Canvas camera={{ position: [5.5, 4.2, 6.5], fov: 48 }}><Scene result={result} container={container} /></Canvas>
+          <div className="viewer-direction"><b>적재 방향</b><span>안쪽 → 문쪽</span></div>
+          {legendItems.length > 0 && (
+            <div className="cargo-legend">
+              <b>박스 범례</b>
+              <div className="cargo-legend-list">
+                {legendItems.map((item) => (
+                  <span className="legend-item" key={item.id}>
+                    <i style={{ background: cargoColor(item.id) }} />
+                    <span>{item.name}</span>
+                    <small>{item.id}</small>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
 
         <aside className="panel right-panel">
           <h2>적재 결과</h2>
