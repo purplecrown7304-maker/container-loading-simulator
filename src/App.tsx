@@ -38,6 +38,14 @@ function readStoredState(): StoredState | null {
 
 function Scene({ result, container }: { result: LoadingResult; container: ContainerSpec }) {
   const scale = 0.45;
+  const quality = assessWeightBalance(container, result);
+  const cx = 0;
+  const cy = (container.height * scale) / 2;
+  const cz = 0;
+  const cogX = quality.centerOfGravity.x * scale - (container.length * scale) / 2;
+  const cogY = quality.centerOfGravity.z * scale;
+  const cogZ = quality.centerOfGravity.y * scale - (container.width * scale) / 2;
+
   return (
     <>
       <ambientLight intensity={1.5} />
@@ -47,6 +55,28 @@ function Scene({ result, container }: { result: LoadingResult; container: Contai
         <boxGeometry args={[container.length * scale, container.height * scale, container.width * scale]} />
         <meshBasicMaterial wireframe transparent opacity={0.22} />
       </mesh>
+
+      <mesh position={[cx, cy, cz]}>
+        <sphereGeometry args={[0.035, 18, 18]} />
+        <meshStandardMaterial emissiveIntensity={0.7} />
+      </mesh>
+      <mesh position={[0, 0.006, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.06, 0.075, 32]} />
+        <meshBasicMaterial />
+      </mesh>
+      <mesh position={[0, cy, 0]}>
+        <boxGeometry args={[0.01, container.height * scale, 0.01]} />
+        <meshBasicMaterial transparent opacity={0.45} />
+      </mesh>
+      <mesh position={[0, 0.012, 0]}>
+        <boxGeometry args={[container.length * scale, 0.01, 0.01]} />
+        <meshBasicMaterial transparent opacity={0.28} />
+      </mesh>
+      <mesh position={[0, 0.012, 0]}>
+        <boxGeometry args={[0.01, 0.01, container.width * scale]} />
+        <meshBasicMaterial transparent opacity={0.28} />
+      </mesh>
+
       {result.placements.map((placement, index) => (
         <mesh
           key={`${placement.cargoId}-${index}`}
@@ -60,6 +90,19 @@ function Scene({ result, container }: { result: LoadingResult; container: Contai
           <meshStandardMaterial />
         </mesh>
       ))}
+
+      {result.placements.length > 0 && (
+        <>
+          <mesh position={[cogX, cogY, cogZ]}>
+            <sphereGeometry args={[0.075, 24, 24]} />
+            <meshStandardMaterial emissiveIntensity={1.2} />
+          </mesh>
+          <mesh position={[cogX, cogY / 2, cogZ]}>
+            <boxGeometry args={[0.012, Math.max(0.01, cogY), 0.012]} />
+            <meshBasicMaterial transparent opacity={0.5} />
+          </mesh>
+        </>
+      )}
       <OrbitControls makeDefault />
     </>
   );
@@ -143,7 +186,7 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div><strong>Container Loading Simulator</strong><span>Codex development v0.8.0</span></div>
+        <div><strong>Container Loading Simulator</strong><span>Codex development v0.9.0</span></div>
         <div className="top-actions">
           <button className="secondary" onClick={saveLocal}>저장</button>
           <button className="secondary" onClick={loadLocal}>불러오기</button>
