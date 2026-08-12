@@ -1,6 +1,7 @@
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
 import { findMixedPlacement } from './mixedPacking';
 import { validatePlacements } from './constraints';
+import { canPlaceByStackingRules } from './stacking';
 
 const cbm = (item: CargoItem) => item.length * item.width * item.height;
 
@@ -13,6 +14,8 @@ export function loadContainer(
   const remaining: LoadingResult['remaining'] = [];
   let loadedWeightKg = 0;
   let usedVolumeM3 = 0;
+
+  const cargoById = new Map(cargo.map((item) => [item.id, item]));
 
   const prioritized = [...cargo].sort((a, b) => {
     const aScore = cbm(a) * a.quantity + a.weightKg * 0.001;
@@ -42,12 +45,16 @@ export function loadContainer(
       if (cursorX + item.length > container.length) break;
 
       let slicePlaced = 0;
+      let sliceBlocked = false;
 
       for (let layer = 0; layer < layersHigh && placed < item.quantity; layer += 1) {
         for (let col = 0; col < columnsAcross && placed < item.quantity; col += 1) {
-          if (loadedWeightKg + item.weightKg > container.maxPayloadKg) break;
+          if (loadedWeightKg + item.weightKg > container.maxPayloadKg) {
+            sliceBlocked = true;
+            break;
+          }
 
-          placements.push({
+          const candidate: Placement = {
             cargoId: item.id,
             x: cursorX,
             y: col * item.width,
@@ -56,20 +63,27 @@ export function loadContainer(
             width: item.width,
             height: item.height,
             weightKg: item.weightKg,
-          });
+          };
+
+          if (!canPlaceByStackingRules(item, candidate, placements, cargoById)) {
+            sliceBlocked = true;
+            break;
+          }
+
+          placements.push(candidate);
           placed += 1;
           slicePlaced += 1;
           loadedWeightKg += item.weightKg;
           usedVolumeM3 += cbm(item);
         }
 
-        if (loadedWeightKg >= container.maxPayloadKg) break;
+        if (sliceBlocked || loadedWeightKg >= container.maxPayloadKg) break;
       }
 
       if (slicePlaced === 0) break;
       cursorX += item.length;
 
-      if (slicePlaced < boxesPerSlice) break;
+      if (slicePlaced < boxesPerSlice || sliceBlocked) break;
     }
 
     if (placed < item.quantity) {
@@ -83,7 +97,7 @@ export function loadContainer(
     for (let i = 0; i < quantity; i += 1) {
       if (loadedWeightKg + item.weightKg > container.maxPayloadKg) break;
 
-      const placement = findMixedPlacement(container, item, placements);
+      const placement = findMixedPlacement(container, item, placements, cargoById);
       if (!placement) break;
 
       placements.push(placement);
@@ -100,7 +114,7 @@ export function loadContainer(
         reason:
           loadedWeightKg >= container.maxPayloadKg
             ? '컨테이너 최대 적재 중량에 도달하여 적재하지 못함'
-            : '동일 종류 완전 블록 및 혼합 적재 가능한 안정 공간을 찾지 못함',
+            : '적층단·상부 허용중량 또는 안정 공간 조건을 만족하는 위치를 찾지 못함',
       });
     }
   }
