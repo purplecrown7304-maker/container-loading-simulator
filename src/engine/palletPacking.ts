@@ -8,6 +8,12 @@ export type PalletSpec = {
   maxLoadKg: number;
   maxStackLevels: number;
   maxSupportedTopWeightKg: number;
+  useCornerGuards: boolean;
+  cornerGuardWeightKg: number;
+  cornerGuardExtraHeightM: number;
+  useWrapping: boolean;
+  wrappingWeightKg: number;
+  wrappingExtraHeightM: number;
 };
 
 export type PalletLoad = {
@@ -22,6 +28,8 @@ export type PalletLoad = {
   height: number;
   cargoPlacements: Placement[];
   cargoWeightKg: number;
+  packagingWeightKg: number;
+  packagingExtraHeightM: number;
   totalWeightKg: number;
   centerOfGravity: { x: number; y: number; z: number };
 };
@@ -32,6 +40,7 @@ export type PalletPackingResult = {
   remaining: Array<{ cargoId: string; quantity: number; reason: string }>;
   palletCount: number;
   loadedCargoWeightKg: number;
+  totalPackagingWeightKg: number;
   totalPalletizedWeightKg: number;
   consolidatedPallets: number;
   lateralImbalanceKg: number;
@@ -47,11 +56,25 @@ export const defaultPalletSpec: PalletSpec = {
   maxLoadKg: 1000,
   maxStackLevels: 2,
   maxSupportedTopWeightKg: 1000,
+  useCornerGuards: false,
+  cornerGuardWeightKg: 2,
+  cornerGuardExtraHeightM: 0.03,
+  useWrapping: false,
+  wrappingWeightKg: 1.5,
+  wrappingExtraHeightM: 0.01,
 };
 
 const EPS = 1e-9;
 const FLAT_TOP_TOLERANCE = 0.03;
 const cargoVolume = (item: CargoItem) => item.length * item.width * item.height;
+
+function packagingWeight(pallet: PalletSpec) {
+  return (pallet.useCornerGuards ? pallet.cornerGuardWeightKg : 0) + (pallet.useWrapping ? pallet.wrappingWeightKg : 0);
+}
+
+function packagingHeight(pallet: PalletSpec) {
+  return (pallet.useCornerGuards ? pallet.cornerGuardExtraHeightM : 0) + (pallet.useWrapping ? pallet.wrappingExtraHeightM : 0);
+}
 
 function palletPositions(container: ContainerSpec, pallet: PalletSpec) {
   const positions: Array<{ x: number; y: number }> = [];
@@ -64,15 +87,21 @@ function palletPositions(container: ContainerSpec, pallet: PalletSpec) {
   return positions;
 }
 
-function palletTop(load: PalletLoad) {
+function cargoTop(load: PalletLoad) {
   return Math.max(load.z + load.height, ...load.cargoPlacements.map((p) => p.z + p.height));
 }
 
+function palletTop(load: PalletLoad) {
+  return cargoTop(load) + load.packagingExtraHeightM;
+}
+
 function palletCog(load: PalletLoad, pallet: PalletSpec) {
+  const packagingZ = Math.max(load.z + pallet.height, cargoTop(load)) + load.packagingExtraHeightM / 2;
   const parts = [
     ...load.cargoPlacements.map((p) => ({ weight: p.weightKg, x: p.x + p.length / 2, y: p.y + p.width / 2, z: p.z + p.height / 2 })),
     { weight: pallet.tareWeightKg, x: load.x + pallet.length / 2, y: load.y + pallet.width / 2, z: load.z + pallet.height / 2 },
-  ];
+    { weight: load.packagingWeightKg, x: load.x + pallet.length / 2, y: load.y + pallet.width / 2, z: packagingZ },
+  ].filter((part) => part.weight > 0);
   const total = parts.reduce((sum, p) => sum + p.weight, 0) || 1;
   return {
     x: parts.reduce((sum, p) => sum + p.x * p.weight, 0) / total,
@@ -83,26 +112,17 @@ function palletCog(load: PalletLoad, pallet: PalletSpec) {
 
 function slotFor(load: PalletLoad, item: CargoItem, pallet: PalletSpec, container: ContainerSpec): Placement | null {
   if (load.cargoWeightKg + item.weightKg > pallet.maxLoadKg + EPS) return null;
-  const maxLayers = Math.max(0, Math.min(item.maxStackLayers ?? Infinity, Math.floor((container.height - pallet.height) / item.height)));
+  const availableHeight = container.height - pallet.height - packagingHeight(pallet);
+  const maxLayers = Math.max(0, Math.min(item.maxStackLayers ?? Infinity, Math.floor(availableHeight / item.height)));
   const colsX = Math.floor(pallet.length / item.length);
   const colsY = Math.floor(pallet.width / item.width);
   if (maxLayers < 1 || colsX < 1 || colsY < 1) return null;
-
   for (let layer = 0; layer < maxLayers; layer += 1) {
     for (let row = 0; row < colsX; row += 1) {
       for (let col = 0; col < colsY; col += 1) {
-        const candidate: Placement = {
-          cargoId: item.id,
-          x: load.x + row * item.length,
-          y: load.y + col * item.width,
-          z: pallet.height + layer * item.height,
-          length: item.length,
-          width: item.width,
-          height: item.height,
-          weightKg: item.weightKg,
-        };
+        const candidate: Placement = { cargoId: item.id, x: load.x + row * item.length, y: load.y + col * item.width, z: load.z + pallet.height + layer * item.height, length: item.length, width: item.width, height: item.height, weightKg: item.weightKg };
         const collides = load.cargoPlacements.some((p) => candidate.x < p.x + p.length - EPS && candidate.x + candidate.length > p.x + EPS && candidate.y < p.y + p.width - EPS && candidate.y + candidate.width > p.y + EPS && candidate.z < p.z + p.height - EPS && candidate.z + candidate.height > p.z + EPS);
-        if (!collides) return candidate;
+        if (!collides && candidate.z + candidate.height + load.packagingExtraHeightM <= container.height + EPS) return candidate;
       }
     }
   }
@@ -113,25 +133,25 @@ function tryConsolidate(pallets: PalletLoad[], cargoMap: Map<string, CargoItem>,
   let removed = 0;
   for (let sourceIndex = pallets.length - 1; sourceIndex > 0; sourceIndex -= 1) {
     const source = pallets[sourceIndex];
-    const trialTargets = pallets.slice(0, sourceIndex).map((p) => ({ ...p, cargoPlacements: [...p.cargoPlacements] }));
+    const targets = pallets.slice(0, sourceIndex).map((p) => ({ ...p, cargoPlacements: [...p.cargoPlacements] }));
     let success = true;
     for (const placement of source.cargoPlacements) {
       const item = cargoMap.get(placement.cargoId);
       if (!item) { success = false; break; }
       let moved = false;
-      for (const target of trialTargets) {
+      for (const target of targets) {
         const candidate = slotFor(target, item, pallet, container);
         if (!candidate) continue;
         target.cargoPlacements.push(candidate);
         target.cargoWeightKg += item.weightKg;
-        target.totalWeightKg = target.cargoWeightKg + pallet.tareWeightKg;
+        target.totalWeightKg = target.cargoWeightKg + pallet.tareWeightKg + target.packagingWeightKg;
         moved = true;
         break;
       }
       if (!moved) { success = false; break; }
     }
     if (success) {
-      for (let i = 0; i < trialTargets.length; i += 1) pallets[i] = trialTargets[i];
+      for (let i = 0; i < targets.length; i += 1) pallets[i] = targets[i];
       pallets.splice(sourceIndex, 1);
       removed += 1;
     }
@@ -141,7 +161,7 @@ function tryConsolidate(pallets: PalletLoad[], cargoMap: Map<string, CargoItem>,
 
 function topSupportingBoxes(load: PalletLoad) {
   if (!load.cargoPlacements.length) return [] as Placement[];
-  const top = palletTop(load);
+  const top = cargoTop(load);
   return load.cargoPlacements.filter((p) => Math.abs(p.z + p.height - top) <= FLAT_TOP_TOLERANCE);
 }
 
@@ -159,10 +179,9 @@ function canSupportUpper(lower: PalletLoad, upperWeightKg: number, cargoMap: Map
 }
 
 function columnSupportsNewLoad(loads: PalletLoad[], newLoad: PalletLoad, cargoMap: Map<string, CargoItem>, pallet: PalletSpec) {
-  for (let lowerIndex = 0; lowerIndex < loads.length; lowerIndex += 1) {
-    const lower = loads[lowerIndex];
-    const existingAbove = loads.slice(lowerIndex + 1).reduce((sum, p) => sum + p.totalWeightKg, 0);
-    if (!canSupportUpper(lower, existingAbove + newLoad.totalWeightKg, cargoMap, pallet)) return false;
+  for (let i = 0; i < loads.length; i += 1) {
+    const existingAbove = loads.slice(i + 1).reduce((sum, p) => sum + p.totalWeightKg, 0);
+    if (!canSupportUpper(loads[i], existingAbove + newLoad.totalWeightKg, cargoMap, pallet)) return false;
   }
   return true;
 }
@@ -171,11 +190,7 @@ function moveLoad(load: PalletLoad, x: number, y: number, z: number, level: numb
   const dx = x - load.x;
   const dy = y - load.y;
   const dz = z - load.z;
-  load.x = x;
-  load.y = y;
-  load.z = z;
-  load.stackLevel = level;
-  load.stackColumn = column;
+  load.x = x; load.y = y; load.z = z; load.stackLevel = level; load.stackColumn = column;
   load.cargoPlacements = load.cargoPlacements.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy, z: p.z + dz }));
   load.centerOfGravity = palletCog(load, pallet);
 }
@@ -184,7 +199,6 @@ function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number
   pallets.sort((a, b) => b.totalWeightKg - a.totalWeightKg);
   const columns: Array<{ positionIndex: number; loads: PalletLoad[]; totalWeightKg: number }> = [];
   const maxLevels = Math.max(1, Math.min(3, Math.floor(pallet.maxStackLevels || 1)));
-
   for (const load of pallets) {
     let best: { column: number; level: number; z: number; score: number } | null = null;
     for (let c = 0; c < columns.length; c += 1) {
@@ -198,7 +212,6 @@ function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number
       const score = column.positionIndex * 10 + column.loads.length;
       if (!best || score < best.score) best = { column: c, level: column.loads.length + 1, z, score };
     }
-
     if (best) {
       const column = columns[best.column];
       const pos = positions[column.positionIndex];
@@ -207,14 +220,13 @@ function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number
       column.totalWeightKg += load.totalWeightKg;
       continue;
     }
-
-    const usedPositions = new Set(columns.map((c) => c.positionIndex));
+    const used = new Set(columns.map((c) => c.positionIndex));
     let bestPosition = -1;
     let bestScore = Infinity;
     const left = columns.filter((c) => positions[c.positionIndex].y + pallet.width / 2 < container.width / 2).reduce((s, c) => s + c.totalWeightKg, 0);
     const right = columns.reduce((s, c) => s + c.totalWeightKg, 0) - left;
     for (let p = 0; p < positions.length; p += 1) {
-      if (usedPositions.has(p)) continue;
+      if (used.has(p)) continue;
       const pos = positions[p];
       const goesLeft = pos.y + pallet.width / 2 < container.width / 2;
       const balance = Math.abs((left + (goesLeft ? load.totalWeightKg : 0)) - (right + (!goesLeft ? load.totalWeightKg : 0)));
@@ -226,7 +238,6 @@ function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number
     moveLoad(load, pos.x, pos.y, 0, 1, columns.length + 1, pallet);
     columns.push({ positionIndex: bestPosition, loads: [load], totalWeightKg: load.totalWeightKg });
   }
-
   let leftWeight = 0;
   let rightWeight = 0;
   for (const column of columns) {
@@ -234,17 +245,8 @@ function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number
     if (pos.y + pallet.width / 2 < container.width / 2) leftWeight += column.totalWeightKg;
     else rightWeight += column.totalWeightKg;
   }
-
-  pallets.forEach((p, i) => {
-    p.palletIndex = i + 1;
-    p.centerOfGravity = palletCog(p, pallet);
-  });
-
-  return {
-    lateralImbalanceKg: Math.abs(leftWeight - rightWeight),
-    stackedPallets: pallets.filter((p) => p.stackLevel > 1).length,
-    maxUsedStackLevel: pallets.reduce((m, p) => Math.max(m, p.stackLevel), 1),
-  };
+  pallets.forEach((p, i) => { p.palletIndex = i + 1; p.centerOfGravity = palletCog(p, pallet); });
+  return { lateralImbalanceKg: Math.abs(leftWeight - rightWeight), stackedPallets: pallets.filter((p) => p.stackLevel > 1).length, maxUsedStackLevel: pallets.reduce((m, p) => Math.max(m, p.stackLevel), 1) };
 }
 
 export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pallet: PalletSpec = defaultPalletSpec): PalletPackingResult {
@@ -253,6 +255,8 @@ export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pall
   const positions = palletPositions(container, pallet);
   const pallets: PalletLoad[] = [];
   const remaining: PalletPackingResult['remaining'] = [];
+  const packWeight = packagingWeight(pallet);
+  const packHeight = packagingHeight(pallet);
   let totalCargoWeight = 0;
 
   for (const item of queue) {
@@ -261,35 +265,23 @@ export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pall
       let load = pallets[p];
       if (!load) {
         const pos = positions[p];
-        load = {
-          palletIndex: p + 1,
-          x: pos.x,
-          y: pos.y,
-          z: 0,
-          stackLevel: 1,
-          stackColumn: p + 1,
-          length: pallet.length,
-          width: pallet.width,
-          height: pallet.height,
-          cargoPlacements: [],
-          cargoWeightKg: 0,
-          totalWeightKg: pallet.tareWeightKg,
-          centerOfGravity: { x: pos.x + pallet.length / 2, y: pos.y + pallet.width / 2, z: pallet.height / 2 },
-        };
+        load = { palletIndex: p + 1, x: pos.x, y: pos.y, z: 0, stackLevel: 1, stackColumn: p + 1, length: pallet.length, width: pallet.width, height: pallet.height, cargoPlacements: [], cargoWeightKg: 0, packagingWeightKg: packWeight, packagingExtraHeightM: packHeight, totalWeightKg: pallet.tareWeightKg + packWeight, centerOfGravity: { x: pos.x + pallet.length / 2, y: pos.y + pallet.width / 2, z: pallet.height / 2 } };
         pallets[p] = load;
       }
       while (left > 0) {
-        if (totalCargoWeight + item.weightKg + pallets.filter(Boolean).length * pallet.tareWeightKg > container.maxPayloadKg + EPS) break;
+        const activePallets = pallets.filter(Boolean).length;
+        const projectedTotal = totalCargoWeight + item.weightKg + activePallets * (pallet.tareWeightKg + packWeight);
+        if (projectedTotal > container.maxPayloadKg + EPS) break;
         const placement = slotFor(load, item, pallet, container);
         if (!placement) break;
         load.cargoPlacements.push(placement);
         load.cargoWeightKg += item.weightKg;
-        load.totalWeightKg = load.cargoWeightKg + pallet.tareWeightKg;
+        load.totalWeightKg = load.cargoWeightKg + pallet.tareWeightKg + load.packagingWeightKg;
         totalCargoWeight += item.weightKg;
         left -= 1;
       }
     }
-    if (left > 0) remaining.push({ cargoId: item.id, quantity: left, reason: '팔레트 면적·높이·허용중량 또는 컨테이너 최대중량 조건 때문에 적재하지 못함' });
+    if (left > 0) remaining.push({ cargoId: item.id, quantity: left, reason: '팔레트 면적·포장재 포함 높이·허용중량 또는 컨테이너 최대중량 조건 때문에 적재하지 못함' });
   }
 
   const usedPallets = pallets.filter((p) => p && p.cargoPlacements.length > 0);
@@ -297,15 +289,6 @@ export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pall
   const stackMetrics = arrangePalletStacks(usedPallets, positions, container, pallet, cargoMap);
   const placements = usedPallets.flatMap((p) => p.cargoPlacements);
   const loadedCargoWeightKg = usedPallets.reduce((sum, p) => sum + p.cargoWeightKg, 0);
-
-  return {
-    pallets: usedPallets,
-    placements,
-    remaining,
-    palletCount: usedPallets.length,
-    loadedCargoWeightKg,
-    totalPalletizedWeightKg: loadedCargoWeightKg + usedPallets.length * pallet.tareWeightKg,
-    consolidatedPallets,
-    ...stackMetrics,
-  };
+  const totalPackagingWeightKg = usedPallets.reduce((sum, p) => sum + p.packagingWeightKg, 0);
+  return { pallets: usedPallets, placements, remaining, palletCount: usedPallets.length, loadedCargoWeightKg, totalPackagingWeightKg, totalPalletizedWeightKg: usedPallets.reduce((sum, p) => sum + p.totalWeightKg, 0), consolidatedPallets, ...stackMetrics };
 }
