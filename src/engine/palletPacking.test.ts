@@ -59,4 +59,14 @@ describe('packOnPallets', () => {
     );
     expect(result.placements.every((p) => !p.rotated)).toBe(true);
   });
+
+  it('uses all exact-fit decimal pallet slots', () => {
+    const result = packOnPallets(
+      { length: 1.2, width: 0.9, height: 0.75, maxPayloadKg: 5000 },
+      [box({ length: 0.4, width: 0.3, height: 0.3, quantity: 18, maxStackLayers: 2, allowRotation: false })],
+      { ...defaultPalletSpec, length: 1.2, width: 0.9, height: 0.15, maxStackLevels: 1 },
+    );
+    expect(result.placements).toHaveLength(18);
+    expect(result.remaining).toHaveLength(0);
+  });
 });
