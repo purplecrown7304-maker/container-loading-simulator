@@ -42,11 +42,11 @@ describe('packOnPallets', () => {
     expect(result.maxUsedStackLevel).toBeLessThanOrEqual(2);
   });
 
-  it('can rotate boxes on a pallet when rotation is allowed', () => {
+  it('can rotate boxes on a pallet when rotation increases capacity', () => {
     const result = packOnPallets(
       container,
       [box({ length: 0.7, width: 0.4, quantity: 4, allowRotation: true })],
-      { ...defaultPalletSpec, length: 1.1, width: 1.1 },
+      { ...defaultPalletSpec, length: 1.2, width: 1.0 },
     );
     expect(result.placements.some((p) => p.rotated)).toBe(true);
   });
@@ -55,7 +55,7 @@ describe('packOnPallets', () => {
     const result = packOnPallets(
       container,
       [box({ length: 0.7, width: 0.4, quantity: 4, allowRotation: false })],
-      { ...defaultPalletSpec, length: 1.1, width: 1.1 },
+      { ...defaultPalletSpec, length: 1.2, width: 1.0 },
     );
     expect(result.placements.every((p) => !p.rotated)).toBe(true);
   });
