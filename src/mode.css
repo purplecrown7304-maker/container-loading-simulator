@@ -1,0 +1,10 @@
+.loading-mode-switch { display:flex; gap:4px; padding:3px; border-radius:12px; background:#eef1f5; }
+.loading-mode-switch button { padding:8px 12px; font-size:12px; }
+.loading-mode-switch button.active { background:#172033; color:#fff; }
+.pallet-viewer { overflow:auto; padding:12px; }
+.pallet-inline-workspace { min-height:100%; }
+.pallet-mode-panel-inline { width:100%; max-height:none; margin:0; box-shadow:none; border:0; padding:4px; }
+.pallet-mode-panel-inline .pallet-preview { height:360px; }
+.rotation-toggle { margin-top:10px; flex-direction:row; align-items:center; gap:8px; color:#39445a; font-weight:700; }
+.rotation-toggle input { width:auto; }
+@media (max-width:900px) { .loading-mode-switch { width:100%; } .loading-mode-switch button { flex:1; } .pallet-viewer { height:auto; min-height:65vh; } }
