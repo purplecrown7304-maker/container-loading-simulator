@@ -2,6 +2,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { useEffect, useMemo, useState } from 'react';
 import { loadContainer } from './engine/loadingEngine';
+import { assessWeightBalance } from './engine/weightBalance';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 
 const defaultContainer: ContainerSpec = {
@@ -12,50 +13,18 @@ const defaultContainer: ContainerSpec = {
 };
 
 const initialCargo: CargoItem[] = [
-  {
-    id: 'BOX-A',
-    name: 'BOX A',
-    length: 0.6,
-    width: 0.4,
-    height: 0.35,
-    weightKg: 18,
-    quantity: 70,
-    maxStackLayers: 7,
-    maxTopLoadKg: 100,
-  },
-  {
-    id: 'BOX-B',
-    name: 'BOX B',
-    length: 0.5,
-    width: 0.35,
-    height: 0.3,
-    weightKg: 12,
-    quantity: 55,
-    maxStackLayers: 7,
-    maxTopLoadKg: 80,
-  },
+  { id: 'BOX-A', name: 'BOX A', length: 0.6, width: 0.4, height: 0.35, weightKg: 18, quantity: 70, maxStackLayers: 7, maxTopLoadKg: 100 },
+  { id: 'BOX-B', name: 'BOX B', length: 0.5, width: 0.35, height: 0.3, weightKg: 12, quantity: 55, maxStackLayers: 7, maxTopLoadKg: 80 },
 ];
 
 type CargoDraft = Omit<CargoItem, 'id'> & { id: string };
 
 const emptyDraft: CargoDraft = {
-  id: '',
-  name: '',
-  length: 0.5,
-  width: 0.4,
-  height: 0.3,
-  weightKg: 10,
-  quantity: 1,
-  maxStackLayers: 7,
-  maxTopLoadKg: 100,
+  id: '', name: '', length: 0.5, width: 0.4, height: 0.3, weightKg: 10, quantity: 1, maxStackLayers: 7, maxTopLoadKg: 100,
 };
 
 const STORAGE_KEY = 'container-loading-simulator-v1';
-
-type StoredState = {
-  container: ContainerSpec;
-  cargo: CargoItem[];
-};
+type StoredState = { container: ContainerSpec; cargo: CargoItem[] };
 
 function readStoredState(): StoredState | null {
   try {
@@ -69,46 +38,28 @@ function readStoredState(): StoredState | null {
 
 function Scene({ result, container }: { result: LoadingResult; container: ContainerSpec }) {
   const scale = 0.45;
-
   return (
     <>
       <ambientLight intensity={1.5} />
       <directionalLight position={[5, 8, 6]} intensity={2} />
       <gridHelper args={[8, 20]} position={[0, -0.01, 0]} />
-
       <mesh position={[0, (container.height * scale) / 2, 0]}>
-        <boxGeometry
-          args={[
-            container.length * scale,
-            container.height * scale,
-            container.width * scale,
-          ]}
-        />
+        <boxGeometry args={[container.length * scale, container.height * scale, container.width * scale]} />
         <meshBasicMaterial wireframe transparent opacity={0.22} />
       </mesh>
-
       {result.placements.map((placement, index) => (
         <mesh
           key={`${placement.cargoId}-${index}`}
           position={[
-            (placement.x + placement.length / 2) * scale -
-              (container.length * scale) / 2,
+            (placement.x + placement.length / 2) * scale - (container.length * scale) / 2,
             (placement.z + placement.height / 2) * scale,
-            (placement.y + placement.width / 2) * scale -
-              (container.width * scale) / 2,
+            (placement.y + placement.width / 2) * scale - (container.width * scale) / 2,
           ]}
         >
-          <boxGeometry
-            args={[
-              placement.length * scale,
-              placement.height * scale,
-              placement.width * scale,
-            ]}
-          />
+          <boxGeometry args={[placement.length * scale, placement.height * scale, placement.width * scale]} />
           <meshStandardMaterial />
         </mesh>
       ))}
-
       <OrbitControls makeDefault />
     </>
   );
@@ -120,51 +71,32 @@ export default function App() {
   const [cargo, setCargo] = useState<CargoItem[]>(stored?.cargo ?? initialCargo);
   const [draft, setDraft] = useState<CargoDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [result, setResult] = useState<LoadingResult>(() =>
-    loadContainer(stored?.container ?? defaultContainer, stored?.cargo ?? initialCargo),
-  );
+  const [result, setResult] = useState<LoadingResult>(() => loadContainer(stored?.container ?? defaultContainer, stored?.cargo ?? initialCargo));
   const [saveMessage, setSaveMessage] = useState('');
 
   const totalVolume = container.length * container.width * container.height;
   const fillRate = totalVolume > 0 ? (result.usedVolumeM3 / totalVolume) * 100 : 0;
   const waitingCount = useMemo(() => cargo.reduce((sum, item) => sum + item.quantity, 0), [cargo]);
+  const quality = useMemo(() => assessWeightBalance(container, result), [container, result]);
 
   useEffect(() => {
     setResult(loadContainer(container, cargo.filter((item) => item.quantity > 0)));
   }, [container.length, container.width, container.height, container.maxPayloadKg]);
 
-  const updateContainer = (field: keyof ContainerSpec, value: string) => {
-    setContainer((current) => ({ ...current, [field]: Number(value) }));
-  };
+  const updateContainer = (field: keyof ContainerSpec, value: string) => setContainer((current) => ({ ...current, [field]: Number(value) }));
 
   const updateDraft = (field: keyof CargoDraft, value: string) => {
-    const numericFields: Array<keyof CargoDraft> = [
-      'length',
-      'width',
-      'height',
-      'weightKg',
-      'quantity',
-      'maxStackLayers',
-      'maxTopLoadKg',
-    ];
-
-    setDraft((current) => ({
-      ...current,
-      [field]: numericFields.includes(field) ? Number(value) : value,
-    }));
+    const numericFields: Array<keyof CargoDraft> = ['length', 'width', 'height', 'weightKg', 'quantity', 'maxStackLayers', 'maxTopLoadKg'];
+    setDraft((current) => ({ ...current, [field]: numericFields.includes(field) ? Number(value) : value }));
   };
 
-  const resetDraft = () => {
-    setDraft(emptyDraft);
-    setEditingId(null);
-  };
+  const resetDraft = () => { setDraft(emptyDraft); setEditingId(null); };
 
   const saveCargo = () => {
     const cleanId = draft.id.trim();
     const cleanName = draft.name.trim();
     if (!cleanId || !cleanName) return;
     if (draft.length <= 0 || draft.width <= 0 || draft.height <= 0 || draft.weightKg < 0 || draft.quantity < 0) return;
-
     const nextItem: CargoItem = {
       ...draft,
       id: cleanId,
@@ -173,11 +105,8 @@ export default function App() {
       maxStackLayers: draft.maxStackLayers ? Math.max(1, Math.floor(draft.maxStackLayers)) : undefined,
       maxTopLoadKg: draft.maxTopLoadKg || undefined,
     };
-
     setCargo((items) => {
-      if (editingId) {
-        return items.map((item) => (item.id === editingId ? nextItem : item));
-      }
+      if (editingId) return items.map((item) => (item.id === editingId ? nextItem : item));
       if (items.some((item) => item.id === nextItem.id)) return items;
       return [...items, nextItem];
     });
@@ -186,70 +115,35 @@ export default function App() {
 
   const editCargo = (item: CargoItem) => {
     setEditingId(item.id);
-    setDraft({
-      id: item.id,
-      name: item.name,
-      length: item.length,
-      width: item.width,
-      height: item.height,
-      weightKg: item.weightKg,
-      quantity: item.quantity,
-      maxStackLayers: item.maxStackLayers ?? 7,
-      maxTopLoadKg: item.maxTopLoadKg ?? 0,
-    });
+    setDraft({ id: item.id, name: item.name, length: item.length, width: item.width, height: item.height, weightKg: item.weightKg, quantity: item.quantity, maxStackLayers: item.maxStackLayers ?? 7, maxTopLoadKg: item.maxTopLoadKg ?? 0 });
   };
 
-  const deleteCargo = (id: string) => {
-    setCargo((items) => items.filter((item) => item.id !== id));
-    if (editingId === id) resetDraft();
-  };
-
-  const changeQuantity = (id: string, delta: number) => {
-    setCargo((items) =>
-      items.map((item) =>
-        item.id === id ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item,
-      ),
-    );
-  };
-
-  const runLoading = () => {
-    setResult(loadContainer(container, cargo.filter((item) => item.quantity > 0)));
-  };
+  const deleteCargo = (id: string) => { setCargo((items) => items.filter((item) => item.id !== id)); if (editingId === id) resetDraft(); };
+  const changeQuantity = (id: string, delta: number) => setCargo((items) => items.map((item) => item.id === id ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item));
+  const runLoading = () => setResult(loadContainer(container, cargo.filter((item) => item.quantity > 0)));
 
   const saveLocal = () => {
-    const state: StoredState = { container, cargo };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ container, cargo } satisfies StoredState));
     setSaveMessage('현재 데이터가 이 브라우저에 저장되었습니다.');
   };
 
   const loadLocal = () => {
     const state = readStoredState();
-    if (!state) {
-      setSaveMessage('저장된 데이터가 없습니다.');
-      return;
-    }
-    setContainer(state.container);
-    setCargo(state.cargo);
+    if (!state) { setSaveMessage('저장된 데이터가 없습니다.'); return; }
+    setContainer(state.container); setCargo(state.cargo);
     setResult(loadContainer(state.container, state.cargo.filter((item) => item.quantity > 0)));
     setSaveMessage('저장된 데이터를 불러왔습니다.');
   };
 
   const resetAll = () => {
-    setContainer(defaultContainer);
-    setCargo([]);
-    setResult(loadContainer(defaultContainer, []));
-    localStorage.removeItem(STORAGE_KEY);
-    resetDraft();
-    setSaveMessage('컨테이너와 박스 데이터를 초기화했습니다.');
+    setContainer(defaultContainer); setCargo([]); setResult(loadContainer(defaultContainer, []));
+    localStorage.removeItem(STORAGE_KEY); resetDraft(); setSaveMessage('컨테이너와 박스 데이터를 초기화했습니다.');
   };
 
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
-          <strong>Container Loading Simulator</strong>
-          <span>Codex development v0.5.0</span>
-        </div>
+        <div><strong>Container Loading Simulator</strong><span>Codex development v0.8.0</span></div>
         <div className="top-actions">
           <button className="secondary" onClick={saveLocal}>저장</button>
           <button className="secondary" onClick={loadLocal}>불러오기</button>
@@ -292,36 +186,18 @@ export default function App() {
           </div>
 
           <h2>대기 화물 <span className="section-count">{waitingCount} EA</span></h2>
-          {cargo.length === 0 ? (
-            <p className="muted">등록된 박스가 없습니다.</p>
-          ) : (
-            cargo.map((item) => (
-              <article className="cargo-card" key={item.id}>
-                <div className="cargo-head">
-                  <b>{item.name}</b>
-                  <span>{item.id}</span>
-                </div>
-                <span>{item.length}×{item.width}×{item.height} m · {item.weightKg} kg/EA</span>
-                <span>최대 {item.maxStackLayers ?? '-'}단 · 상부 {item.maxTopLoadKg ?? '-'} kg</span>
-                <div className="quantity-row">
-                  <button className="mini" onClick={() => changeQuantity(item.id, -1)}>-</button>
-                  <strong>{item.quantity} EA</strong>
-                  <button className="mini" onClick={() => changeQuantity(item.id, 1)}>+</button>
-                </div>
-                <div className="card-actions">
-                  <button className="secondary" onClick={() => editCargo(item)}>수정</button>
-                  <button className="danger" onClick={() => deleteCargo(item.id)}>삭제</button>
-                </div>
-              </article>
-            ))
-          )}
+          {cargo.length === 0 ? <p className="muted">등록된 박스가 없습니다.</p> : cargo.map((item) => (
+            <article className="cargo-card" key={item.id}>
+              <div className="cargo-head"><b>{item.name}</b><span>{item.id}</span></div>
+              <span>{item.length}×{item.width}×{item.height} m · {item.weightKg} kg/EA</span>
+              <span>최대 {item.maxStackLayers ?? '-'}단 · 상부 {item.maxTopLoadKg ?? '-'} kg</span>
+              <div className="quantity-row"><button className="mini" onClick={() => changeQuantity(item.id, -1)}>-</button><strong>{item.quantity} EA</strong><button className="mini" onClick={() => changeQuantity(item.id, 1)}>+</button></div>
+              <div className="card-actions"><button className="secondary" onClick={() => editCargo(item)}>수정</button><button className="danger" onClick={() => deleteCargo(item.id)}>삭제</button></div>
+            </article>
+          ))}
         </aside>
 
-        <section className="viewer">
-          <Canvas camera={{ position: [5.5, 4.2, 6.5], fov: 48 }}>
-            <Scene result={result} container={container} />
-          </Canvas>
-        </section>
+        <section className="viewer"><Canvas camera={{ position: [5.5, 4.2, 6.5], fov: 48 }}><Scene result={result} container={container} /></Canvas></section>
 
         <aside className="panel right-panel">
           <h2>적재 결과</h2>
@@ -330,29 +206,30 @@ export default function App() {
           <div className="metric"><span>사용 CBM</span><strong>{result.usedVolumeM3.toFixed(2)} m³</strong></div>
           <div className="metric"><span>체적 적재율</span><strong>{fillRate.toFixed(1)}%</strong></div>
 
+          <h2>무게중심·품질 평가</h2>
+          <div className="quality-score"><span>종합 품질</span><strong>{quality.loadingQualityScore.toFixed(0)}점 · {quality.grade}등급</strong></div>
+          <div className="metric"><span>균형 점수</span><strong>{quality.balanceScore.toFixed(0)}</strong></div>
+          <div className="metric"><span>안정성 점수</span><strong>{quality.stabilityScore.toFixed(0)}</strong></div>
+          <div className="metric"><span>앞뒤 중심 편차</span><strong>{quality.longitudinalDeviationPct.toFixed(1)}%</strong></div>
+          <div className="metric"><span>좌우 중심 편차</span><strong>{quality.lateralDeviationPct.toFixed(1)}%</strong></div>
+          <div className="metric"><span>무게중심 높이</span><strong>{quality.verticalCenterPct.toFixed(1)}%</strong></div>
+          <div className="metric"><span>안쪽 절반 중량</span><strong>{(quality.innerHeavyRatio * 100).toFixed(1)}%</strong></div>
+          <div className="metric"><span>하부 절반 중량</span><strong>{(quality.lowerHeavyRatio * 100).toFixed(1)}%</strong></div>
+          <article className="quality-note">
+            <b>무게중심 좌표</b>
+            <span>X {quality.centerOfGravity.x.toFixed(2)}m · Y {quality.centerOfGravity.y.toFixed(2)}m · Z {quality.centerOfGravity.z.toFixed(2)}m</span>
+          </article>
+          {quality.messages.map((message, index) => <p className="quality-message" key={index}>• {message}</p>)}
+
           <h2>자동 검증</h2>
-          {result.validationIssues.length === 0 ? (
-            <p className="muted">충돌 및 경계 침범 없음</p>
-          ) : (
-            result.validationIssues.map((issue, index) => (
-              <article className="warning-card" key={`${issue.type}-${index}`}>
-                <b>{issue.type}</b>
-                <span>{issue.message}</span>
-              </article>
-            ))
-          )}
+          {result.validationIssues.length === 0 ? <p className="muted">충돌 및 경계 침범 없음</p> : result.validationIssues.map((issue, index) => (
+            <article className="warning-card" key={`${issue.type}-${index}`}><b>{issue.type}</b><span>{issue.message}</span></article>
+          ))}
 
           <h2>미적재 화물</h2>
-          {result.remaining.length === 0 ? (
-            <p className="muted">없음</p>
-          ) : (
-            result.remaining.map((item) => (
-              <article className="warning-card" key={item.cargoId}>
-                <b>{item.cargoId} · {item.quantity} EA</b>
-                <span>{item.reason}</span>
-              </article>
-            ))
-          )}
+          {result.remaining.length === 0 ? <p className="muted">없음</p> : result.remaining.map((item) => (
+            <article className="warning-card" key={item.cargoId}><b>{item.cargoId} · {item.quantity} EA</b><span>{item.reason}</span></article>
+          ))}
         </aside>
       </section>
     </main>
