@@ -91,7 +91,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <strong>Container Loading Simulator</strong>
-          <span>Codex development v0.1.0</span>
+          <span>Codex development v0.2.0</span>
         </div>
         <button>적재 실행</button>
       </header>
@@ -126,7 +126,20 @@ export default function App() {
           <div className="metric"><span>적재 중량</span><strong>{result.loadedWeightKg.toLocaleString()} kg</strong></div>
           <div className="metric"><span>사용 CBM</span><strong>{result.usedVolumeM3.toFixed(2)} m³</strong></div>
           <div className="metric"><span>체적 적재율</span><strong>{fillRate.toFixed(1)}%</strong></div>
-          <h2>혼합 적재 대기</h2>
+
+          <h2>자동 검증</h2>
+          {result.validationIssues.length === 0 ? (
+            <p className="muted">충돌 및 경계 침범 없음</p>
+          ) : (
+            result.validationIssues.map((issue, index) => (
+              <article className="warning-card" key={`${issue.type}-${index}`}>
+                <b>{issue.type}</b>
+                <span>{issue.message}</span>
+              </article>
+            ))
+          )}
+
+          <h2>미적재 화물</h2>
           {result.remaining.length === 0 ? (
             <p className="muted">없음</p>
           ) : (
