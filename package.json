@@ -1,7 +1,7 @@
 {
   "name": "container-loading-simulator",
   "private": true,
-  "version": "0.23.0",
+  "version": "0.24.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,7 +17,7 @@
     "react": "latest",
     "react-dom": "latest",
     "three": "latest",
-    "xlsx": "latest"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@types/react": "latest",
