@@ -1,7 +1,8 @@
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
+import { useMemo, useState } from 'react';
 import { loadContainer } from './engine/loadingEngine';
-import type { CargoItem, ContainerSpec } from './engine/types';
+import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 
 const container: ContainerSpec = {
   length: 12.03,
@@ -10,7 +11,7 @@ const container: ContainerSpec = {
   maxPayloadKg: 26500,
 };
 
-const cargo: CargoItem[] = [
+const initialCargo: CargoItem[] = [
   {
     id: 'BOX-A',
     name: 'BOX A',
@@ -20,6 +21,7 @@ const cargo: CargoItem[] = [
     weightKg: 18,
     quantity: 70,
     maxStackLayers: 7,
+    maxTopLoadKg: 100,
   },
   {
     id: 'BOX-B',
@@ -30,11 +32,25 @@ const cargo: CargoItem[] = [
     weightKg: 12,
     quantity: 55,
     maxStackLayers: 7,
+    maxTopLoadKg: 80,
   },
 ];
 
-function Scene() {
-  const result = loadContainer(container, cargo);
+type CargoDraft = Omit<CargoItem, 'id'> & { id: string };
+
+const emptyDraft: CargoDraft = {
+  id: '',
+  name: '',
+  length: 0.5,
+  width: 0.4,
+  height: 0.3,
+  weightKg: 10,
+  quantity: 1,
+  maxStackLayers: 7,
+  maxTopLoadKg: 100,
+};
+
+function Scene({ result }: { result: LoadingResult }) {
   const scale = 0.45;
 
   return (
@@ -82,18 +98,102 @@ function Scene() {
 }
 
 export default function App() {
-  const result = loadContainer(container, cargo);
+  const [cargo, setCargo] = useState<CargoItem[]>(initialCargo);
+  const [draft, setDraft] = useState<CargoDraft>(emptyDraft);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [result, setResult] = useState<LoadingResult>(() => loadContainer(container, initialCargo));
+
   const totalVolume = container.length * container.width * container.height;
   const fillRate = totalVolume > 0 ? (result.usedVolumeM3 / totalVolume) * 100 : 0;
+  const waitingCount = useMemo(() => cargo.reduce((sum, item) => sum + item.quantity, 0), [cargo]);
+
+  const updateDraft = (field: keyof CargoDraft, value: string) => {
+    const numericFields: Array<keyof CargoDraft> = [
+      'length',
+      'width',
+      'height',
+      'weightKg',
+      'quantity',
+      'maxStackLayers',
+      'maxTopLoadKg',
+    ];
+
+    setDraft((current) => ({
+      ...current,
+      [field]: numericFields.includes(field) ? Number(value) : value,
+    }));
+  };
+
+  const resetDraft = () => {
+    setDraft(emptyDraft);
+    setEditingId(null);
+  };
+
+  const saveCargo = () => {
+    const cleanId = draft.id.trim();
+    const cleanName = draft.name.trim();
+    if (!cleanId || !cleanName) return;
+    if (draft.length <= 0 || draft.width <= 0 || draft.height <= 0 || draft.weightKg < 0 || draft.quantity < 0) return;
+
+    const nextItem: CargoItem = {
+      ...draft,
+      id: cleanId,
+      name: cleanName,
+      quantity: Math.floor(draft.quantity),
+      maxStackLayers: draft.maxStackLayers ? Math.max(1, Math.floor(draft.maxStackLayers)) : undefined,
+      maxTopLoadKg: draft.maxTopLoadKg || undefined,
+    };
+
+    setCargo((items) => {
+      if (editingId) {
+        return items.map((item) => (item.id === editingId ? nextItem : item));
+      }
+      if (items.some((item) => item.id === nextItem.id)) return items;
+      return [...items, nextItem];
+    });
+    resetDraft();
+  };
+
+  const editCargo = (item: CargoItem) => {
+    setEditingId(item.id);
+    setDraft({
+      id: item.id,
+      name: item.name,
+      length: item.length,
+      width: item.width,
+      height: item.height,
+      weightKg: item.weightKg,
+      quantity: item.quantity,
+      maxStackLayers: item.maxStackLayers ?? 7,
+      maxTopLoadKg: item.maxTopLoadKg ?? 0,
+    });
+  };
+
+  const deleteCargo = (id: string) => {
+    setCargo((items) => items.filter((item) => item.id !== id));
+    if (editingId === id) resetDraft();
+  };
+
+  const changeQuantity = (id: string, delta: number) => {
+    setCargo((items) =>
+      items.map((item) =>
+        item.id === id ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item,
+      ),
+    );
+  };
+
+  const runLoading = () => {
+    setResult(loadContainer(container, cargo.filter((item) => item.quantity > 0)));
+  };
 
   return (
     <main className="app-shell">
       <header className="topbar">
         <div>
           <strong>Container Loading Simulator</strong>
-          <span>Codex development v0.2.0</span>
+          <span>Codex development v0.4.0</span>
         </div>
-        <button>적재 실행</button>
+        <button onClick={runLoading}>적재 실행</button>
       </header>
 
       <section className="workspace">
@@ -105,18 +205,55 @@ export default function App() {
             <div><dt>높이</dt><dd>{container.height} m</dd></div>
             <div><dt>최대 중량</dt><dd>{container.maxPayloadKg.toLocaleString()} kg</dd></div>
           </dl>
-          <h2>대기 화물</h2>
-          {cargo.map((item) => (
-            <article className="cargo-card" key={item.id}>
-              <b>{item.name}</b>
-              <span>{item.quantity} EA · {item.weightKg} kg/EA</span>
-            </article>
-          ))}
+
+          <h2>{editingId ? '박스 수정' : '박스 등록'}</h2>
+          <div className="cargo-form">
+            <label>코드<input value={draft.id} onChange={(e) => updateDraft('id', e.target.value)} disabled={Boolean(editingId)} /></label>
+            <label>이름<input value={draft.name} onChange={(e) => updateDraft('name', e.target.value)} /></label>
+            <div className="form-grid">
+              <label>길이(m)<input type="number" step="0.01" value={draft.length} onChange={(e) => updateDraft('length', e.target.value)} /></label>
+              <label>폭(m)<input type="number" step="0.01" value={draft.width} onChange={(e) => updateDraft('width', e.target.value)} /></label>
+              <label>높이(m)<input type="number" step="0.01" value={draft.height} onChange={(e) => updateDraft('height', e.target.value)} /></label>
+              <label>중량(kg)<input type="number" step="0.1" value={draft.weightKg} onChange={(e) => updateDraft('weightKg', e.target.value)} /></label>
+              <label>수량<input type="number" min="0" value={draft.quantity} onChange={(e) => updateDraft('quantity', e.target.value)} /></label>
+              <label>최대 적층단<input type="number" min="1" value={draft.maxStackLayers ?? 1} onChange={(e) => updateDraft('maxStackLayers', e.target.value)} /></label>
+              <label>상부허용(kg)<input type="number" min="0" value={draft.maxTopLoadKg ?? 0} onChange={(e) => updateDraft('maxTopLoadKg', e.target.value)} /></label>
+            </div>
+            <div className="form-actions">
+              <button onClick={saveCargo}>{editingId ? '수정 저장' : '박스 추가'}</button>
+              {editingId && <button className="secondary" onClick={resetDraft}>취소</button>}
+            </div>
+          </div>
+
+          <h2>대기 화물 <span className="section-count">{waitingCount} EA</span></h2>
+          {cargo.length === 0 ? (
+            <p className="muted">등록된 박스가 없습니다.</p>
+          ) : (
+            cargo.map((item) => (
+              <article className="cargo-card" key={item.id}>
+                <div className="cargo-head">
+                  <b>{item.name}</b>
+                  <span>{item.id}</span>
+                </div>
+                <span>{item.length}×{item.width}×{item.height} m · {item.weightKg} kg/EA</span>
+                <span>최대 {item.maxStackLayers ?? '-'}단 · 상부 {item.maxTopLoadKg ?? '-'} kg</span>
+                <div className="quantity-row">
+                  <button className="mini" onClick={() => changeQuantity(item.id, -1)}>-</button>
+                  <strong>{item.quantity} EA</strong>
+                  <button className="mini" onClick={() => changeQuantity(item.id, 1)}>+</button>
+                </div>
+                <div className="card-actions">
+                  <button className="secondary" onClick={() => editCargo(item)}>수정</button>
+                  <button className="danger" onClick={() => deleteCargo(item.id)}>삭제</button>
+                </div>
+              </article>
+            ))
+          )}
         </aside>
 
         <section className="viewer">
           <Canvas camera={{ position: [5.5, 4.2, 6.5], fov: 48 }}>
-            <Scene />
+            <Scene result={result} />
           </Canvas>
         </section>
 
