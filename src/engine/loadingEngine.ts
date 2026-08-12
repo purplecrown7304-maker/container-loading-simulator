@@ -139,8 +139,6 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): Loa
   // 2) 대표 행 높이의 50% 미만 또는 사실상 1단으로 남은 앞/중앙 행은
   //    안전 조건을 통과할 때 문쪽 마지막 혼합 구역으로 후순위 이동한다.
   placements = moveLowRowsToDoorZone(container, placements, cargoById).placements;
-  // 3) 이동 뒤 다시 한 번 형상을 정돈한다.
-  placements = optimizeLoadingShape(container, placements, cargoById).placements;
 
   return {
     placements,
