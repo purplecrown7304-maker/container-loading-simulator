@@ -5,8 +5,14 @@ import { canPlaceByStackingRules } from './stacking';
 const EPS = 1e-9;
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
 
-function candidateAxes(container: ContainerSpec, placements: Placement[]) {
-  const xs = new Set<number>([0]);
+export type MixedPlacementOptions = {
+  minX?: number;
+  maxX?: number;
+  preferDoorSide?: boolean;
+};
+
+function candidateAxes(container: ContainerSpec, placements: Placement[], options: MixedPlacementOptions = {}) {
+  const xs = new Set<number>([0, options.minX ?? 0]);
   const ys = new Set<number>([0]);
   const zs = new Set<number>([0]);
   for (const placement of placements) {
@@ -14,8 +20,13 @@ function candidateAxes(container: ContainerSpec, placements: Placement[]) {
     ys.add(round3(placement.y + placement.width));
     zs.add(round3(placement.z + placement.height));
   }
+  const minX = Math.max(0, options.minX ?? 0);
+  const maxX = Math.min(container.length, options.maxX ?? container.length);
+  const filteredX = [...xs]
+    .filter((value) => value + EPS >= minX && value <= maxX + EPS)
+    .sort((a, b) => options.preferDoorSide ? b - a : a - b);
   return {
-    xs: [...xs].filter((value) => value <= container.length + EPS).sort((a, b) => a - b),
+    xs: filteredX,
     ys: [...ys].filter((value) => value <= container.width + EPS).sort((a, b) => a - b),
     zs: [...zs].filter((value) => value <= container.height + EPS).sort((a, b) => a - b),
   };
@@ -68,13 +79,19 @@ function compactnessScore(candidate: Placement, placements: Placement[], contain
   return score;
 }
 
-export function findMixedPlacement(container: ContainerSpec, item: CargoItem, placements: Placement[], cargoById: Map<string, CargoItem>): Placement | null {
-  const axes = candidateAxes(container, placements);
+export function findMixedPlacement(
+  container: ContainerSpec,
+  item: CargoItem,
+  placements: Placement[],
+  cargoById: Map<string, CargoItem>,
+  options: MixedPlacementOptions = {},
+): Placement | null {
+  const axes = candidateAxes(container, placements, options);
   const itemOrientations = orientations(item);
 
-  // 안쪽(x)과 낮은 위치(z)는 절대 우선한다. 같은 x/z 평면 안에서만 후보를 비교해
-  // 동일 품목과 붙고 벽/기존 블록에 밀착되는 방향을 선택한다. 전체 3D 후보를 모두
-  // 점수화하지 않으므로 대량 화물에서 기존 조기 종료 성능도 유지한다.
+  // 기본은 안쪽(x) → 낮은 위치(z) 우선이다. 후처리에서는 minX/preferDoorSide로
+  // 문쪽 혼합 구역만 탐색할 수 있다. 같은 x/z 평면에서는 동일 품목과 붙고
+  // 벽/기존 블록에 밀착되는 방향을 우선한다.
   for (const x of axes.xs) {
     for (const z of axes.zs) {
       let best: Placement | null = null;
@@ -82,6 +99,7 @@ export function findMixedPlacement(container: ContainerSpec, item: CargoItem, pl
       for (const y of axes.ys) {
         for (const orientation of itemOrientations) {
           const candidate: Placement = { cargoId: item.id, x, y, z, length: orientation.length, width: orientation.width, height: item.height, weightKg: item.weightKg, rotated: orientation.rotated };
+          if (candidate.x + candidate.length > (options.maxX ?? container.length) + EPS) continue;
           if (!isInsideContainer(container, candidate)) continue;
           if (placements.some((placement) => overlaps(candidate, placement))) continue;
           if (!hasFullSupport(candidate, placements)) continue;
