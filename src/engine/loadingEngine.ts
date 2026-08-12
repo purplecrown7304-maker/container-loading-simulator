@@ -3,6 +3,7 @@ import { findMixedPlacement } from './mixedPacking';
 import { validatePlacements } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
 import { optimizeLoadingShape } from './shapeOptimizer';
+import { moveLowRowsToDoorZone } from './rowOptimizer';
 
 const EPS = 1e-9;
 const cbm = (item: CargoItem) => item.length * item.width * item.height;
@@ -133,8 +134,12 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): Loa
     }
   }
 
-  // 최종 형상 후처리: 위 박스를 받치지 않는 최상단 박스만 재탐색하고,
-  // 중앙 낱개·돌출·품목 분산 패널티가 실제로 감소할 때만 이동을 확정한다.
+  // 1) 중앙 낱개·돌출·품목 분산을 줄인다.
+  placements = optimizeLoadingShape(container, placements, cargoById).placements;
+  // 2) 대표 행 높이의 50% 미만 또는 사실상 1단으로 남은 앞/중앙 행은
+  //    안전 조건을 통과할 때 문쪽 마지막 혼합 구역으로 후순위 이동한다.
+  placements = moveLowRowsToDoorZone(container, placements, cargoById).placements;
+  // 3) 이동 뒤 다시 한 번 형상을 정돈한다.
   placements = optimizeLoadingShape(container, placements, cargoById).placements;
 
   return {
