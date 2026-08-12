@@ -5,10 +5,34 @@ import { canPlaceByStackingRules } from './stacking';
 
 const cbm = (item: CargoItem) => item.length * item.width * item.height;
 
-export function loadContainer(
-  container: ContainerSpec,
-  cargo: CargoItem[],
-): LoadingResult {
+function bestBlockOrientation(container: ContainerSpec, item: CargoItem) {
+  const options = [
+    { length: item.length, width: item.width, rotated: false },
+    ...(item.allowRotation === false || Math.abs(item.length - item.width) < 1e-9
+      ? []
+      : [{ length: item.width, width: item.length, rotated: true }]),
+  ];
+
+  return options
+    .map((option) => {
+      const columnsAcross = Math.floor(container.width / option.width);
+      const layersHigh = Math.min(
+        item.maxStackLayers ?? Number.POSITIVE_INFINITY,
+        Math.floor(container.height / item.height),
+      );
+      const slicesDeep = Math.floor(container.length / option.length);
+      return {
+        ...option,
+        columnsAcross,
+        layersHigh,
+        capacity: Math.max(0, columnsAcross) * Math.max(0, layersHigh) * Math.max(0, slicesDeep),
+        sliceCapacity: Math.max(0, columnsAcross) * Math.max(0, layersHigh),
+      };
+    })
+    .sort((a, b) => b.capacity - a.capacity || b.sliceCapacity - a.sliceCapacity || a.length - b.length)[0];
+}
+
+export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): LoadingResult {
   const placements: Placement[] = [];
   const deferred: Array<{ item: CargoItem; quantity: number }> = [];
   const remaining: LoadingResult['remaining'] = [];
@@ -26,23 +50,16 @@ export function loadContainer(
   let cursorX = 0;
 
   for (const item of prioritized) {
-    const columnsAcross = Math.max(1, Math.floor(container.width / item.width));
-    const layersHigh = Math.max(
-      1,
-      Math.min(
-        item.maxStackLayers ?? Number.POSITIVE_INFINITY,
-        Math.floor(container.height / item.height),
-      ),
-    );
+    const orientation = bestBlockOrientation(container, item);
+    const columnsAcross = Math.max(1, orientation.columnsAcross);
+    const layersHigh = Math.max(1, orientation.layersHigh);
     const boxesPerSlice = columnsAcross * layersHigh;
     let placed = 0;
 
     while (placed < item.quantity) {
       const left = item.quantity - placed;
-      const isFullSlice = left >= boxesPerSlice;
-
-      if (!isFullSlice) break;
-      if (cursorX + item.length > container.length) break;
+      if (left < boxesPerSlice) break;
+      if (cursorX + orientation.length > container.length) break;
 
       let slicePlaced = 0;
       let sliceBlocked = false;
@@ -57,12 +74,13 @@ export function loadContainer(
           const candidate: Placement = {
             cargoId: item.id,
             x: cursorX,
-            y: col * item.width,
+            y: col * orientation.width,
             z: layer * item.height,
-            length: item.length,
-            width: item.width,
+            length: orientation.length,
+            width: orientation.width,
             height: item.height,
             weightKg: item.weightKg,
+            rotated: orientation.rotated,
           };
 
           if (!canPlaceByStackingRules(item, candidate, placements, cargoById)) {
@@ -81,25 +99,19 @@ export function loadContainer(
       }
 
       if (slicePlaced === 0) break;
-      cursorX += item.length;
-
+      cursorX += orientation.length;
       if (slicePlaced < boxesPerSlice || sliceBlocked) break;
     }
 
-    if (placed < item.quantity) {
-      deferred.push({ item, quantity: item.quantity - placed });
-    }
+    if (placed < item.quantity) deferred.push({ item, quantity: item.quantity - placed });
   }
 
   for (const { item, quantity } of deferred) {
     let mixedPlaced = 0;
-
     for (let i = 0; i < quantity; i += 1) {
       if (loadedWeightKg + item.weightKg > container.maxPayloadKg) break;
-
       const placement = findMixedPlacement(container, item, placements, cargoById);
       if (!placement) break;
-
       placements.push(placement);
       mixedPlaced += 1;
       loadedWeightKg += item.weightKg;
@@ -111,21 +123,18 @@ export function loadContainer(
       remaining.push({
         cargoId: item.id,
         quantity: left,
-        reason:
-          loadedWeightKg >= container.maxPayloadKg
-            ? '컨테이너 최대 적재 중량에 도달하여 적재하지 못함'
-            : '적층단·상부 허용중량 또는 안정 공간 조건을 만족하는 위치를 찾지 못함',
+        reason: loadedWeightKg >= container.maxPayloadKg
+          ? '컨테이너 최대 적재 중량에 도달하여 적재하지 못함'
+          : '회전을 포함해 적층단·상부 허용중량 또는 안정 공간 조건을 만족하는 위치를 찾지 못함',
       });
     }
   }
-
-  const validationIssues = validatePlacements(container, placements);
 
   return {
     placements,
     remaining,
     loadedWeightKg,
     usedVolumeM3,
-    validationIssues,
+    validationIssues: validatePlacements(container, placements),
   };
 }
