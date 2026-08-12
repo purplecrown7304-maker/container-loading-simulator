@@ -1,5 +1,6 @@
 import type { CargoItem, ContainerSpec, Placement } from './types';
 import { isInsideContainer, overlaps } from './constraints';
+import { canPlaceByStackingRules } from './stacking';
 
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
 
@@ -63,6 +64,7 @@ export function findMixedPlacement(
   container: ContainerSpec,
   item: CargoItem,
   placements: Placement[],
+  cargoById: Map<string, CargoItem>,
 ): Placement | null {
   const axes = candidateAxes(container, placements);
 
@@ -83,6 +85,7 @@ export function findMixedPlacement(
         if (!isInsideContainer(container, candidate)) continue;
         if (placements.some((placement) => overlaps(candidate, placement))) continue;
         if (!hasFullSupport(candidate, placements)) continue;
+        if (!canPlaceByStackingRules(item, candidate, placements, cargoById)) continue;
 
         return candidate;
       }
