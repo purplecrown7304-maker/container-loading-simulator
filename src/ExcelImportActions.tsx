@@ -2,14 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { downloadCargoTemplate, parseCargoWorkbook, type ImportIssue } from './excel';
 import type { CargoItem, ContainerSpec } from './engine/types';
+import { readStoredState, writeStoredState, type StoredState } from './storage';
 
-const STORAGE_KEY = 'container-loading-simulator-v1';
 type ImportMode = 'replace' | 'merge';
-
-type StoredState = {
-  container: ContainerSpec;
-  cargo: CargoItem[];
-};
 
 const defaultContainer: ContainerSpec = {
   length: 12.03,
@@ -35,10 +30,9 @@ export default function ExcelImportActions() {
 
     try {
       const result = await parseCargoWorkbook(file);
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const current = raw ? (JSON.parse(raw) as StoredState) : null;
+      const current = readStoredState();
       const currentCargo = current?.cargo ?? [];
-      let nextCargo = result.items;
+      let nextCargo: CargoItem[] = result.items;
       let newCount = result.items.length;
       let updatedCount = 0;
 
@@ -65,7 +59,7 @@ export default function ExcelImportActions() {
         cargo: nextCargo,
       };
 
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      writeStoredState(next, true);
       setIssues(result.issues);
       if (mode === 'replace') {
         setMessage(`${result.totalRows}행 처리 · ${result.items.length}건 등록 · 오류 ${result.issues.length}건 · 전체 교체`);
@@ -73,7 +67,6 @@ export default function ExcelImportActions() {
         setMessage(`${result.totalRows}행 처리 · 신규 ${newCount}건 · 갱신 ${updatedCount}건 · 오류 ${result.issues.length}건 · 병합`);
       }
       setShowReport(result.issues.length > 0);
-      window.setTimeout(() => window.location.reload(), result.issues.length > 0 ? 1800 : 700);
     } catch {
       setIssues([{ row: 0, message: '엑셀 파일을 읽지 못했습니다. 파일 형식 또는 시트를 확인하세요.' }]);
       setMessage('엑셀 업로드 실패');
