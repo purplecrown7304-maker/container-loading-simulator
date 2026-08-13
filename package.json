@@ -8,7 +8,8 @@
     "build": "tsc --noEmit -p tsconfig.app.json && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run test && npm run build",
+    "check": "npm run test && npm run build && npm run check:bundle",
+    "check:bundle": "node scripts/check-bundle-size.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
