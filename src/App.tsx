@@ -3,6 +3,7 @@ import { loadContainer } from './engine/loadingEngine';
 import { assessWeightBalance } from './engine/weightBalance';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
+import { normalizeCargo, readStoredState, STORAGE_KEY, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
 
 const BoxLoadingViewer = lazy(() => import('./BoxLoadingViewer'));
 const PalletModePanel = lazy(() => import('./PalletModePanel'));
@@ -16,12 +17,6 @@ const initialCargo: CargoItem[] = [
 type CargoDraft = Omit<CargoItem, 'id'> & { id: string };
 type LoadingMode = 'boxes' | 'pallets';
 const emptyDraft: CargoDraft = { id: '', name: '', length: 0.5, width: 0.4, height: 0.3, weightKg: 10, quantity: 1, maxStackLayers: 7, maxTopLoadKg: 100, allowRotation: true };
-const STORAGE_KEY = 'container-loading-simulator-v1';
-type StoredState = { container: ContainerSpec; cargo: CargoItem[] };
-
-function readStoredState(): StoredState | null {
-  try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) as StoredState : null; } catch { return null; }
-}
 
 function LoadingFallback() {
   return <section className="viewer"><div className="viewer-direction"><b>3D 모듈 불러오는 중</b><span>잠시 후 표시됩니다.</span></div></section>;
@@ -29,13 +24,14 @@ function LoadingFallback() {
 
 export default function App() {
   const stored = useMemo(() => readStoredState(), []);
+  const startingCargo = useMemo(() => normalizeCargo(stored?.cargo ?? initialCargo), [stored]);
   const [container, setContainer] = useState<ContainerSpec>(stored?.container ?? defaultContainer);
-  const [cargo, setCargo] = useState<CargoItem[]>((stored?.cargo ?? initialCargo).map(item => ({ ...item, allowRotation: item.allowRotation !== false })));
+  const [cargo, setCargo] = useState<CargoItem[]>(startingCargo);
   const [draft, setDraft] = useState<CargoDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [mode, setMode] = useState<LoadingMode>('boxes');
   const [palletRunToken, setPalletRunToken] = useState(0);
-  const [result, setResult] = useState<LoadingResult>(() => loadContainer(stored?.container ?? defaultContainer, (stored?.cargo ?? initialCargo).map(item => ({ ...item, allowRotation: item.allowRotation !== false }))));
+  const [result, setResult] = useState<LoadingResult>(() => loadContainer(stored?.container ?? defaultContainer, startingCargo));
   const [saveMessage, setSaveMessage] = useState('');
 
   const totalVolume = container.length * container.width * container.height;
@@ -45,19 +41,78 @@ export default function App() {
   const addresses = useMemo(() => buildPlacementAddresses(result.placements, container.length), [result, container.length]);
   const locationRows = useMemo(() => result.placements.slice(0, 40).map((p, i) => ({ p, a: addresses[i] })), [result, addresses]);
 
-  useEffect(() => { if (mode === 'boxes') setResult(loadContainer(container, cargo.filter(item => item.quantity > 0))); }, [container.length, container.width, container.height, container.maxPayloadKg]);
+  useEffect(() => {
+    if (mode === 'boxes') setResult(loadContainer(container, cargo.filter(item => item.quantity > 0)));
+  }, [container.length, container.width, container.height, container.maxPayloadKg]);
+
+  useEffect(() => {
+    const onStorageUpdated = (event: Event) => {
+      const state = (event as CustomEvent<StoredState>).detail ?? readStoredState();
+      if (!state) return;
+      const normalized = normalizeCargo(state.cargo);
+      setContainer(state.container);
+      setCargo(normalized);
+      setResult(loadContainer(state.container, normalized.filter(item => item.quantity > 0)));
+      setSaveMessage('가져온 데이터가 현재 화면에 반영되었습니다.');
+      setEditingId(null);
+      setDraft(emptyDraft);
+    };
+    window.addEventListener(STORAGE_UPDATED_EVENT, onStorageUpdated);
+    return () => window.removeEventListener(STORAGE_UPDATED_EVENT, onStorageUpdated);
+  }, []);
 
   const updateContainer = (field: keyof ContainerSpec, value: string) => setContainer(current => ({ ...current, [field]: Number(value) }));
-  const updateDraft = (field: keyof CargoDraft, value: string | boolean) => { const numeric: Array<keyof CargoDraft> = ['length','width','height','weightKg','quantity','maxStackLayers','maxTopLoadKg']; setDraft(current => ({ ...current, [field]: numeric.includes(field) ? Number(value) : value })); };
+  const updateDraft = (field: keyof CargoDraft, value: string | boolean) => {
+    const numeric: Array<keyof CargoDraft> = ['length','width','height','weightKg','quantity','maxStackLayers','maxTopLoadKg'];
+    setDraft(current => ({ ...current, [field]: numeric.includes(field) ? Number(value) : value }));
+  };
   const resetDraft = () => { setDraft(emptyDraft); setEditingId(null); };
-  const saveCargo = () => { const id = draft.id.trim(); const name = draft.name.trim(); if (!id || !name || draft.length <= 0 || draft.width <= 0 || draft.height <= 0 || draft.weightKg < 0 || draft.quantity < 0) return; const next: CargoItem = { ...draft, id, name, quantity: Math.floor(draft.quantity), maxStackLayers: draft.maxStackLayers ? Math.max(1, Math.floor(draft.maxStackLayers)) : undefined, maxTopLoadKg: draft.maxTopLoadKg || undefined, allowRotation: draft.allowRotation !== false }; setCargo(items => editingId ? items.map(item => item.id === editingId ? next : item) : items.some(item => item.id === next.id) ? items : [...items, next]); resetDraft(); };
-  const editCargo = (item: CargoItem) => { setEditingId(item.id); setDraft({ ...item, maxStackLayers: item.maxStackLayers ?? 7, maxTopLoadKg: item.maxTopLoadKg ?? 0, allowRotation: item.allowRotation !== false }); };
+  const saveCargo = () => {
+    const id = draft.id.trim();
+    const name = draft.name.trim();
+    if (!id || !name || draft.length <= 0 || draft.width <= 0 || draft.height <= 0 || draft.weightKg < 0 || draft.quantity < 0) return;
+    const next: CargoItem = {
+      ...draft,
+      id,
+      name,
+      quantity: Math.floor(draft.quantity),
+      maxStackLayers: draft.maxStackLayers ? Math.max(1, Math.floor(draft.maxStackLayers)) : undefined,
+      maxTopLoadKg: draft.maxTopLoadKg || undefined,
+      allowRotation: draft.allowRotation !== false,
+    };
+    setCargo(items => editingId ? items.map(item => item.id === editingId ? next : item) : items.some(item => item.id === next.id) ? items : [...items, next]);
+    resetDraft();
+  };
+  const editCargo = (item: CargoItem) => {
+    setEditingId(item.id);
+    setDraft({ ...item, maxStackLayers: item.maxStackLayers ?? 7, maxTopLoadKg: item.maxTopLoadKg ?? 0, allowRotation: item.allowRotation !== false });
+  };
   const deleteCargo = (id: string) => setCargo(items => items.filter(item => item.id !== id));
   const changeQuantity = (id: string, delta: number) => setCargo(items => items.map(item => item.id === id ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item));
-  const runLoading = () => { if (mode === 'boxes') setResult(loadContainer(container, cargo.filter(item => item.quantity > 0))); else setPalletRunToken(token => token + 1); };
-  const saveLocal = () => { localStorage.setItem(STORAGE_KEY, JSON.stringify({ container, cargo } satisfies StoredState)); setSaveMessage('현재 데이터가 이 브라우저에 저장되었습니다.'); };
-  const loadLocal = () => { const state = readStoredState(); if (!state) return setSaveMessage('저장된 데이터가 없습니다.'); const normalized = state.cargo.map(item => ({ ...item, allowRotation: item.allowRotation !== false })); setContainer(state.container); setCargo(normalized); setResult(loadContainer(state.container, normalized.filter(item => item.quantity > 0))); setSaveMessage('저장된 데이터를 불러왔습니다.'); };
-  const resetAll = () => { setContainer(defaultContainer); setCargo([]); setResult(loadContainer(defaultContainer, [])); localStorage.removeItem(STORAGE_KEY); resetDraft(); };
+  const runLoading = () => {
+    if (mode === 'boxes') setResult(loadContainer(container, cargo.filter(item => item.quantity > 0)));
+    else setPalletRunToken(token => token + 1);
+  };
+  const saveLocal = () => {
+    writeStoredState({ container, cargo });
+    setSaveMessage('현재 데이터가 이 브라우저에 저장되었습니다.');
+  };
+  const loadLocal = () => {
+    const state = readStoredState();
+    if (!state) return setSaveMessage('저장된 데이터가 없습니다.');
+    const normalized = normalizeCargo(state.cargo);
+    setContainer(state.container);
+    setCargo(normalized);
+    setResult(loadContainer(state.container, normalized.filter(item => item.quantity > 0)));
+    setSaveMessage('저장된 데이터를 불러왔습니다.');
+  };
+  const resetAll = () => {
+    setContainer(defaultContainer);
+    setCargo([]);
+    setResult(loadContainer(defaultContainer, []));
+    localStorage.removeItem(STORAGE_KEY);
+    resetDraft();
+  };
 
   return <main className="app-shell">
     <header className="topbar"><div><strong>Container Loading Simulator</strong><span>Codex release v1.1.0</span></div><div className="top-actions"><div className="loading-mode-switch"><button className={mode === 'boxes' ? 'active' : 'secondary'} onClick={() => setMode('boxes')}>박스만 적재</button><button className={mode === 'pallets' ? 'active' : 'secondary'} onClick={() => setMode('pallets')}>팔레트 사용</button></div><button className="secondary" onClick={saveLocal}>저장</button><button className="secondary" onClick={loadLocal}>불러오기</button><button onClick={runLoading}>{mode === 'boxes' ? '박스 적재 실행' : '팔레트 적재 실행'}</button></div></header>
