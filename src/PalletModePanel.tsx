@@ -1,8 +1,9 @@
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Text } from '@react-three/drei';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import * as THREE from 'three';
 import { defaultPalletSpec, packOnPallets, type PalletPackingResult, type PalletSpec } from './engine/palletPacking';
-import type { CargoItem, ContainerSpec } from './engine/types';
+import type { CargoItem, ContainerSpec, Placement } from './engine/types';
 
 type Props = {
   container: ContainerSpec;
@@ -16,22 +17,95 @@ function colorFor(id: string) {
   return `hsl(${Math.abs(hash) % 360} 68% 54%)`;
 }
 
+function PalletBoards({ container, result, spec, scale }: { container: ContainerSpec; result: PalletPackingResult; spec: PalletSpec; scale: number }) {
+  const ref = useRef<THREE.InstancedMesh>(null);
+  useLayoutEffect(() => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    const object = new THREE.Object3D();
+    result.pallets.forEach((p, i) => {
+      object.position.set(
+        (p.x + p.length / 2) * scale - container.length * scale / 2,
+        (p.z + spec.height / 2) * scale,
+        (p.y + p.width / 2) * scale - container.width * scale / 2,
+      );
+      object.scale.set(p.length * scale, spec.height * scale, p.width * scale);
+      object.updateMatrix();
+      mesh.setMatrixAt(i, object.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }, [container.length, container.width, result.pallets, spec.height, scale]);
+
+  return <instancedMesh ref={ref} args={[undefined, undefined, result.pallets.length]}>
+    <boxGeometry args={[1, 1, 1]} />
+    <meshStandardMaterial color="#9b6a3b" roughness={0.85} />
+  </instancedMesh>;
+}
+
+function CargoInstances({ container, placements, scale }: { container: ContainerSpec; placements: Placement[]; scale: number }) {
+  const ref = useRef<THREE.InstancedMesh>(null);
+  const color = useMemo(() => new THREE.Color(colorFor(placements[0]?.cargoId ?? 'cargo')), [placements]);
+  useLayoutEffect(() => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    const object = new THREE.Object3D();
+    placements.forEach((box, i) => {
+      object.position.set(
+        (box.x + box.length / 2) * scale - container.length * scale / 2,
+        (box.z + box.height / 2) * scale,
+        (box.y + box.width / 2) * scale - container.width * scale / 2,
+      );
+      object.scale.set(box.length * scale, box.height * scale, box.width * scale);
+      object.updateMatrix();
+      mesh.setMatrixAt(i, object.matrix);
+      mesh.setColorAt(i, color);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }, [container.length, container.width, placements, scale, color]);
+
+  return <instancedMesh ref={ref} args={[undefined, undefined, placements.length]}>
+    <boxGeometry args={[1, 1, 1]} />
+    <meshStandardMaterial roughness={0.65} />
+  </instancedMesh>;
+}
+
 function PalletScene({ container, result, spec }: { container: ContainerSpec; result: PalletPackingResult; spec: PalletSpec }) {
   const scale = 0.42;
+  const cargoGroups = useMemo(() => {
+    const groups = new Map<string, Placement[]>();
+    result.placements.forEach((placement) => {
+      const list = groups.get(placement.cargoId) ?? [];
+      list.push(placement);
+      groups.set(placement.cargoId, list);
+    });
+    return [...groups.entries()];
+  }, [result.placements]);
+
   return <>
-    <ambientLight intensity={1.45} /><directionalLight position={[5,8,6]} intensity={2} />
+    <ambientLight intensity={1.45} />
+    <directionalLight position={[5,8,6]} intensity={2} />
     <gridHelper args={[8,20]} position={[0,-0.01,0]} />
-    <mesh position={[0,container.height*scale/2,0]}><boxGeometry args={[container.length*scale,container.height*scale,container.width*scale]} /><meshBasicMaterial wireframe transparent opacity={0.2} /></mesh>
+    <mesh position={[0,container.height*scale/2,0]}>
+      <boxGeometry args={[container.length*scale,container.height*scale,container.width*scale]} />
+      <meshBasicMaterial wireframe transparent opacity={0.2} />
+    </mesh>
+
+    <PalletBoards container={container} result={result} spec={spec} scale={scale} />
+    {cargoGroups.map(([cargoId, placements]) => <CargoInstances key={cargoId} container={container} placements={placements} scale={scale} />)}
+
     {result.pallets.map((p) => {
       const px = (p.x + p.length/2)*scale - container.length*scale/2;
-      const py = (p.z + spec.height/2)*scale;
       const pz = (p.y + p.width/2)*scale - container.width*scale/2;
       const top = Math.max(p.z + spec.height, ...p.cargoPlacements.map((b)=>b.z+b.height));
       return <group key={p.palletIndex}>
-        <mesh position={[px,py,pz]}><boxGeometry args={[p.length*scale,spec.height*scale,p.width*scale]} /><meshStandardMaterial color="#9b6a3b" roughness={0.85} /></mesh>
         <Text position={[px,(p.z+spec.height)*scale+0.04,pz]} fontSize={0.065}>{`P${p.palletIndex} · ${p.stackLevel}단`}</Text>
-        {p.cargoPlacements.map((box,index) => <mesh key={`${box.cargoId}-${index}`} position={[(box.x+box.length/2)*scale-container.length*scale/2,(box.z+box.height/2)*scale,(box.y+box.width/2)*scale-container.width*scale/2]}><boxGeometry args={[box.length*scale,box.height*scale,box.width*scale]} /><meshStandardMaterial color={colorFor(box.cargoId)} roughness={0.65} /></mesh>)}
-        {p.packagingExtraHeightM > 0 && <mesh position={[px,(top+p.packagingExtraHeightM/2)*scale,pz]}><boxGeometry args={[p.length*scale,p.packagingExtraHeightM*scale,p.width*scale]} /><meshStandardMaterial transparent opacity={0.18} /></mesh>}
+        {p.packagingExtraHeightM > 0 && <mesh position={[px,(top+p.packagingExtraHeightM/2)*scale,pz]}>
+          <boxGeometry args={[p.length*scale,p.packagingExtraHeightM*scale,p.width*scale]} />
+          <meshStandardMaterial transparent opacity={0.18} />
+        </mesh>}
       </group>;
     })}
     <OrbitControls makeDefault />
@@ -74,7 +148,7 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
         <label className="packaging-toggle"><input type="checkbox" checked={spec.useWrapping} onChange={(e)=>setSpec({...spec,useWrapping:e.target.checked})} /><span>랩핑 사용 허용</span></label>
       </div>
       <p className="muted">설정을 바꾼 뒤 상단의 <b>적재 실행</b>을 누르면 이 설정으로 다시 계산됩니다.</p>
-      <div className="pallet-preview"><Canvas camera={{ position:[5.5,4.5,6.2], fov:48 }}><PalletScene container={container} result={result} spec={spec} /></Canvas></div>
+      <div className="pallet-preview"><Canvas camera={{ position:[5.5,4.5,6.2], fov:48 }} dpr={[1,1.5]} gl={{ antialias:true, powerPreference:'high-performance' }}><PalletScene container={container} result={result} spec={spec} /></Canvas></div>
       <div className="pallet-metrics">
         <div><span>사용 팔레트</span><strong>{result.palletCount}</strong></div>
         <div><span>적재 화물</span><strong>{result.placements.length} EA</strong></div>
