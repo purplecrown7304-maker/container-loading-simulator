@@ -7,4 +7,15 @@
 .pallet-mode-panel-inline .pallet-preview { height:360px; }
 .rotation-toggle { margin-top:10px; flex-direction:row; align-items:center; gap:8px; color:#39445a; font-weight:700; }
 .rotation-toggle input { width:auto; }
-@media (max-width:900px) { .loading-mode-switch { width:100%; } .loading-mode-switch button { flex:1; } .pallet-viewer { height:auto; min-height:65vh; } }
+.viewer canvas, .pallet-preview canvas { touch-action:none; }
+@media (max-width:900px) {
+  .loading-mode-switch { width:100%; }
+  .loading-mode-switch button { flex:1; min-height:42px; }
+  .pallet-viewer { height:auto; min-height:65vh; }
+  .top-actions > button, .top-actions > select { min-height:42px; }
+}
+@media (max-width:520px) {
+  .top-actions > button { flex:1 1 calc(50% - 4px); }
+  .top-actions > .excel-message { flex-basis:100%; }
+  .pallet-mode-panel-inline .pallet-preview { height:280px; }
+}
