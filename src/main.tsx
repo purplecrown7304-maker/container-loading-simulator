@@ -5,6 +5,7 @@ import ErrorBoundary from './ErrorBoundary';
 import ExcelImportActions from './ExcelImportActions';
 import './styles.css';
 import './mode.css';
+import './error.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
