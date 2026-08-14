@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.3.0
+
+- 전역 Error Boundary 추가: 예기치 않은 렌더링 오류 시 흰 화면 대신 복구 UI 표시
+- 오류 복구 화면에서 새로고침 또는 브라우저 로컬 데이터 초기화 제공
+- `vercel.json` 추가: Vite build/output 설정, SPA rewrite, 정적 assets 장기 캐시 적용
+- 전체 초기화 전에 되돌릴 수 없는 작업임을 확인하는 보호 절차 추가
+- 화면 버전 표기와 package 버전을 v1.3.0으로 통일
+- 기존 보안 감사, 20개 회귀 테스트, production build, 번들 예산 검증 유지
+
 ## v1.2.0
 
 - 박스 3D 렌더링을 품목별 `InstancedMesh` 방식으로 변경해 대량 화물 draw call 감소
