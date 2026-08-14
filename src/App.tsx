@@ -133,6 +133,7 @@ export default function App() {
     setSaveMessage('저장된 데이터를 불러왔습니다.');
   };
   const resetAll = () => {
+    if (!window.confirm('등록된 화물과 이 브라우저의 저장 데이터를 모두 초기화할까요? 이 작업은 되돌릴 수 없습니다.')) return;
     setContainer(defaultContainer);
     setCargo([]);
     setResult(loadContainer(defaultContainer, []));
@@ -142,7 +143,7 @@ export default function App() {
   };
 
   return <main className="app-shell">
-    <header className="topbar"><div><strong>Container Loading Simulator</strong><span>Codex release v1.2.0</span></div><div className="top-actions"><div className="loading-mode-switch"><button className={mode === 'boxes' ? 'active' : 'secondary'} onClick={() => setMode('boxes')}>박스만 적재</button><button className={mode === 'pallets' ? 'active' : 'secondary'} onClick={() => setMode('pallets')}>팔레트 사용</button></div><button className="secondary" onClick={saveLocal}>저장</button><button className="secondary" onClick={loadLocal}>불러오기</button><button onClick={runLoading}>{mode === 'boxes' ? '박스 적재 실행' : '팔레트 적재 실행'}</button></div></header>
+    <header className="topbar"><div><strong>Container Loading Simulator</strong><span>Codex release v1.3.0</span></div><div className="top-actions"><div className="loading-mode-switch"><button className={mode === 'boxes' ? 'active' : 'secondary'} onClick={() => setMode('boxes')}>박스만 적재</button><button className={mode === 'pallets' ? 'active' : 'secondary'} onClick={() => setMode('pallets')}>팔레트 사용</button></div><button className="secondary" onClick={saveLocal}>저장</button><button className="secondary" onClick={loadLocal}>불러오기</button><button onClick={runLoading}>{mode === 'boxes' ? '박스 적재 실행' : '팔레트 적재 실행'}</button></div></header>
     <section className="workspace">
       <aside className="panel left-panel">
         <h2>컨테이너 설정</h2><div className="form-grid container-form"><label>길이(m)<input type="number" min="0.01" step="0.01" value={container.length} onChange={e => updateContainer('length', e.target.value)} /></label><label>폭(m)<input type="number" min="0.01" step="0.01" value={container.width} onChange={e => updateContainer('width', e.target.value)} /></label><label>높이(m)<input type="number" min="0.01" step="0.01" value={container.height} onChange={e => updateContainer('height', e.target.value)} /></label><label>최대중량(kg)<input type="number" min="0" value={container.maxPayloadKg} onChange={e => updateContainer('maxPayloadKg', e.target.value)} /></label></div>
