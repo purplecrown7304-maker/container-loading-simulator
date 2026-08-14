@@ -4,7 +4,7 @@
 
 ## 현재 버전
 
-`v1.2.0`
+`v1.3.0`
 
 ## 주요 기능
 
@@ -24,8 +24,11 @@
 - 엑셀 템플릿 다운로드 및 일괄 업로드
 - Excel 업로드 즉시 화면 반영(페이지 새로고침 불필요)
 - 브라우저 로컬 저장/불러오기
+- 전체 초기화 전 사용자 확인 절차
 - 모바일 반응형 UI 및 터치 조작
 - 대량 화물용 InstancedMesh 3D 렌더링
+- 전역 Error Boundary 기반 오류 복구 화면
+- Vercel 정적 배포 설정 포함
 
 ## 기술 스택
 
@@ -57,7 +60,7 @@ npm run build
 npm run check
 ```
 
-`main` 브랜치에 push하거나 Pull Request를 만들면 GitHub Actions가 자동으로 설치, 테스트, TypeScript/Vite production build를 실행합니다. `main`의 성공한 push에서는 검증된 `dist` 결과물을 Actions artifact로 14일간 보관합니다.
+`main` 브랜치에 push하거나 Pull Request를 만들면 GitHub Actions가 자동으로 의존성 설치, high 이상 보안 감사, 테스트, TypeScript/Vite production build, 초기 JS 번들 예산 검사를 실행합니다. `main`의 성공한 push에서는 검증된 `dist` 결과물을 Actions artifact로 14일간 보관합니다.
 
 ## 자동 테스트 범위
 
@@ -95,19 +98,29 @@ npm run check
 - 박스와 팔레트 화물은 품목별 `InstancedMesh`로 묶어 draw call을 줄입니다.
 - Canvas DPR을 제한해 고해상도 모바일 기기의 GPU 부하를 완화합니다.
 - 40ft급 다품목 혼합 적재 스트레스 테스트를 CI에서 지속 실행합니다.
+- 초기 메인 JS는 CI에서 800 KiB 상한을 적용합니다.
 
-## v1.2.0 완료 기준
+## 운영 안정성
 
-v1.2.0은 핵심 적재 엔진, 팔레트 모드, 3D 검토, 엑셀 입력, 형상/무게중심 평가, 대량 3D 렌더링 최적화, 회귀 테스트와 CI production build가 하나의 안정화 기준선에서 통과하는 버전입니다.
+- 예기치 않은 React 렌더링 오류가 발생하면 흰 화면 대신 복구 화면을 표시합니다.
+- 복구 화면에서 새로고침 또는 브라우저 로컬 데이터 초기화를 선택할 수 있습니다.
+- 화물 전체 초기화는 사용자 확인 후에만 수행됩니다.
+- npm high 이상 취약점이 발견되거나 번들 예산을 초과하면 CI가 실패합니다.
+
+## v1.3.0 완료 기준
+
+v1.3.0은 핵심 적재 엔진, 팔레트 모드, 3D 검토, 엑셀 입력, 형상/무게중심 평가, 대량 3D 렌더링 최적화, 오류 복구, 보안/번들 검증과 production build가 하나의 운영 기준선에서 통과하는 버전입니다.
 
 실제 현장 적용 전에는 회사별 박스 압축강도, 팔레트 규격, 바닥 허용하중, 차량/컨테이너 축중, 고정·결박 방식 및 작업 안전 기준을 별도로 검증해야 합니다. 시뮬레이터 결과는 작업 의사결정 보조 자료이며 현장 안전 검증을 대체하지 않습니다.
 
 ## 배포
 
-성공한 `main` CI 실행에서 `container-loading-simulator-dist` 아티팩트를 생성합니다. 정적 호스팅 서비스에는 해당 `dist` 내용을 배포하면 됩니다. 호스팅 서비스별 연결 정보와 배포 권한은 저장소 코드와 별도로 관리합니다.
+`vercel.json`에 Vite build(`npm run build`), `dist` 출력 디렉터리, SPA rewrite, 해시 assets 장기 캐시 정책이 포함되어 있습니다. Vercel에서 이 GitHub 저장소를 새 프로젝트로 연결하면 별도 프레임워크 설정 없이 배포할 수 있습니다.
+
+성공한 `main` CI 실행에서도 `container-loading-simulator-dist` 아티팩트를 생성합니다. 다른 정적 호스팅 서비스를 쓸 경우 해당 `dist` 내용을 배포하면 됩니다.
 
 ## 개발 원칙
 
 적재 로직은 UI와 분리된 `src/engine`에서 관리합니다. 새 적재 규칙을 추가하거나 수정할 때는 기존 제약을 깨지 않는 회귀 테스트를 함께 추가합니다.
 
-변경 내역은 `CHANGELOG.md`를 참고하세요.
+변경 내역은 `CHANGELOG.md`, 운영 배포 절차는 `DEPLOYMENT.md`를 참고하세요.
