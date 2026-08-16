@@ -27,7 +27,7 @@ jobs:
       - name: Security audit
         run: npm audit --audit-level=high
 
-      - name: Run tests
+      - name: Run engine tests
         run: npm test
 
       - name: Build
@@ -35,6 +35,12 @@ jobs:
 
       - name: Check initial bundle budget
         run: npm run check:bundle
+
+      - name: Install Chromium for E2E
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser smoke tests
+        run: npm run test:e2e
 
       - name: Upload production build
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
