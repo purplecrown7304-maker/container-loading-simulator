@@ -29,6 +29,13 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color:
 .viewer { position: relative; min-width: 0; overflow: hidden; background: white; border: 1px solid #e3e7ee; border-radius: 14px; }
 .viewer-direction { position: absolute; top: 14px; left: 14px; z-index: 5; display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-radius: 10px; background: rgba(255,255,255,.9); box-shadow: 0 8px 24px rgba(23,32,51,.08); font-size: 12px; pointer-events: none; backdrop-filter: blur(8px); }
 .viewer-direction span { color: #687286; }
+.cargo-inspector { position: absolute; right: 14px; bottom: 14px; z-index: 6; width: min(300px, calc(100% - 28px)); display: flex; flex-direction: column; gap: 5px; padding: 12px 13px; border-radius: 12px; background: rgba(255,255,255,.95); box-shadow: 0 12px 32px rgba(23,32,51,.16); backdrop-filter: blur(10px); }
+.cargo-inspector-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cargo-inspector-head b { font-size: 13px; }
+.cargo-inspector-head button { padding: 5px 8px; border-radius: 7px; background: #eef1f5; color: #52617a; font-size: 10px; }
+.cargo-inspector > strong { font-size: 14px; }
+.cargo-inspector > span { color: #52617a; font-size: 11px; }
+.cargo-inspector > small { color: #7a8495; font-size: 10px; line-height: 1.4; }
 .zone-summary { position: absolute; top: 14px; right: 14px; z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .zone-summary span { padding: 7px 9px; border-radius: 9px; background: rgba(255,255,255,.9); box-shadow: 0 8px 24px rgba(23,32,51,.08); color: #52617a; font-size: 11px; font-weight: 700; backdrop-filter: blur(8px); }
 .cargo-legend { position: absolute; left: 14px; bottom: 14px; z-index: 5; width: min(320px, calc(100% - 28px)); max-height: 180px; overflow: auto; padding: 11px 12px; border-radius: 12px; background: rgba(255,255,255,.92); box-shadow: 0 8px 24px rgba(23,32,51,.1); font-size: 12px; backdrop-filter: blur(8px); }
@@ -119,6 +126,7 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color:
   .excel-message { max-width: none; width: 100%; }
   .excel-report-list article { grid-template-columns: 58px 1fr; }
   .cargo-legend { max-height: 140px; }
+  .cargo-inspector { left: 10px; right: 10px; bottom: 10px; width: auto; }
   .zone-summary { top: 54px; left: 14px; right: auto; justify-content: flex-start; }
   .pallet-mode-widget { right: 10px; bottom: 10px; }
   .pallet-preview { height: 240px; }
