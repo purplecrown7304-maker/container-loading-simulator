@@ -1,6 +1,6 @@
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Text } from '@react-three/drei';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { assessWeightBalance } from './engine/weightBalance';
 import { buildPlacementAddresses } from './engine/locationGrid';
@@ -71,11 +71,12 @@ function SelectedCargo({ placement, container, scale }: { placement: Placement; 
   </mesh>;
 }
 
-function Scene({ result, container, selectedIndex, onSelect }: {
+function Scene({ result, container, selectedIndex, onSelect, onClear }: {
   result: LoadingResult;
   container: ContainerSpec;
   selectedIndex: number | null;
   onSelect: (index: number) => void;
+  onClear: () => void;
 }) {
   const scale = 0.45;
   const quality = assessWeightBalance(container, result);
@@ -102,8 +103,8 @@ function Scene({ result, container, selectedIndex, onSelect }: {
   return <>
     <ambientLight intensity={1.5} />
     <directionalLight position={[5, 8, 6]} intensity={2} />
-    <gridHelper args={[8, 20]} position={[0, -0.01, 0]} />
-    <mesh position={[0, cy, 0]} onClick={(event) => event.stopPropagation()}>
+    <gridHelper args={[8, 20]} position={[0, -0.01, 0]} onClick={onClear} />
+    <mesh position={[0, cy, 0]} onClick={(event) => { event.stopPropagation(); onClear(); }}>
       <boxGeometry args={[container.length * scale, container.height * scale, container.width * scale]} />
       <meshBasicMaterial wireframe transparent opacity={0.22} />
     </mesh>
@@ -149,6 +150,10 @@ export default function BoxLoadingViewer({ result, container }: { result: Loadin
   const selected = selectedIndex === null ? undefined : result.placements[selectedIndex];
   const selectedAddress = selectedIndex === null ? undefined : addresses[selectedIndex];
 
+  useEffect(() => {
+    if (selectedIndex !== null && !result.placements[selectedIndex]) setSelectedIndex(null);
+  }, [result.placements, selectedIndex]);
+
   return <section className="viewer">
     <Canvas
       camera={{ position:[5.5,4.2,6.5], fov:48 }}
@@ -156,7 +161,7 @@ export default function BoxLoadingViewer({ result, container }: { result: Loadin
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       onPointerMissed={() => setSelectedIndex(null)}
     >
-      <Scene result={result} container={container} selectedIndex={selectedIndex} onSelect={setSelectedIndex} />
+      <Scene result={result} container={container} selectedIndex={selectedIndex} onSelect={setSelectedIndex} onClear={() => setSelectedIndex(null)} />
     </Canvas>
     <div className="viewer-direction"><b>박스 적재</b><span>박스를 눌러 상세 위치 확인</span></div>
     {selected && selectedAddress && <div className="cargo-inspector">
