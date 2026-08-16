@@ -4,7 +4,7 @@
 
 ## 현재 버전
 
-`v1.3.0`
+`v1.5.0`
 
 ## 주요 기능
 
@@ -27,16 +27,20 @@
 - 전체 초기화 전 사용자 확인 절차
 - 모바일 반응형 UI 및 터치 조작
 - 대량 화물용 InstancedMesh 3D 렌더링
+- 3D 박스 클릭 선택 및 코드/R/C/L/구역/XYZ/회전/치수/중량 상세 확인
+- 인쇄/PDF 저장용 컨테이너 적재 작업지시서 생성
 - 전역 Error Boundary 기반 오류 복구 화면
 - Vercel 정적 배포 설정 포함
+- Playwright 데스크톱/모바일 브라우저 smoke test 준비
 
 ## 기술 스택
 
-- React
+- React 19
 - TypeScript
 - Vite
 - Three.js / React Three Fiber / Drei
 - Vitest
+- Playwright
 - SheetJS (`xlsx` 0.20.3 공식 배포본)
 - GitHub Actions
 
@@ -60,7 +64,18 @@ npm run build
 npm run check
 ```
 
-`main` 브랜치에 push하거나 Pull Request를 만들면 GitHub Actions가 자동으로 의존성 설치, high 이상 보안 감사, 테스트, TypeScript/Vite production build, 초기 JS 번들 예산 검사를 실행합니다. `main`의 성공한 push에서는 검증된 `dist` 결과물을 Actions artifact로 14일간 보관합니다.
+브라우저 E2E는 Chromium 설치 후 다음으로 실행합니다.
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
+## 2026년 8월 CI 운영
+
+GitHub Actions Billing 제한 때문에 2026년 8월에는 `.github/workflows/ci.yml`을 `workflow_dispatch` 수동 실행 전용으로 유지합니다. 따라서 8월 동안 Actions 성공 여부를 개발 완료 조건으로 사용하지 않습니다.
+
+2026년 9월 Actions 사용 가능 상태가 되면 `push` / `pull_request` 자동 실행을 다시 켭니다. 상세 절차는 `SEPTEMBER_CI.md`를 참고하세요.
 
 ## 자동 테스트 범위
 
@@ -77,6 +92,8 @@ npm run check
 - 팔레트 포함 총중량
 - 팔레트 최대 적층단
 - 팔레트 위 박스 회전 및 exact-fit
+- 작업지시서 HTML 생성 및 사용자 입력 escape
+- 데스크톱 Chromium / Pixel 7 모바일 주요 화면 smoke test
 
 ## 엑셀 업로드
 
@@ -84,43 +101,59 @@ npm run check
 
 회전 허용 값은 `Y/N`, `허용/금지`, `TRUE/FALSE`, `1/0`을 인식합니다. 업로드 성공 후 앱 상태가 즉시 갱신되므로 페이지를 다시 열 필요가 없습니다.
 
-## 적재 방향 기준
+## 3D 현장 검토
 
 - X축: 컨테이너 안쪽 → 문쪽
 - Y축: 좌측 → 우측
 - Z축: 바닥 → 천장
 - 무거운 화물과 팔레트는 안쪽 및 낮은 위치를 우선합니다.
 - 완성도가 낮은 저층 행은 앞/중앙에 남기지 않고 가능한 경우 문쪽 마지막 혼합 구역으로 이동합니다.
+- 3D의 박스를 클릭하면 해당 박스가 강조되고 행/열/단, 구역, XYZ 위치와 실제 치수/중량을 확인할 수 있습니다.
+
+## 작업지시서
+
+박스 적재 모드에서 상단 `작업지시서` 버튼을 누르면 현재 결과 기준의 인쇄용 새 창을 생성합니다.
+
+포함 정보:
+- 컨테이너 규격 및 최대중량
+- 적재수량 / 적재중량 / 체적 적재율
+- 적재 품질점수 / 좌우·앞뒤 편차
+- 품목별 요청수량 / 적재수량 / 잔량
+- 미적재 수량과 사유
+- 현장 안전 검증 경고
+
+브라우저 인쇄 기능을 이용해 종이 출력 또는 PDF 저장이 가능합니다.
 
 ## 성능 기준
 
 - 3D 모듈은 초기 화면과 분리해 지연 로딩합니다.
 - 박스와 팔레트 화물은 품목별 `InstancedMesh`로 묶어 draw call을 줄입니다.
 - Canvas DPR을 제한해 고해상도 모바일 기기의 GPU 부하를 완화합니다.
-- 40ft급 다품목 혼합 적재 스트레스 테스트를 CI에서 지속 실행합니다.
-- 초기 메인 JS는 CI에서 800 KiB 상한을 적용합니다.
+- 40ft급 다품목 혼합 적재 스트레스 테스트를 유지합니다.
+- 초기 메인 JS는 CI 재활성화 후 800 KiB 상한으로 자동 검증합니다.
 
 ## 운영 안정성
 
 - 예기치 않은 React 렌더링 오류가 발생하면 흰 화면 대신 복구 화면을 표시합니다.
 - 복구 화면에서 새로고침 또는 브라우저 로컬 데이터 초기화를 선택할 수 있습니다.
 - 화물 전체 초기화는 사용자 확인 후에만 수행됩니다.
-- npm high 이상 취약점이 발견되거나 번들 예산을 초과하면 CI가 실패합니다.
+- npm high 이상 취약점 감사, production build, 번들 예산, 브라우저 E2E가 9월 CI 자동 검증 대상으로 준비되어 있습니다.
+- 8월 수동 검수 기준은 `MANUAL_QA.md`를 사용합니다.
 
-## v1.3.0 완료 기준
+## v1.5.0 완료 기준
 
-v1.3.0은 핵심 적재 엔진, 팔레트 모드, 3D 검토, 엑셀 입력, 형상/무게중심 평가, 대량 3D 렌더링 최적화, 오류 복구, 보안/번들 검증과 production build가 하나의 운영 기준선에서 통과하는 버전입니다.
+v1.5.0은 핵심 적재 엔진, 팔레트 모드, Excel 입력, 3D 대량 렌더링, 개별 박스 현장 조회, 작업지시서 출력, 오류 복구, 모바일 UI, 엔진 회귀 테스트, 브라우저 E2E 준비가 하나의 운영 기준선에 포함된 버전입니다.
 
 실제 현장 적용 전에는 회사별 박스 압축강도, 팔레트 규격, 바닥 허용하중, 차량/컨테이너 축중, 고정·결박 방식 및 작업 안전 기준을 별도로 검증해야 합니다. 시뮬레이터 결과는 작업 의사결정 보조 자료이며 현장 안전 검증을 대체하지 않습니다.
 
 ## 배포
 
-`vercel.json`에 Vite build(`npm run build`), `dist` 출력 디렉터리, SPA rewrite, 해시 assets 장기 캐시 정책이 포함되어 있습니다. Vercel에서 이 GitHub 저장소를 새 프로젝트로 연결하면 별도 프레임워크 설정 없이 배포할 수 있습니다.
+`vercel.json`에 Vite build(`npm run build`), `dist` 출력 디렉터리, SPA rewrite, 해시 assets 장기 캐시 정책이 포함되어 있습니다. Vercel에서 이 GitHub 저장소를 새 프로젝트로 연결하면 정적 웹앱으로 배포할 수 있습니다.
 
-성공한 `main` CI 실행에서도 `container-loading-simulator-dist` 아티팩트를 생성합니다. 다른 정적 호스팅 서비스를 쓸 경우 해당 `dist` 내용을 배포하면 됩니다.
+9월 CI 재활성화 후 성공한 `main` 실행에서는 `container-loading-simulator-dist` 아티팩트를 다시 자동 생성하도록 준비되어 있습니다.
 
 ## 개발 원칙
 
 적재 로직은 UI와 분리된 `src/engine`에서 관리합니다. 새 적재 규칙을 추가하거나 수정할 때는 기존 제약을 깨지 않는 회귀 테스트를 함께 추가합니다.
 
-변경 내역은 `CHANGELOG.md`, 운영 배포 절차는 `DEPLOYMENT.md`를 참고하세요.
+변경 내역은 `CHANGELOG.md`, 배포 절차는 `DEPLOYMENT.md`, 수동 검수는 `MANUAL_QA.md`, 9월 CI 재가동은 `SEPTEMBER_CI.md`를 참고하세요.
