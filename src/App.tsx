@@ -3,6 +3,7 @@ import { loadContainer } from './engine/loadingEngine';
 import { assessWeightBalance } from './engine/weightBalance';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
+import { openLoadingReport } from './report';
 import { normalizeCargo, readStoredState, STORAGE_KEY, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
 
 const BoxLoadingViewer = lazy(() => import('./BoxLoadingViewer'));
@@ -115,6 +116,15 @@ export default function App() {
     if (mode === 'boxes') setResult(loadContainer(container, cargo.filter(item => item.quantity > 0)));
     else setPalletRunToken(token => token + 1);
   };
+  const printReport = () => {
+    if (mode !== 'boxes') {
+      setSaveMessage('작업지시서 출력은 현재 박스 적재 결과 기준입니다. 박스만 적재 모드에서 실행하세요.');
+      return;
+    }
+    if (!openLoadingReport(container, cargo, result)) {
+      setSaveMessage('팝업이 차단되어 작업지시서를 열지 못했습니다. 브라우저 팝업 허용 후 다시 시도하세요.');
+    }
+  };
   const saveLocal = () => {
     if (!isValidContainer(container)) {
       setSaveMessage('유효한 컨테이너 정보를 먼저 입력하세요.');
@@ -143,7 +153,7 @@ export default function App() {
   };
 
   return <main className="app-shell">
-    <header className="topbar"><div><strong>Container Loading Simulator</strong><span>Codex release v1.3.0</span></div><div className="top-actions"><div className="loading-mode-switch"><button className={mode === 'boxes' ? 'active' : 'secondary'} onClick={() => setMode('boxes')}>박스만 적재</button><button className={mode === 'pallets' ? 'active' : 'secondary'} onClick={() => setMode('pallets')}>팔레트 사용</button></div><button className="secondary" onClick={saveLocal}>저장</button><button className="secondary" onClick={loadLocal}>불러오기</button><button onClick={runLoading}>{mode === 'boxes' ? '박스 적재 실행' : '팔레트 적재 실행'}</button></div></header>
+    <header className="topbar"><div><strong>Container Loading Simulator</strong><span>Codex release v1.5.0</span></div><div className="top-actions"><div className="loading-mode-switch"><button className={mode === 'boxes' ? 'active' : 'secondary'} onClick={() => setMode('boxes')}>박스만 적재</button><button className={mode === 'pallets' ? 'active' : 'secondary'} onClick={() => setMode('pallets')}>팔레트 사용</button></div><button className="secondary" onClick={saveLocal}>저장</button><button className="secondary" onClick={loadLocal}>불러오기</button><button className="secondary" onClick={printReport}>작업지시서</button><button onClick={runLoading}>{mode === 'boxes' ? '박스 적재 실행' : '팔레트 적재 실행'}</button></div></header>
     <section className="workspace">
       <aside className="panel left-panel">
         <h2>컨테이너 설정</h2><div className="form-grid container-form"><label>길이(m)<input type="number" min="0.01" step="0.01" value={container.length} onChange={e => updateContainer('length', e.target.value)} /></label><label>폭(m)<input type="number" min="0.01" step="0.01" value={container.width} onChange={e => updateContainer('width', e.target.value)} /></label><label>높이(m)<input type="number" min="0.01" step="0.01" value={container.height} onChange={e => updateContainer('height', e.target.value)} /></label><label>최대중량(kg)<input type="number" min="0" value={container.maxPayloadKg} onChange={e => updateContainer('maxPayloadKg', e.target.value)} /></label></div>
