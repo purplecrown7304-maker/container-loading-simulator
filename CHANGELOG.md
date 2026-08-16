@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.5.0
+
+- 3D 박스 클릭 선택 기능 추가: 선택 박스 외곽선 강조 및 코드/R/C/L/구역/XYZ/회전/치수/중량 표시
+- 박스 적재 결과를 새 창의 인쇄용 작업지시서로 생성하는 기능 추가
+- 작업지시서에 컨테이너 규격, 적재 수량, 중량, 적재율, 품질점수, 좌우/앞뒤 편차 포함
+- 품목별 요청/적재/잔량 및 미적재 사유 표 포함
+- 작업지시서 사용자 입력 문자열 HTML escape 처리 및 회귀 테스트 추가
+- `MANUAL_QA.md` 추가: PC/모바일/Excel/박스/팔레트/3D/저장/리포트/현장 데이터 수동 검수 기준
+- `SEPTEMBER_CI.md` 추가: 2026년 9월 GitHub Actions 자동 실행 재활성화 절차
+- 8월 GitHub Actions는 Billing 제한을 고려하여 수동 실행 전용 유지
+
+## v1.4.0
+
+- Playwright 기반 데스크톱 Chromium / Pixel 7 모바일 smoke test 구성
+- 브라우저에서 첫 화면, 모드 전환, 적재 실행, 저장/불러오기, Canvas 표시 검증 준비
+- GitHub Actions 런타임 액션을 Node 24 세대로 갱신
+- 2026년 8월 Actions Billing 제한 확인 후 자동 push/PR 실행을 일시 중지
+
 ## v1.3.0
 
 - 전역 Error Boundary 추가: 예기치 않은 렌더링 오류 시 흰 화면 대신 복구 UI 표시
