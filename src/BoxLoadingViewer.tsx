@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { CARGO_FILTER_EVENT } from './CargoFilterBar';
 import { assessWeightBalance } from './engine/weightBalance';
 import { buildPlacementAddresses } from './engine/locationGrid';
+import { assessZoneUtilization, detectZoneFlowWarning } from './engine/zoneUtilization';
 import type { ContainerSpec, LoadingResult, Placement } from './engine/types';
 import { PLACEMENT_SELECT_EVENT, selectPlacement, type PlacementSelectDetail } from './selectionEvents';
 
@@ -179,6 +180,10 @@ function TopDownMinimap({ result, container, addresses, selectedIndex, filteredC
   const visible = result.placements
     .map((placement, index) => ({ placement, index, address: addresses[index] }))
     .filter(({ placement, address }) => (!filteredCargoId || placement.cargoId === filteredCargoId) && (layerLimit === null || (address?.layer ?? Infinity) <= layerLimit));
+  const visiblePlacements = visible.map(item => item.placement);
+  const zones = assessZoneUtilization(container, visiblePlacements);
+  const flowWarning = detectZoneFlowWarning(zones);
+  const filteredView = Boolean(filteredCargoId || layerLimit !== null);
 
   return <div className="topdown-minimap">
     <div className="topdown-minimap-head"><b>상단 평면 미니맵</b><span>안쪽 → 문쪽</span></div>
@@ -206,6 +211,14 @@ function TopDownMinimap({ result, container, addresses, selectedIndex, filteredC
       <text x="5" y="12" fontSize="8" fill="currentColor" opacity=".7">안쪽</text>
       <text x={width - 5} y="12" textAnchor="end" fontSize="8" fill="currentColor" opacity=".7">문</text>
     </svg>
+    <div className="zone-utilization-grid" aria-label="구역별 CBM 적재율">
+      {zones.map(zone => <div key={zone.id} className="zone-utilization-card">
+        <span>{zone.label}</span><strong>{zone.fillPct.toFixed(0)}%</strong><small>빈 공간 {zone.freePct.toFixed(0)}%</small>
+        <div className="zone-utilization-track"><i style={{ width: `${zone.fillPct}%` }} /></div>
+      </div>)}
+    </div>
+    {filteredView && <div className="zone-utilization-note">현재 품목/층 필터에 보이는 박스 기준 CBM입니다.</div>}
+    {flowWarning && <div className="zone-flow-warning">{flowWarning}</div>}
   </div>;
 }
 
