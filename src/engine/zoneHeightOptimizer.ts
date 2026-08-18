@@ -1,4 +1,4 @@
-import type { CargoItem, ContainerSpec, Placement } from './types';
+import type { AutoCorrectionRecord, CargoItem, ContainerSpec, Placement } from './types';
 import { findMixedPlacement } from './mixedPacking';
 import { assessShapeQuality } from './shapeQuality';
 import { assessZoneUtilization } from './zoneUtilization';
@@ -10,6 +10,7 @@ export type ZoneHeightOptimizationResult = {
   movedCount: number;
   beforeSpikeScore: number;
   afterSpikeScore: number;
+  history: AutoCorrectionRecord[];
 };
 
 function footprintOverlap(a: Placement, b: Placement) {
@@ -46,6 +47,13 @@ function samePosition(a: Placement, b: Placement) {
     Math.abs(a.length - b.length) <= EPS && Math.abs(a.width - b.width) <= EPS;
 }
 
+function zoneName(container: ContainerSpec, placement: Placement) {
+  const centerX = placement.x + placement.length / 2;
+  if (centerX < container.length / 3) return '안쪽';
+  if (centerX < container.length * 2 / 3) return '중앙';
+  return '문쪽';
+}
+
 /**
  * 중앙 구역의 뿔 모양 적재를 안전하게 완화한다.
  * - 위 화물을 받치지 않는 중앙 최상단 박스만 이동 후보로 삼는다.
@@ -63,9 +71,10 @@ export function optimizeZoneHeightShape(
   let currentSpikeScore = beforeSpikeScore;
   let currentShapePenalty = assessShapeQuality(container, placements).shapePenalty;
   let movedCount = 0;
+  const history: AutoCorrectionRecord[] = [];
 
   if (beforeSpikeScore <= EPS) {
-    return { placements, movedCount, beforeSpikeScore, afterSpikeScore: currentSpikeScore };
+    return { placements, movedCount, beforeSpikeScore, afterSpikeScore: currentSpikeScore, history };
   }
 
   const zoneLength = container.length / 3;
@@ -95,6 +104,7 @@ export function optimizeZoneHeightShape(
     ].filter((candidate): candidate is Placement => Boolean(candidate));
 
     let bestTrial: Placement[] | null = null;
+    let bestCandidate: Placement | null = null;
     let bestSpike = currentSpikeScore;
     let bestPenalty = currentShapePenalty;
 
@@ -107,16 +117,28 @@ export function optimizeZoneHeightShape(
       if (penalty > currentShapePenalty + 0.5) continue;
       if (spike < bestSpike - EPS || (Math.abs(spike - bestSpike) <= EPS && penalty < bestPenalty)) {
         bestTrial = trial;
+        bestCandidate = candidate;
         bestSpike = spike;
         bestPenalty = penalty;
       }
     }
 
-    if (!bestTrial) continue;
+    if (!bestTrial || !bestCandidate) continue;
+    const previousSpike = currentSpikeScore;
     placements = bestTrial;
     currentSpikeScore = bestSpike;
     currentShapePenalty = bestPenalty;
     movedCount += 1;
+    history.push({
+      kind: 'ZONE_HEIGHT',
+      label: '중앙 돌출 자동 보정',
+      cargoId: original.cargoId,
+      from: { x: original.x, y: original.y, z: original.z },
+      to: { x: bestCandidate.x, y: bestCandidate.y, z: bestCandidate.z },
+      beforeScore: previousSpike,
+      afterScore: bestSpike,
+      description: `${original.cargoId}를 중앙에서 ${zoneName(container, bestCandidate)} 구역의 더 낮은 안전 위치로 이동`,
+    });
   }
 
   return {
@@ -124,5 +146,6 @@ export function optimizeZoneHeightShape(
     movedCount,
     beforeSpikeScore,
     afterSpikeScore: currentSpikeScore,
+    history,
   };
 }
