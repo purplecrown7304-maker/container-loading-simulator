@@ -1,0 +1,5 @@
+.location-row { cursor: pointer; transition: background .15s ease, box-shadow .15s ease, transform .15s ease; }
+.location-row:hover { background: #f2f6ff; }
+.location-row:focus-visible { outline: 2px solid #7a8fb3; outline-offset: -2px; }
+.location-row.selected { background: #eaf1ff; box-shadow: inset 3px 0 0 #526b95; transform: translateX(1px); }
+.location-row.selected b { color: #203a66; }
