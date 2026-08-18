@@ -1,0 +1,14 @@
+.zone-utilization-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 5px; margin-top: 7px; }
+.zone-utilization-card { padding: 6px 7px; border-radius: 8px; background: rgba(246,248,251,.96); border: 1px solid rgba(220,226,235,.9); }
+.zone-utilization-card span, .zone-utilization-card small { display: block; color: #687286; font-size: 9px; line-height: 1.35; }
+.zone-utilization-card strong { display: block; margin: 1px 0; font-size: 12px; color: #172033; }
+.zone-utilization-track { height: 4px; margin-top: 5px; overflow: hidden; border-radius: 99px; background: #e6eaf0; }
+.zone-utilization-track i { display: block; height: 100%; border-radius: inherit; background: #172033; }
+.zone-utilization-note { margin-top: 6px; color: #687286; font-size: 9px; line-height: 1.35; }
+.zone-flow-warning { margin-top: 6px; padding: 6px 7px; border-radius: 7px; background: #fff4df; color: #805b13; font-size: 9px; line-height: 1.4; font-weight: 700; }
+@media (max-width: 520px) {
+  .zone-utilization-grid { gap: 3px; }
+  .zone-utilization-card { padding: 5px; }
+  .zone-utilization-card span, .zone-utilization-card small, .zone-utilization-note, .zone-flow-warning { font-size: 8px; }
+  .zone-utilization-card strong { font-size: 11px; }
+}
