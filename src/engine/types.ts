@@ -38,10 +38,23 @@ export type ValidationIssue = {
   placementIndexes: number[];
 };
 
+export type AutoCorrectionRecord = {
+  kind: 'SHAPE' | 'LOW_ROW' | 'ZONE_HEIGHT';
+  label: string;
+  description: string;
+  cargoId?: string;
+  from?: { x: number; y: number; z: number };
+  to?: { x: number; y: number; z: number };
+  beforeScore?: number;
+  afterScore?: number;
+};
+
 export type LoadingResult = {
   placements: Placement[];
   remaining: Array<{ cargoId: string; quantity: number; reason: string }>;
   loadedWeightKg: number;
   usedVolumeM3: number;
   validationIssues: ValidationIssue[];
+  /** 적재 완료 후 자동 형상 보정이 실제 수행된 경우의 이력. */
+  autoCorrections?: AutoCorrectionRecord[];
 };
