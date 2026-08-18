@@ -84,6 +84,40 @@ describe('loadContainer', () => {
     expect(result.validationIssues).toEqual([]);
   });
 
+  it('fills complete same-SKU slices from the inside before moving toward the door', () => {
+    const result = loadContainer(
+      { length: 2, width: 1, height: 1, maxPayloadKg: 5000 },
+      [cargo({ id: 'FULL', name: 'FULL', length: 0.5, width: 0.5, height: 0.5, quantity: 8, maxStackLayers: 2 })],
+    );
+    const xs = [...new Set(result.placements.map((p) => Number(p.x.toFixed(6))))].sort((a, b) => a - b);
+    expect(xs).toEqual([0, 0.5]);
+    for (const x of xs) expect(result.placements.filter((p) => Math.abs(p.x - x) < 1e-9)).toHaveLength(4);
+  });
+
+  it('defers an incomplete same-SKU slice instead of opening a ragged next slice', () => {
+    const result = loadContainer(
+      { length: 2, width: 1, height: 1, maxPayloadKg: 5000 },
+      [cargo({ id: 'RAGGED', name: 'RAGGED', length: 0.5, width: 0.5, height: 0.5, quantity: 5, maxStackLayers: 2 })],
+    );
+    const fullInsideSlice = result.placements.filter((p) => Math.abs(p.x) < 1e-9);
+    expect(fullInsideSlice).toHaveLength(4);
+    expect(result.placements).toHaveLength(5);
+    expect(result.validationIssues).toEqual([]);
+  });
+
+  it('prioritizes larger CBM demand and weight before smaller cargo', () => {
+    const result = loadContainer(
+      { length: 2, width: 1, height: 1, maxPayloadKg: 5000 },
+      [
+        cargo({ id: 'SMALL', name: 'SMALL', length: 0.25, width: 0.25, height: 0.25, weightKg: 2, quantity: 8, maxStackLayers: 4 }),
+        cargo({ id: 'BIG', name: 'BIG', length: 0.5, width: 0.5, height: 0.5, weightKg: 30, quantity: 8, maxStackLayers: 2 }),
+      ],
+    );
+    const insideMost = [...result.placements].sort((a, b) => a.x - b.x)[0];
+    expect(insideMost?.cargoId).toBe('BIG');
+    expect(result.validationIssues).toEqual([]);
+  });
+
   // 대량 혼합 적재는 GitHub hosted runner 편차가 커 기본 5초 제한과 분리한다.
   // correctness는 동일하게 검증하고, 10초 안에 끝나지 못하면 성능 회귀로 실패시킨다.
   it('stays collision-free under a mixed multi-SKU stress case', () => {
