@@ -1,0 +1,9 @@
+.auto-correction-panel { margin-top: 22px; padding-top: 2px; }
+.auto-correction-list { display: flex; flex-direction: column; gap: 8px; }
+.auto-correction-card { padding: 10px 11px; border: 1px solid #e7ebf1; border-radius: 10px; background: #f8fafc; }
+.auto-correction-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.auto-correction-head b { font-size: 12px; }
+.auto-correction-head span { padding: 3px 6px; border-radius: 6px; background: #eef1f5; color: #52617a; font-size: 10px; }
+.auto-correction-card p { margin: 6px 0; color: #52617a; font-size: 11px; line-height: 1.45; }
+.auto-correction-card small { display: block; margin-top: 3px; color: #8a93a3; font-size: 10px; line-height: 1.4; }
+@media (max-width: 900px) { .auto-correction-panel { margin-top: 18px; } }
