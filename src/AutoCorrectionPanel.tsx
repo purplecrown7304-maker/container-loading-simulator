@@ -3,13 +3,17 @@ import { createPortal } from 'react-dom';
 import { AUTO_CORRECTION_EVENT, type AutoCorrectionEventDetail } from './correctionEvents';
 import type { AutoCorrectionRecord } from './engine/types';
 
+type CorrectionWindow = Window & { __containerLoadingAutoCorrections?: AutoCorrectionRecord[] };
+
 function positionText(point?: { x: number; y: number; z: number }) {
   if (!point) return null;
   return `X ${point.x.toFixed(2)} · Y ${point.y.toFixed(2)} · Z ${point.z.toFixed(2)}m`;
 }
 
 export default function AutoCorrectionPanel() {
-  const [corrections, setCorrections] = useState<AutoCorrectionRecord[]>([]);
+  const [corrections, setCorrections] = useState<AutoCorrectionRecord[]>(() =>
+    typeof window === 'undefined' ? [] : ((window as CorrectionWindow).__containerLoadingAutoCorrections ?? []),
+  );
   const [target, setTarget] = useState<Element | null>(null);
 
   useEffect(() => {
@@ -21,6 +25,8 @@ export default function AutoCorrectionPanel() {
   }, []);
 
   useEffect(() => {
+    const latest = (window as CorrectionWindow).__containerLoadingAutoCorrections;
+    if (latest) setCorrections(latest);
     const onCorrections = (event: Event) => {
       const detail = (event as CustomEvent<AutoCorrectionEventDetail>).detail;
       setCorrections(detail?.corrections ?? []);
