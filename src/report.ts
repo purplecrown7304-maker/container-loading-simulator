@@ -11,6 +11,11 @@ function escapeHtml(value: unknown): string {
     .replaceAll("'", '&#039;');
 }
 
+function pointText(point?: { x: number; y: number; z: number }) {
+  if (!point) return '-';
+  return `X ${point.x.toFixed(2)} / Y ${point.y.toFixed(2)} / Z ${point.z.toFixed(2)}m`;
+}
+
 export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult): string {
   const quality = assessWeightBalance(container, result);
   const explanation = explainLoading(container, cargo, result);
@@ -29,6 +34,10 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
   const explanationRows = explanation.cargo.map(item => `<tr><td>${escapeHtml(item.cargoId)}</td><td>${escapeHtml(item.zone)}</td><td>${item.rotated}</td><td>${item.priorityScore.toFixed(3)}</td><td>${item.reasons.map(escapeHtml).join('<br>')}</td></tr>`).join('');
   const ruleSummary = explanation.summary.map(item => `<li>${escapeHtml(item)}</li>`).join('');
 
+  const correctionRows = result.autoCorrections?.length
+    ? result.autoCorrections.map(item => `<tr><td>${escapeHtml(item.label)}</td><td>${escapeHtml(item.cargoId ?? '-')}</td><td>${escapeHtml(item.description)}</td><td>${escapeHtml(pointText(item.from))}</td><td>${escapeHtml(pointText(item.to))}</td><td>${item.beforeScore !== undefined && item.afterScore !== undefined ? `${item.beforeScore.toFixed(2)} → ${item.afterScore.toFixed(2)}` : '-'}</td></tr>`).join('')
+    : '<tr><td colspan="6">자동 재배치 없음</td></tr>';
+
   const remainingRows = result.remaining.length
     ? result.remaining.map(item => `<tr><td>${escapeHtml(item.cargoId)}</td><td>${item.quantity}</td><td>${escapeHtml(item.reason)}</td></tr>`).join('')
     : '<tr><td colspan="3">미적재 화물 없음</td></tr>';
@@ -40,9 +49,10 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
   <h2>적재 판단 기준</h2><ul class="rules">${ruleSummary}</ul>
   <h2>품목별 적재 현황</h2><table><thead><tr><th>코드</th><th>품명</th><th>요청</th><th>적재</th><th>잔량</th><th>개당 중량(kg)</th></tr></thead><tbody>${cargoRows}</tbody></table>
   <h2>품목별 배치 사유</h2><table><thead><tr><th>코드</th><th>주 배치 구역</th><th>회전 수량</th><th>우선순위 점수</th><th>설명</th></tr></thead><tbody>${explanationRows}</tbody></table>
+  <h2>자동 보정 이력</h2><table><thead><tr><th>보정</th><th>품목</th><th>내용</th><th>이동 전</th><th>이동 후</th><th>점수 변화</th></tr></thead><tbody>${correctionRows}</tbody></table>
   <h2>미적재 사유</h2><table><thead><tr><th>코드</th><th>수량</th><th>사유</th></tr></thead><tbody>${remainingRows}</tbody></table>
   <div class="warn"><b>현장 확인 필수</b><br>본 결과는 작업 의사결정 보조용입니다. 실제 박스 압축강도, 팔레트 허용하중, 컨테이너 바닥 집중하중, 축중, 결박·고정 및 작업 안전 기준은 현장에서 별도 검증해야 합니다.</div>
-  <div class="footer">요청 총수량: ${[...requested.values()].reduce((a,b)=>a+b,0)} EA · 검증 이슈: ${result.validationIssues.length}건</div></body></html>`;
+  <div class="footer">요청 총수량: ${[...requested.values()].reduce((a,b)=>a+b,0)} EA · 자동 보정: ${result.autoCorrections?.length ?? 0}건 · 검증 이슈: ${result.validationIssues.length}건</div></body></html>`;
 }
 
 export function openLoadingReport(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult): boolean {
