@@ -12,6 +12,7 @@ import './selection.css';
 import './cargo-filter.css';
 import './layer-slicer.css';
 import './minimap.css';
+import './zone-utilization.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
