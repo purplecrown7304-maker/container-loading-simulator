@@ -15,8 +15,8 @@ function cargoColor(id: string): string {
 }
 
 type IndexedPlacement = { placement: Placement; index: number };
-
 type CargoFilterDetail = { cargoId: string | null };
+type LayerLimit = null | 1 | 3 | 5;
 
 function CargoInstances({ items, container, scale, onSelect, selectedCargoId, filteredCargoId }: {
   items: IndexedPlacement[];
@@ -52,7 +52,7 @@ function CargoInstances({ items, container, scale, onSelect, selectedCargoId, fi
     mesh.computeBoundingSphere();
   }, [items, container.length, container.width, scale, color]);
 
-  if (hiddenByFilter) return null;
+  if (hiddenByFilter || !items.length) return null;
 
   return <instancedMesh
     ref={ref}
@@ -82,11 +82,12 @@ function SelectedCargo({ placement, container, scale }: { placement: Placement; 
   </mesh>;
 }
 
-function Scene({ result, container, selectedIndex, filteredCargoId, onSelect, onClear }: {
+function Scene({ result, container, selectedIndex, filteredCargoId, layerLimit, onSelect, onClear }: {
   result: LoadingResult;
   container: ContainerSpec;
   selectedIndex: number | null;
   filteredCargoId: string | null;
+  layerLimit: LayerLimit;
   onSelect: (index: number) => void;
   onClear: () => void;
 }) {
@@ -98,12 +99,13 @@ function Scene({ result, container, selectedIndex, filteredCargoId, onSelect, on
   const grouped = useMemo(() => {
     const map = new Map<string, IndexedPlacement[]>();
     result.placements.forEach((placement, index) => {
+      if (layerLimit !== null && (addresses[index]?.layer ?? Infinity) > layerLimit) return;
       const group = map.get(placement.cargoId) ?? [];
       group.push({ placement, index });
       map.set(placement.cargoId, group);
     });
     return [...map.entries()];
-  }, [result.placements]);
+  }, [result.placements, addresses, layerLimit]);
   const cy = (container.height * scale) / 2;
   const insideX = -(container.length * scale) / 2;
   const doorX = (container.length * scale) / 2;
@@ -112,6 +114,7 @@ function Scene({ result, container, selectedIndex, filteredCargoId, onSelect, on
   const cogY = quality.centerOfGravity.z * scale;
   const cogZ = quality.centerOfGravity.y * scale - (container.width * scale) / 2;
   const zoneBoundaries = [container.length / 3, (container.length * 2) / 3];
+  const selectedVisible = selected && (layerLimit === null || (addresses[selectedIndex ?? -1]?.layer ?? Infinity) <= layerLimit);
 
   return <>
     <ambientLight intensity={1.5} />
@@ -135,11 +138,12 @@ function Scene({ result, container, selectedIndex, filteredCargoId, onSelect, on
     <Text position={[doorX - 0.22, markerY, 0]} fontSize={0.13} anchorX="right">문</Text>
 
     {grouped.map(([cargoId, items]) => <CargoInstances key={cargoId} items={items} container={container} scale={scale} onSelect={onSelect} selectedCargoId={selectedCargoId} filteredCargoId={filteredCargoId} />)}
-    {selected && (!filteredCargoId || selected.cargoId === filteredCargoId) && <SelectedCargo placement={selected} container={container} scale={scale} />}
+    {selectedVisible && (!filteredCargoId || selected.cargoId === filteredCargoId) && <SelectedCargo placement={selected} container={container} scale={scale} />}
 
     {result.placements.slice(0, 80).map((p, index) => {
-      if (filteredCargoId && p.cargoId !== filteredCargoId) return null;
       const a = addresses[index];
+      if (filteredCargoId && p.cargoId !== filteredCargoId) return null;
+      if (layerLimit !== null && (a?.layer ?? Infinity) > layerLimit) return null;
       const pos: [number, number, number] = [
         (p.x + p.length / 2) * scale - container.length * scale / 2,
         (p.z + p.height) * scale + 0.035,
@@ -162,10 +166,13 @@ function Scene({ result, container, selectedIndex, filteredCargoId, onSelect, on
 export default function BoxLoadingViewer({ result, container }: { result: LoadingResult; container: ContainerSpec }) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [filteredCargoId, setFilteredCargoId] = useState<string | null>(null);
+  const [layerLimit, setLayerLimit] = useState<LayerLimit>(null);
   const addresses = useMemo(() => buildPlacementAddresses(result.placements, container.length), [result.placements, container.length]);
   const selected = selectedIndex === null ? undefined : result.placements[selectedIndex];
   const selectedAddress = selectedIndex === null ? undefined : addresses[selectedIndex];
   const filteredCount = filteredCargoId ? result.placements.filter(p => p.cargoId === filteredCargoId).length : result.placements.length;
+  const visibleCount = result.placements.filter((p, i) => (!filteredCargoId || p.cargoId === filteredCargoId) && (layerLimit === null || (addresses[i]?.layer ?? Infinity) <= layerLimit)).length;
+  const maxLayer = addresses.reduce((max, address) => Math.max(max, address?.layer ?? 0), 0);
 
   const changeSelection = (index: number | null) => {
     setSelectedIndex(index);
@@ -177,14 +184,19 @@ export default function BoxLoadingViewer({ result, container }: { result: Loadin
   }, [result.placements, selectedIndex]);
 
   useEffect(() => {
+    if (selectedIndex !== null && layerLimit !== null && (addresses[selectedIndex]?.layer ?? Infinity) > layerLimit) changeSelection(null);
+  }, [layerLimit, addresses, selectedIndex]);
+
+  useEffect(() => {
     const onExternalSelection = (event: Event) => {
       const index = (event as CustomEvent<PlacementSelectDetail>).detail?.index ?? null;
       if (index !== null && !result.placements[index]) return;
+      if (index !== null && layerLimit !== null && (addresses[index]?.layer ?? Infinity) > layerLimit) setLayerLimit(null);
       setSelectedIndex(index);
     };
     window.addEventListener(PLACEMENT_SELECT_EVENT, onExternalSelection);
     return () => window.removeEventListener(PLACEMENT_SELECT_EVENT, onExternalSelection);
-  }, [result.placements]);
+  }, [result.placements, addresses, layerLimit]);
 
   useEffect(() => {
     const onFilter = (event: Event) => {
@@ -196,6 +208,8 @@ export default function BoxLoadingViewer({ result, container }: { result: Loadin
     return () => window.removeEventListener(CARGO_FILTER_EVENT, onFilter);
   }, [result.placements, selectedIndex]);
 
+  const layerLabel = layerLimit === null ? `전체 ${maxLayer || 0}단` : layerLimit === 1 ? '1단만' : `1~${layerLimit}단`;
+
   return <section className="viewer">
     <Canvas
       camera={{ position:[5.5,4.2,6.5], fov:48 }}
@@ -203,10 +217,16 @@ export default function BoxLoadingViewer({ result, container }: { result: Loadin
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       onPointerMissed={() => changeSelection(null)}
     >
-      <Scene result={result} container={container} selectedIndex={selectedIndex} filteredCargoId={filteredCargoId} onSelect={changeSelection} onClear={() => changeSelection(null)} />
+      <Scene result={result} container={container} selectedIndex={selectedIndex} filteredCargoId={filteredCargoId} layerLimit={layerLimit} onSelect={changeSelection} onClear={() => changeSelection(null)} />
     </Canvas>
-    <div className="viewer-direction"><b>박스 적재</b><span>{filteredCargoId ? `${filteredCargoId}만 보기 · ${filteredCount} EA` : '박스 또는 우측 위치 목록을 눌러 상세 확인'}</span></div>
-    {selected && selectedAddress && (!filteredCargoId || selected.cargoId === filteredCargoId) && <div className="cargo-inspector">
+    <div className="viewer-direction"><b>박스 적재</b><span>{filteredCargoId ? `${filteredCargoId} · ${visibleCount}/${filteredCount} EA · ${layerLabel}` : `${visibleCount}/${result.placements.length} EA · ${layerLabel}`}</span></div>
+    <div className="layer-slicer" aria-label="3D 층별 보기">
+      <button type="button" className={layerLimit === null ? 'active' : ''} onClick={() => setLayerLimit(null)}>전체</button>
+      <button type="button" className={layerLimit === 1 ? 'active' : ''} onClick={() => setLayerLimit(1)}>1단</button>
+      <button type="button" className={layerLimit === 3 ? 'active' : ''} onClick={() => setLayerLimit(3)}>1~3단</button>
+      <button type="button" className={layerLimit === 5 ? 'active' : ''} onClick={() => setLayerLimit(5)}>1~5단</button>
+    </div>
+    {selected && selectedAddress && (!filteredCargoId || selected.cargoId === filteredCargoId) && (layerLimit === null || selectedAddress.layer <= layerLimit) && <div className="cargo-inspector">
       <div className="cargo-inspector-head"><b>{selected.cargoId}</b><button type="button" onClick={() => changeSelection(null)}>닫기</button></div>
       <strong>{`R${selectedAddress.row} C${selectedAddress.column} L${selectedAddress.layer}`}</strong>
       <span>{selectedAddress.zone} · {selected.rotated ? '90° 회전' : '기본 방향'} · 같은 품목 전체 강조</span>
