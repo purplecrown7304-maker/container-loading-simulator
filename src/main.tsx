@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import ErrorBoundary from './ErrorBoundary';
 import ExcelImportActions from './ExcelImportActions';
+import LocationSelectionBridge from './LocationSelectionBridge';
 import './styles.css';
 import './mode.css';
 import './error.css';
@@ -12,6 +13,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <App />
       <ExcelImportActions />
+      <LocationSelectionBridge />
     </ErrorBoundary>
   </React.StrictMode>,
 );
