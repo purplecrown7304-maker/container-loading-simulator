@@ -2,6 +2,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Text } from '@react-three/drei';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { CARGO_FILTER_EVENT } from './CargoFilterBar';
 import { assessWeightBalance } from './engine/weightBalance';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import type { ContainerSpec, LoadingResult, Placement } from './engine/types';
@@ -15,16 +16,20 @@ function cargoColor(id: string): string {
 
 type IndexedPlacement = { placement: Placement; index: number };
 
-function CargoInstances({ items, container, scale, onSelect, selectedCargoId }: {
+type CargoFilterDetail = { cargoId: string | null };
+
+function CargoInstances({ items, container, scale, onSelect, selectedCargoId, filteredCargoId }: {
   items: IndexedPlacement[];
   container: ContainerSpec;
   scale: number;
   onSelect: (index: number) => void;
   selectedCargoId: string | null;
+  filteredCargoId: string | null;
 }) {
   const ref = useRef<THREE.InstancedMesh>(null);
   const cargoId = items[0]?.placement.cargoId ?? 'cargo';
   const color = useMemo(() => new THREE.Color(cargoColor(cargoId)), [cargoId]);
+  const hiddenByFilter = filteredCargoId !== null && filteredCargoId !== cargoId;
   const isRelated = selectedCargoId === null || selectedCargoId === cargoId;
 
   useLayoutEffect(() => {
@@ -46,6 +51,8 @@ function CargoInstances({ items, container, scale, onSelect, selectedCargoId }: 
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.computeBoundingSphere();
   }, [items, container.length, container.width, scale, color]);
+
+  if (hiddenByFilter) return null;
 
   return <instancedMesh
     ref={ref}
@@ -75,10 +82,11 @@ function SelectedCargo({ placement, container, scale }: { placement: Placement; 
   </mesh>;
 }
 
-function Scene({ result, container, selectedIndex, onSelect, onClear }: {
+function Scene({ result, container, selectedIndex, filteredCargoId, onSelect, onClear }: {
   result: LoadingResult;
   container: ContainerSpec;
   selectedIndex: number | null;
+  filteredCargoId: string | null;
   onSelect: (index: number) => void;
   onClear: () => void;
 }) {
@@ -126,10 +134,11 @@ function Scene({ result, container, selectedIndex, onSelect, onClear }: {
     <Text position={[insideX + 0.28, markerY, 0]} fontSize={0.13} anchorX="left">안쪽</Text>
     <Text position={[doorX - 0.22, markerY, 0]} fontSize={0.13} anchorX="right">문</Text>
 
-    {grouped.map(([cargoId, items]) => <CargoInstances key={cargoId} items={items} container={container} scale={scale} onSelect={onSelect} selectedCargoId={selectedCargoId} />)}
-    {selected && <SelectedCargo placement={selected} container={container} scale={scale} />}
+    {grouped.map(([cargoId, items]) => <CargoInstances key={cargoId} items={items} container={container} scale={scale} onSelect={onSelect} selectedCargoId={selectedCargoId} filteredCargoId={filteredCargoId} />)}
+    {selected && (!filteredCargoId || selected.cargoId === filteredCargoId) && <SelectedCargo placement={selected} container={container} scale={scale} />}
 
     {result.placements.slice(0, 80).map((p, index) => {
+      if (filteredCargoId && p.cargoId !== filteredCargoId) return null;
       const a = addresses[index];
       const pos: [number, number, number] = [
         (p.x + p.length / 2) * scale - container.length * scale / 2,
@@ -152,9 +161,11 @@ function Scene({ result, container, selectedIndex, onSelect, onClear }: {
 
 export default function BoxLoadingViewer({ result, container }: { result: LoadingResult; container: ContainerSpec }) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [filteredCargoId, setFilteredCargoId] = useState<string | null>(null);
   const addresses = useMemo(() => buildPlacementAddresses(result.placements, container.length), [result.placements, container.length]);
   const selected = selectedIndex === null ? undefined : result.placements[selectedIndex];
   const selectedAddress = selectedIndex === null ? undefined : addresses[selectedIndex];
+  const filteredCount = filteredCargoId ? result.placements.filter(p => p.cargoId === filteredCargoId).length : result.placements.length;
 
   const changeSelection = (index: number | null) => {
     setSelectedIndex(index);
@@ -175,6 +186,16 @@ export default function BoxLoadingViewer({ result, container }: { result: Loadin
     return () => window.removeEventListener(PLACEMENT_SELECT_EVENT, onExternalSelection);
   }, [result.placements]);
 
+  useEffect(() => {
+    const onFilter = (event: Event) => {
+      const cargoId = (event as CustomEvent<CargoFilterDetail>).detail?.cargoId ?? null;
+      setFilteredCargoId(cargoId);
+      if (cargoId && selectedIndex !== null && result.placements[selectedIndex]?.cargoId !== cargoId) changeSelection(null);
+    };
+    window.addEventListener(CARGO_FILTER_EVENT, onFilter);
+    return () => window.removeEventListener(CARGO_FILTER_EVENT, onFilter);
+  }, [result.placements, selectedIndex]);
+
   return <section className="viewer">
     <Canvas
       camera={{ position:[5.5,4.2,6.5], fov:48 }}
@@ -182,10 +203,10 @@ export default function BoxLoadingViewer({ result, container }: { result: Loadin
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       onPointerMissed={() => changeSelection(null)}
     >
-      <Scene result={result} container={container} selectedIndex={selectedIndex} onSelect={changeSelection} onClear={() => changeSelection(null)} />
+      <Scene result={result} container={container} selectedIndex={selectedIndex} filteredCargoId={filteredCargoId} onSelect={changeSelection} onClear={() => changeSelection(null)} />
     </Canvas>
-    <div className="viewer-direction"><b>박스 적재</b><span>박스 또는 우측 위치 목록을 눌러 상세 확인</span></div>
-    {selected && selectedAddress && <div className="cargo-inspector">
+    <div className="viewer-direction"><b>박스 적재</b><span>{filteredCargoId ? `${filteredCargoId}만 보기 · ${filteredCount} EA` : '박스 또는 우측 위치 목록을 눌러 상세 확인'}</span></div>
+    {selected && selectedAddress && (!filteredCargoId || selected.cargoId === filteredCargoId) && <div className="cargo-inspector">
       <div className="cargo-inspector-head"><b>{selected.cargoId}</b><button type="button" onClick={() => changeSelection(null)}>닫기</button></div>
       <strong>{`R${selectedAddress.row} C${selectedAddress.column} L${selectedAddress.layer}`}</strong>
       <span>{selectedAddress.zone} · {selected.rotated ? '90° 회전' : '기본 방향'} · 같은 품목 전체 강조</span>
