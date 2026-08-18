@@ -9,6 +9,12 @@ import { optimizeZoneHeightShape } from './zoneHeightOptimizer';
 const EPS = 1e-9;
 const cbm = (item: CargoItem) => item.length * item.width * item.height;
 const fitCount = (available: number, size: number) => size > 0 ? Math.floor((available + EPS) / size) : 0;
+const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
+
+function publishCorrections(corrections: AutoCorrectionRecord[]) {
+  if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(AUTO_CORRECTION_EVENT, { detail: { corrections } }));
+}
 
 function bestBlockOrientation(container: ContainerSpec, item: CargoItem) {
   const options = [
@@ -136,38 +142,30 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): Loa
     }
   }
 
-  // 1) 중앙 낱개·돌출·품목 분산을 줄인다.
   const shapeResult = optimizeLoadingShape(container, placements, cargoById);
   placements = shapeResult.placements;
   if (shapeResult.movedCount > 0) {
     autoCorrections.push({
-      kind: 'SHAPE',
-      label: '형상 정리',
+      kind: 'SHAPE', label: '형상 정리',
       description: `중앙 낱개·돌출·품목 분산을 줄이기 위해 최상단 박스 ${shapeResult.movedCount}개를 안전 위치로 재배치`,
-      beforeScore: shapeResult.beforePenalty,
-      afterScore: shapeResult.afterPenalty,
+      beforeScore: shapeResult.beforePenalty, afterScore: shapeResult.afterPenalty,
     });
   }
 
-  // 2) 대표 행 높이의 50% 미만 또는 사실상 1단으로 남은 앞/중앙 행은
-  //    안전 조건을 통과할 때 문쪽 마지막 혼합 구역으로 후순위 이동한다.
   const rowResult = moveLowRowsToDoorZone(container, placements, cargoById);
   placements = rowResult.placements;
   if (rowResult.movedCount > 0) {
     autoCorrections.push({
-      kind: 'LOW_ROW',
-      label: '저층행 후순위 이동',
+      kind: 'LOW_ROW', label: '저층행 후순위 이동',
       description: `낮은 행 ${rowResult.flaggedRows}개를 감지해 최상단 박스 ${rowResult.movedCount}개를 문쪽 혼합 구역으로 이동`,
     });
   }
 
-  // 3) 중앙 구역이 안쪽보다 과도하게 솟은 경우 최상단 박스만 대상으로
-  //    안쪽 우선, 불가 시 문쪽의 낮은 안전 위치로 옮겨 뿔 모양을 완화한다.
   const zoneHeightResult = optimizeZoneHeightShape(container, placements, cargoById);
   placements = zoneHeightResult.placements;
   autoCorrections.push(...zoneHeightResult.history);
 
-  return {
+  const result: LoadingResult = {
     placements,
     remaining,
     loadedWeightKg,
@@ -175,4 +173,6 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): Loa
     validationIssues: validatePlacements(container, placements),
     autoCorrections,
   };
+  publishCorrections(autoCorrections);
+  return result;
 }
