@@ -4,6 +4,7 @@ import { validatePlacements } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
 import { optimizeLoadingShape } from './shapeOptimizer';
 import { moveLowRowsToDoorZone } from './rowOptimizer';
+import { optimizeZoneHeightShape } from './zoneHeightOptimizer';
 
 const EPS = 1e-9;
 const cbm = (item: CargoItem) => item.length * item.width * item.height;
@@ -139,6 +140,9 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): Loa
   // 2) 대표 행 높이의 50% 미만 또는 사실상 1단으로 남은 앞/중앙 행은
   //    안전 조건을 통과할 때 문쪽 마지막 혼합 구역으로 후순위 이동한다.
   placements = moveLowRowsToDoorZone(container, placements, cargoById).placements;
+  // 3) 중앙 구역이 안쪽보다 과도하게 솟은 경우 최상단 박스만 대상으로
+  //    안쪽 우선, 불가 시 문쪽의 낮은 안전 위치로 옮겨 뿔 모양을 완화한다.
+  placements = optimizeZoneHeightShape(container, placements, cargoById).placements;
 
   return {
     placements,
