@@ -5,6 +5,7 @@ import ErrorBoundary from './ErrorBoundary';
 import ExcelImportActions from './ExcelImportActions';
 import LocationSelectionBridge from './LocationSelectionBridge';
 import CargoFilterBar from './CargoFilterBar';
+import AutoCorrectionPanel from './AutoCorrectionPanel';
 import './styles.css';
 import './mode.css';
 import './error.css';
@@ -13,6 +14,7 @@ import './cargo-filter.css';
 import './layer-slicer.css';
 import './minimap.css';
 import './zone-utilization.css';
+import './auto-correction.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -21,6 +23,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ExcelImportActions />
       <LocationSelectionBridge />
       <CargoFilterBar />
+      <AutoCorrectionPanel />
     </ErrorBoundary>
   </React.StrictMode>,
 );
