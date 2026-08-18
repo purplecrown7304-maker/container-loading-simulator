@@ -163,6 +163,52 @@ function Scene({ result, container, selectedIndex, filteredCargoId, layerLimit, 
   </>;
 }
 
+function TopDownMinimap({ result, container, addresses, selectedIndex, filteredCargoId, layerLimit, onSelect }: {
+  result: LoadingResult;
+  container: ContainerSpec;
+  addresses: ReturnType<typeof buildPlacementAddresses>;
+  selectedIndex: number | null;
+  filteredCargoId: string | null;
+  layerLimit: LayerLimit;
+  onSelect: (index: number) => void;
+}) {
+  const width = 260;
+  const height = 110;
+  const sx = width / Math.max(container.length, 0.001);
+  const sy = height / Math.max(container.width, 0.001);
+  const visible = result.placements
+    .map((placement, index) => ({ placement, index, address: addresses[index] }))
+    .filter(({ placement, address }) => (!filteredCargoId || placement.cargoId === filteredCargoId) && (layerLimit === null || (address?.layer ?? Infinity) <= layerLimit));
+
+  return <div className="topdown-minimap">
+    <div className="topdown-minimap-head"><b>상단 평면 미니맵</b><span>안쪽 → 문쪽</span></div>
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="컨테이너 상단 평면 적재 미니맵">
+      <rect x="0.5" y="0.5" width={width - 1} height={height - 1} rx="5" fill="rgba(255,255,255,.92)" stroke="currentColor" strokeOpacity=".35" />
+      <line x1={width / 3} y1="0" x2={width / 3} y2={height} stroke="currentColor" strokeOpacity=".14" strokeDasharray="4 3" />
+      <line x1={width * 2 / 3} y1="0" x2={width * 2 / 3} y2={height} stroke="currentColor" strokeOpacity=".14" strokeDasharray="4 3" />
+      {visible.map(({ placement: p, index }) => {
+        const selected = selectedIndex === index;
+        return <rect
+          key={`${p.cargoId}-${index}`}
+          x={p.x * sx}
+          y={p.y * sy}
+          width={Math.max(1.5, p.length * sx)}
+          height={Math.max(1.5, p.width * sy)}
+          rx="1.5"
+          fill={cargoColor(p.cargoId)}
+          fillOpacity={selected ? 1 : 0.68}
+          stroke={selected ? '#111827' : 'rgba(17,24,39,.35)'}
+          strokeWidth={selected ? 2 : 0.5}
+          onClick={() => onSelect(index)}
+          style={{ cursor: 'pointer' }}
+        />;
+      })}
+      <text x="5" y="12" fontSize="8" fill="currentColor" opacity=".7">안쪽</text>
+      <text x={width - 5} y="12" textAnchor="end" fontSize="8" fill="currentColor" opacity=".7">문</text>
+    </svg>
+  </div>;
+}
+
 export default function BoxLoadingViewer({ result, container }: { result: LoadingResult; container: ContainerSpec }) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [filteredCargoId, setFilteredCargoId] = useState<string | null>(null);
@@ -226,6 +272,7 @@ export default function BoxLoadingViewer({ result, container }: { result: Loadin
       <button type="button" className={layerLimit === 3 ? 'active' : ''} onClick={() => setLayerLimit(3)}>1~3단</button>
       <button type="button" className={layerLimit === 5 ? 'active' : ''} onClick={() => setLayerLimit(5)}>1~5단</button>
     </div>
+    <TopDownMinimap result={result} container={container} addresses={addresses} selectedIndex={selectedIndex} filteredCargoId={filteredCargoId} layerLimit={layerLimit} onSelect={changeSelection} />
     {selected && selectedAddress && (!filteredCargoId || selected.cargoId === filteredCargoId) && (layerLimit === null || selectedAddress.layer <= layerLimit) && <div className="cargo-inspector">
       <div className="cargo-inspector-head"><b>{selected.cargoId}</b><button type="button" onClick={() => changeSelection(null)}>닫기</button></div>
       <strong>{`R${selectedAddress.row} C${selectedAddress.column} L${selectedAddress.layer}`}</strong>
