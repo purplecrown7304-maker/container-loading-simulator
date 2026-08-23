@@ -12,6 +12,7 @@ import StrategyComparisonPanel from './StrategyComparisonPanel';
 import SpareCapacityPanel from './SpareCapacityPanel';
 import ManualPlacementEditor from './ManualPlacementEditor';
 import GroupMoveSuggestionPanel from './GroupMoveSuggestionPanel';
+import GroupDragController from './GroupDragController';
 import './styles.css';
 import './mode.css';
 import './error.css';
@@ -42,6 +43,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <SpareCapacityPanel />
       <ManualPlacementEditor />
       <GroupMoveSuggestionPanel />
+      <GroupDragController />
     </ErrorBoundary>
   </React.StrictMode>,
 );
