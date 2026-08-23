@@ -1,0 +1,104 @@
+import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { assessManualMove, supportsOtherPlacement } from './engine/manualPlacement';
+import { clearManualOverride, writeManualOverride } from './engine/manualOverride';
+import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
+import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
+import { PLACEMENT_SELECT_EVENT, type PlacementSelectDetail } from './selectionEvents';
+import { writeStoredState } from './storage';
+
+type Detail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
+type LoadingWindow = Window & { __containerLoadingLatestResult?: Detail };
+type Target = { x:number; y:number; z:number };
+
+export default function ManualPlacementEditor() {
+  const [target, setTarget] = useState<Element | null>(null);
+  const [detail, setDetail] = useState<Detail | null>(() => typeof window === 'undefined' ? null : ((window as LoadingWindow).__containerLoadingLatestResult ?? null));
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [position, setPosition] = useState<Target>({x:0,y:0,z:0});
+  const [rotate, setRotate] = useState(false);
+  const [history, setHistory] = useState<LoadingResult[]>([]);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    const resolve = () => setTarget(document.querySelector('.viewer-card'));
+    resolve();
+    const observer = new MutationObserver(resolve);
+    observer.observe(document.body,{childList:true,subtree:true});
+    return () => observer.disconnect();
+  },[]);
+
+  useEffect(() => {
+    const onResult = (event: Event) => setDetail((event as CustomEvent<Detail>).detail ?? null);
+    window.addEventListener(LOADING_RESULT_EVENT,onResult);
+    return () => window.removeEventListener(LOADING_RESULT_EVENT,onResult);
+  },[]);
+
+  useEffect(() => {
+    const onSelection = (event: Event) => {
+      const index = (event as CustomEvent<PlacementSelectDetail>).detail?.index ?? null;
+      setSelectedIndex(index);
+      const current = index === null ? undefined : detail?.result.placements[index];
+      if (current) setPosition({x:current.x,y:current.y,z:current.z});
+      setRotate(false); setMessage('');
+    };
+    window.addEventListener(PLACEMENT_SELECT_EVENT,onSelection);
+    return () => window.removeEventListener(PLACEMENT_SELECT_EVENT,onSelection);
+  },[detail]);
+
+  useEffect(() => {
+    if (selectedIndex === null) return;
+    const current = detail?.result.placements[selectedIndex];
+    if (current) setPosition({x:current.x,y:current.y,z:current.z});
+  },[detail,selectedIndex]);
+
+  const selected = selectedIndex === null ? undefined : detail?.result.placements[selectedIndex];
+  const locked = selectedIndex !== null && detail ? supportsOtherPlacement(selectedIndex,detail.result.placements) : false;
+  const assessment = useMemo(() => {
+    if (!detail || selectedIndex === null || !selected) return null;
+    try { return assessManualMove(detail.container,detail.cargo,detail.result,selectedIndex,position,rotate); }
+    catch { return null; }
+  },[detail,selectedIndex,selected,position,rotate]);
+
+  const nudge = (axis: keyof Target, delta: number) => setPosition(p => ({...p,[axis]:Math.max(0,p[axis]+delta)}));
+  const apply = () => {
+    if (!detail || !assessment?.valid) return;
+    setHistory(h => [...h.slice(-9),detail.result]);
+    writeManualOverride(detail.container,detail.cargo,assessment.result);
+    writeStoredState({container:detail.container,cargo:detail.cargo},true);
+    setMessage('수동 이동을 적용했습니다. 모든 분석값을 다시 계산했습니다.');
+  };
+  const undo = () => {
+    if (!detail || history.length === 0) return;
+    const previous = history[history.length-1];
+    setHistory(h => h.slice(0,-1));
+    writeManualOverride(detail.container,detail.cargo,previous);
+    writeStoredState({container:detail.container,cargo:detail.cargo},true);
+    setMessage('마지막 수동 이동을 취소했습니다.');
+  };
+  const reset = () => {
+    if (!detail) return;
+    clearManualOverride(); setHistory([]);
+    writeStoredState({container:detail.container,cargo:detail.cargo},true);
+    setMessage('수동 편집을 지우고 자동 적재 결과로 복귀했습니다.');
+  };
+
+  if (!target) return null;
+  return createPortal(<div className={`manual-editor ${selected ? 'open' : ''}`}>
+    <div className="manual-editor-head"><div><b>수동 적재 편집</b><span>{selected ? `${selected.cargoId} · #${(selectedIndex ?? 0)+1}` : '3D에서 박스를 선택하세요'}</span></div><div><button disabled={!history.length} onClick={undo}>↶ 실행취소</button><button onClick={reset}>자동배치 복귀</button></div></div>
+    {selected && detail && <>
+      {locked && <div className="manual-lock">🔒 위 화물을 지지하는 박스입니다. 상부 박스를 먼저 이동하세요.</div>}
+      <div className="manual-controls">
+        {(['x','y','z'] as const).map(axis => <div className="manual-axis" key={axis}><b>{axis.toUpperCase()}</b><button onClick={()=>nudge(axis,-0.05)}>−5cm</button><input type="number" step="0.05" value={position[axis].toFixed(2)} onChange={e=>setPosition(p=>({...p,[axis]:Math.max(0,Number(e.target.value)||0)}))}/><button onClick={()=>nudge(axis,0.05)}>+5cm</button></div>)}
+        <label className="manual-rotate"><input type="checkbox" checked={rotate} onChange={e=>setRotate(e.target.checked)} disabled={detail.cargo.find(c=>c.id===selected.cargoId)?.allowRotation===false}/><span>90° 회전</span></label>
+      </div>
+      <div className={`manual-assessment ${assessment?.valid ? 'valid' : 'invalid'}`}>
+        <div className="manual-status"><b>{assessment?.valid ? '✓ 이동 가능' : '✕ 이동 불가'}</b><span>5cm 스냅 · 실시간 안전검사</span></div>
+        {!assessment?.valid && <div className="manual-reasons">{assessment?.reasons.map((reason,i)=><span key={i}>{reason}</span>)}</div>}
+        {assessment && <div className="manual-metrics"><span>품질점수 <b>{assessment.before.quality.toFixed(0)} → {assessment.after.quality.toFixed(0)}</b></span><span>최대 바닥하중 <b>{assessment.before.maxFloorLoadKgPerM2.toFixed(0)} → {assessment.after.maxFloorLoadKgPerM2.toFixed(0)} kg/m²</b></span><span>무게중심 X <b>{assessment.before.center.x.toFixed(2)} → {assessment.after.center.x.toFixed(2)}m</b></span></div>}
+      </div>
+      <button className="manual-apply" disabled={!assessment?.valid || locked} onClick={apply}>이 위치로 이동 적용</button>
+      {message && <div className="manual-message">{message}</div>}
+    </>}
+  </div>,target);
+}
