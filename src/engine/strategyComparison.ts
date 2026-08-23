@@ -75,15 +75,16 @@ export function compareLoadingStrategies(container: ContainerSpec, cargo: CargoI
     const peakRatio = floor.maxKgPerM2 / average;
     const floorDistributionScore = clamp(100 - Math.max(0, peakRatio - 1) * 18);
     const remainingCount = result.remaining.reduce((sum, item) => sum + item.quantity, 0);
-
-    let overallScore = 0;
-    if (strategy === 'capacity') {
-      overallScore = fillRatePct * 0.5 + loadedRatePct * 0.25 + quality.loadingQualityScore * 0.25;
-    } else if (strategy === 'stability') {
-      overallScore = quality.stabilityScore * 0.38 + quality.balanceScore * 0.22 + floorDistributionScore * 0.25 + fillRatePct * 0.15;
-    } else {
-      overallScore = unloading.score * 0.45 + quality.loadingQualityScore * 0.2 + fillRatePct * 0.2 + loadedRatePct * 0.15;
-    }
+    const commonUnloadingScore = unloading.configured ? unloading.score : 50;
+    const overallScore = clamp(
+      fillRatePct * 0.22
+      + loadedRatePct * 0.18
+      + quality.loadingQualityScore * 0.15
+      + quality.stabilityScore * 0.15
+      + quality.balanceScore * 0.10
+      + floorDistributionScore * 0.10
+      + commonUnloadingScore * 0.10,
+    );
 
     return {
       strategy,
@@ -98,7 +99,7 @@ export function compareLoadingStrategies(container: ContainerSpec, cargo: CargoI
       unloadingConfigured: unloading.configured,
       maxFloorLoadKgPerM2: floor.maxKgPerM2,
       floorDistributionScore,
-      overallScore: clamp(overallScore),
+      overallScore,
       remainingCount,
     };
   });
