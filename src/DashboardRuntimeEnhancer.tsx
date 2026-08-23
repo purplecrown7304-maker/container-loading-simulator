@@ -8,10 +8,14 @@ function scrollToSelector(selector: string) {
   document.querySelector(selector)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+function setText(el: HTMLElement | null, text: string) {
+  if (el && el.textContent !== text) el.textContent = text;
+}
+
 function setViewMode(mode: '3d' | '2d' | 'layers') {
   const host = document.querySelector<HTMLElement>('.viewer-host');
   if (!host) return;
-  host.dataset.viewMode = mode;
+  if (host.dataset.viewMode !== mode) host.dataset.viewMode = mode;
   const buttons = [...document.querySelectorAll<HTMLButtonElement>('.viewer-toolbar button')];
   buttons.forEach(button => button.classList.toggle('active',
     (mode === '3d' && button.textContent?.includes('3D')) ||
@@ -40,7 +44,7 @@ function updateConstraintCards() {
       if (match) ok = Number(match[1].replaceAll(',', '')) <= Number(match[2].replaceAll(',', ''));
     }
     if (row.textContent?.includes('문 개폐')) ok = locationCount > 0 || !hasRemaining;
-    value.textContent = ok ? '통과' : '확인 필요';
+    setText(value, ok ? '통과' : '확인 필요');
     row.classList.toggle('constraint-pass', ok);
     row.classList.toggle('constraint-warn', !ok);
   });
@@ -48,7 +52,7 @@ function updateConstraintCards() {
   const allPass = constraintRows.every(row => row.classList.contains('constraint-pass'));
   const badge = root.querySelector<HTMLElement>('.constraint-ok');
   if (badge) {
-    badge.textContent = allPass ? '✓ 제약 조건 모두 만족' : '⚠ 제약 조건 확인 필요';
+    setText(badge, allPass ? '✓ 제약 조건 모두 만족' : '⚠ 제약 조건 확인 필요');
     badge.classList.toggle('warning', !allPass);
   }
 }
@@ -73,6 +77,9 @@ function renderHeatmapFromMinimap() {
     density[r * cols + c] += 1;
   });
   const max = Math.max(1, ...density);
+  const signature = density.join(',');
+  if (heatmap.dataset.signature === signature) return;
+  heatmap.dataset.signature = signature;
   heatmap.replaceChildren(...density.map((count, i) => {
     const cell = document.createElement('i');
     const ratio = count / max;
@@ -102,15 +109,28 @@ export default function DashboardRuntimeEnhancer() {
     bind(byText(root, '.viewer-toolbar button', '2D'), () => setViewMode('2d'));
     bind(byText(root, '.viewer-toolbar button', '층별'), () => setViewMode('layers'));
 
+    const layerThumbs = [...root.querySelectorAll<HTMLElement>('.layer-thumbnails > div')];
+    layerThumbs.forEach((thumb, index) => bind(thumb, () => {
+      setViewMode('3d');
+      const label = index === 0 ? '1단' : index <= 2 ? '1~3단' : '1~5단';
+      byText(root, '.layer-slicer button', label)?.click();
+      scrollToSelector('.viewer-card');
+    }));
+
+    let raf = 0;
     const refresh = () => {
-      updateConstraintCards();
-      renderHeatmapFromMinimap();
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        updateConstraintCards();
+        renderHeatmapFromMinimap();
+      });
     };
     refresh();
-    const observer = new MutationObserver(() => requestAnimationFrame(refresh));
+    const observer = new MutationObserver(refresh);
     observer.observe(root, { childList: true, subtree: true, characterData: true });
 
     return () => {
+      cancelAnimationFrame(raf);
       observer.disconnect();
       handlers.forEach(off => off());
     };
