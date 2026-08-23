@@ -11,6 +11,7 @@ const cbm = (item: CargoItem) => item.length * item.width * item.height;
 const fitCount = (available: number, size: number) => size > 0 ? Math.floor((available + EPS) / size) : 0;
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
+export const LOADING_STRATEGY_STORAGE_KEY = 'container-loading-strategy';
 export type LoadingStrategy = 'capacity' | 'stability' | 'unloading';
 export type LoadingOptions = { strategy?: LoadingStrategy; publish?: boolean };
 
@@ -18,6 +19,12 @@ type CorrectionWindow = Window & {
   __containerLoadingAutoCorrections?: AutoCorrectionRecord[];
   __containerLoadingLatestResult?: { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 };
+
+function browserStrategy(): LoadingStrategy {
+  if (typeof window === 'undefined') return 'capacity';
+  const value = window.localStorage?.getItem(LOADING_STRATEGY_STORAGE_KEY);
+  return value === 'stability' || value === 'unloading' ? value : 'capacity';
+}
 
 function publishCorrections(corrections: AutoCorrectionRecord[]) {
   if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return;
@@ -73,7 +80,7 @@ function bestBlockOrientation(container: ContainerSpec, item: CargoItem) {
 }
 
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
-  const strategy = options.strategy ?? 'capacity';
+  const strategy = options.strategy ?? browserStrategy();
   const shouldPublish = options.publish !== false;
   let placements: Placement[] = [];
   const deferred: Array<{ item: CargoItem; quantity: number }> = [];
