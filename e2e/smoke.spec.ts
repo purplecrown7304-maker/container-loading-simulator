@@ -15,6 +15,8 @@ test('dashboard core loading flow works', async ({ page }) => {
   await expect(page.locator('.constraint-list')).toContainText(/통과|확인|실패/);
   await expect(page.locator('.heatmap i')).toHaveCount(48);
   await expect(page.locator('.heat-legend')).toContainText('kg/m²');
+  await expect(page.getByText('작업 순서 시뮬레이션')).toBeVisible();
+  await expect(page.getByText('작업자 취급 위험 점검')).toBeVisible();
 
   await page.getByRole('button', { name: '2D 뷰' }).click();
   await expect(page.locator('.viewer-host')).toHaveAttribute('data-view-mode', '2d');
@@ -28,6 +30,31 @@ test('dashboard core loading flow works', async ({ page }) => {
   await expect(page.getByText('저장된 데이터를 불러왔습니다.')).toBeVisible();
 
   await expect(page.getByRole('button', { name: /Excel 내보내기/ })).toBeVisible();
+});
+
+test('work sequence supports playback mode and field checklist', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /자동 적재/ }).click();
+  const panel = page.locator('.work-sequence');
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText('실제 적재 순서');
+  await panel.getByRole('button', { name: '완료 체크' }).click();
+  await expect(panel).toContainText('현장 완료 1/');
+  await panel.getByRole('button', { name: '하역' }).click();
+  await expect(panel).toContainText('실제 하역 순서');
+  await expect(panel.getByRole('button', { name: /재생/ })).toBeVisible();
+});
+
+test('ergonomic thresholds are configurable', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /자동 적재/ }).click();
+  const panel = page.locator('.ergonomic-panel');
+  await expect(panel).toBeVisible();
+  const inputs = panel.locator('input');
+  await expect(inputs).toHaveCount(2);
+  await inputs.nth(0).fill('1.50');
+  await inputs.nth(1).fill('5');
+  await expect(panel).toContainText(/고위험|확인|양호/);
 });
 
 test('pallet mode is integrated in the dashboard', async ({ page }) => {
@@ -53,6 +80,8 @@ test('mobile dashboard remains usable', async ({ page }) => {
   await expect(page.getByRole('button', { name: /자동 적재/ })).toBeVisible();
   await page.getByRole('button', { name: '2D 뷰' }).click();
   await expect(page.locator('.topdown-minimap')).toBeVisible();
+  await expect(page.locator('.work-sequence')).toBeVisible();
+  await expect(page.locator('.ergonomic-panel')).toBeVisible();
   const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
   const viewportWidth = await page.evaluate(() => window.innerWidth);
   expect(bodyWidth).toBeLessThanOrEqual(viewportWidth + 2);
