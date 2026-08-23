@@ -1,4 +1,11 @@
 import { useEffect } from 'react';
+import { analyzeConstraints } from './engine/constraintAnalysis';
+import { analyzeFloorLoad } from './engine/floorLoad';
+import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
+import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
+
+type DashboardDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
+type DashboardWindow = Window & { __containerLoadingLatestResult?: DashboardDetail };
 
 function byText(root: ParentNode, selector: string, text: string): HTMLElement | null {
   return [...root.querySelectorAll<HTMLElement>(selector)].find(el => el.textContent?.includes(text)) ?? null;
@@ -8,14 +15,10 @@ function scrollToSelector(selector: string) {
   document.querySelector(selector)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function setText(el: HTMLElement | null, text: string) {
-  if (el && el.textContent !== text) el.textContent = text;
-}
-
 function setViewMode(mode: '3d' | '2d' | 'layers') {
   const host = document.querySelector<HTMLElement>('.viewer-host');
   if (!host) return;
-  if (host.dataset.viewMode !== mode) host.dataset.viewMode = mode;
+  host.dataset.viewMode = mode;
   const buttons = [...document.querySelectorAll<HTMLButtonElement>('.viewer-toolbar button')];
   buttons.forEach(button => button.classList.toggle('active',
     (mode === '3d' && button.textContent?.includes('3D')) ||
@@ -25,75 +28,64 @@ function setViewMode(mode: '3d' | '2d' | 'layers') {
   if (mode === 'layers') scrollToSelector('.layer-card');
 }
 
-function updateConstraintCards() {
-  const root = document.querySelector<HTMLElement>('.mockup-dashboard');
-  if (!root) return;
-  const summary = [...root.querySelectorAll<HTMLElement>('.summary-list span')].map(x => x.textContent ?? '').join(' ');
-  const remaining = root.querySelector('.remaining-compact');
-  const locationCount = root.querySelectorAll('.location-row').length;
-  const invalidMetric = /NaN|Infinity/.test(summary);
-  const hasRemaining = Boolean(remaining?.textContent?.trim());
+function renderFloorLoad(detail: DashboardDetail) {
+  const heatmap = document.querySelector<HTMLElement>('.heatmap');
+  const legend = document.querySelector<HTMLElement>('.heat-legend');
+  if (!heatmap) return;
+  const analysis = analyzeFloorLoad(detail.container, detail.result, 12, 4);
+  const fragment = document.createDocumentFragment();
+  for (const cell of analysis.cells) {
+    const node = document.createElement('i');
+    const ratio = analysis.maxKgPerM2 > 0 ? cell.kgPerM2 / analysis.maxKgPerM2 : 0;
+    node.dataset.level = ratio >= .72 ? 'high' : ratio >= .36 ? 'mid' : 'low';
+    node.title = `${cell.column + 1}열 ${cell.row + 1}행 · ${cell.kgPerM2.toFixed(0)} kg/m²`;
+    node.setAttribute('aria-label', node.title);
+    fragment.appendChild(node);
+  }
+  heatmap.replaceChildren(fragment);
+  heatmap.style.gridTemplateColumns = `repeat(${analysis.columns},1fr)`;
+  heatmap.dataset.maxLoad = analysis.maxKgPerM2.toFixed(0);
+  if (legend) legend.innerHTML = `<span>평균 ${analysis.averageKgPerM2.toFixed(0)} kg/m²</span><span>최대 ${analysis.maxKgPerM2.toFixed(0)} kg/m²</span>`;
+}
 
-  const constraintRows = [...root.querySelectorAll<HTMLElement>('.constraint-list span')];
-  constraintRows.forEach(row => {
-    const value = row.querySelector<HTMLElement>('b');
-    if (!value) return;
-    let ok = !invalidMetric;
-    if (row.textContent?.includes('중량 제한')) {
-      const match = summary.match(/([\d,.]+)\s*\/\s*([\d,.]+)\s*kg/);
-      if (match) ok = Number(match[1].replaceAll(',', '')) <= Number(match[2].replaceAll(',', ''));
-    }
-    if (row.textContent?.includes('문 개폐')) ok = locationCount > 0 || !hasRemaining;
-    setText(value, ok ? '통과' : '확인 필요');
-    row.classList.toggle('constraint-pass', ok);
-    row.classList.toggle('constraint-warn', !ok);
-  });
-
-  const allPass = constraintRows.every(row => row.classList.contains('constraint-pass'));
-  const badge = root.querySelector<HTMLElement>('.constraint-ok');
+function renderConstraints(detail: DashboardDetail) {
+  const list = document.querySelector<HTMLElement>('.constraint-list');
+  const badge = document.querySelector<HTMLElement>('.constraint-ok');
+  if (!list) return;
+  const floor = analyzeFloorLoad(detail.container, detail.result, 12, 4);
+  const checks = analyzeConstraints(detail.container, detail.cargo, detail.result, floor);
+  const fragment = document.createDocumentFragment();
+  for (const check of checks) {
+    const row = document.createElement('span');
+    row.className = check.status === 'pass' ? 'constraint-pass' : check.status === 'warn' ? 'constraint-warn' : 'constraint-fail';
+    const label = document.createElement('span');
+    label.textContent = check.label;
+    const value = document.createElement('b');
+    value.textContent = check.status === 'pass' ? '통과' : check.status === 'warn' ? '확인' : '실패';
+    value.title = check.detail;
+    row.append(label, value);
+    row.title = check.detail;
+    fragment.appendChild(row);
+  }
+  list.replaceChildren(fragment);
+  const hasFail = checks.some(check => check.status === 'fail');
+  const hasWarn = checks.some(check => check.status === 'warn');
   if (badge) {
-    setText(badge, allPass ? '✓ 제약 조건 모두 만족' : '⚠ 제약 조건 확인 필요');
-    badge.classList.toggle('warning', !allPass);
+    badge.textContent = hasFail ? '✕ 제약 조건 실패 항목 있음' : hasWarn ? '⚠ 현장 확인 항목 있음' : '✓ 제약 조건 모두 만족';
+    badge.classList.toggle('warning', hasWarn || hasFail);
+    badge.classList.toggle('failure', hasFail);
   }
 }
 
-function renderHeatmapFromMinimap() {
-  const heatmap = document.querySelector<HTMLElement>('.heatmap');
-  const svg = document.querySelector<SVGSVGElement>('.topdown-minimap svg');
-  if (!heatmap || !svg) return;
-  const cells = 24;
-  const cols = 8;
-  const rows = 3;
-  const density = Array(cells).fill(0) as number[];
-  const vb = svg.viewBox.baseVal;
-  const width = vb.width || 260;
-  const height = vb.height || 110;
-  const rects = [...svg.querySelectorAll<SVGRectElement>('rect')].slice(1);
-  rects.forEach(rect => {
-    const x = Number(rect.getAttribute('x') ?? 0) + Number(rect.getAttribute('width') ?? 0) / 2;
-    const y = Number(rect.getAttribute('y') ?? 0) + Number(rect.getAttribute('height') ?? 0) / 2;
-    const c = Math.min(cols - 1, Math.max(0, Math.floor(x / width * cols)));
-    const r = Math.min(rows - 1, Math.max(0, Math.floor(y / height * rows)));
-    density[r * cols + c] += 1;
-  });
-  const max = Math.max(1, ...density);
-  const signature = density.join(',');
-  if (heatmap.dataset.signature === signature) return;
-  heatmap.dataset.signature = signature;
-  heatmap.replaceChildren(...density.map((count, i) => {
-    const cell = document.createElement('i');
-    const ratio = count / max;
-    cell.dataset.level = ratio > .72 ? 'high' : ratio > .34 ? 'mid' : 'low';
-    cell.title = `구역 ${i + 1}: 상대 적재 밀도 ${(ratio * 100).toFixed(0)}%`;
-    return cell;
-  }));
+function renderDashboard(detail: DashboardDetail) {
+  renderFloorLoad(detail);
+  renderConstraints(detail);
 }
 
 export default function DashboardRuntimeEnhancer() {
   useEffect(() => {
     const root = document.querySelector<HTMLElement>('.mockup-dashboard');
     if (!root) return;
-
     const handlers: Array<() => void> = [];
     const bind = (el: HTMLElement | null, fn: () => void) => {
       if (!el) return;
@@ -109,30 +101,17 @@ export default function DashboardRuntimeEnhancer() {
     bind(byText(root, '.viewer-toolbar button', '2D'), () => setViewMode('2d'));
     bind(byText(root, '.viewer-toolbar button', '층별'), () => setViewMode('layers'));
 
-    const layerThumbs = [...root.querySelectorAll<HTMLElement>('.layer-thumbnails > div')];
-    layerThumbs.forEach((thumb, index) => bind(thumb, () => {
-      setViewMode('3d');
-      const label = index === 0 ? '1단' : index <= 2 ? '1~3단' : '1~5단';
-      byText(root, '.layer-slicer button', label)?.click();
-      scrollToSelector('.viewer-card');
-    }));
-
-    let raf = 0;
-    const refresh = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        updateConstraintCards();
-        renderHeatmapFromMinimap();
-      });
+    const initial = (window as DashboardWindow).__containerLoadingLatestResult;
+    if (initial) renderDashboard(initial);
+    const onResult = (event: Event) => {
+      const detail = (event as CustomEvent<DashboardDetail>).detail;
+      if (detail) renderDashboard(detail);
     };
-    refresh();
-    const observer = new MutationObserver(refresh);
-    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    window.addEventListener(LOADING_RESULT_EVENT, onResult);
 
     return () => {
-      cancelAnimationFrame(raf);
-      observer.disconnect();
       handlers.forEach(off => off());
+      window.removeEventListener(LOADING_RESULT_EVENT, onResult);
     };
   }, []);
 
