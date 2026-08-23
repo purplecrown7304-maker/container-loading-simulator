@@ -11,6 +11,9 @@ const cbm = (item: CargoItem) => item.length * item.width * item.height;
 const fitCount = (available: number, size: number) => size > 0 ? Math.floor((available + EPS) / size) : 0;
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
+export type LoadingStrategy = 'capacity' | 'stability' | 'unloading';
+export type LoadingOptions = { strategy?: LoadingStrategy; publish?: boolean };
+
 type CorrectionWindow = Window & {
   __containerLoadingAutoCorrections?: AutoCorrectionRecord[];
   __containerLoadingLatestResult?: { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
@@ -27,6 +30,28 @@ function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], resu
   const detail = { container, cargo, result };
   (window as CorrectionWindow).__containerLoadingLatestResult = detail;
   window.dispatchEvent(new CustomEvent(LOADING_RESULT_EVENT, { detail }));
+}
+
+function capacityScore(item: CargoItem) {
+  return cbm(item) * item.quantity + item.weightKg * 0.001;
+}
+
+function prioritizedCargo(cargo: CargoItem[], strategy: LoadingStrategy): CargoItem[] {
+  return [...cargo].sort((a, b) => {
+    if (strategy === 'stability') {
+      const weightDiff = b.weightKg - a.weightKg;
+      if (Math.abs(weightDiff) > EPS) return weightDiff;
+      const footprintDiff = b.length * b.width - a.length * a.width;
+      if (Math.abs(footprintDiff) > EPS) return footprintDiff;
+      return capacityScore(b) - capacityScore(a);
+    }
+    if (strategy === 'unloading') {
+      const unloadDiff = (b.unloadPriority ?? 0) - (a.unloadPriority ?? 0);
+      if (unloadDiff !== 0) return unloadDiff;
+      return capacityScore(b) - capacityScore(a);
+    }
+    return capacityScore(b) - capacityScore(a);
+  });
 }
 
 function bestBlockOrientation(container: ContainerSpec, item: CargoItem) {
@@ -47,7 +72,9 @@ function bestBlockOrientation(container: ContainerSpec, item: CargoItem) {
     .sort((a, b) => b.capacity - a.capacity || b.sliceCapacity - a.sliceCapacity || a.length - b.length)[0];
 }
 
-export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): LoadingResult {
+export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
+  const strategy = options.strategy ?? 'capacity';
+  const shouldPublish = options.publish !== false;
   let placements: Placement[] = [];
   const deferred: Array<{ item: CargoItem; quantity: number }> = [];
   const remaining: LoadingResult['remaining'] = [];
@@ -55,12 +82,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): Loa
   let loadedWeightKg = 0;
   let usedVolumeM3 = 0;
   const cargoById = new Map(cargo.map((item) => [item.id, item]));
-
-  const prioritized = [...cargo].sort((a, b) => {
-    const aScore = cbm(a) * a.quantity + a.weightKg * 0.001;
-    const bScore = cbm(b) * b.quantity + b.weightKg * 0.001;
-    return bScore - aScore;
-  });
+  const prioritized = prioritizedCargo(cargo, strategy);
 
   let cursorX = 0;
   for (const item of prioritized) {
@@ -123,7 +145,9 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): Loa
   autoCorrections.push(...zoneHeightResult.history);
 
   const result: LoadingResult = { placements, remaining, loadedWeightKg, usedVolumeM3, validationIssues: validatePlacements(container, placements), autoCorrections };
-  publishCorrections(autoCorrections);
-  publishLoadingResult(container, cargo, result);
+  if (shouldPublish) {
+    publishCorrections(autoCorrections);
+    publishLoadingResult(container, cargo, result);
+  }
   return result;
 }
