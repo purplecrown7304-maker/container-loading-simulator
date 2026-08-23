@@ -15,6 +15,7 @@ import './layer-slicer.css';
 import './minimap.css';
 import './zone-utilization.css';
 import './auto-correction.css';
+import './dashboard-mockup.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
