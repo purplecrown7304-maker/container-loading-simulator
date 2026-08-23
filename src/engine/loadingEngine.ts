@@ -5,6 +5,7 @@ import { canPlaceByStackingRules } from './stacking';
 import { optimizeLoadingShape } from './shapeOptimizer';
 import { moveLowRowsToDoorZone } from './rowOptimizer';
 import { optimizeZoneHeightShape } from './zoneHeightOptimizer';
+import { readManualOverride } from './manualOverride';
 
 const EPS = 1e-9;
 const cbm = (item: CargoItem) => item.length * item.width * item.height;
@@ -82,6 +83,15 @@ function bestBlockOrientation(container: ContainerSpec, item: CargoItem) {
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
   const shouldPublish = options.publish !== false;
+  if (shouldPublish && options.strategy === undefined) {
+    const manual = readManualOverride(container,cargo);
+    if (manual) {
+      publishCorrections(manual.autoCorrections ?? []);
+      publishLoadingResult(container,cargo,manual);
+      return manual;
+    }
+  }
+
   let placements: Placement[] = [];
   const deferred: Array<{ item: CargoItem; quantity: number }> = [];
   const remaining: LoadingResult['remaining'] = [];
