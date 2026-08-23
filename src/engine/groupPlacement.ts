@@ -20,6 +20,8 @@ export type GroupMoveAssessment = {
   after: { quality: number; maxFloorLoadKgPerM2: number; centerX: number };
 };
 
+const snapSigned = (value: number, step = 0.05) => Math.round(value / step) * step;
+
 function overlapArea(a: Placement, b: Placement): number {
   const x = Math.max(0, Math.min(a.x + a.length, b.x + b.length) - Math.max(a.x, b.x));
   const y = Math.max(0, Math.min(a.y + a.width, b.y + b.width) - Math.max(a.y, b.y));
@@ -82,19 +84,18 @@ export function assessGroupMove(
   if (groupSupportsOutside(uniqueIndices, source.placements)) reasons.push('선택 블록이 선택되지 않은 상부 화물을 지지하고 있습니다.');
 
   const snappedDelta = {
-    x: snapManualCoordinate(Math.max(0, delta.x)) * Math.sign(delta.x || 1),
-    y: snapManualCoordinate(Math.max(0, delta.y)) * Math.sign(delta.y || 1),
-    z: snapManualCoordinate(Math.max(0, delta.z)) * Math.sign(delta.z || 1),
+    x: snapSigned(delta.x),
+    y: snapSigned(delta.y),
+    z: snapSigned(delta.z),
   };
-  const selected = new Set(uniqueIndices);
   const movedByIndex = new Map<number, Placement>();
   for (const index of uniqueIndices) {
     const original = source.placements[index];
     movedByIndex.set(index, {
       ...original,
-      x: Math.max(0, snapManualCoordinate(original.x + snappedDelta.x)),
-      y: Math.max(0, snapManualCoordinate(original.y + snappedDelta.y)),
-      z: Math.max(0, snapManualCoordinate(original.z + snappedDelta.z)),
+      x: snapManualCoordinate(original.x + snappedDelta.x),
+      y: snapManualCoordinate(original.y + snappedDelta.y),
+      z: snapManualCoordinate(original.z + snappedDelta.z),
     });
   }
 
