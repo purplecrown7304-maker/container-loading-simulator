@@ -17,7 +17,7 @@ export default function AutoCorrectionPanel() {
   const [target, setTarget] = useState<Element | null>(null);
 
   useEffect(() => {
-    const resolveTarget = () => setTarget(document.querySelector('.right-panel'));
+    const resolveTarget = () => setTarget(document.querySelector('.right-panel, .dashboard-right'));
     resolveTarget();
     const observer = new MutationObserver(resolveTarget);
     observer.observe(document.body, { childList: true, subtree: true });
@@ -37,7 +37,7 @@ export default function AutoCorrectionPanel() {
 
   if (!target) return null;
 
-  return createPortal(<section className="auto-correction-panel">
+  return createPortal(<section className="auto-correction-panel dashboard-card">
     <h2>자동 보정 이력 <span className="section-count">{corrections.length}건</span></h2>
     {corrections.length === 0 ? <p className="muted">자동 재배치 없음</p> : <div className="auto-correction-list">
       {corrections.map((item, index) => <article key={`${item.kind}-${item.cargoId ?? 'summary'}-${index}`} className="auto-correction-card">
