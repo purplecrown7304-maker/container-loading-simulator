@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import ErrorBoundary from './ErrorBoundary';
 import ExcelImportActions from './ExcelImportActions';
+import ExcelExportActions from './ExcelExportActions';
 import LocationSelectionBridge from './LocationSelectionBridge';
 import CargoFilterBar from './CargoFilterBar';
 import AutoCorrectionPanel from './AutoCorrectionPanel';
@@ -24,6 +25,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <App />
       <ExcelImportActions />
+      <ExcelExportActions />
       <LocationSelectionBridge />
       <CargoFilterBar />
       <AutoCorrectionPanel />
