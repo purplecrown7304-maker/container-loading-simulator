@@ -43,10 +43,17 @@ export default function App() {
 
   const totalVolume = container.length * container.width * container.height;
   const fillRate = totalVolume > 0 ? result.usedVolumeM3 / totalVolume * 100 : 0;
+  const weightRate = container.maxPayloadKg > 0 ? result.loadedWeightKg / container.maxPayloadKg * 100 : 0;
   const waitingCount = useMemo(() => cargo.reduce((sum, item) => sum + item.quantity, 0), [cargo]);
   const quality = useMemo(() => assessWeightBalance(container, result), [container, result]);
   const addresses = useMemo(() => buildPlacementAddresses(result.placements, container.length), [result, container.length]);
   const locationRows = useMemo(() => result.placements.slice(0, 40).map((p, i) => ({ p, a: addresses[i] })), [result, addresses]);
+  const maxLayer = useMemo(() => addresses.reduce((max, item) => Math.max(max, item?.layer ?? 0), 0), [addresses]);
+  const loadedByCargo = useMemo(() => {
+    const map = new Map<string, number>();
+    result.placements.forEach((p) => map.set(p.cargoId, (map.get(p.cargoId) ?? 0) + 1));
+    return map;
+  }, [result.placements]);
 
   useEffect(() => {
     if (mode === 'boxes' && isValidContainer(container)) setResult(loadContainer(container, cargo.filter(item => item.quantity > 0)));
@@ -80,19 +87,10 @@ export default function App() {
     const valid = id && name && draft.length > 0 && draft.width > 0 && draft.height > 0 && draft.weightKg >= 0 && draft.quantity >= 0
       && Number.isFinite(draft.length) && Number.isFinite(draft.width) && Number.isFinite(draft.height)
       && Number.isFinite(draft.weightKg) && Number.isFinite(draft.quantity);
-    if (!valid) {
-      setSaveMessage('박스 코드·이름·치수·중량·수량을 확인하세요. 치수는 0보다 커야 합니다.');
-      return;
-    }
-    if (!editingId && cargo.some((item) => item.id === id)) {
-      setSaveMessage(`이미 등록된 박스 코드입니다: ${id}`);
-      return;
-    }
+    if (!valid) return setSaveMessage('박스 코드·이름·치수·중량·수량을 확인하세요. 치수는 0보다 커야 합니다.');
+    if (!editingId && cargo.some((item) => item.id === id)) return setSaveMessage(`이미 등록된 박스 코드입니다: ${id}`);
     const next: CargoItem = {
-      ...draft,
-      id,
-      name,
-      quantity: Math.floor(draft.quantity),
+      ...draft, id, name, quantity: Math.floor(draft.quantity),
       maxStackLayers: draft.maxStackLayers ? Math.max(1, Math.floor(draft.maxStackLayers)) : undefined,
       maxTopLoadKg: draft.maxTopLoadKg || undefined,
       allowRotation: draft.allowRotation !== false,
@@ -108,66 +106,62 @@ export default function App() {
   const deleteCargo = (id: string) => setCargo(items => items.filter(item => item.id !== id));
   const changeQuantity = (id: string, delta: number) => setCargo(items => items.map(item => item.id === id ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item));
   const runLoading = () => {
-    if (!isValidContainer(container)) {
-      setSaveMessage('컨테이너 길이·폭·높이는 0보다 커야 하고 최대중량은 0 이상이어야 합니다.');
-      return;
-    }
+    if (!isValidContainer(container)) return setSaveMessage('컨테이너 길이·폭·높이는 0보다 커야 하고 최대중량은 0 이상이어야 합니다.');
     setSaveMessage('');
     if (mode === 'boxes') setResult(loadContainer(container, cargo.filter(item => item.quantity > 0)));
     else setPalletRunToken(token => token + 1);
   };
   const printReport = () => {
-    if (mode !== 'boxes') {
-      setSaveMessage('작업지시서 출력은 현재 박스 적재 결과 기준입니다. 박스만 적재 모드에서 실행하세요.');
-      return;
-    }
-    if (!openLoadingReport(container, cargo, result)) {
-      setSaveMessage('팝업이 차단되어 작업지시서를 열지 못했습니다. 브라우저 팝업 허용 후 다시 시도하세요.');
-    }
+    if (mode !== 'boxes') return setSaveMessage('작업지시서 출력은 박스만 적재 모드에서 실행하세요.');
+    if (!openLoadingReport(container, cargo, result)) setSaveMessage('팝업이 차단되어 작업지시서를 열지 못했습니다.');
   };
-  const saveLocal = () => {
-    if (!isValidContainer(container)) {
-      setSaveMessage('유효한 컨테이너 정보를 먼저 입력하세요.');
-      return;
-    }
-    writeStoredState({ container, cargo });
-    setSaveMessage('현재 데이터가 이 브라우저에 저장되었습니다.');
-  };
+  const saveLocal = () => { writeStoredState({ container, cargo }); setSaveMessage('현재 데이터가 이 브라우저에 저장되었습니다.'); };
   const loadLocal = () => {
     const state = readStoredState();
     if (!state) return setSaveMessage('저장된 데이터가 없습니다.');
     const normalized = normalizeCargo(state.cargo);
-    setContainer(state.container);
-    setCargo(normalized);
+    setContainer(state.container); setCargo(normalized);
     if (isValidContainer(state.container)) setResult(loadContainer(state.container, normalized.filter(item => item.quantity > 0)));
     setSaveMessage('저장된 데이터를 불러왔습니다.');
   };
   const resetAll = () => {
-    if (!window.confirm('등록된 화물과 이 브라우저의 저장 데이터를 모두 초기화할까요? 이 작업은 되돌릴 수 없습니다.')) return;
-    setContainer(defaultContainer);
-    setCargo([]);
-    setResult(loadContainer(defaultContainer, []));
-    localStorage.removeItem(STORAGE_KEY);
-    setSaveMessage('모든 화물 데이터를 초기화했습니다.');
-    resetDraft();
+    if (!window.confirm('등록된 화물과 저장 데이터를 모두 초기화할까요?')) return;
+    setContainer(defaultContainer); setCargo([]); setResult(loadContainer(defaultContainer, []));
+    localStorage.removeItem(STORAGE_KEY); setSaveMessage('모든 화물 데이터를 초기화했습니다.'); resetDraft();
   };
 
-  return <main className="app-shell">
-    <header className="topbar"><div><strong>Container Loading Simulator</strong><span>Codex release v1.5.0</span></div><div className="top-actions"><div className="loading-mode-switch"><button className={mode === 'boxes' ? 'active' : 'secondary'} onClick={() => setMode('boxes')}>박스만 적재</button><button className={mode === 'pallets' ? 'active' : 'secondary'} onClick={() => setMode('pallets')}>팔레트 사용</button></div><button className="secondary" onClick={saveLocal}>저장</button><button className="secondary" onClick={loadLocal}>불러오기</button><button className="secondary" onClick={printReport}>작업지시서</button><button onClick={runLoading}>{mode === 'boxes' ? '박스 적재 실행' : '팔레트 적재 실행'}</button></div></header>
-    <section className="workspace">
-      <aside className="panel left-panel">
-        <h2>컨테이너 설정</h2><div className="form-grid container-form"><label>길이(m)<input type="number" min="0.01" step="0.01" value={container.length} onChange={e => updateContainer('length', e.target.value)} /></label><label>폭(m)<input type="number" min="0.01" step="0.01" value={container.width} onChange={e => updateContainer('width', e.target.value)} /></label><label>높이(m)<input type="number" min="0.01" step="0.01" value={container.height} onChange={e => updateContainer('height', e.target.value)} /></label><label>최대중량(kg)<input type="number" min="0" value={container.maxPayloadKg} onChange={e => updateContainer('maxPayloadKg', e.target.value)} /></label></div>
-        <div className="form-actions"><button className="secondary" onClick={saveLocal}>현재 데이터 저장</button><button className="danger" onClick={resetAll}>전체 초기화</button></div>{saveMessage && <p className="muted">{saveMessage}</p>}
-        <h2>{editingId ? '박스 수정' : '박스 등록'}</h2><div className="cargo-form"><label>코드<input value={draft.id} onChange={e => updateDraft('id', e.target.value)} disabled={Boolean(editingId)} /></label><label>이름<input value={draft.name} onChange={e => updateDraft('name', e.target.value)} /></label><div className="form-grid"><label>길이(m)<input type="number" min="0.01" step="0.01" value={draft.length} onChange={e => updateDraft('length', e.target.value)} /></label><label>폭(m)<input type="number" min="0.01" step="0.01" value={draft.width} onChange={e => updateDraft('width', e.target.value)} /></label><label>높이(m)<input type="number" min="0.01" step="0.01" value={draft.height} onChange={e => updateDraft('height', e.target.value)} /></label><label>중량(kg)<input type="number" min="0" value={draft.weightKg} onChange={e => updateDraft('weightKg', e.target.value)} /></label><label>수량<input type="number" min="0" step="1" value={draft.quantity} onChange={e => updateDraft('quantity', e.target.value)} /></label><label>최대 적층단<input type="number" min="1" step="1" value={draft.maxStackLayers ?? 1} onChange={e => updateDraft('maxStackLayers', e.target.value)} /></label><label>상부허용(kg)<input type="number" min="0" value={draft.maxTopLoadKg ?? 0} onChange={e => updateDraft('maxTopLoadKg', e.target.value)} /></label></div><label className="rotation-toggle"><input type="checkbox" checked={draft.allowRotation !== false} onChange={e => updateDraft('allowRotation', e.target.checked)} /><span>90도 회전 허용</span></label><div className="form-actions"><button onClick={saveCargo}>{editingId ? '수정 저장' : '박스 추가'}</button>{editingId && <button className="secondary" onClick={resetDraft}>취소</button>}</div></div>
-        <h2>대기 화물 <span className="section-count">{waitingCount} EA</span></h2>{cargo.map(item => <article className="cargo-card" key={item.id}><div className="cargo-head"><b>{item.name}</b><span>{item.id}</span></div><span>{item.length}×{item.width}×{item.height}m · {item.weightKg}kg · 회전 {item.allowRotation === false ? '금지' : '허용'}</span><div className="quantity-row"><button className="mini" onClick={() => changeQuantity(item.id,-1)}>-</button><strong>{item.quantity} EA</strong><button className="mini" onClick={() => changeQuantity(item.id,1)}>+</button></div><div className="card-actions"><button className="secondary" onClick={() => editCargo(item)}>수정</button><button className="danger" onClick={() => deleteCargo(item.id)}>삭제</button></div></article>)}
+  return <main className="app-shell mockup-dashboard">
+    <header className="topbar mockup-topbar">
+      <div className="brand-block"><span className="brand-cube">◇</span><strong>컨테이너 적재 시뮬레이터</strong></div>
+      <nav className="main-nav" aria-label="주요 메뉴">
+        <button className="nav-item">⌂ 대시보드</button><button className="nav-item active">▣ 적재 설계</button><button className="nav-item">⬡ 3D 뷰</button><button className="nav-item">▥ 결과 분석</button><button className="nav-item" onClick={printReport}>▤ 작업지시서</button>
+      </nav>
+      <div className="top-actions compact"><button className="secondary" onClick={saveLocal}>저장</button><button className="secondary" onClick={loadLocal}>불러오기</button><button className="secondary" onClick={printReport}>내보내기</button></div>
+    </header>
+
+    <section className="dashboard-grid">
+      <aside className="dashboard-left">
+        <section className="dashboard-card"><h2>1. 컨테이너 정보</h2><select value="40hc" readOnly><option value="40hc">40ft High Cube</option></select><div className="spec-list"><span>내부 길이 <b>{(container.length*1000).toLocaleString()} mm</b></span><span>내부 폭 <b>{(container.width*1000).toLocaleString()} mm</b></span><span>내부 높이 <b>{(container.height*1000).toLocaleString()} mm</b></span><span>적재 용적 <b>{totalVolume.toFixed(1)} m³</b></span><span>최대 적재중량 <b>{container.maxPayloadKg.toLocaleString()} kg</b></span></div><details><summary>규격 직접 수정</summary><div className="form-grid compact-form"><label>길이(m)<input type="number" value={container.length} onChange={e=>updateContainer('length',e.target.value)}/></label><label>폭(m)<input type="number" value={container.width} onChange={e=>updateContainer('width',e.target.value)}/></label><label>높이(m)<input type="number" value={container.height} onChange={e=>updateContainer('height',e.target.value)}/></label><label>최대중량<input type="number" value={container.maxPayloadKg} onChange={e=>updateContainer('maxPayloadKg',e.target.value)}/></label></div></details></section>
+
+        <section className="dashboard-card cargo-browser"><div className="card-heading-row"><h2>2. 적재할 화물</h2><span>{waitingCount} EA</span></div><div className="mode-tabs"><button className={mode==='boxes'?'active':''} onClick={()=>setMode('boxes')}>박스</button><button className={mode==='pallets'?'active':''} onClick={()=>setMode('pallets')}>팔레트</button></div><div className="cargo-scroll">{cargo.map(item => <article className="cargo-list-item" key={item.id}><div className="cargo-icon">□</div><div><b>{item.id} {item.name}</b><span>{Math.round(item.length*1000)} × {Math.round(item.width*1000)} × {Math.round(item.height*1000)} mm</span><small>{item.weightKg} kg</small></div><strong>{item.quantity}</strong><div className="cargo-inline-actions"><button onClick={()=>changeQuantity(item.id,-1)}>−</button><button onClick={()=>changeQuantity(item.id,1)}>＋</button><button onClick={()=>editCargo(item)}>수정</button><button onClick={()=>deleteCargo(item.id)}>삭제</button></div></article>)}</div><details className="cargo-add-panel" open={Boolean(editingId)}><summary>＋ 새 화물 추가</summary><div className="cargo-form"><label>코드<input value={draft.id} onChange={e=>updateDraft('id',e.target.value)} disabled={Boolean(editingId)}/></label><label>이름<input value={draft.name} onChange={e=>updateDraft('name',e.target.value)}/></label><div className="form-grid"><label>길이(m)<input type="number" value={draft.length} onChange={e=>updateDraft('length',e.target.value)}/></label><label>폭(m)<input type="number" value={draft.width} onChange={e=>updateDraft('width',e.target.value)}/></label><label>높이(m)<input type="number" value={draft.height} onChange={e=>updateDraft('height',e.target.value)}/></label><label>중량(kg)<input type="number" value={draft.weightKg} onChange={e=>updateDraft('weightKg',e.target.value)}/></label><label>수량<input type="number" value={draft.quantity} onChange={e=>updateDraft('quantity',e.target.value)}/></label><label>최대 적층단<input type="number" value={draft.maxStackLayers??1} onChange={e=>updateDraft('maxStackLayers',e.target.value)}/></label></div><button onClick={saveCargo}>{editingId?'수정 저장':'박스 추가'}</button></div></details>{saveMessage && <p className="status-message muted">{saveMessage}</p>}</section>
       </aside>
 
-      <Suspense fallback={<LoadingFallback />}>
-        {mode === 'boxes' ? <BoxLoadingViewer result={result} container={container} /> : <section className="viewer pallet-viewer"><PalletModePanel container={container} cargo={cargo} runToken={palletRunToken} /></section>}
-      </Suspense>
+      <section className="dashboard-center">
+        <section className="dashboard-card viewer-card"><div className="card-heading-row"><h2>3. 3D 적재 뷰</h2><div className="viewer-toolbar"><button className="active">3D 뷰</button><button>2D 뷰</button><button>층별 보기</button></div></div><div className="viewer-host"><Suspense fallback={<LoadingFallback />}>{mode==='boxes'?<BoxLoadingViewer result={result} container={container}/>:<section className="viewer pallet-viewer"><PalletModePanel container={container} cargo={cargo} runToken={palletRunToken}/></section>}</Suspense></div></section>
 
-      <aside className="panel right-panel">
-        {mode === 'boxes' ? <><h2>박스 적재 결과</h2><div className="metric"><span>적재 수량</span><strong>{result.placements.length}</strong></div><div className="metric"><span>회전 적재</span><strong>{result.placements.filter(p => p.rotated).length}</strong></div><div className="metric"><span>적재 중량</span><strong>{result.loadedWeightKg.toLocaleString()} kg</strong></div><div className="metric"><span>사용 CBM</span><strong>{result.usedVolumeM3.toFixed(2)} m³</strong></div><div className="metric"><span>체적 적재율</span><strong>{fillRate.toFixed(1)}%</strong></div><h2>무게중심·품질</h2><div className="quality-score"><span>종합 품질</span><strong>{quality.loadingQualityScore.toFixed(0)}점 · {quality.grade}</strong></div><div className="metric"><span>좌우 편차</span><strong>{quality.lateralDeviationPct.toFixed(1)}%</strong></div><div className="metric"><span>앞뒤 편차</span><strong>{quality.longitudinalDeviationPct.toFixed(1)}%</strong></div><h2>위치</h2><div className="location-list">{locationRows.map(({p,a},i) => <div className="location-row" key={`${p.cargoId}-${i}`}><b>{`R${a.row} C${a.column} L${a.layer}`}</b><span>{p.cargoId}</span><small>{a.zone}</small></div>)}</div><h2>미적재</h2>{result.remaining.length === 0 ? <p className="muted">없음</p> : result.remaining.map(item => <article className="warning-card" key={item.cargoId}><b>{item.cargoId} · {item.quantity} EA</b><span>{item.reason}</span></article>)}</> : <><h2>팔레트 적재 모드</h2><article className="quality-note"><b>하나의 작업 흐름으로 통합됨</b><span>왼쪽의 동일한 컨테이너·박스 데이터를 사용하며 상단 ‘팔레트 적재 실행’ 버튼으로 중앙 팔레트 결과를 다시 계산합니다.</span></article><div className="metric"><span>현재 대기 화물</span><strong>{waitingCount} EA</strong></div><div className="metric"><span>컨테이너 최대중량</span><strong>{container.maxPayloadKg.toLocaleString()} kg</strong></div></>}
+        <section className="center-mini-grid"><article className="dashboard-card layer-card"><h2>6. 층별 보기 ({maxLayer}층)</h2><div className="layer-thumbnails">{Array.from({length:Math.min(Math.max(maxLayer,1),5)},(_,i)=><div key={i}><div className="layer-thumb">{i+1}</div><span>{i+1}층</span></div>)}</div></article><article className="dashboard-card heat-card"><h2>7. 하중 분포</h2><div className="heatmap"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></div><div className="heat-legend"><span>낮음</span><span>중간</span><span>높음</span></div></article></section>
+
+        <section className="dashboard-card loading-table-card"><h2>8. 적재 리스트</h2><div className="table-wrap"><table><thead><tr><th>No.</th><th>화물 코드</th><th>크기(mm)</th><th>요청</th><th>적재</th><th>개당 중량</th><th>총 중량</th><th>주 배치</th></tr></thead><tbody>{cargo.map((item,index)=>{const loaded=loadedByCargo.get(item.id)??0; const first=result.placements.find(p=>p.cargoId===item.id); return <tr key={item.id}><td>{index+1}</td><td><b>{item.id}</b></td><td>{Math.round(item.length*1000)}×{Math.round(item.width*1000)}×{Math.round(item.height*1000)}</td><td>{item.quantity}</td><td>{loaded}</td><td>{item.weightKg}kg</td><td>{(loaded*item.weightKg).toLocaleString()}kg</td><td>{first?(first.x<container.length/3?'안쪽':first.x<container.length*2/3?'중앙':'문쪽'):'-'}</td></tr>})}</tbody></table></div></section>
+      </section>
+
+      <aside className="dashboard-right">
+        <section className="dashboard-card"><h2>4. 적재 요약</h2><div className="progress-metric"><div><span>적재율(부피)</span><b>{fillRate.toFixed(1)}%</b></div><progress max="100" value={Math.min(100,fillRate)}/></div><div className="progress-metric"><div><span>적재율(중량)</span><b>{weightRate.toFixed(1)}%</b></div><progress max="100" value={Math.min(100,weightRate)}/></div><div className="spec-list summary-list"><span>총 중량 <b>{result.loadedWeightKg.toLocaleString()} / {container.maxPayloadKg.toLocaleString()} kg</b></span><span>총 부피 <b>{result.usedVolumeM3.toFixed(1)} / {totalVolume.toFixed(1)} m³</b></span><span>사용 박스 수 <b>{result.placements.length} EA</b></span><span>층수 <b>{maxLayer} 층</b></span></div><button className="constraint-ok">✓ 제약 조건 모두 확인</button></section>
+
+        <section className="dashboard-card"><h2>5. 제약 조건 체크</h2><div className="constraint-list"><span>◉ 중량 제한 <b>통과</b></span><span>◇ 적재 높이 제한 <b>통과</b></span><span>▣ 바닥 하중 분포 <b>{quality.grade}</b></span><span>◈ 상부하중 제한 <b>통과</b></span><span>⊙ 문 개폐 공간 <b>확인</b></span></div></section>
+
+        <section className="dashboard-card quick-card"><h2>9. 빠른 작업</h2><button className="primary-action" onClick={runLoading}>▣ 자동 적재</button><button className="opt-action" onClick={runLoading}>◇ 적재 최적화</button><div className="quick-row"><button onClick={printReport}>▤ 작업지시서</button><button onClick={saveLocal}>▧ 저장</button></div><button className="danger ghost" onClick={resetAll}>전체 초기화</button></section>
+
+        <section className="dashboard-card location-summary"><h2>위치 / 미적재</h2><div className="location-list">{locationRows.slice(0,12).map(({p,a},i)=><div className="location-row" key={`${p.cargoId}-${i}`}><b>{`R${a.row} C${a.column} L${a.layer}`}</b><span>{p.cargoId}</span><small>{a.zone}</small></div>)}</div>{result.remaining.length>0&&<div className="remaining-compact">{result.remaining.map(item=><span key={item.cargoId}>{item.cargoId} {item.quantity}EA · {item.reason}</span>)}</div>}</section>
       </aside>
     </section>
   </main>;
