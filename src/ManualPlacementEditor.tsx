@@ -4,6 +4,13 @@ import { assessManualMove, supportsOtherPlacement } from './engine/manualPlaceme
 import { clearManualOverride, writeManualOverride } from './engine/manualOverride';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
+import {
+  MANUAL_DRAG_APPLY_EVENT,
+  MANUAL_DRAG_CANDIDATE_EVENT,
+  MANUAL_DRAG_FEEDBACK_EVENT,
+  type ManualDragCandidateDetail,
+  type ManualDragFeedbackDetail,
+} from './manualDragEvents';
 import { PLACEMENT_SELECT_EVENT, type PlacementSelectDetail } from './selectionEvents';
 import { writeStoredState } from './storage';
 
@@ -52,6 +59,19 @@ export default function ManualPlacementEditor() {
     if (current) setPosition({x:current.x,y:current.y,z:current.z});
   },[detail,selectedIndex]);
 
+  useEffect(() => {
+    const onCandidate = (event: Event) => {
+      const drag = (event as CustomEvent<ManualDragCandidateDetail>).detail;
+      if (!drag) return;
+      setSelectedIndex(drag.index);
+      setPosition(drag.position);
+      setRotate(false);
+      setMessage('3D 드래그 위치를 검사 중입니다.');
+    };
+    window.addEventListener(MANUAL_DRAG_CANDIDATE_EVENT,onCandidate);
+    return () => window.removeEventListener(MANUAL_DRAG_CANDIDATE_EVENT,onCandidate);
+  },[]);
+
   const selected = selectedIndex === null ? undefined : detail?.result.placements[selectedIndex];
   const locked = selectedIndex !== null && detail ? supportsOtherPlacement(selectedIndex,detail.result.placements) : false;
   const assessment = useMemo(() => {
@@ -59,6 +79,42 @@ export default function ManualPlacementEditor() {
     try { return assessManualMove(detail.container,detail.cargo,detail.result,selectedIndex,position,rotate); }
     catch { return null; }
   },[detail,selectedIndex,selected,position,rotate]);
+
+  useEffect(() => {
+    if (selectedIndex === null || !assessment) return;
+    const feedback: ManualDragFeedbackDetail = {
+      index: selectedIndex,
+      position,
+      valid: assessment.valid && !locked,
+      reasons: locked ? ['위 화물을 지지하는 박스는 먼저 이동할 수 없습니다.'] : assessment.reasons,
+    };
+    window.dispatchEvent(new CustomEvent<ManualDragFeedbackDetail>(MANUAL_DRAG_FEEDBACK_EVENT,{detail:feedback}));
+  },[assessment,selectedIndex,position,locked]);
+
+  useEffect(() => {
+    const onApplyDrag = (event: Event) => {
+      const drag = (event as CustomEvent<ManualDragCandidateDetail>).detail;
+      if (!drag || !detail) return;
+      const current = detail.result.placements[drag.index];
+      if (!current || supportsOtherPlacement(drag.index,detail.result.placements)) {
+        setMessage('지지 중인 하부 박스라 드래그 이동할 수 없습니다.');
+        return;
+      }
+      const checked = assessManualMove(detail.container,detail.cargo,detail.result,drag.index,drag.position,false);
+      if (!checked.valid) {
+        setMessage(checked.reasons[0] ?? '안전조건을 만족하지 않아 이동을 취소했습니다.');
+        return;
+      }
+      setHistory(h => [...h.slice(-9),detail.result]);
+      writeManualOverride(detail.container,detail.cargo,checked.result);
+      writeStoredState({container:detail.container,cargo:detail.cargo},true);
+      setSelectedIndex(drag.index);
+      setPosition(drag.position);
+      setMessage('3D 드래그 이동을 적용했습니다. 모든 분석값을 다시 계산했습니다.');
+    };
+    window.addEventListener(MANUAL_DRAG_APPLY_EVENT,onApplyDrag);
+    return () => window.removeEventListener(MANUAL_DRAG_APPLY_EVENT,onApplyDrag);
+  },[detail]);
 
   const nudge = (axis: keyof Target, delta: number) => setPosition(p => ({...p,[axis]:Math.max(0,p[axis]+delta)}));
   const apply = () => {
@@ -93,7 +149,7 @@ export default function ManualPlacementEditor() {
         <label className="manual-rotate"><input type="checkbox" checked={rotate} onChange={e=>setRotate(e.target.checked)} disabled={detail.cargo.find(c=>c.id===selected.cargoId)?.allowRotation===false}/><span>90° 회전</span></label>
       </div>
       <div className={`manual-assessment ${assessment?.valid ? 'valid' : 'invalid'}`}>
-        <div className="manual-status"><b>{assessment?.valid ? '✓ 이동 가능' : '✕ 이동 불가'}</b><span>5cm 스냅 · 실시간 안전검사</span></div>
+        <div className="manual-status"><b>{assessment?.valid ? '✓ 이동 가능' : '✕ 이동 불가'}</b><span>5cm 스냅 · 실시간 안전검사 · 3D 드래그 지원</span></div>
         {!assessment?.valid && <div className="manual-reasons">{assessment?.reasons.map((reason,i)=><span key={i}>{reason}</span>)}</div>}
         {assessment && <div className="manual-metrics"><span>품질점수 <b>{assessment.before.quality.toFixed(0)} → {assessment.after.quality.toFixed(0)}</b></span><span>최대 바닥하중 <b>{assessment.before.maxFloorLoadKgPerM2.toFixed(0)} → {assessment.after.maxFloorLoadKgPerM2.toFixed(0)} kg/m²</b></span><span>무게중심 X <b>{assessment.before.center.x.toFixed(2)} → {assessment.after.center.x.toFixed(2)}m</b></span></div>}
       </div>
