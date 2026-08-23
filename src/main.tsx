@@ -10,6 +10,7 @@ import AutoCorrectionPanel from './AutoCorrectionPanel';
 import DashboardRuntimeEnhancer from './DashboardRuntimeEnhancer';
 import StrategyComparisonPanel from './StrategyComparisonPanel';
 import SpareCapacityPanel from './SpareCapacityPanel';
+import ManualPlacementEditor from './ManualPlacementEditor';
 import './styles.css';
 import './mode.css';
 import './error.css';
@@ -23,6 +24,7 @@ import './dashboard-mockup.css';
 import './dashboard-runtime.css';
 import './strategy-comparison.css';
 import './spare-capacity.css';
+import './manual-editor.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -36,6 +38,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <DashboardRuntimeEnhancer />
       <StrategyComparisonPanel />
       <SpareCapacityPanel />
+      <ManualPlacementEditor />
     </ErrorBoundary>
   </React.StrictMode>,
 );
