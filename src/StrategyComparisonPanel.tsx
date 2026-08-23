@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { compareLoadingStrategies, type StrategyComparison } from './engine/strategyComparison';
+import { planMultipleContainers } from './engine/multiContainerPlanner';
 import { LOADING_RESULT_EVENT, LOADING_STRATEGY_STORAGE_KEY, type LoadingStrategy } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { readStoredState, writeStoredState } from './storage';
@@ -19,6 +20,7 @@ export default function StrategyComparisonPanel() {
     return value === 'stability' || value === 'unloading' ? value : 'capacity';
   });
   const [editingPriorities, setEditingPriorities] = useState(false);
+  const [showFleetPlan, setShowFleetPlan] = useState(false);
 
   useEffect(() => {
     const resolve = () => setTarget(document.querySelector('.dashboard-right'));
@@ -38,6 +40,7 @@ export default function StrategyComparisonPanel() {
 
   const comparisons = useMemo(() => detail ? compareLoadingStrategies(detail.container, detail.cargo) : [], [detail]);
   const best = useMemo(() => [...comparisons].sort((a, b) => b.overallScore - a.overallScore)[0]?.strategy, [comparisons]);
+  const fleetPlan = useMemo(() => detail ? planMultipleContainers(detail.container, detail.cargo, active, 20) : null, [detail, active]);
 
   const applyStrategy = (strategy: LoadingStrategy) => {
     localStorage.setItem(LOADING_STRATEGY_STORAGE_KEY, strategy);
@@ -59,7 +62,7 @@ export default function StrategyComparisonPanel() {
 
   return createPortal(<section className="dashboard-card strategy-panel">
     <div className="card-heading-row"><h2>10. 적재 전략 비교</h2><span>{best ? `추천 ${strategyOrder.indexOf(best) + 1}안` : ''}</span></div>
-    <p className="strategy-help">같은 화물을 3가지 목표로 다시 계산합니다. 점수는 전략별 의사결정 보조값이며 절대 안전등급이 아닙니다.</p>
+    <p className="strategy-help">같은 화물을 3가지 목표로 다시 계산합니다. 추천 점수는 모든 안에 동일한 평가식을 적용한 의사결정 보조값입니다.</p>
     <div className="strategy-grid">
       {comparisons.map((item) => <StrategyCard key={item.strategy} item={item} active={active === item.strategy} best={best === item.strategy} onApply={() => applyStrategy(item.strategy)} />)}
     </div>
@@ -67,6 +70,12 @@ export default function StrategyComparisonPanel() {
     {editingPriorities && <div className="unload-priority-editor">
       <div className="priority-guide"><b>하역 순서</b><span>1 = 가장 먼저 꺼냄(문쪽) · 숫자가 클수록 나중에 꺼냄(안쪽)</span></div>
       {detail.cargo.map(item => <label key={item.id}><span><b>{item.id}</b>{item.name}</span><input type="number" min="0" step="1" value={item.unloadPriority ?? 0} onChange={e => updatePriority(item.id, Number(e.target.value))} /></label>)}
+    </div>}
+    <button className="strategy-fleet-toggle" onClick={() => setShowFleetPlan(v => !v)}>{showFleetPlan ? '다중 컨테이너 계획 닫기' : '필요 컨테이너 대수 계산'}</button>
+    {showFleetPlan && fleetPlan && <div className="fleet-plan">
+      <div className="fleet-summary"><b>{fleetPlan.complete ? `${fleetPlan.containers.length}대로 전체 적재 가능` : `${fleetPlan.containers.length}대 계산 후 잔량 존재`}</b><span>총 {fleetPlan.totalLoaded}/{fleetPlan.totalRequested} EA 적재 · 잔량 {fleetPlan.totalRemaining} EA</span></div>
+      <div className="fleet-list">{fleetPlan.containers.map(item => <article key={item.index}><b>{item.index}호 컨테이너</b><span>{item.loadedCount} EA</span><small>부피 {item.fillRatePct.toFixed(1)}% · 중량 {item.weightRatePct.toFixed(1)}% · 다음 잔량 {item.remainingCount} EA</small></article>)}</div>
+      {fleetPlan.stoppedReason && <p className="fleet-warning">{fleetPlan.stoppedReason}</p>}
     </div>}
   </section>, target);
 }
