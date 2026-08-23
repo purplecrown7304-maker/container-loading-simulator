@@ -14,6 +14,7 @@ import ManualPlacementEditor from './ManualPlacementEditor';
 import GroupMoveSuggestionPanel from './GroupMoveSuggestionPanel';
 import GroupDragController from './GroupDragController';
 import WorkSequencePanel from './WorkSequencePanel';
+import ErgonomicRiskPanel from './ErgonomicRiskPanel';
 import './styles.css';
 import './mode.css';
 import './error.css';
@@ -30,6 +31,7 @@ import './spare-capacity.css';
 import './manual-editor.css';
 import './group-suggestion.css';
 import './work-sequence.css';
+import './ergonomic-panel.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -47,6 +49,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <GroupMoveSuggestionPanel />
       <GroupDragController />
       <WorkSequencePanel />
+      <ErgonomicRiskPanel />
     </ErrorBoundary>
   </React.StrictMode>,
 );
