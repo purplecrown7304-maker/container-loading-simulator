@@ -1,0 +1,19 @@
+.viewer-host[data-view-mode="2d"] .viewer canvas { opacity: .08; filter: grayscale(1); }
+.viewer-host[data-view-mode="2d"] .topdown-minimap { inset: 18px !important; width: auto !important; max-width: none !important; transform: none !important; background: rgba(255,255,255,.98); box-shadow: 0 18px 55px rgba(15,35,64,.18); }
+.viewer-host[data-view-mode="2d"] .topdown-minimap svg { width: 100%; height: min(360px, 46vh); }
+.viewer-host[data-view-mode="2d"] .cargo-inspector { z-index: 12; }
+.viewer-host[data-view-mode="layers"] .viewer { outline: 2px solid rgba(42,119,232,.24); }
+.viewer-toolbar button.active { background:#2e7be8; color:white; border-color:#2e7be8; }
+.constraint-list .constraint-pass b { color:#1e9f54; }
+.constraint-list .constraint-warn { background:#fff5e8; border-radius:8px; padding-left:7px; padding-right:7px; }
+.constraint-list .constraint-warn b { color:#c46b08; }
+.constraint-ok.warning { background:#fff3dc !important; color:#9a5b00 !important; border:1px solid #ffd28e; }
+.heatmap { grid-template-columns:repeat(8,1fr) !important; grid-template-rows:repeat(3,1fr); }
+.heatmap i[data-level="low"] { background:#8bd66f; }
+.heatmap i[data-level="mid"] { background:#f0cf52; }
+.heatmap i[data-level="high"] { background:#ef755f; }
+.main-nav .nav-item { cursor:pointer; }
+@media (max-width:900px){
+  .viewer-host[data-view-mode="2d"] .topdown-minimap { inset:12px !important; }
+  .viewer-host[data-view-mode="2d"] .topdown-minimap svg { height:38vh; }
+}
