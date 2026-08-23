@@ -10,12 +10,23 @@ const EPS = 1e-9;
 const cbm = (item: CargoItem) => item.length * item.width * item.height;
 const fitCount = (available: number, size: number) => size > 0 ? Math.floor((available + EPS) / size) : 0;
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
-type CorrectionWindow = Window & { __containerLoadingAutoCorrections?: AutoCorrectionRecord[] };
+export const LOADING_RESULT_EVENT = 'container-loading:result';
+type CorrectionWindow = Window & {
+  __containerLoadingAutoCorrections?: AutoCorrectionRecord[];
+  __containerLoadingLatestResult?: { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
+};
 
 function publishCorrections(corrections: AutoCorrectionRecord[]) {
   if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return;
   (window as CorrectionWindow).__containerLoadingAutoCorrections = corrections;
   window.dispatchEvent(new CustomEvent(AUTO_CORRECTION_EVENT, { detail: { corrections } }));
+}
+
+function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult) {
+  if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return;
+  const detail = { container, cargo, result };
+  (window as CorrectionWindow).__containerLoadingLatestResult = detail;
+  window.dispatchEvent(new CustomEvent(LOADING_RESULT_EVENT, { detail }));
 }
 
 function bestBlockOrientation(container: ContainerSpec, item: CargoItem) {
@@ -113,5 +124,6 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[]): Loa
 
   const result: LoadingResult = { placements, remaining, loadedWeightKg, usedVolumeM3, validationIssues: validatePlacements(container, placements), autoCorrections };
   publishCorrections(autoCorrections);
+  publishLoadingResult(container, cargo, result);
   return result;
 }
