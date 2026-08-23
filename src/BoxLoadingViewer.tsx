@@ -201,7 +201,6 @@ function Scene({ result, container, selectedIndex, filteredCargoId, layerLimit, 
         });
       }}
       onPointerUp={(event) => { event.stopPropagation(); onDragEnd(); }}
-      onPointerCancel={(event) => { event.stopPropagation(); onDragEnd(); }}
     >
       <planeGeometry args={[container.length * scale, container.width * scale]} />
       <meshBasicMaterial transparent opacity={0.001} depthWrite={false} side={THREE.DoubleSide} />
