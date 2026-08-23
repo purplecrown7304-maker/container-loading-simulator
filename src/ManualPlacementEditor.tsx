@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { assessManualMove, supportsOtherPlacement } from './engine/manualPlacement';
 import { clearManualOverride, writeManualOverride } from './engine/manualOverride';
+import { findBestSmartSnap, type SmartSnapReason } from './engine/smartSnap';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import {
@@ -26,6 +27,7 @@ export default function ManualPlacementEditor() {
   const [rotate, setRotate] = useState(false);
   const [history, setHistory] = useState<LoadingResult[]>([]);
   const [message, setMessage] = useState('');
+  const [snapReason, setSnapReason] = useState<SmartSnapReason | null>(null);
 
   useEffect(() => {
     const resolve = () => setTarget(document.querySelector('.viewer-card'));
@@ -47,7 +49,7 @@ export default function ManualPlacementEditor() {
       setSelectedIndex(index);
       const current = index === null ? undefined : detail?.result.placements[index];
       if (current) setPosition({x:current.x,y:current.y,z:current.z});
-      setRotate(false); setMessage('');
+      setRotate(false); setMessage(''); setSnapReason(null);
     };
     window.addEventListener(PLACEMENT_SELECT_EVENT,onSelection);
     return () => window.removeEventListener(PLACEMENT_SELECT_EVENT,onSelection);
@@ -62,15 +64,23 @@ export default function ManualPlacementEditor() {
   useEffect(() => {
     const onCandidate = (event: Event) => {
       const drag = (event as CustomEvent<ManualDragCandidateDetail>).detail;
-      if (!drag) return;
+      if (!drag || !detail) return;
       setSelectedIndex(drag.index);
-      setPosition(drag.position);
       setRotate(false);
-      setMessage('3D 드래그 위치를 검사 중입니다.');
+      const snap = findBestSmartSnap(detail.container, detail.cargo, detail.result, drag.index, drag.position, false);
+      if (snap) {
+        setPosition(snap.position);
+        setSnapReason(snap.reason);
+        setMessage(snap.reason === '드래그 위치' ? '3D 드래그 위치를 검사 중입니다.' : `${snap.reason} 후보로 자동 스냅했습니다.`);
+      } else {
+        setPosition(drag.position);
+        setSnapReason(null);
+        setMessage('주변에 안전한 스마트 스냅 후보가 없어 원래 위치를 검사합니다.');
+      }
     };
     window.addEventListener(MANUAL_DRAG_CANDIDATE_EVENT,onCandidate);
     return () => window.removeEventListener(MANUAL_DRAG_CANDIDATE_EVENT,onCandidate);
-  },[]);
+  },[detail]);
 
   const selected = selectedIndex === null ? undefined : detail?.result.placements[selectedIndex];
   const locked = selectedIndex !== null && detail ? supportsOtherPlacement(selectedIndex,detail.result.placements) : false;
@@ -100,7 +110,9 @@ export default function ManualPlacementEditor() {
         setMessage('지지 중인 하부 박스라 드래그 이동할 수 없습니다.');
         return;
       }
-      const checked = assessManualMove(detail.container,detail.cargo,detail.result,drag.index,drag.position,false);
+      const snap = findBestSmartSnap(detail.container,detail.cargo,detail.result,drag.index,drag.position,false);
+      const targetPosition = snap?.position ?? drag.position;
+      const checked = assessManualMove(detail.container,detail.cargo,detail.result,drag.index,targetPosition,false);
       if (!checked.valid) {
         setMessage(checked.reasons[0] ?? '안전조건을 만족하지 않아 이동을 취소했습니다.');
         return;
@@ -109,14 +121,15 @@ export default function ManualPlacementEditor() {
       writeManualOverride(detail.container,detail.cargo,checked.result);
       writeStoredState({container:detail.container,cargo:detail.cargo},true);
       setSelectedIndex(drag.index);
-      setPosition(drag.position);
-      setMessage('3D 드래그 이동을 적용했습니다. 모든 분석값을 다시 계산했습니다.');
+      setPosition(targetPosition);
+      setSnapReason(snap?.reason ?? null);
+      setMessage(snap && snap.reason !== '드래그 위치' ? `${snap.reason} 위치로 스마트 스냅 이동을 적용했습니다.` : '3D 드래그 이동을 적용했습니다. 모든 분석값을 다시 계산했습니다.');
     };
     window.addEventListener(MANUAL_DRAG_APPLY_EVENT,onApplyDrag);
     return () => window.removeEventListener(MANUAL_DRAG_APPLY_EVENT,onApplyDrag);
   },[detail]);
 
-  const nudge = (axis: keyof Target, delta: number) => setPosition(p => ({...p,[axis]:Math.max(0,p[axis]+delta)}));
+  const nudge = (axis: keyof Target, delta: number) => { setSnapReason(null); setPosition(p => ({...p,[axis]:Math.max(0,p[axis]+delta)})); };
   const apply = () => {
     if (!detail || !assessment?.valid) return;
     setHistory(h => [...h.slice(-9),detail.result]);
@@ -130,11 +143,12 @@ export default function ManualPlacementEditor() {
     setHistory(h => h.slice(0,-1));
     writeManualOverride(detail.container,detail.cargo,previous);
     writeStoredState({container:detail.container,cargo:detail.cargo},true);
+    setSnapReason(null);
     setMessage('마지막 수동 이동을 취소했습니다.');
   };
   const reset = () => {
     if (!detail) return;
-    clearManualOverride(); setHistory([]);
+    clearManualOverride(); setHistory([]); setSnapReason(null);
     writeStoredState({container:detail.container,cargo:detail.cargo},true);
     setMessage('수동 편집을 지우고 자동 적재 결과로 복귀했습니다.');
   };
@@ -144,12 +158,13 @@ export default function ManualPlacementEditor() {
     <div className="manual-editor-head"><div><b>수동 적재 편집</b><span>{selected ? `${selected.cargoId} · #${(selectedIndex ?? 0)+1}` : '3D에서 박스를 선택하세요'}</span></div><div><button disabled={!history.length} onClick={undo}>↶ 실행취소</button><button onClick={reset}>자동배치 복귀</button></div></div>
     {selected && detail && <>
       {locked && <div className="manual-lock">🔒 위 화물을 지지하는 박스입니다. 상부 박스를 먼저 이동하세요.</div>}
+      {snapReason && snapReason !== '드래그 위치' && <div className="manual-smart-snap">✦ 스마트 스냅 · {snapReason}</div>}
       <div className="manual-controls">
-        {(['x','y','z'] as const).map(axis => <div className="manual-axis" key={axis}><b>{axis.toUpperCase()}</b><button onClick={()=>nudge(axis,-0.05)}>−5cm</button><input type="number" step="0.05" value={position[axis].toFixed(2)} onChange={e=>setPosition(p=>({...p,[axis]:Math.max(0,Number(e.target.value)||0)}))}/><button onClick={()=>nudge(axis,0.05)}>+5cm</button></div>)}
-        <label className="manual-rotate"><input type="checkbox" checked={rotate} onChange={e=>setRotate(e.target.checked)} disabled={detail.cargo.find(c=>c.id===selected.cargoId)?.allowRotation===false}/><span>90° 회전</span></label>
+        {(['x','y','z'] as const).map(axis => <div className="manual-axis" key={axis}><b>{axis.toUpperCase()}</b><button onClick={()=>nudge(axis,-0.05)}>−5cm</button><input type="number" step="0.05" value={position[axis].toFixed(2)} onChange={e=>{setSnapReason(null);setPosition(p=>({...p,[axis]:Math.max(0,Number(e.target.value)||0)}));}}/><button onClick={()=>nudge(axis,0.05)}>+5cm</button></div>)}
+        <label className="manual-rotate"><input type="checkbox" checked={rotate} onChange={e=>{setSnapReason(null);setRotate(e.target.checked);}} disabled={detail.cargo.find(c=>c.id===selected.cargoId)?.allowRotation===false}/><span>90° 회전</span></label>
       </div>
       <div className={`manual-assessment ${assessment?.valid ? 'valid' : 'invalid'}`}>
-        <div className="manual-status"><b>{assessment?.valid ? '✓ 이동 가능' : '✕ 이동 불가'}</b><span>5cm 스냅 · 실시간 안전검사 · 3D 드래그 지원</span></div>
+        <div className="manual-status"><b>{assessment?.valid ? '✓ 이동 가능' : '✕ 이동 불가'}</b><span>5cm 스냅 · 스마트 스냅 · 실시간 안전검사</span></div>
         {!assessment?.valid && <div className="manual-reasons">{assessment?.reasons.map((reason,i)=><span key={i}>{reason}</span>)}</div>}
         {assessment && <div className="manual-metrics"><span>품질점수 <b>{assessment.before.quality.toFixed(0)} → {assessment.after.quality.toFixed(0)}</b></span><span>최대 바닥하중 <b>{assessment.before.maxFloorLoadKgPerM2.toFixed(0)} → {assessment.after.maxFloorLoadKgPerM2.toFixed(0)} kg/m²</b></span><span>무게중심 X <b>{assessment.before.center.x.toFixed(2)} → {assessment.after.center.x.toFixed(2)}m</b></span></div>}
       </div>
