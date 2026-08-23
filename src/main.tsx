@@ -9,6 +9,7 @@ import CargoFilterBar from './CargoFilterBar';
 import AutoCorrectionPanel from './AutoCorrectionPanel';
 import DashboardRuntimeEnhancer from './DashboardRuntimeEnhancer';
 import StrategyComparisonPanel from './StrategyComparisonPanel';
+import SpareCapacityPanel from './SpareCapacityPanel';
 import './styles.css';
 import './mode.css';
 import './error.css';
@@ -21,6 +22,7 @@ import './auto-correction.css';
 import './dashboard-mockup.css';
 import './dashboard-runtime.css';
 import './strategy-comparison.css';
+import './spare-capacity.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -33,6 +35,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <AutoCorrectionPanel />
       <DashboardRuntimeEnhancer />
       <StrategyComparisonPanel />
+      <SpareCapacityPanel />
     </ErrorBoundary>
   </React.StrictMode>,
 );
