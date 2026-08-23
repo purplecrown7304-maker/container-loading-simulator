@@ -15,6 +15,7 @@ const headers = [
   '최대적층단',
   '상부허용중량(kg)',
   '90도회전허용',
+  '하역순서',
 ];
 
 function toNumber(value: unknown): number {
@@ -60,6 +61,7 @@ export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
     const quantity = toNumber(row['수량'] ?? row['Quantity']);
     const maxStackLayers = toNumber(row['최대적층단'] ?? row['최대 적층단'] ?? row['MaxStackLayers']);
     const maxTopLoadKg = toNumber(row['상부허용중량(kg)'] ?? row['상부허용'] ?? row['MaxTopLoadKg']);
+    const unloadPriority = toNumber(row['하역순서'] ?? row['하역 순서'] ?? row['UnloadPriority']);
     const rotation = toRotationPolicy(row['90도회전허용'] ?? row['회전허용'] ?? row['AllowRotation']);
 
     if (!id || !name) {
@@ -86,6 +88,10 @@ export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
       issues.push({ row: excelRow, code: id, message: '상부 허용중량은 음수일 수 없습니다.' });
       return;
     }
+    if (Number.isFinite(unloadPriority) && unloadPriority < 1) {
+      issues.push({ row: excelRow, code: id, message: '하역순서는 비워두거나 1 이상의 정수여야 합니다.' });
+      return;
+    }
     if (!rotation.valid) {
       issues.push({ row: excelRow, code: id, message: '90도회전허용 값은 Y/N, 허용/금지, TRUE/FALSE, 1/0 중 하나여야 합니다.' });
       return;
@@ -103,6 +109,7 @@ export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
       maxStackLayers: Number.isFinite(maxStackLayers) && maxStackLayers > 0 ? Math.floor(maxStackLayers) : undefined,
       maxTopLoadKg: Number.isFinite(maxTopLoadKg) && maxTopLoadKg > 0 ? maxTopLoadKg : undefined,
       allowRotation: rotation.value,
+      unloadPriority: Number.isFinite(unloadPriority) && unloadPriority >= 1 ? Math.floor(unloadPriority) : undefined,
     });
   });
 
@@ -112,10 +119,10 @@ export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
 export function downloadCargoTemplate() {
   const worksheet = XLSX.utils.aoa_to_sheet([
     headers,
-    ['BOX-A', 'BOX A', 0.6, 0.4, 0.35, 18, 70, 7, 100, 'Y'],
-    ['BOX-B', 'BOX B', 0.5, 0.35, 0.3, 12, 55, 7, 80, 'N'],
+    ['BOX-A', 'BOX A', 0.6, 0.4, 0.35, 18, 70, 7, 100, 'Y', 2],
+    ['BOX-B', 'BOX B', 0.5, 0.35, 0.3, 12, 55, 7, 80, 'N', 1],
   ]);
-  worksheet['!cols'] = [12, 18, 12, 12, 12, 12, 10, 14, 20, 16].map((wch) => ({ wch }));
+  worksheet['!cols'] = [12, 18, 12, 12, 12, 12, 10, 14, 20, 16, 12].map((wch) => ({ wch }));
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Cargo');
   XLSX.writeFile(workbook, 'container-loading-cargo-template.xlsx');
