@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { assessGroupMove, selectPlacementGroup, type GroupSelectionMode } from './engine/groupPlacement';
 import { writeManualOverride } from './engine/manualOverride';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
@@ -31,12 +32,25 @@ export default function GroupDragController() {
   const [detail, setDetail] = useState<Detail | null>(() => typeof window === 'undefined' ? null : ((window as LoadingWindow).__containerLoadingLatestResult ?? null));
   const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
   const [mode, setMode] = useState<GroupSelectionMode | null>(null);
+  const [history, setHistory] = useState<LoadingResult[]>([]);
+  const [undoTarget, setUndoTarget] = useState<Element | null>(null);
+
+  useEffect(() => {
+    const resolve = () => setUndoTarget(document.querySelector('.manual-editor-head > div:last-child'));
+    resolve();
+    const observer = new MutationObserver(resolve);
+    observer.observe(document.body,{childList:true,subtree:true});
+    return () => observer.disconnect();
+  },[]);
 
   useEffect(() => {
     const onResult = (event: Event) => setDetail((event as CustomEvent<Detail>).detail ?? null);
     const onSelect = (event: Event) => {
       const index = (event as CustomEvent<PlacementSelectDetail>).detail?.index ?? null;
-      setAnchorIndex(index);
+      setAnchorIndex(previous => {
+        if (previous !== null && index !== previous) setMode(null);
+        return index;
+      });
       if (index === null) setMode(null);
     };
     const onClick = (event: MouseEvent) => {
@@ -55,9 +69,7 @@ export default function GroupDragController() {
   },[]);
 
   useEffect(() => {
-    const indices = detail && mode && anchorIndex !== null
-      ? selectPlacementGroup(detail.result,detail.container,anchorIndex,mode)
-      : [];
+    const indices = detail && mode && anchorIndex !== null ? selectPlacementGroup(detail.result,detail.container,anchorIndex,mode) : [];
     publishGroupSelection({ mode, indices, anchorIndex });
   },[detail,mode,anchorIndex]);
 
@@ -74,6 +86,7 @@ export default function GroupDragController() {
       if (!drag || !detail) return;
       const checked = assessGroupMove(detail.container,detail.cargo,detail.result,drag.indices,drag.delta);
       if (!checked.valid) return;
+      setHistory(items => [...items.slice(-9),detail.result]);
       writeManualOverride(detail.container,detail.cargo,checked.result);
       writeStoredState({container:detail.container,cargo:detail.cargo},true);
     };
@@ -85,5 +98,15 @@ export default function GroupDragController() {
     };
   },[detail]);
 
-  return null;
+  const undoGroupDrag = () => {
+    if (!detail || history.length === 0) return;
+    const previous = history[history.length-1];
+    setHistory(items => items.slice(0,-1));
+    writeManualOverride(detail.container,detail.cargo,previous);
+    writeStoredState({container:detail.container,cargo:detail.cargo},true);
+  };
+
+  return undoTarget && history.length > 0
+    ? createPortal(<button type="button" className="group-drag-undo" onClick={undoGroupDrag}>↶ 블록 드래그 취소</button>,undoTarget)
+    : null;
 }
