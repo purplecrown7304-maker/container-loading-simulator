@@ -6,6 +6,7 @@ import ExcelImportActions from './ExcelImportActions';
 import LocationSelectionBridge from './LocationSelectionBridge';
 import CargoFilterBar from './CargoFilterBar';
 import AutoCorrectionPanel from './AutoCorrectionPanel';
+import DashboardRuntimeEnhancer from './DashboardRuntimeEnhancer';
 import './styles.css';
 import './mode.css';
 import './error.css';
@@ -16,6 +17,7 @@ import './minimap.css';
 import './zone-utilization.css';
 import './auto-correction.css';
 import './dashboard-mockup.css';
+import './dashboard-runtime.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -25,6 +27,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <LocationSelectionBridge />
       <CargoFilterBar />
       <AutoCorrectionPanel />
+      <DashboardRuntimeEnhancer />
     </ErrorBoundary>
   </React.StrictMode>,
 );
