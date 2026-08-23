@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { analyzeConstraints } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
+import { buildWorkSequence } from './engine/workSequence';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 
 type Detail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
@@ -14,6 +15,8 @@ function exportWorkbook(detail: Detail) {
   const checks = analyzeConstraints(container, cargo, result, floor);
   const loadedByCargo = new Map<string, number>();
   result.placements.forEach(p => loadedByCargo.set(p.cargoId, (loadedByCargo.get(p.cargoId) ?? 0) + 1));
+  const loadSteps = buildWorkSequence(container,cargo,result,'LOAD');
+  const unloadSteps = buildWorkSequence(container,cargo,result,'UNLOAD');
 
   const summary = [
     ['항목', '값'],
@@ -25,7 +28,7 @@ function exportWorkbook(detail: Detail) {
   const cargoRows = cargo.map(item => ({
     코드: item.id, 품명: item.name, 요청수량: item.quantity, 적재수량: loadedByCargo.get(item.id) ?? 0,
     잔량: Math.max(0, item.quantity - (loadedByCargo.get(item.id) ?? 0)), 길이_m: item.length, 폭_m: item.width,
-    높이_m: item.height, 개당중량_kg: item.weightKg, 최대적층단: item.maxStackLayers ?? '', 상부허용중량_kg: item.maxTopLoadKg ?? '', 회전허용: item.allowRotation !== false ? 'Y' : 'N',
+    높이_m: item.height, 개당중량_kg: item.weightKg, 최대적층단: item.maxStackLayers ?? '', 상부허용중량_kg: item.maxTopLoadKg ?? '', 회전허용: item.allowRotation !== false ? 'Y' : 'N', 하역순서: item.unloadPriority ?? '',
   }));
   const placementRows = result.placements.map((p, index) => ({
     No: index + 1, 코드: p.cargoId, X_m: p.x, Y_m: p.y, Z_m: p.z, 길이_m: p.length, 폭_m: p.width, 높이_m: p.height, 중량_kg: p.weightKg, 회전: p.rotated ? '90도' : '기본',
@@ -39,6 +42,10 @@ function exportWorkbook(detail: Detail) {
   }));
   const floorRows = floor.cells.map(cell => ({ 행: cell.row + 1, 열: cell.column + 1, X_m: cell.x, Y_m: cell.y, 하중_kg: Number(cell.loadKg.toFixed(2)), 하중_kg_m2: Number(cell.kgPerM2.toFixed(2)) }));
   const checkRows = checks.map(check => ({ 제약조건: check.label, 상태: check.status === 'pass' ? '통과' : check.status === 'warn' ? '확인' : '실패', 상세: check.detail }));
+  const toStepRows = (steps: ReturnType<typeof buildWorkSequence>) => steps.map(step => ({
+    순서:step.step, 코드:step.cargoId, 품명:step.label, 구역:step.zone, 행:step.row, 열:step.column, 단:step.layer,
+    X_m:step.x, Y_m:step.y, Z_m:step.z, 하역우선순위:step.unloadPriority ?? '', 작업지시:step.instruction,
+  }));
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), '요약');
@@ -48,6 +55,8 @@ function exportWorkbook(detail: Detail) {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(checkRows), '제약조건');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(remainingRows), '미적재');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(correctionRows), '자동보정');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(toStepRows(loadSteps)), '적재작업순서');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(toStepRows(unloadSteps)), '하역작업순서');
   const stamp = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `container-loading-${stamp}.xlsx`, { compression: true });
 }
