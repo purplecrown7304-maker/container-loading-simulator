@@ -9,6 +9,7 @@ import DashboardRuntimeEnhancer from './DashboardRuntimeEnhancer';
 import ResultsOverlay from './ResultsOverlay';
 import WorkspaceTools from './WorkspaceTools';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
+import PhysicsValidationTool from './PhysicsValidationTool';
 import './styles.css';
 import './mode.css';
 import './error.css';
@@ -32,6 +33,7 @@ import './workspace-tools.css';
 import './reference-layout.css';
 import './reference-viewer.css';
 import './pallet-inspector.css';
+import './physics-validation.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -40,6 +42,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ResultsOverlay />
       <App />
       <WorkspaceTools />
+      <PhysicsValidationTool />
       <ExcelImportActions />
       <ExcelExportActions />
       <LocationSelectionBridge />
