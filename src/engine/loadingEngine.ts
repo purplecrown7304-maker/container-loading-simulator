@@ -44,10 +44,8 @@ function capacityScore(item: CargoItem) {
 
 function prioritizedCargo(cargo: CargoItem[], strategy: LoadingStrategy): CargoItem[] {
   return [...cargo].sort((a, b) => {
-    // 운영 규칙: 무거운 품목을 먼저 후보 생성한다. 실제 운송 안정성은 이후 Rapier가 판정한다.
     const weightDiff = b.weightKg - a.weightKg;
     if (Math.abs(weightDiff) > EPS) return weightDiff;
-
     if (strategy === 'stability') {
       const footprintDiff = b.length * b.width - a.length * a.width;
       if (Math.abs(footprintDiff) > EPS) return footprintDiff;
@@ -69,7 +67,6 @@ function bestBlockOrientation(container: ContainerSpec, item: CargoItem) {
       ? []
       : [{ length: item.width, width: item.length, rotated: true }]),
   ];
-
   return options
     .map((option) => {
       const columnsAcross = fitCount(container.width, option.width);
@@ -78,6 +75,24 @@ function bestBlockOrientation(container: ContainerSpec, item: CargoItem) {
       return { ...option, columnsAcross, layersHigh, capacity: Math.max(0, columnsAcross) * Math.max(0, layersHigh) * Math.max(0, slicesDeep), sliceCapacity: Math.max(0, columnsAcross) * Math.max(0, layersHigh) };
     })
     .sort((a, b) => b.capacity - a.capacity || b.sliceCapacity - a.sliceCapacity || a.length - b.length)[0];
+}
+
+function strategyGeometry(strategy: LoadingStrategy, columnsAcross: number, layersHigh: number) {
+  if (strategy === 'stability') {
+    return {
+      columns: columnsAcross > 2 ? columnsAcross - 1 : columnsAcross,
+      layers: Math.max(1, Math.ceil(layersHigh * 0.72)),
+      centered: true,
+    };
+  }
+  if (strategy === 'unloading') {
+    return {
+      columns: columnsAcross,
+      layers: Math.max(1, Math.ceil(layersHigh * 0.86)),
+      centered: false,
+    };
+  }
+  return { columns: columnsAcross, layers: layersHigh, centered: false };
 }
 
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
@@ -104,8 +119,13 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   let cursorX = 0;
   for (const item of prioritized) {
     const orientation = bestBlockOrientation(container, item);
-    const columnsAcross = Math.max(1, orientation.columnsAcross);
-    const layersHigh = Math.max(1, orientation.layersHigh);
+    const rawColumns = Math.max(1, orientation.columnsAcross);
+    const rawLayers = Math.max(1, orientation.layersHigh);
+    const geometry = strategyGeometry(strategy, rawColumns, rawLayers);
+    const columnsAcross = Math.max(1, geometry.columns);
+    const layersHigh = Math.max(1, geometry.layers);
+    const occupiedWidth = columnsAcross * orientation.width;
+    const yOffset = geometry.centered ? Math.max(0, (container.width - occupiedWidth) / 2) : 0;
     const boxesPerSlice = columnsAcross * layersHigh;
     let placed = 0;
     while (placed < item.quantity) {
@@ -117,7 +137,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
       for (let layer = 0; layer < layersHigh && placed < item.quantity; layer += 1) {
         for (let col = 0; col < columnsAcross && placed < item.quantity; col += 1) {
           if (loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS) { sliceBlocked = true; break; }
-          const candidate: Placement = { cargoId: item.id, x: cursorX, y: col * orientation.width, z: layer * item.height, length: orientation.length, width: orientation.width, height: item.height, weightKg: item.weightKg, rotated: orientation.rotated };
+          const candidate: Placement = { cargoId: item.id, x: cursorX, y: yOffset + col * orientation.width, z: layer * item.height, length: orientation.length, width: orientation.width, height: item.height, weightKg: item.weightKg, rotated: orientation.rotated };
           if (!canPlaceByStackingRules(item, candidate, placements, cargoById)) { sliceBlocked = true; break; }
           placements.push(candidate);
           placed += 1;
@@ -149,7 +169,6 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     if (left > 0) remaining.push({ cargoId: item.id, quantity: left, reason: loadedWeightKg + EPS >= container.maxPayloadKg ? '컨테이너 최대 적재 중량에 도달하여 적재하지 못함' : '회전·경계·적층단·상부 허용중량 조건을 만족하는 배치 위치를 찾지 못함' });
   }
 
-  // 후처리는 운영 효율만 다룬다. 저층행/중앙 돌출 같은 물리 휴리스틱 보정은 제거했다.
   const shapeResult = optimizeLoadingShape(container, placements, cargoById);
   placements = shapeResult.placements;
   if (shapeResult.movedCount > 0) autoCorrections.push({ kind: 'SHAPE', label: '품목 묶음 정리', description: `같은 품목의 과도한 분산을 줄이기 위해 최상단 박스 ${shapeResult.movedCount}개를 재배치`, beforeScore: shapeResult.beforePenalty, afterScore: shapeResult.afterPenalty });
