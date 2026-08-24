@@ -1,16 +1,16 @@
 const CARGO_PALETTE = [
-  '#2563eb', // blue
-  '#16a34a', // green
-  '#f97316', // orange
-  '#7c3aed', // violet
-  '#dc2626', // red
-  '#0891b2', // cyan
-  '#ca8a04', // amber
-  '#db2777', // pink
-  '#0f766e', // teal
-  '#4f46e5', // indigo
-  '#65a30d', // lime
-  '#c2410c', // deep orange
+  '#93c5fd', // soft blue
+  '#86efac', // soft green
+  '#fdba74', // soft orange
+  '#c4b5fd', // soft violet
+  '#fca5a5', // soft red
+  '#67e8f9', // soft cyan
+  '#fde68a', // soft amber
+  '#f9a8d4', // soft pink
+  '#99f6e4', // soft teal
+  '#a5b4fc', // soft indigo
+  '#bef264', // soft lime
+  '#fed7aa', // soft peach
 ];
 
 export function cargoColor(id: string): string {
@@ -24,5 +24,5 @@ export function cargoTint(id: string): string {
   const r = Number.parseInt(hex.slice(0, 2), 16);
   const g = Number.parseInt(hex.slice(2, 4), 16);
   const b = Number.parseInt(hex.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, .12)`;
+  return `rgba(${r}, ${g}, ${b}, .24)`;
 }
