@@ -38,11 +38,13 @@ test('Rapier transport physics validation opens and completes', async ({ page })
   await page.getByRole('button', { name: /자동 적재/ }).click();
   await page.getByRole('button', { name: /물리 검증/ }).click();
   await expect(page.getByRole('heading', { name: '실제 물리 안정성 종합검증' })).toBeVisible();
+  await expect(page.locator('.physics-kicker')).toContainText('BOX MODE');
   await expect(page.getByText(/정적 중력|급제동 0.5g|횡가속 0.35g/).first()).toBeVisible();
   await expect(page.locator('.physics-score')).toBeVisible({ timeout: 35_000 });
   await expect(page.locator('.physics-scenarios article')).toHaveCount(3);
   await expect(page.locator('.physics-scenarios')).toContainText('급제동 0.5g');
   await expect(page.locator('.physics-scenarios')).toContainText('횡가속 0.35g');
+  await expect(page.getByRole('button', { name: '리포트 / PDF' })).toBeVisible();
 });
 
 test('work sequence supports playback mode and field checklist', async ({ page }) => {
@@ -70,13 +72,19 @@ test('ergonomic thresholds are configurable', async ({ page }) => {
   await expect(panel).toContainText(/고위험|확인|양호/);
 });
 
-test('pallet mode is integrated in the dashboard', async ({ page }) => {
+test('pallet mode is integrated with pallet rigid-body physics', async ({ page }) => {
+  test.setTimeout(50_000);
   await page.goto('/');
   await page.getByRole('button', { name: '팔레트', exact: true }).click();
   await expect(page.getByText('팔레트 적재 설정')).toBeVisible();
   await expect(page.getByText('사용 팔레트')).toBeVisible();
   await page.getByRole('button', { name: /자동 적재/ }).click();
   await expect(page.locator('.pallet-preview canvas')).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('button', { name: /물리 검증/ }).click();
+  await expect(page.locator('.physics-kicker')).toContainText('PALLET MODE');
+  await expect(page.getByText(/팔레트 바닥판과 박스를 함께 강체/)).toBeVisible();
+  await expect(page.locator('.physics-score')).toBeVisible({ timeout: 35_000 });
+  await expect(page.locator('.physics-metrics')).toContainText('팔레트 안정');
 });
 
 test('3D viewer mounts without fatal error', async ({ page }) => {
