@@ -3,12 +3,17 @@ import { createPortal } from 'react-dom';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import { runPhysicsValidationSuite, type PhysicsScenario, type PhysicsValidationSuite } from './engine/physicsValidation';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
+import { openPhysicsReport } from './physicsReport';
 import { selectPlacement } from './selectionEvents';
 
 export const OPEN_PHYSICS_VALIDATION_EVENT = 'container-loading:open-physics-validation';
+export const PHYSICS_VALIDATION_RESULT_EVENT = 'container-loading:physics-validation-result';
 
 type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
-type LoadingWindow = Window & { __containerLoadingLatestResult?: LoadingDetail };
+type LoadingWindow = Window & {
+  __containerLoadingLatestResult?: LoadingDetail;
+  __containerLoadingLatestPhysics?: PhysicsValidationSuite;
+};
 type Status = 'idle' | 'running' | 'done' | 'error';
 
 function scoreLabel(score: number) {
@@ -39,9 +44,12 @@ export default function PhysicsValidationTool() {
   const runIdRef = useRef(0);
 
   useEffect(() => {
-    detailRef.current = (window as LoadingWindow).__containerLoadingLatestResult;
+    const physicsWindow = window as LoadingWindow;
+    detailRef.current = physicsWindow.__containerLoadingLatestResult;
+    setValidation(physicsWindow.__containerLoadingLatestPhysics ?? null);
     const onResult = (event: Event) => {
       detailRef.current = (event as CustomEvent<LoadingDetail>).detail;
+      physicsWindow.__containerLoadingLatestPhysics = undefined;
       setValidation(null); setStatus('idle'); setProgress(0);
       setMessage('적재 결과가 변경되었습니다. 물리 검증을 다시 실행하세요.');
     };
@@ -63,6 +71,9 @@ export default function PhysicsValidationTool() {
         setProgress(Math.round(value * 100)); setActiveScenario(scenario);
       });
       if (runId !== runIdRef.current) return;
+      const physicsWindow = window as LoadingWindow;
+      physicsWindow.__containerLoadingLatestPhysics = result;
+      window.dispatchEvent(new CustomEvent(PHYSICS_VALIDATION_RESULT_EVENT, { detail: result }));
       setValidation(result); setStatus('done'); setProgress(100); setMessage(result.summary);
     } catch (error) {
       if (runId !== runIdRef.current) return;
@@ -86,13 +97,19 @@ export default function PhysicsValidationTool() {
       .slice(0, 30);
   }, [validation]);
 
+  const printReport = () => {
+    const detail = detailRef.current ?? (window as LoadingWindow).__containerLoadingLatestResult;
+    if (!detail || !validation) return;
+    if (!openPhysicsReport(detail.container, detail.cargo, detail.result, validation)) setMessage('팝업이 차단되어 물리 리포트를 열지 못했습니다.');
+  };
+
   if (!open) return null;
   return createPortal(
     <div className="physics-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && status !== 'running') setOpen(false); }}>
       <section className="physics-modal" role="dialog" aria-modal="true" aria-labelledby="physics-title">
         <header className="physics-modal-head">
           <div><span className="physics-kicker">RAPIER 3D TRANSPORT PHYSICS</span><h2 id="physics-title">실제 물리 안정성 종합검증</h2><p>정적 중력뿐 아니라 급제동과 좌우 횡가속까지 같은 적재안에 적용해 미끄러짐·낙하·기울어짐을 검사합니다.</p></div>
-          <button type="button" onClick={() => setOpen(false)} disabled={status === 'running'}>닫기</button>
+          <div className="physics-head-actions">{validation && status !== 'running' && <button type="button" onClick={printReport}>리포트 / PDF</button>}<button type="button" onClick={() => setOpen(false)} disabled={status === 'running'}>닫기</button></div>
         </header>
 
         {status === 'running' && <div className="physics-running">
