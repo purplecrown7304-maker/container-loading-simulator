@@ -32,6 +32,19 @@ test('dashboard core loading flow works', async ({ page }) => {
   await expect(page.getByRole('button', { name: /Excel 내보내기/ })).toBeVisible();
 });
 
+test('Rapier transport physics validation opens and completes', async ({ page }) => {
+  test.setTimeout(45_000);
+  await page.goto('/');
+  await page.getByRole('button', { name: /자동 적재/ }).click();
+  await page.getByRole('button', { name: /물리 검증/ }).click();
+  await expect(page.getByRole('heading', { name: '실제 물리 안정성 종합검증' })).toBeVisible();
+  await expect(page.getByText(/정적 중력|급제동 0.5g|횡가속 0.35g/).first()).toBeVisible();
+  await expect(page.locator('.physics-score')).toBeVisible({ timeout: 35_000 });
+  await expect(page.locator('.physics-scenarios article')).toHaveCount(3);
+  await expect(page.locator('.physics-scenarios')).toContainText('급제동 0.5g');
+  await expect(page.locator('.physics-scenarios')).toContainText('횡가속 0.35g');
+});
+
 test('work sequence supports playback mode and field checklist', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: /자동 적재/ }).click();
@@ -82,6 +95,7 @@ test('mobile dashboard remains usable', async ({ page }) => {
   await expect(page.locator('.topdown-minimap')).toBeVisible();
   await expect(page.locator('.work-sequence')).toBeVisible();
   await expect(page.locator('.ergonomic-panel')).toBeVisible();
+  await expect(page.getByRole('button', { name: /물리 검증/ })).toBeVisible();
   const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
   const viewportWidth = await page.evaluate(() => window.innerWidth);
   expect(bodyWidth).toBeLessThanOrEqual(viewportWidth + 2);
