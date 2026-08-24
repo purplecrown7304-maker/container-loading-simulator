@@ -7,6 +7,7 @@ const DEFAULT_FRICTION = 0.62;
 const DEFAULT_RESTITUTION = 0.01;
 
 export type PhysicsSeverity = 'stable' | 'warning' | 'unstable';
+export type PhysicsScenario = 'settle' | 'braking' | 'cornering';
 
 export type PhysicsPlacementResult = {
   index: number;
@@ -23,6 +24,7 @@ export type PhysicsPlacementResult = {
 
 export type PhysicsValidationResult = {
   engine: 'Rapier 3D';
+  scenario: PhysicsScenario;
   simulatedSeconds: number;
   steps: number;
   simulatedCount: number;
@@ -40,10 +42,28 @@ export type PhysicsValidationResult = {
   summary: string;
 };
 
+export type PhysicsValidationSuite = {
+  engine: 'Rapier 3D';
+  score: number;
+  stableCount: number;
+  warningCount: number;
+  unstableCount: number;
+  worstScenario: PhysicsScenario;
+  maxHorizontalShiftM: number;
+  maxVerticalShiftM: number;
+  maxTiltDeg: number;
+  maxLinearSpeedMps: number;
+  maxAngularSpeedRadps: number;
+  settled: boolean;
+  placements: PhysicsPlacementResult[];
+  scenarios: PhysicsValidationResult[];
+  summary: string;
+};
+
 let rapierPromise: ReturnType<typeof loadRapier> | null = null;
 
 async function loadRapier() {
-  const module = await import('@dimforge/rapier3d-compat');
+  const module = await import('@dimforge/rapier3d-deterministic-compat');
   const RAPIER = module.default;
   await RAPIER.init();
   return RAPIER;
@@ -63,7 +83,6 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function tiltFromQuaternion(q: { x: number; y: number; z: number; w: number }) {
-  // Rotated local-up vector's Y component. Yaw alone therefore does not count as tilt.
   const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
   return Math.acos(clamp(upY, -1, 1)) * 180 / Math.PI;
 }
@@ -118,18 +137,25 @@ function chooseStepCount(count: number) {
   return 240;
 }
 
-/**
- * 현재 적재 좌표를 Rapier 강체 월드에 그대로 복제한 뒤 중력으로 안정화한다.
- * 이 함수는 적재 좌표를 바꾸지 않고 "현재 계획이 놓았을 때 유지되는가"만 검증한다.
- */
+function scenarioAcceleration(scenario: PhysicsScenario, step: number, totalSteps: number) {
+  const settleEnd = Math.floor(totalSteps * 0.45);
+  const forceEnd = Math.floor(totalSteps * 0.78);
+  if (step < settleEnd || step >= forceEnd) return { x: 0, z: 0 };
+  if (scenario === 'braking') return { x: 9.81 * 0.5, z: 0 };
+  if (scenario === 'cornering') return { x: 0, z: 9.81 * 0.35 };
+  return { x: 0, z: 0 };
+}
+
+/** 현재 적재 좌표를 Rapier 월드에 복제해 중력/운송가속도에서 유지되는지 검증한다. */
 export async function runPhysicsValidation(
   container: ContainerSpec,
   placements: Placement[],
   onProgress?: (progress: number) => void,
+  scenario: PhysicsScenario = 'settle',
 ): Promise<PhysicsValidationResult> {
   if (!placements.length) {
     return {
-      engine: 'Rapier 3D', simulatedSeconds: 0, steps: 0, simulatedCount: 0,
+      engine: 'Rapier 3D', scenario, simulatedSeconds: 0, steps: 0, simulatedCount: 0,
       stableCount: 0, warningCount: 0, unstableCount: 0, score: 100, settled: true,
       maxHorizontalShiftM: 0, maxVerticalShiftM: 0, maxTiltDeg: 0,
       maxLinearSpeedMps: 0, maxAngularSpeedRadps: 0, placements: [],
@@ -154,12 +180,12 @@ export async function runPhysicsValidation(
   const halfL = container.length / 2;
   const halfW = container.width / 2;
   const wall = WALL_THICKNESS;
-  fixed(halfL + wall, wall, halfW + wall, 0, -wall, 0); // floor
-  fixed(halfL + wall, wall, halfW + wall, 0, container.height + wall, 0); // ceiling
-  fixed(wall, container.height / 2, halfW + wall, -halfL - wall, container.height / 2, 0); // back
-  fixed(wall, container.height / 2, halfW + wall, halfL + wall, container.height / 2, 0); // door plane
-  fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, -halfW - wall); // left
-  fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, halfW + wall); // right
+  fixed(halfL + wall, wall, halfW + wall, 0, -wall, 0);
+  fixed(halfL + wall, wall, halfW + wall, 0, container.height + wall, 0);
+  fixed(wall, container.height / 2, halfW + wall, -halfL - wall, container.height / 2, 0);
+  fixed(wall, container.height / 2, halfW + wall, halfL + wall, container.height / 2, 0);
+  fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, -halfW - wall);
+  fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, halfW + wall);
 
   const bodies = placements.map((placement) => {
     const center = toPhysicsCenter(container, placement);
@@ -180,16 +206,21 @@ export async function runPhysicsValidation(
         .setRestitution(DEFAULT_RESTITUTION),
       body,
     );
-    return { body, center };
+    return { body, center, massKg: Math.max(0.01, placement.weightKg) };
   });
 
   try {
     onProgress?.(0);
     for (let step = 0; step < steps; step += 1) {
+      const accel = scenarioAcceleration(scenario, step, steps);
+      if (accel.x || accel.z) {
+        for (const { body, massKg } of bodies) {
+          body.addForce({ x: accel.x * massKg, y: 0, z: accel.z * massKg }, true);
+        }
+      }
       world.step();
       if (step % 24 === 23) {
         onProgress?.((step + 1) / steps);
-        // Yield periodically so a large validation does not freeze the dashboard UI.
         await new Promise<void>(resolve => setTimeout(resolve, 0));
       }
     }
@@ -220,17 +251,18 @@ export async function runPhysicsValidation(
     const maxLinearSpeedMps = Math.max(0, ...placementResults.map(x => x.linearSpeedMps));
     const maxAngularSpeedRadps = Math.max(0, ...placementResults.map(x => x.angularSpeedRadps));
     const settled = maxLinearSpeedMps <= 0.05 && maxAngularSpeedRadps <= 0.08;
-    const weightedPenalty = unstableCount * 1 + warningCount * 0.35;
+    const weightedPenalty = unstableCount + warningCount * 0.35;
     const score = Math.round(clamp(100 - weightedPenalty / Math.max(1, placements.length) * 100, 0, 100));
 
+    const scenarioName = scenario === 'settle' ? '정적 중력' : scenario === 'braking' ? '급제동 0.5g' : '횡가속 0.35g';
     const summary = unstableCount
-      ? `불안정 ${unstableCount}개 · 주의 ${warningCount}개가 감지되었습니다. 붕괴/이동 가능 위치를 재배치해야 합니다.`
+      ? `${scenarioName}: 불안정 ${unstableCount}개 · 주의 ${warningCount}개 감지. 재배치가 필요합니다.`
       : warningCount
-        ? `붕괴 수준의 이동은 없지만 ${warningCount}개 위치에서 미세 이동 또는 기울기를 확인해야 합니다.`
-        : '전체 적재물이 중력·충돌·마찰 조건에서 안정적으로 유지되었습니다.';
+        ? `${scenarioName}: 붕괴 수준의 이동은 없지만 ${warningCount}개 위치 재확인이 필요합니다.`
+        : `${scenarioName}: 전체 적재물이 안정적으로 유지되었습니다.`;
 
     return {
-      engine: 'Rapier 3D', simulatedSeconds, steps, simulatedCount: placements.length,
+      engine: 'Rapier 3D', scenario, simulatedSeconds, steps, simulatedCount: placements.length,
       stableCount, warningCount, unstableCount, score, settled,
       maxHorizontalShiftM, maxVerticalShiftM, maxTiltDeg,
       maxLinearSpeedMps, maxAngularSpeedRadps,
@@ -240,4 +272,49 @@ export async function runPhysicsValidation(
   } finally {
     world.free();
   }
+}
+
+function severityRank(value: PhysicsSeverity) {
+  return value === 'unstable' ? 2 : value === 'warning' ? 1 : 0;
+}
+
+export async function runPhysicsValidationSuite(
+  container: ContainerSpec,
+  placements: Placement[],
+  onProgress?: (progress: number, scenario: PhysicsScenario) => void,
+): Promise<PhysicsValidationSuite> {
+  const scenarios: PhysicsScenario[] = ['settle', 'braking', 'cornering'];
+  const results: PhysicsValidationResult[] = [];
+  for (let i = 0; i < scenarios.length; i += 1) {
+    const scenario = scenarios[i];
+    const result = await runPhysicsValidation(container, placements, p => onProgress?.((i + p) / scenarios.length, scenario), scenario);
+    results.push(result);
+  }
+
+  const placementWorst = placements.map((_, index) => {
+    const candidates = results.map(result => result.placements[index]).filter(Boolean);
+    return candidates.sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || b.horizontalShiftM - a.horizontalShiftM || b.tiltDeg - a.tiltDeg)[0];
+  });
+  const stableCount = placementWorst.filter(x => x.severity === 'stable').length;
+  const warningCount = placementWorst.filter(x => x.severity === 'warning').length;
+  const unstableCount = placementWorst.filter(x => x.severity === 'unstable').length;
+  const score = Math.min(...results.map(x => x.score));
+  const worstScenarioResult = [...results].sort((a, b) => a.score - b.score || b.unstableCount - a.unstableCount)[0];
+  const settled = results.every(x => x.settled);
+  const summary = unstableCount
+    ? `운송 종합검증에서 불안정 ${unstableCount}개 · 주의 ${warningCount}개가 감지되었습니다.`
+    : warningCount
+      ? `운송 종합검증에서 ${warningCount}개 위치가 주의 수준입니다.`
+      : '정적 중력·급제동·횡가속 시나리오를 모두 통과했습니다.';
+
+  return {
+    engine: 'Rapier 3D', score, stableCount, warningCount, unstableCount,
+    worstScenario: worstScenarioResult.scenario,
+    maxHorizontalShiftM: Math.max(...results.map(x => x.maxHorizontalShiftM)),
+    maxVerticalShiftM: Math.max(...results.map(x => x.maxVerticalShiftM)),
+    maxTiltDeg: Math.max(...results.map(x => x.maxTiltDeg)),
+    maxLinearSpeedMps: Math.max(...results.map(x => x.maxLinearSpeedMps)),
+    maxAngularSpeedRadps: Math.max(...results.map(x => x.maxAngularSpeedRadps)),
+    settled, placements: placementWorst, scenarios: results, summary,
+  };
 }
