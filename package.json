@@ -14,7 +14,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@dimforge/rapier3d-compat": "0.19.3",
+    "@dimforge/rapier3d-deterministic-compat": "0.20.0",
     "@react-three/drei": "10.7.8",
     "@react-three/fiber": "9.7.0",
     "react": "19.2.8",
