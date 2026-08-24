@@ -9,6 +9,7 @@ import CargoFilterBar from './CargoFilterBar';
 import DashboardRuntimeEnhancer from './DashboardRuntimeEnhancer';
 import ResultsOverlay from './ResultsOverlay';
 import WorkspaceTools from './WorkspaceTools';
+import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
 import './styles.css';
 import './mode.css';
 import './error.css';
@@ -29,10 +30,12 @@ import './ergonomic-panel.css';
 import './results-modal.css';
 import './performance-overrides.css';
 import './workspace-tools.css';
+import './reference-layout.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
+      <ReferenceWorkspaceBar />
       <ResultsOverlay />
       <App />
       <WorkspaceTools />
