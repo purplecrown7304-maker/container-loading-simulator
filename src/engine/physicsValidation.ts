@@ -247,14 +247,17 @@ export async function runPhysicsValidation(
 
   const cargoBodies = placements.map(placement => createDynamicBody(placement, placement.weightKg, true));
   const supportBodies = supports.map(support => createDynamicBody(support, support.weightKg, support.dynamic !== false));
+  const dynamicBodies = [...cargoBodies, ...supportBodies].filter(entry => entry.dynamic);
 
   try {
     onProgress?.(0);
     for (let step = 0; step < steps; step += 1) {
       const accel = scenarioAcceleration(scenario, step, steps);
-      if (accel.x || accel.z) {
-        for (const entry of [...cargoBodies, ...supportBodies]) {
-          if (!entry.dynamic) continue;
+      for (const entry of dynamicBodies) {
+        // Rapier user forces persist across simulation steps. Clear them first so
+        // the transport scenario applies exactly 0.5g / 0.35g instead of accumulating.
+        entry.body.resetForces(false);
+        if (accel.x || accel.z) {
           entry.body.addForce({ x: accel.x * entry.massKg, y: 0, z: accel.z * entry.massKg }, true);
         }
       }
