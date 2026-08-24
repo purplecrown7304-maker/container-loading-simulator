@@ -1,7 +1,9 @@
 import type { ContainerSpec, Placement } from './types';
 
 export type ShapeQualityAssessment = {
+  /** 호환성 유지용. 물리 안정성 판정에서는 더 이상 사용하지 않는다. */
   isolatedMiddleBoxes: number;
+  /** 호환성 유지용. 돌출 높이는 Rapier 물리 검증이 판단한다. */
   protrudingTowers: number;
   fragmentedCargoTypes: number;
   shapePenalty: number;
@@ -40,29 +42,13 @@ function componentCount(items: Placement[]) {
   return components;
 }
 
-export function assessShapeQuality(container: ContainerSpec, placements: Placement[]): ShapeQualityAssessment {
+/**
+ * 형상 평가는 이제 안전 판정이 아니라 운영 효율만 평가한다.
+ * 중앙 낱개/돌출 타워는 정적 규칙으로 벌점화하지 않고 Rapier에서 실제 이동·전도 여부를 검사한다.
+ * 여기서는 동일 품목이 과도하게 여러 구역으로 분산되는지만 최적화 힌트로 남긴다.
+ */
+export function assessShapeQuality(_container: ContainerSpec, placements: Placement[]): ShapeQualityAssessment {
   if (!placements.length) return { isolatedMiddleBoxes: 0, protrudingTowers: 0, fragmentedCargoTypes: 0, shapePenalty: 0, messages: [] };
-
-  const isolatedMiddleBoxes = placements.filter((p, index) => {
-    const centerY = p.y + p.width / 2;
-    const middle = centerY > container.width * 0.28 && centerY < container.width * 0.72;
-    if (!middle) return false;
-    const sameLevelNeighbor = placements.some((other, j) => j !== index && Math.abs(other.z - p.z) <= EPS && touches(p, other));
-    return !sameLevelNeighbor;
-  }).length;
-
-  const topByBand = new Map<number, number>();
-  for (const p of placements) {
-    const band = Math.round((p.x / Math.max(container.length, EPS)) * 20);
-    topByBand.set(band, Math.max(topByBand.get(band) ?? 0, p.z + p.height));
-  }
-  let protrudingTowers = 0;
-  for (const [band, height] of topByBand) {
-    const left = topByBand.get(band - 1) ?? 0;
-    const right = topByBand.get(band + 1) ?? 0;
-    const neighbor = Math.max(left, right);
-    if (height > container.height * 0.55 && height - neighbor > container.height * 0.28) protrudingTowers += 1;
-  }
 
   const byCargo = new Map<string, Placement[]>();
   for (const p of placements) byCargo.set(p.cargoId, [...(byCargo.get(p.cargoId) ?? []), p]);
@@ -71,12 +57,10 @@ export function assessShapeQuality(container: ContainerSpec, placements: Placeme
     if (items.length >= 4 && componentCount(items) > 2) fragmentedCargoTypes += 1;
   }
 
-  const shapePenalty = Math.min(45, isolatedMiddleBoxes * 5 + protrudingTowers * 8 + fragmentedCargoTypes * 7);
-  const messages: string[] = [];
-  if (isolatedMiddleBoxes) messages.push(`중앙에 주변 연결이 약한 낱개 박스 ${isolatedMiddleBoxes}개가 있습니다.`);
-  if (protrudingTowers) messages.push(`주변보다 과도하게 높은 돌출 구역 ${protrudingTowers}곳이 있습니다.`);
-  if (fragmentedCargoTypes) messages.push(`같은 품목이 여러 구역으로 분산된 종류가 ${fragmentedCargoTypes}개입니다.`);
-  if (!messages.length) messages.push('적재 형상이 비교적 연속적이고 균형적입니다.');
+  const shapePenalty = Math.min(35, fragmentedCargoTypes * 7);
+  const messages = fragmentedCargoTypes
+    ? [`같은 품목이 여러 구역으로 분산된 종류가 ${fragmentedCargoTypes}개입니다. 안전성은 물리 검증에서 별도 판정합니다.`]
+    : ['동일 품목 묶음 상태가 양호합니다. 실제 안정성은 Rapier 물리 검증 결과를 사용합니다.'];
 
-  return { isolatedMiddleBoxes, protrudingTowers, fragmentedCargoTypes, shapePenalty, messages };
+  return { isolatedMiddleBoxes: 0, protrudingTowers: 0, fragmentedCargoTypes, shapePenalty, messages };
 }
