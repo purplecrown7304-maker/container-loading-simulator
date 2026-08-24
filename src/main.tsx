@@ -31,6 +31,7 @@ import './results-modal.css';
 import './performance-overrides.css';
 import './workspace-tools.css';
 import './reference-layout.css';
+import './reference-viewer.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
