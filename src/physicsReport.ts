@@ -34,8 +34,9 @@ export function buildPhysicsReportHtml(
 }
 
 export function openPhysicsReport(container: ContainerSpec, cargo: CargoItem[], loading: LoadingResult, physics: PhysicsValidationSuite) {
-  const popup = window.open('', '_blank', 'noopener,noreferrer');
+  const popup = window.open('', '_blank');
   if (!popup) return false;
+  try { popup.opener = null; } catch { /* 일부 브라우저는 opener 변경을 제한할 수 있음 */ }
   popup.document.open();
   popup.document.write(buildPhysicsReportHtml(container, cargo, loading, physics));
   popup.document.close();
