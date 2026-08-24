@@ -6,15 +6,8 @@ import ExcelImportActions from './ExcelImportActions';
 import ExcelExportActions from './ExcelExportActions';
 import LocationSelectionBridge from './LocationSelectionBridge';
 import CargoFilterBar from './CargoFilterBar';
-import AutoCorrectionPanel from './AutoCorrectionPanel';
 import DashboardRuntimeEnhancer from './DashboardRuntimeEnhancer';
-import StrategyComparisonPanel from './StrategyComparisonPanel';
-import SpareCapacityPanel from './SpareCapacityPanel';
-import ManualPlacementEditor from './ManualPlacementEditor';
-import GroupMoveSuggestionPanel from './GroupMoveSuggestionPanel';
-import GroupDragController from './GroupDragController';
-import WorkSequencePanel from './WorkSequencePanel';
-import ErgonomicRiskPanel from './ErgonomicRiskPanel';
+import ResultsOverlay from './ResultsOverlay';
 import './styles.css';
 import './mode.css';
 import './error.css';
@@ -32,24 +25,18 @@ import './manual-editor.css';
 import './group-suggestion.css';
 import './work-sequence.css';
 import './ergonomic-panel.css';
+import './results-modal.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
+      <ResultsOverlay />
       <App />
       <ExcelImportActions />
       <ExcelExportActions />
       <LocationSelectionBridge />
       <CargoFilterBar />
-      <AutoCorrectionPanel />
       <DashboardRuntimeEnhancer />
-      <StrategyComparisonPanel />
-      <SpareCapacityPanel />
-      <ManualPlacementEditor />
-      <GroupMoveSuggestionPanel />
-      <GroupDragController />
-      <WorkSequencePanel />
-      <ErgonomicRiskPanel />
     </ErrorBoundary>
   </React.StrictMode>,
 );
