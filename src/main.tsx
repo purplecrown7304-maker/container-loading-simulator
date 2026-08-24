@@ -5,7 +5,6 @@ import ErrorBoundary from './ErrorBoundary';
 import ExcelImportActions from './ExcelImportActions';
 import ExcelExportActions from './ExcelExportActions';
 import LocationSelectionBridge from './LocationSelectionBridge';
-import CargoFilterBar from './CargoFilterBar';
 import DashboardRuntimeEnhancer from './DashboardRuntimeEnhancer';
 import ResultsOverlay from './ResultsOverlay';
 import WorkspaceTools from './WorkspaceTools';
@@ -44,7 +43,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ExcelImportActions />
       <ExcelExportActions />
       <LocationSelectionBridge />
-      <CargoFilterBar />
       <DashboardRuntimeEnhancer />
     </ErrorBoundary>
   </React.StrictMode>,
