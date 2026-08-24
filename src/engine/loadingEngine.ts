@@ -46,9 +46,13 @@ function capacityScore(item: CargoItem) {
 
 function prioritizedCargo(cargo: CargoItem[], strategy: LoadingStrategy): CargoItem[] {
   return [...cargo].sort((a, b) => {
+    // Safety rule: cargo order must always progress from heavy to light.
+    // This prevents a fragile light item from being trapped between heavier items
+    // vertically or horizontally during movement: HEAVY → HEAVY → LIGHT only.
+    const weightDiff = b.weightKg - a.weightKg;
+    if (Math.abs(weightDiff) > EPS) return weightDiff;
+
     if (strategy === 'stability') {
-      const weightDiff = b.weightKg - a.weightKg;
-      if (Math.abs(weightDiff) > EPS) return weightDiff;
       const footprintDiff = b.length * b.width - a.length * a.width;
       if (Math.abs(footprintDiff) > EPS) return footprintDiff;
       return capacityScore(b) - capacityScore(a);
