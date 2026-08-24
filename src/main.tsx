@@ -34,6 +34,7 @@ import './reference-layout.css';
 import './reference-viewer.css';
 import './pallet-inspector.css';
 import './physics-validation.css';
+import './physics-pallet.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
