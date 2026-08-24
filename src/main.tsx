@@ -8,6 +8,7 @@ import LocationSelectionBridge from './LocationSelectionBridge';
 import CargoFilterBar from './CargoFilterBar';
 import DashboardRuntimeEnhancer from './DashboardRuntimeEnhancer';
 import ResultsOverlay from './ResultsOverlay';
+import WorkspaceTools from './WorkspaceTools';
 import './styles.css';
 import './mode.css';
 import './error.css';
@@ -27,12 +28,14 @@ import './work-sequence.css';
 import './ergonomic-panel.css';
 import './results-modal.css';
 import './performance-overrides.css';
+import './workspace-tools.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <ResultsOverlay />
       <App />
+      <WorkspaceTools />
       <ExcelImportActions />
       <ExcelExportActions />
       <LocationSelectionBridge />
