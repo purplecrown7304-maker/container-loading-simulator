@@ -33,4 +33,18 @@ describe('Rapier physics validation', () => {
     expect(result.score).toBeGreaterThanOrEqual(85);
     expect(result.unstableCount).toBe(0);
   }, 30_000);
+
+  it('uses a pallet rigid body as physical support for palletized cargo', async () => {
+    const palletHeight = 0.15;
+    const result = await runPhysicsValidationSuite(
+      container,
+      [box(palletHeight)],
+      undefined,
+      [{ id: 'PALLET-01', x: 0, y: 0, z: 0, length: 1, width: 1, height: palletHeight, weightKg: 25, dynamic: true }],
+    );
+    expect(result.supports).toHaveLength(1);
+    expect(result.supportUnstableCount).toBe(0);
+    expect(result.unstableCount).toBe(0);
+    expect(result.scenarios.every(row => row.supportCount === 1)).toBe(true);
+  }, 30_000);
 });
