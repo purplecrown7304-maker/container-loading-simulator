@@ -32,18 +32,19 @@ function candidateAxes(container: ContainerSpec, placements: Placement[], option
   };
 }
 
-function hasFullSupport(candidate: Placement, placements: Placement[]): boolean {
+/**
+ * 공중에 박스를 생성하지 않기 위한 최소 접촉 조건이다.
+ * 기존의 100% 바닥면 지지 규칙은 삭제했다. 부분 지지가 실제로 안정적인지는 Rapier가 판단한다.
+ */
+function hasSupportContact(candidate: Placement, placements: Placement[]): boolean {
   if (Math.abs(candidate.z) <= 0.001) return true;
-  let supportedArea = 0;
   for (const placement of placements) {
     const top = round3(placement.z + placement.height);
     if (Math.abs(top - candidate.z) > 0.001) continue;
     const xOverlap = Math.max(0, Math.min(candidate.x + candidate.length, placement.x + placement.length) - Math.max(candidate.x, placement.x));
-    if (xOverlap <= 0) continue;
+    if (xOverlap <= EPS) continue;
     const yOverlap = Math.max(0, Math.min(candidate.y + candidate.width, placement.y + placement.width) - Math.max(candidate.y, placement.y));
-    if (yOverlap <= 0) continue;
-    supportedArea += xOverlap * yOverlap;
-    if (supportedArea + EPS >= candidate.length * candidate.width) return true;
+    if (yOverlap > EPS) return true;
   }
   return false;
 }
@@ -63,9 +64,10 @@ function sideContact(a: Placement, b: Placement) {
   return (xTouch && yOverlap && zOverlap) || (yTouch && xOverlap && zOverlap);
 }
 
+/** 운영 효율 점수: 동일 품목 묶음과 빈틈 감소만 본다. 물리 안정성 벌점은 주지 않는다. */
 function compactnessScore(candidate: Placement, placements: Placement[], container: ContainerSpec) {
   let score = candidate.y;
-  if (candidate.y <= EPS || candidate.y + candidate.width >= container.width - EPS) score -= 0.35;
+  if (candidate.y <= EPS || candidate.y + candidate.width >= container.width - EPS) score -= 0.25;
   let contacts = 0;
   let sameCargoContacts = 0;
   for (const other of placements) {
@@ -73,9 +75,7 @@ function compactnessScore(candidate: Placement, placements: Placement[], contain
     contacts += 1;
     if (other.cargoId === candidate.cargoId) sameCargoContacts += 1;
   }
-  score -= contacts * 0.12 + sameCargoContacts * 0.45;
-  const centerY = candidate.y + candidate.width / 2;
-  if (contacts === 0 && centerY > container.width * 0.28 && centerY < container.width * 0.72) score += 2;
+  score -= contacts * 0.08 + sameCargoContacts * 0.45;
   return score;
 }
 
@@ -89,9 +89,6 @@ export function findMixedPlacement(
   const axes = candidateAxes(container, placements, options);
   const itemOrientations = orientations(item);
 
-  // 기본은 안쪽(x) → 낮은 위치(z) 우선이다. 후처리에서는 minX/preferDoorSide로
-  // 문쪽 혼합 구역만 탐색할 수 있다. 같은 x/z 평면에서는 동일 품목과 붙고
-  // 벽/기존 블록에 밀착되는 방향을 우선한다.
   for (const x of axes.xs) {
     for (const z of axes.zs) {
       let best: Placement | null = null;
@@ -102,7 +99,7 @@ export function findMixedPlacement(
           if (candidate.x + candidate.length > (options.maxX ?? container.length) + EPS) continue;
           if (!isInsideContainer(container, candidate)) continue;
           if (placements.some((placement) => overlaps(candidate, placement))) continue;
-          if (!hasFullSupport(candidate, placements)) continue;
+          if (!hasSupportContact(candidate, placements)) continue;
           if (!canPlaceByStackingRules(item, candidate, placements, cargoById)) continue;
           const score = compactnessScore(candidate, placements, container);
           if (score < bestScore) { best = candidate; bestScore = score; }
