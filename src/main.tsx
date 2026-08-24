@@ -26,6 +26,7 @@ import './group-suggestion.css';
 import './work-sequence.css';
 import './ergonomic-panel.css';
 import './results-modal.css';
+import './performance-overrides.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
