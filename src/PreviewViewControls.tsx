@@ -1,7 +1,6 @@
 import { OrbitControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
 import { useEffect } from 'react';
-import * as THREE from 'three';
 import type { ContainerSpec } from './engine/types';
 
 export type PreviewView = 'free' | 'rear' | 'top' | 'side';
@@ -28,7 +27,7 @@ export function PreviewCameraController({
   scale: number;
 }) {
   const { camera } = useThree();
-  const target = new THREE.Vector3(0, Math.max(0.45, container.height * scale * 0.42), 0);
+  const target: [number, number, number] = [0, Math.max(0.45, container.height * scale * 0.42), 0];
 
   useEffect(() => {
     if (view === 'free') return;
@@ -50,11 +49,11 @@ export function PreviewCameraController({
       camera.position.set(0, Math.max(2.2, height * 1.45), sideDistance);
     }
 
-    camera.lookAt(target);
+    camera.lookAt(...target);
     camera.updateProjectionMatrix();
-  }, [camera, container.height, container.length, container.width, scale, target.x, target.y, target.z, view]);
+  }, [camera, container.height, container.length, container.width, scale, target[1], view]);
 
-  return <OrbitControls makeDefault target={target.toArray()} minDistance={3.6} maxDistance={20} />;
+  return <OrbitControls makeDefault target={target} minDistance={3.6} maxDistance={20} />;
 }
 
 export function PreviewViewControls({
