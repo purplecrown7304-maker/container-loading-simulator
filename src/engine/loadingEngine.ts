@@ -3,8 +3,6 @@ import { findMixedPlacement } from './mixedPacking';
 import { validatePlacements } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
 import { optimizeLoadingShape } from './shapeOptimizer';
-import { moveLowRowsToDoorZone } from './rowOptimizer';
-import { optimizeZoneHeightShape } from './zoneHeightOptimizer';
 import { readManualOverride } from './manualOverride';
 
 const EPS = 1e-9;
@@ -46,9 +44,7 @@ function capacityScore(item: CargoItem) {
 
 function prioritizedCargo(cargo: CargoItem[], strategy: LoadingStrategy): CargoItem[] {
   return [...cargo].sort((a, b) => {
-    // Safety rule: cargo order must always progress from heavy to light.
-    // This prevents a fragile light item from being trapped between heavier items
-    // vertically or horizontally during movement: HEAVY → HEAVY → LIGHT only.
+    // 운영 규칙: 무거운 품목을 먼저 후보 생성한다. 실제 운송 안정성은 이후 Rapier가 판정한다.
     const weightDiff = b.weightKg - a.weightKg;
     if (Math.abs(weightDiff) > EPS) return weightDiff;
 
@@ -150,20 +146,13 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
       usedVolumeM3 += cbm(item);
     }
     const left = quantity - mixedPlaced;
-    if (left > 0) remaining.push({ cargoId: item.id, quantity: left, reason: loadedWeightKg + EPS >= container.maxPayloadKg ? '컨테이너 최대 적재 중량에 도달하여 적재하지 못함' : '회전을 포함해 적층단·상부 허용중량 또는 안정 공간 조건을 만족하는 위치를 찾지 못함' });
+    if (left > 0) remaining.push({ cargoId: item.id, quantity: left, reason: loadedWeightKg + EPS >= container.maxPayloadKg ? '컨테이너 최대 적재 중량에 도달하여 적재하지 못함' : '회전·경계·적층단·상부 허용중량 조건을 만족하는 배치 위치를 찾지 못함' });
   }
 
+  // 후처리는 운영 효율만 다룬다. 저층행/중앙 돌출 같은 물리 휴리스틱 보정은 제거했다.
   const shapeResult = optimizeLoadingShape(container, placements, cargoById);
   placements = shapeResult.placements;
-  if (shapeResult.movedCount > 0) autoCorrections.push({ kind: 'SHAPE', label: '형상 정리', description: `중앙 낱개·돌출·품목 분산을 줄이기 위해 최상단 박스 ${shapeResult.movedCount}개를 안전 위치로 재배치`, beforeScore: shapeResult.beforePenalty, afterScore: shapeResult.afterPenalty });
-
-  const rowResult = moveLowRowsToDoorZone(container, placements, cargoById);
-  placements = rowResult.placements;
-  if (rowResult.movedCount > 0) autoCorrections.push({ kind: 'LOW_ROW', label: '저층행 후순위 이동', description: `낮은 행 ${rowResult.flaggedRows}개를 감지해 최상단 박스 ${rowResult.movedCount}개를 문쪽 혼합 구역으로 이동` });
-
-  const zoneHeightResult = optimizeZoneHeightShape(container, placements, cargoById);
-  placements = zoneHeightResult.placements;
-  autoCorrections.push(...zoneHeightResult.history);
+  if (shapeResult.movedCount > 0) autoCorrections.push({ kind: 'SHAPE', label: '품목 묶음 정리', description: `같은 품목의 과도한 분산을 줄이기 위해 최상단 박스 ${shapeResult.movedCount}개를 재배치`, beforeScore: shapeResult.beforePenalty, afterScore: shapeResult.afterPenalty });
 
   const result: LoadingResult = { placements, remaining, loadedWeightKg, usedVolumeM3, validationIssues: validatePlacements(container, placements), autoCorrections };
   if (shouldPublish) {
