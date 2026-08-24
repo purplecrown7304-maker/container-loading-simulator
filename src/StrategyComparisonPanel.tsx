@@ -23,7 +23,7 @@ export default function StrategyComparisonPanel() {
   const [showFleetPlan, setShowFleetPlan] = useState(false);
 
   useEffect(() => {
-    const resolve = () => setTarget(document.querySelector('.dashboard-right'));
+    const resolve = () => setTarget(document.querySelector('.advanced-tools-host'));
     resolve();
     const observer = new MutationObserver(resolve);
     observer.observe(document.body, { childList: true, subtree: true });
