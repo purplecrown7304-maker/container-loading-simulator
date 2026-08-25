@@ -1,5 +1,3 @@
-Vercel production deployment trigger
-2026-08-25T13:36+09:00
-Target: https://container-loading-simulator-1li2.vercel.app/
-Reason: deploy pallet mini 3D preview and centered pallet cargo patch
-Source feature commit: 7fa3633487cd3de3ccd460d899b69da72fc959e4
+Preview build bisect checkpoint 44
+2026-08-26T08:03+09:00
+Source: 94abffad7a94fdafeb82fcbbd345ca7f8ab61d9b
