@@ -32,7 +32,26 @@ export type PhysicsOptimizationProgress = {
 };
 
 const STRATEGIES: LoadingStrategy[] = ['stability', 'capacity', 'unloading'];
+const MIN_TRANSPORT_PHYSICS_SCORE = 85;
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
+
+function totalUnstable(physics: PhysicsValidationSuite) {
+  return physics.unstableCount + physics.supportUnstableCount;
+}
+
+/**
+ * 안전 등급은 적재율/그룹핑 같은 운영 효율보다 항상 먼저 비교한다.
+ * 0: 운송 안전 목표 충족
+ * 1: 붕괴는 없지만 점수 목표 미달
+ * 2: 종료 시 잔류 움직임 존재
+ * 3: 실제 불안정 위치 존재
+ */
+function safetyTier(physics: PhysicsValidationSuite) {
+  if (totalUnstable(physics) > 0) return 3;
+  if (!physics.settled) return 2;
+  if (physics.score < MIN_TRANSPORT_PHYSICS_SCORE) return 1;
+  return 0;
+}
 
 function scoreCandidate(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult, physics: PhysicsValidationSuite) {
   const requestedCount = cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
@@ -43,19 +62,38 @@ function scoreCandidate(container: ContainerSpec, cargo: CargoItem[], result: Lo
   const containerVolume = Math.max(0.001, container.length * container.width * container.height);
   const utilizationScore = clamp(result.usedVolumeM3 / containerVolume * 100);
   const geometryPenalty = result.validationIssues.length * 35;
-  const unstablePenalty = physics.unstableCount * 10 + physics.supportUnstableCount * 12;
-  const movingPenalty = physics.settled ? 0 : 8;
+  const unstablePenalty = totalUnstable(physics) * 18;
+  const movingPenalty = physics.settled ? 0 : 12;
+
+  // 이 점수는 같은 안전 등급 안에서 운영 효율을 비교하는 보조 점수다.
+  // 최종 후보 선택 자체는 아래 compareCandidates에서 물리 안전을 먼저 본다.
   const score = clamp(
-    physics.score * 0.60 +
-    completionScore * 0.20 +
-    balanceScore * 0.08 +
-    groupingScore * 0.07 +
-    utilizationScore * 0.05 -
+    physics.score * 0.75 +
+    completionScore * 0.10 +
+    balanceScore * 0.06 +
+    groupingScore * 0.05 +
+    utilizationScore * 0.04 -
     geometryPenalty -
     unstablePenalty -
     movingPenalty,
   );
   return { score, completionScore, balanceScore, groupingScore, utilizationScore };
+}
+
+export function comparePhysicsOptimizationCandidates(a: PhysicsOptimizationCandidate, b: PhysicsOptimizationCandidate) {
+  const tierDiff = safetyTier(a.physics) - safetyTier(b.physics);
+  if (tierDiff !== 0) return tierDiff;
+
+  const unstableDiff = totalUnstable(a.physics) - totalUnstable(b.physics);
+  if (unstableDiff !== 0) return unstableDiff;
+
+  // 같은 안전 등급이면 물리점수가 최우선이다. 따라서 적재율이 높다는 이유로
+  // 더 낮은 물리점수 후보가 선택되는 일이 없다.
+  if (a.physicsScore !== b.physicsScore) return b.physicsScore - a.physicsScore;
+  if (a.completionScore !== b.completionScore) return b.completionScore - a.completionScore;
+  if (a.score !== b.score) return b.score - a.score;
+  if (a.balanceScore !== b.balanceScore) return b.balanceScore - a.balanceScore;
+  return b.result.placements.length - a.result.placements.length;
 }
 
 /**
@@ -92,12 +130,7 @@ export async function optimizeLoadingWithPhysics(
     });
   }
 
-  candidates.sort((a, b) =>
-    b.score - a.score ||
-    b.physicsScore - a.physicsScore ||
-    b.result.placements.length - a.result.placements.length ||
-    b.balanceScore - a.balanceScore,
-  );
+  candidates.sort(comparePhysicsOptimizationCandidates);
 
   const best = candidates[0];
   if (!best) {
