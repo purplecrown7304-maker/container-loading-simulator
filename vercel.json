@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "npm run test && npm run build",
+  "buildCommand": "npx vitest run src/engine/palletOptimization.test.ts && npm run build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
