@@ -1,3 +1,4 @@
 Vercel production deployment trigger
-2026-08-24T10:02+09:00
+2026-08-25T11:08+09:00
 Target: https://container-loading-simulator-1li2.vercel.app/
+Reason: retry production deployment after report-driven pallet optimization merge
