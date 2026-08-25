@@ -1,0 +1,1 @@
+Preview build check before inertia report
