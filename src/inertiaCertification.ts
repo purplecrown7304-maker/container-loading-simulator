@@ -26,6 +26,7 @@ export type SecuringUsage = {
 export type InertiaCertification = {
   status: CertificationStatus;
   mode: PhysicsTarget['mode'];
+  targetSignature: string;
   testedAt: string;
   securing: SecuringUsage;
   testedScenarios: number;
@@ -60,12 +61,33 @@ export const INERTIA_PASS_TILT_DEG = 1.8;
 
 const SCENARIOS: InertiaScenario[] = ['acceleration', 'braking', 'cornering'];
 
+type CertificationWindow = Window & { __containerLoadingLatestCertification?: InertiaCertification };
+
 const LEVEL_LABEL: Record<SecuringLevel, string> = {
   0: '보조 고정 없음',
   1: '1차 보강 · 밴딩+각대',
   2: '2차 보강 · 밴딩+각대+랩핑',
   3: '3차 보강 · 최대 결속',
 };
+
+export function createPhysicsTargetSignature(target: PhysicsTarget) {
+  return JSON.stringify({
+    mode: target.mode,
+    container: target.container,
+    placements: target.result.placements.map(item => [item.cargoId, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg]),
+    supports: (target.supports ?? []).map(item => [item.id, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg]),
+  });
+}
+
+export function readLatestInertiaCertification() {
+  if (typeof window === 'undefined') return undefined;
+  return (window as CertificationWindow).__containerLoadingLatestCertification;
+}
+
+export function clearLatestInertiaCertification() {
+  if (typeof window === 'undefined') return;
+  (window as CertificationWindow).__containerLoadingLatestCertification = undefined;
+}
 
 export function requestCertifiedResults(detail: CertificationRequestDetail) {
   window.dispatchEvent(new CustomEvent<CertificationRequestDetail>(REQUEST_CERTIFIED_RESULTS_EVENT, { detail }));
@@ -205,6 +227,7 @@ export async function runInertiaCertification(
   const certification: InertiaCertification = {
     status: passed ? 'passed' : 'failed',
     mode: target.mode,
+    targetSignature: createPhysicsTargetSignature(target),
     testedAt: new Date().toISOString(),
     securing: usage,
     testedScenarios: results.length,
@@ -216,6 +239,9 @@ export async function runInertiaCertification(
     payloadWithinLimit: payloadOk,
   };
 
-  window.dispatchEvent(new CustomEvent<InertiaCertification>(INERTIA_CERTIFICATION_EVENT, { detail: certification }));
+  if (typeof window !== 'undefined') {
+    (window as CertificationWindow).__containerLoadingLatestCertification = certification;
+    window.dispatchEvent(new CustomEvent<InertiaCertification>(INERTIA_CERTIFICATION_EVENT, { detail: certification }));
+  }
   return certification;
 }
