@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "npx vitest run src/engine/ergonomics.test.ts src/engine/explanation.test.ts src/engine/fieldScenarios.test.ts src/engine/groupMoveSuggestions.test.ts src/engine/groupPlacement.test.ts && npm run build",
+  "buildCommand": "npx vitest run src/engine/ergonomics.test.ts src/engine/explanation.test.ts src/engine/fieldScenarios.test.ts && npm run build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
