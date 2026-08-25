@@ -1,4 +1,5 @@
 import type { PhysicsScenario, PhysicsSupport } from './physicsValidation';
+import { horizontalRestraintForce, supportingIndexForPlacement, type RestraintModel } from './restraintPhysics';
 import type { ContainerSpec, Placement } from './types';
 
 const EPS = 1e-6;
@@ -15,12 +16,16 @@ const SIMULATION_HZ = 60;
 export type InertiaPhase = 'settle' | 'force' | 'coast';
 
 export type InertiaSecuringProfile = {
-  /** 접촉면 마찰계수. 미끄럼방지재/포장 보강을 단순화해 반영한다. */
+  /** 접촉면 마찰계수. 미끄럼방지재/포장 보강을 반영한다. */
   frictionCoefficient?: number;
-  /** 밴딩·랩핑·각대 등으로 화물 관성력이 적재면에 전달되는 비율(0~0.95). */
+  /** 구형 비교모델 호환용. restraint가 없을 때만 관성력 전달비 감소에 사용한다. */
   cargoRetentionRatio?: number;
-  /** 팔레트 미끄럼방지/고정으로 팔레트 관성력이 바닥에 전달되는 비율(0~0.95). */
+  /** 구형 비교모델 호환용. restraint가 없을 때만 사용한다. */
   supportRetentionRatio?: number;
+  /** 밴딩·각대·랩핑에 의한 화물-팔레트 또는 화물-적재면 수평 구속. */
+  cargoRestraint?: RestraintModel;
+  /** 미끄럼방지재·블로킹·고정바에 의한 팔레트-컨테이너 수평 구속. */
+  supportRestraint?: RestraintModel;
 };
 
 export type InertiaAnimationFrame = {
@@ -39,6 +44,8 @@ export type InertiaAnimationResult = {
   frames: InertiaAnimationFrame[];
   maxHorizontalShiftM: number;
   maxTiltDeg: number;
+  maxCargoRestraintForceN: number;
+  maxSupportRestraintForceN: number;
 };
 
 let rapierPromise: ReturnType<typeof loadRapier> | null = null;
@@ -113,8 +120,8 @@ function packTransforms(entries: Array<{ body: { translation: () => { x: number;
 
 /**
  * Rapier 월드의 실제 강체 위치/회전을 프레임으로 기록한다.
- * UI는 이 결과를 재생만 하므로 검증 엔진과 동일한 충돌/마찰/중력 동작을 눈으로 확인할 수 있다.
- * securing은 밴딩·각대·랩핑·미끄럼방지재의 구속 효과를 비교용 계수로 반영한다.
+ * 보강재가 있는 경우 관성력을 임의 비율로 삭제하지 않고 스프링-댐퍼형 수평 구속력을 별도로 가한다.
+ * 팔레트 화물의 기준점은 해당 팔레트 강체를 따라가므로 2단 팔레트도 자기 팔레트에 결속된다.
  */
 export async function runInertiaAnimation(
   container: ContainerSpec,
@@ -172,11 +179,24 @@ export async function runInertiaAnimation(
     return { body, center, massKg: Math.max(0.01, weightKg), dynamic, retentionRatio };
   };
 
-  const cargoBodies = placements.map(item => createBody(item, item.weightKg, true, cargoRetentionRatio));
   const supportBodies = supports.map(item => createBody(item, item.weightKg, item.dynamic !== false, supportRetentionRatio));
+  const cargoBodies = placements.map(item => ({
+    ...createBody(item, item.weightKg, true, cargoRetentionRatio),
+    supportIndex: supportingIndexForPlacement(item, supports),
+  }));
   const dynamicBodies = [...cargoBodies, ...supportBodies].filter(entry => entry.dynamic);
   let maxHorizontalShiftM = 0;
   let maxTiltDeg = 0;
+  let maxCargoRestraintForceN = 0;
+  let maxSupportRestraintForceN = 0;
+
+  const cargoAnchorOffsets = cargoBodies.map(entry => {
+    const support = entry.supportIndex >= 0 ? supportBodies[entry.supportIndex] : undefined;
+    return support ? {
+      x: entry.center.x - support.center.x,
+      z: entry.center.z - support.center.z,
+    } : { x: 0, z: 0 };
+  });
 
   const record = (step: number) => {
     cargoBodies.forEach(entry => {
@@ -204,7 +224,10 @@ export async function runInertiaAnimation(
       dynamicBodies.forEach(entry => {
         entry.body.resetForces(false);
         if (accel.x || accel.z) {
-          const transmittedRatio = 1 - entry.retentionRatio;
+          const usingPhysicalRestraint = cargoBodies.includes(entry as (typeof cargoBodies)[number])
+            ? Boolean(securing?.cargoRestraint)
+            : Boolean(securing?.supportRestraint);
+          const transmittedRatio = usingPhysicalRestraint ? 1 : 1 - entry.retentionRatio;
           entry.body.addForce({
             x: accel.x * entry.massKg * transmittedRatio,
             y: 0,
@@ -212,6 +235,52 @@ export async function runInertiaAnimation(
           }, true);
         }
       });
+
+      if (securing?.supportRestraint) {
+        supportBodies.forEach(entry => {
+          if (!entry.dynamic) return;
+          const p = entry.body.translation();
+          const v = entry.body.linvel();
+          const force = horizontalRestraintForce(
+            entry.massKg,
+            { x: p.x, z: p.z },
+            { x: entry.center.x, z: entry.center.z },
+            { x: v.x, z: v.z },
+            { x: 0, z: 0 },
+            securing.supportRestraint,
+          );
+          maxSupportRestraintForceN = Math.max(maxSupportRestraintForceN, force.magnitudeN);
+          entry.body.addForce({ x: force.x, y: 0, z: force.z }, true);
+        });
+      }
+
+      if (securing?.cargoRestraint) {
+        cargoBodies.forEach((entry, index) => {
+          const p = entry.body.translation();
+          const v = entry.body.linvel();
+          const support = entry.supportIndex >= 0 ? supportBodies[entry.supportIndex] : undefined;
+          const offset = cargoAnchorOffsets[index];
+          const supportPosition = support?.body.translation();
+          const supportVelocity = support?.body.linvel();
+          const target = supportPosition
+            ? { x: supportPosition.x + offset.x, z: supportPosition.z + offset.z }
+            : { x: entry.center.x, z: entry.center.z };
+          const targetVelocity = supportVelocity
+            ? { x: supportVelocity.x, z: supportVelocity.z }
+            : { x: 0, z: 0 };
+          const force = horizontalRestraintForce(
+            entry.massKg,
+            { x: p.x, z: p.z },
+            target,
+            { x: v.x, z: v.z },
+            targetVelocity,
+            securing.cargoRestraint,
+          );
+          maxCargoRestraintForceN = Math.max(maxCargoRestraintForceN, force.magnitudeN);
+          entry.body.addForce({ x: force.x, y: 0, z: force.z }, true);
+        });
+      }
+
       world.step();
       if ((step + 1) % RECORD_EVERY_STEPS === 0 || step === totalSteps - 1) record(step + 1);
       if (step % 24 === 23) {
@@ -229,6 +298,8 @@ export async function runInertiaAnimation(
       frames,
       maxHorizontalShiftM,
       maxTiltDeg,
+      maxCargoRestraintForceN,
+      maxSupportRestraintForceN,
     };
   } finally {
     world.free();
