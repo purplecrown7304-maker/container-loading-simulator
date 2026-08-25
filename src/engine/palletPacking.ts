@@ -144,7 +144,11 @@ function orientations(item: CargoItem) {
 
 function slotFor(load: PalletLoad, item: CargoItem, pallet: PalletSpec, container: ContainerSpec): Placement | null {
   if (load.cargoWeightKg + item.weightKg > pallet.maxLoadKg + EPS) return null;
-  const reserveHeight = pallet.minimizePackaging ? 0 : (pallet.useCornerGuards ? pallet.cornerGuardExtraHeightM : 0) + (pallet.useWrapping ? pallet.wrappingExtraHeightM : 0);
+  // 최소포장 모드에서도 활성화 가능한 각대/랩핑의 최악 추가 높이를 예약한다.
+  // 실제 포장을 덜 쓰면 여유가 남지만, 포장 적용 후 천장을 넘는 적재안은 생성하지 않는다.
+  const reserveHeight =
+    (pallet.useCornerGuards ? pallet.cornerGuardExtraHeightM : 0)
+    + (pallet.useWrapping ? pallet.wrappingExtraHeightM : 0);
   const availableHeight = container.height - pallet.height - reserveHeight;
   const maxLayers = Math.max(0, Math.min(item.maxStackLayers ?? Infinity, fitCount(availableHeight, item.height)));
   if (maxLayers < 1) return null;
