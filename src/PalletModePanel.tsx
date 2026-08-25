@@ -1,9 +1,10 @@
-import { Text } from '@react-three/drei';
+import { Edges, OrbitControls, Text } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { cargoColor } from './cargoColors';
 import { CargoFaceInfoLabels } from './CargoFaceInfoLabels';
+import { centerPalletCargo } from './engine/palletCentering';
 import { validatePlacements } from './engine/constraints';
 import { defaultPalletSpec, packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
@@ -28,6 +29,10 @@ function sanitizeSpec(spec: PalletSpec): PalletSpec {
     maxLoadKg: Math.max(0, Number(spec.maxLoadKg) || 0),
     maxStackLevels: Math.max(1, Math.min(3, Math.floor(Number(spec.maxStackLevels) || 1))),
   };
+}
+
+function packCentered(container: ContainerSpec, cargo: CargoItem[], spec: PalletSpec) {
+  return centerPalletCargo(packOnPallets(container, cargo, spec));
 }
 
 function PalletBoards({ container, result, spec, scale, onOpen }: { container: ContainerSpec; result: OptimizedPalletPackingResult; spec: PalletSpec; scale: number; onOpen: (p: PalletLoad) => void }) {
@@ -211,6 +216,59 @@ function PalletScene({ container, result, spec, cargo, onOpen, view, showLabels 
   );
 }
 
+function PalletMiniPreview({ pallet }: { pallet: PalletLoad }) {
+  const cargoTop = Math.max(
+    pallet.height,
+    ...pallet.cargoPlacements.map((box) => box.z + box.height - pallet.z),
+  );
+  const span = Math.max(pallet.length, pallet.width, cargoTop, 0.8);
+  const distance = Math.max(1.8, span * 1.9);
+  const targetY = Math.max(pallet.height, cargoTop * 0.45);
+
+  return (
+    <div className="pallet-mini-canvas">
+      <Canvas
+        camera={{ position: [distance, Math.max(1.1, cargoTop * 1.35), distance], fov: 40 }}
+        dpr={[1, 1.5]}
+        gl={{ antialias: true, powerPreference: 'high-performance' }}
+      >
+        <color attach="background" args={['#edf3f9']} />
+        <ambientLight intensity={2.2} />
+        <directionalLight position={[3, 5, 4]} intensity={2.4} />
+        <mesh position={[0, pallet.height / 2, 0]} receiveShadow>
+          <boxGeometry args={[pallet.length, pallet.height, pallet.width]} />
+          <meshStandardMaterial color="#d8b07a" roughness={0.86} />
+          <Edges color="#6b4f2e" />
+        </mesh>
+        {pallet.cargoPlacements.map((box, index) => (
+          <mesh
+            key={`${box.cargoId}-mini-${index}`}
+            position={[
+              box.x + box.length / 2 - (pallet.x + pallet.length / 2),
+              box.z + box.height / 2 - pallet.z,
+              box.y + box.width / 2 - (pallet.y + pallet.width / 2),
+            ]}
+            castShadow
+            receiveShadow
+          >
+            <boxGeometry args={[box.length * 0.985, box.height * 0.985, box.width * 0.985]} />
+            <meshStandardMaterial color={cargoColor(box.cargoId)} roughness={0.58} metalness={0.01} />
+            <Edges color="#16324f" />
+          </mesh>
+        ))}
+        <OrbitControls
+          makeDefault
+          target={[0, targetY, 0]}
+          enablePan={false}
+          minDistance={0.7}
+          maxDistance={distance * 2.8}
+        />
+      </Canvas>
+      <span className="pallet-mini-hint">드래그 회전 · 휠 확대/축소</span>
+    </div>
+  );
+}
+
 function PalletContents({ pallet, cargo, onClose }: { pallet: PalletLoad; cargo: CargoItem[]; onClose: () => void }) {
   const groups = useMemo(() => {
     const map = new Map<string, number>();
@@ -234,6 +292,7 @@ function PalletContents({ pallet, cargo, onClose }: { pallet: PalletLoad; cargo:
         <div><span>팔레트 규격</span><strong>{Math.round(pallet.length * 1000)}×{Math.round(pallet.width * 1000)}</strong></div>
         <div><span>적재 높이</span><strong>{Math.round((maxTop - pallet.z) * 1000)} mm</strong></div>
       </div>
+      <PalletMiniPreview pallet={pallet} />
       <h4>팔레트 속 내용</h4>
       <div className="pallet-content-list">
         {groups.map(([id, count]) => {
@@ -260,7 +319,7 @@ function PalletContents({ pallet, cargo, onClose }: { pallet: PalletLoad; cargo:
 
 export default function PalletModePanel({ container, cargo, runToken }: Props) {
   const [spec, setSpec] = useState<PalletSpec>(defaultPalletSpec);
-  const [result, setResult] = useState<OptimizedPalletPackingResult>(() => packOnPallets(container, cargo.filter((item) => item.quantity > 0), defaultPalletSpec));
+  const [result, setResult] = useState<OptimizedPalletPackingResult>(() => packCentered(container, cargo.filter((item) => item.quantity > 0), defaultPalletSpec));
   const [opened, setOpened] = useState<PalletLoad | null>(null);
   const [view, setView] = useState<PreviewView>('free');
   const [showLabels, setShowLabels] = useState(readBoxLabelPreference);
@@ -269,7 +328,7 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
     if (runToken === 0) return;
     const safe = sanitizeSpec(spec);
     setSpec(safe);
-    setResult(packOnPallets(container, cargo.filter((item) => item.quantity > 0), safe));
+    setResult(packCentered(container, cargo.filter((item) => item.quantity > 0), safe));
     setOpened(null);
   }, [runToken]);
 
@@ -279,7 +338,7 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
       if (!requested) return;
       const safe = sanitizeSpec(requested);
       setSpec(safe);
-      setResult(packOnPallets(container, cargo.filter((item) => item.quantity > 0), safe));
+      setResult(packCentered(container, cargo.filter((item) => item.quantity > 0), safe));
       setOpened(null);
     };
     window.addEventListener(PALLET_SPEC_FROM_RESULTS_EVENT, onSpecFromResults);
