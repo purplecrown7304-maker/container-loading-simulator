@@ -5,6 +5,7 @@ import {
   type PalletPackingResult,
   type PalletSpec,
 } from './palletPacking';
+import { centeredPalletLaneLayout } from './palletLaneLayout';
 import type { CargoItem, ContainerSpec } from './types';
 
 export { defaultPalletSpec };
@@ -95,7 +96,9 @@ function recalcLateralImbalance(pallets: PalletLoad[], container: ContainerSpec)
   let left = 0;
   let right = 0;
   for (const pallet of pallets) {
-    if (pallet.centerOfGravity.y < container.width / 2) left += pallet.totalWeightKg;
+    const delta = pallet.centerOfGravity.y - container.width / 2;
+    if (Math.abs(delta) < 1e-6) continue;
+    if (delta < 0) left += pallet.totalWeightKg;
     else right += pallet.totalWeightKg;
   }
   return Math.abs(left - right);
@@ -198,25 +201,17 @@ function redistributeForLowUtilization(
     byColumn.set(palletLoad.stackColumn, list);
   }
   const columns = [...byColumn.entries()].sort((a, b) => Math.min(...a[1].map((p) => p.x)) - Math.min(...b[1].map((p) => p.x)));
-  const rowCapacity = Math.max(1, Math.floor((container.width + EPS) / pallet.width));
-  const maxX = Math.max(0, container.length - pallet.length);
-  const maxBandsWithoutOverlap = Math.max(1, Math.floor((maxX + EPS) / pallet.length) + 1);
-  const bandCount = Math.min(columns.length, maxBandsWithoutOverlap);
-  const xSlots = Array.from({ length: bandCount }, (_, index) =>
-    bandCount === 1 ? 0 : index * maxX / (bandCount - 1),
-  );
-  const ySlots = Array.from({ length: rowCapacity }, (_, index) => index * pallet.width)
-    .sort((a, b) => Math.abs(a + pallet.width / 2 - container.width / 2) - Math.abs(b + pallet.width / 2 - container.width / 2));
+  const layout = centeredPalletLaneLayout(container, pallet, columns.length);
 
   // 컨테이너의 물리적 팔레트 슬롯 수를 넘는 경우에는 기존 안전 배치를 유지한다.
-  if (columns.length > bandCount * rowCapacity) return { result: input, redistributed: false };
+  if (columns.length > layout.maxBands * layout.rowCapacity) return { result: input, redistributed: false };
 
   const moved: PalletLoad[] = [];
   columns.forEach(([, loads], columnIndex) => {
-    const band = columnIndex % bandCount;
-    const row = Math.floor(columnIndex / bandCount);
-    const x = Math.min(maxX, xSlots[band] ?? 0);
-    const y = Math.min(container.width - pallet.width, ySlots[row] ?? 0);
+    const band = Math.floor(columnIndex / layout.laneCount);
+    const lane = columnIndex % layout.laneCount;
+    const x = Math.min(container.length - pallet.length, layout.xSlots[band] ?? 0);
+    const y = Math.min(container.width - pallet.width, layout.ySlots[lane] ?? 0);
     loads.forEach((load) => moved.push(moveLoad(load, x, y)));
   });
 
