@@ -94,6 +94,15 @@ describe('inertia certification', () => {
     expect(usage.cornerGuardLengthM).toBeCloseTo(3.6, 5);
   });
 
+  it('does not invent stronger pallet-floor restraint when level 2 only adds wrap', () => {
+    const level1 = securingProfileForLevel('pallets', 1);
+    const level2 = securingProfileForLevel('pallets', 2);
+    const level3 = securingProfileForLevel('pallets', 3);
+    expect(level2.cargoRetentionRatio).toBeGreaterThan(level1.cargoRetentionRatio ?? 0);
+    expect(level2.supportRetentionRatio).toBe(level1.supportRetentionRatio);
+    expect(level3.supportRetentionRatio).toBeGreaterThan(level2.supportRetentionRatio ?? 0);
+  });
+
   it('uses blocking materials instead of pallet banding for direct-box reinforcement', () => {
     const usage = buildSecuringUsage(boxTarget, 2);
     expect(usage.palletCount).toBe(0);
