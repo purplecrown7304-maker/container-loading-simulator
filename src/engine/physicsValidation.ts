@@ -5,9 +5,12 @@ const WALL_THICKNESS = 0.04;
 const INITIAL_LIFT_M = 0.002;
 const DEFAULT_FRICTION = 0.62;
 const DEFAULT_RESTITUTION = 0.01;
+const START_ACCELERATION_G = 0.30;
+const BRAKING_G = 0.50;
+const CORNERING_G = 0.35;
 
 export type PhysicsSeverity = 'stable' | 'warning' | 'unstable';
-export type PhysicsScenario = 'settle' | 'braking' | 'cornering';
+export type PhysicsScenario = 'settle' | 'acceleration' | 'braking' | 'cornering';
 
 export type PhysicsSupport = {
   id: string;
@@ -170,8 +173,12 @@ function scenarioAcceleration(scenario: PhysicsScenario, step: number, totalStep
   const settleEnd = Math.floor(totalSteps * 0.45);
   const forceEnd = Math.floor(totalSteps * 0.78);
   if (step < settleEnd || step >= forceEnd) return { x: 0, z: 0 };
-  if (scenario === 'braking') return { x: 9.81 * 0.5, z: 0 };
-  if (scenario === 'cornering') return { x: 0, z: 9.81 * 0.35 };
+
+  // X축은 컨테이너 길이 방향이다. 출발 가속은 급제동과 반대 방향의
+  // 관성 하중을 적용해 화물이 뒤쪽으로 밀리거나 전도되는 상황을 검증한다.
+  if (scenario === 'acceleration') return { x: -9.81 * START_ACCELERATION_G, z: 0 };
+  if (scenario === 'braking') return { x: 9.81 * BRAKING_G, z: 0 };
+  if (scenario === 'cornering') return { x: 0, z: 9.81 * CORNERING_G };
   return { x: 0, z: 0 };
 }
 
@@ -255,7 +262,7 @@ export async function runPhysicsValidation(
       const accel = scenarioAcceleration(scenario, step, steps);
       for (const entry of dynamicBodies) {
         // Rapier user forces persist across simulation steps. Clear them first so
-        // the transport scenario applies exactly 0.5g / 0.35g instead of accumulating.
+        // each transport scenario applies a fixed comparison acceleration.
         entry.body.resetForces(false);
         if (accel.x || accel.z) {
           entry.body.addForce({ x: accel.x * entry.massKg, y: 0, z: accel.z * entry.massKg }, true);
@@ -304,7 +311,13 @@ export async function runPhysicsValidation(
     const weightedPenalty = unstableCount + supportUnstableCount + (warningCount + supportWarningCount) * 0.35;
     const score = Math.round(clamp(100 - weightedPenalty / Math.max(1, all.length) * 100, 0, 100));
 
-    const scenarioName = scenario === 'settle' ? '정적 중력' : scenario === 'braking' ? '급제동 0.5g' : '횡가속 0.35g';
+    const scenarioName = scenario === 'settle'
+      ? '정적 중력'
+      : scenario === 'acceleration'
+        ? `출발 가속 ${START_ACCELERATION_G.toFixed(2)}g`
+        : scenario === 'braking'
+          ? `급제동 ${BRAKING_G.toFixed(2)}g`
+          : `횡가속 ${CORNERING_G.toFixed(2)}g`;
     const totalUnstable = unstableCount + supportUnstableCount;
     const totalWarning = warningCount + supportWarningCount;
     const summary = totalUnstable
@@ -330,7 +343,7 @@ export async function runPhysicsValidationSuite(
   onProgress?: (progress: number, scenario: PhysicsScenario) => void,
   supports: PhysicsSupport[] = [],
 ): Promise<PhysicsValidationSuite> {
-  const scenarios: PhysicsScenario[] = ['settle', 'braking', 'cornering'];
+  const scenarios: PhysicsScenario[] = ['settle', 'acceleration', 'braking', 'cornering'];
   const results: PhysicsValidationResult[] = [];
   for (let i = 0; i < scenarios.length; i += 1) {
     const scenario = scenarios[i];
@@ -355,7 +368,7 @@ export async function runPhysicsValidationSuite(
     ? `운송 종합검증에서 불안정 ${totalUnstable}개 · 주의 ${totalWarning}개가 감지되었습니다.`
     : totalWarning
       ? `운송 종합검증에서 ${totalWarning}개 위치가 주의 수준입니다.`
-      : '정적 중력·급제동·횡가속 시나리오를 모두 통과했습니다.';
+      : '정적 중력·출발 가속·급제동·횡가속 시나리오를 모두 통과했습니다.';
 
   return {
     engine: 'Rapier 3D', score, stableCount, warningCount, unstableCount,
