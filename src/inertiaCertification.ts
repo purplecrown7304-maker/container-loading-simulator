@@ -3,6 +3,7 @@ import { runInertiaAnimation } from './engine/inertiaSimulation';
 import type { PhysicsScenario, PhysicsSupport } from './engine/physicsValidation';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import type { PhysicsTarget } from './physicsTarget';
+import { readSecuringMaterialSettings, type SecuringMaterialSettings } from './securingMaterialSettings';
 
 export type InertiaScenario = Exclude<PhysicsScenario, 'settle'>;
 export type CertificationStatus = 'passed' | 'failed';
@@ -23,6 +24,7 @@ export type SecuringUsage = {
   loadBars: number;
   estimatedAddedWeightKg: number;
   estimatedNonCargoWeightKg: number;
+  materialUnitWeights?: SecuringMaterialSettings;
 };
 
 export type InertiaCertification = {
@@ -120,6 +122,7 @@ export function readLatestInertiaCertification() {
 export function clearLatestInertiaCertification() {
   if (typeof window === 'undefined') return;
   (window as CertificationWindow).__containerLoadingLatestCertification = undefined;
+  window.dispatchEvent(new CustomEvent<InertiaCertification | undefined>(INERTIA_CERTIFICATION_EVENT, { detail: undefined }));
 }
 
 export function requestCertifiedResults(detail: CertificationRequestDetail) {
@@ -146,6 +149,7 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
   const supports = target.mode === 'pallets' ? (target.supports ?? []) : [];
   const palletCount = supports.length;
   const palletWeightKg = supports.reduce((sum, support) => sum + Math.max(0, support.weightKg), 0);
+  const unitWeights = readSecuringMaterialSettings();
 
   let bandingStraps = 0;
   let bandingLengthM = 0;
@@ -181,14 +185,13 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     loadBars = level >= 2 ? 2 : 0;
   }
 
-  // 실제 자재 규격이 입력되기 전까지 결과 비교용 보수적 기본 단위중량을 사용한다.
   const estimatedAddedWeightKg =
-    bandingLengthM * 0.025 +
-    cornerGuardLengthM * 0.12 +
-    wrappingLengthM * 0.018 +
-    antiSlipMats * 0.35 +
-    dunnageBlocks * 0.75 +
-    loadBars * 4.5;
+    bandingLengthM * unitWeights.bandingKgPerM +
+    cornerGuardLengthM * unitWeights.cornerGuardKgPerM +
+    wrappingLengthM * unitWeights.wrappingKgPerM +
+    antiSlipMats * unitWeights.antiSlipKgPerEa +
+    dunnageBlocks * unitWeights.dunnageKgPerEa +
+    loadBars * unitWeights.loadBarKgPerEa;
 
   return {
     level,
@@ -209,6 +212,7 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     loadBars,
     estimatedAddedWeightKg,
     estimatedNonCargoWeightKg: palletWeightKg + estimatedAddedWeightKg,
+    materialUnitWeights: unitWeights,
   };
 }
 
