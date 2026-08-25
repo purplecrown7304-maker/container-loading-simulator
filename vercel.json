@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "npx vitest run src/engine/fieldScenarios.test.ts -t \"keeps fragile top-load cargo\" && npm run build",
+  "buildCommand": "npx vitest run src/engine/fieldScenarios.test.ts -t \"uses rotation for narrow width combinations\" && npm run build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
