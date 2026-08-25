@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import type { PhysicsTarget } from './physicsTarget';
-import { buildSecuringUsage, createPhysicsTargetSignature, isInertiaStable, securingProfileForLevel } from './inertiaCertification';
+import { buildSecuringUsage, createPhysicsTargetSignature, isInertiaStable, securingProfileForLevel, securingProfileForUsage } from './inertiaCertification';
 
 function animation(shift: number, tilt: number, extra: Partial<InertiaAnimationResult> = {}): InertiaAnimationResult {
   return {
@@ -103,6 +103,22 @@ describe('inertia certification', () => {
     expect(level3.supportRetentionRatio).toBeGreaterThan(level2.supportRetentionRatio ?? 0);
   });
 
+  it('derives cargo restraint from straps and wrap, and support restraint only from load bars', () => {
+    const usage1 = buildSecuringUsage(palletTarget, 1);
+    const usage2 = buildSecuringUsage(palletTarget, 2);
+    const usage3 = buildSecuringUsage(palletTarget, 3);
+    const profile1 = securingProfileForUsage('pallets', usage1);
+    const profile2 = securingProfileForUsage('pallets', usage2);
+    const profile3 = securingProfileForUsage('pallets', usage3);
+
+    expect(profile1.cargoRestraint).toBeDefined();
+    expect(profile2.cargoRestraint?.maxAccelerationG).toBeGreaterThan(profile1.cargoRestraint?.maxAccelerationG ?? 0);
+    expect(profile1.supportRestraint).toBeUndefined();
+    expect(profile2.supportRestraint).toBeUndefined();
+    expect(profile3.supportRestraint).toBeDefined();
+    expect(profile3.frictionCoefficient).toBeGreaterThan(profile2.frictionCoefficient ?? 0);
+  });
+
   it('uses blocking materials instead of pallet banding for direct-box reinforcement', () => {
     const usage = buildSecuringUsage(boxTarget, 2);
     expect(usage.palletCount).toBe(0);
@@ -112,6 +128,7 @@ describe('inertia certification', () => {
     expect(usage.dunnageBlocks).toBeGreaterThanOrEqual(4);
     expect(usage.loadBars).toBe(2);
     expect(usage.antiSlipMats).toBeGreaterThanOrEqual(2);
+    expect(securingProfileForUsage('boxes', usage).cargoRestraint).toBeDefined();
   });
 
   it('escalates the simulated restraint as the securing level increases', () => {
