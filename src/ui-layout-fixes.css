@@ -93,6 +93,23 @@
   text-overflow: ellipsis !important;
 }
 
+/* Preview metadata/settings live in Results now. Keep the main canvas as large as possible. */
+.dashboard-center > .viewer-card > .card-heading-row {
+  display: none !important;
+}
+
+.dashboard-center > .viewer-card > .viewer-host {
+  margin-top: 0 !important;
+}
+
+.pallet-mode-panel-inline {
+  padding-top: 0 !important;
+}
+
+.pallet-mode-panel-inline > .pallet-view-stack {
+  margin-top: 0 !important;
+}
+
 @media (max-width: 700px) {
   .dashboard-left .cargo-browser {
     flex: none !important;
