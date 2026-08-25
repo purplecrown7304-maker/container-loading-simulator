@@ -131,7 +131,7 @@ function supportLoadHeight(target: PhysicsTarget, support: PhysicsSupport) {
 
 export function createPhysicsTargetSignature(target: PhysicsTarget) {
   return JSON.stringify({
-    physicsModel: 'restraint-v2',
+    physicsModel: 'restraint-v3-material-derived',
     mode: target.mode,
     container: target.container,
     placements: target.result.placements.map(item => [item.cargoId, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg]),
@@ -164,16 +164,61 @@ export function isInertiaStable(result: InertiaAnimationResult, mode: PhysicsTar
   return true;
 }
 
+/** Legacy level summary retained for UI/tests. Certification itself uses securingProfileForUsage below. */
 export function securingProfileForLevel(mode: PhysicsTarget['mode'], level: SecuringLevel): InertiaSecuringProfile {
   if (level === 0) return { frictionCoefficient: 0.62, cargoRetentionRatio: 0, supportRetentionRatio: 0 };
   if (mode === 'pallets') {
     if (level === 1) return { frictionCoefficient: 0.74, cargoRetentionRatio: 0.36, supportRetentionRatio: 0.16 };
-    if (level === 2) return { frictionCoefficient: 0.84, cargoRetentionRatio: 0.58, supportRetentionRatio: 0.16 };
-    return { frictionCoefficient: 0.92, cargoRetentionRatio: 0.78, supportRetentionRatio: 0.48 };
+    if (level === 2) return { frictionCoefficient: 0.74, cargoRetentionRatio: 0.58, supportRetentionRatio: 0.16 };
+    return { frictionCoefficient: 0.82, cargoRetentionRatio: 0.78, supportRetentionRatio: 0.48 };
   }
   if (level === 1) return { frictionCoefficient: 0.72, cargoRetentionRatio: 0.16, supportRetentionRatio: 0 };
   if (level === 2) return { frictionCoefficient: 0.82, cargoRetentionRatio: 0.34, supportRetentionRatio: 0 };
   return { frictionCoefficient: 0.90, cargoRetentionRatio: 0.54, supportRetentionRatio: 0 };
+}
+
+/**
+ * Builds the actual physics restraint from the material BOM rather than from a level number alone.
+ * The constants are conservative internal comparison coefficients, not manufacturer-rated capacities.
+ */
+export function securingProfileForUsage(mode: PhysicsTarget['mode'], usage: SecuringUsage): InertiaSecuringProfile {
+  if (usage.level === 0) return { frictionCoefficient: 0.62 };
+
+  if (mode === 'pallets') {
+    const strapsPerPallet = usage.palletCount > 0 ? usage.bandingStraps / usage.palletCount : 0;
+    const hasWrap = usage.wrappingLengthM > EPS;
+    const hasAntiSlip = usage.antiSlipMats > 0;
+    const hasLoadBars = usage.loadBars > 0;
+    const cargoCapacityG = Math.min(0.78, Math.max(0.12, strapsPerPallet * 0.11 + (hasWrap ? 0.14 : 0)));
+    const cargoSpring = 8 + strapsPerPallet * 4.5 + (hasWrap ? 7 : 0);
+    const cargoDamping = 3 + strapsPerPallet * 0.8 + (hasWrap ? 1.5 : 0);
+    return {
+      frictionCoefficient: hasAntiSlip ? (usage.antiSlipMats > usage.palletCount ? 0.82 : 0.74) : 0.62,
+      cargoRestraint: strapsPerPallet > 0 || hasWrap ? {
+        springAccelerationPerM: cargoSpring,
+        dampingPerSecond: cargoDamping,
+        maxAccelerationG: cargoCapacityG,
+      } : undefined,
+      supportRestraint: hasLoadBars ? {
+        springAccelerationPerM: 20 + usage.loadBars * 7,
+        dampingPerSecond: 6 + usage.loadBars,
+        maxAccelerationG: Math.min(0.72, 0.24 + usage.loadBars * 0.22),
+      } : undefined,
+    };
+  }
+
+  const hasAntiSlip = usage.antiSlipMats > 0;
+  const blockingStrength = usage.dunnageBlocks * 0.035;
+  const barStrength = usage.loadBars * 0.18;
+  const capacityG = Math.min(0.62, blockingStrength + barStrength);
+  return {
+    frictionCoefficient: hasAntiSlip ? (usage.level >= 3 ? 0.88 : 0.76) : 0.62,
+    cargoRestraint: capacityG > 0 ? {
+      springAccelerationPerM: 7 + usage.dunnageBlocks * 1.3 + usage.loadBars * 6,
+      dampingPerSecond: 3 + usage.dunnageBlocks * 0.18 + usage.loadBars * 1.2,
+      maxAccelerationG: capacityG,
+    } : undefined,
+  };
 }
 
 export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel): SecuringUsage {
@@ -271,7 +316,7 @@ export async function runInertiaCertification(
       break;
     }
 
-    const profile = securingProfileForLevel(target.mode, level);
+    const profile = securingProfileForUsage(target.mode, securing);
     const levelResults: Partial<Record<InertiaScenario, InertiaAnimationResult>> = {};
     let allPassed = true;
 
