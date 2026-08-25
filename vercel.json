@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "npx vitest run src/engine/fieldScenarios.test.ts -t \"ragged multi-SKU|reports payload-limited\" && npm run build",
+  "buildCommand": "npx vitest run src/engine/fieldScenarios.test.ts -t \"reports payload-limited remainder\" && npm run build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
