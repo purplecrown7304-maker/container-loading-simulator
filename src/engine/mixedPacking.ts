@@ -1,6 +1,7 @@
 import type { CargoItem, ContainerSpec, Placement } from './types';
 import { isInsideContainer, overlaps } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
+import { hasAdequateSupport } from './support';
 
 const EPS = 1e-9;
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
@@ -30,23 +31,6 @@ function candidateAxes(container: ContainerSpec, placements: Placement[], option
     ys: [...ys].filter((value) => value <= container.width + EPS).sort((a, b) => a - b),
     zs: [...zs].filter((value) => value <= container.height + EPS).sort((a, b) => a - b),
   };
-}
-
-/**
- * 공중에 박스를 생성하지 않기 위한 최소 접촉 조건이다.
- * 기존의 100% 바닥면 지지 규칙은 삭제했다. 부분 지지가 실제로 안정적인지는 Rapier가 판단한다.
- */
-function hasSupportContact(candidate: Placement, placements: Placement[]): boolean {
-  if (Math.abs(candidate.z) <= 0.001) return true;
-  for (const placement of placements) {
-    const top = round3(placement.z + placement.height);
-    if (Math.abs(top - candidate.z) > 0.001) continue;
-    const xOverlap = Math.max(0, Math.min(candidate.x + candidate.length, placement.x + placement.length) - Math.max(candidate.x, placement.x));
-    if (xOverlap <= EPS) continue;
-    const yOverlap = Math.max(0, Math.min(candidate.y + candidate.width, placement.y + placement.width) - Math.max(candidate.y, placement.y));
-    if (yOverlap > EPS) return true;
-  }
-  return false;
 }
 
 function orientations(item: CargoItem) {
@@ -99,7 +83,7 @@ export function findMixedPlacement(
           if (candidate.x + candidate.length > (options.maxX ?? container.length) + EPS) continue;
           if (!isInsideContainer(container, candidate)) continue;
           if (placements.some((placement) => overlaps(candidate, placement))) continue;
-          if (!hasSupportContact(candidate, placements)) continue;
+          if (!hasAdequateSupport(candidate, placements)) continue;
           if (!canPlaceByStackingRules(item, candidate, placements, cargoById)) continue;
           const score = compactnessScore(candidate, placements, container);
           if (score < bestScore) { best = candidate; bestScore = score; }
