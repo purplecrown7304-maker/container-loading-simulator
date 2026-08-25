@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { InertiaReinforcementAttempt, InertiaScenario } from './inertiaCertification';
+import {
+  createPhysicsTargetSignature,
+  type InertiaReinforcementAttempt,
+  type InertiaScenario,
+} from './inertiaCertification';
+import { buildPalletSecuringPlan } from './palletSecuringPlan';
+import { readPhysicsTarget } from './physicsTarget';
 import { OPEN_RESULTS_MODAL_EVENT, type ResultsModalDetail } from './resultsModalEvents';
 
 function mm(value: number) {
@@ -17,6 +23,29 @@ function attemptText(attempt: InertiaReinforcementAttempt) {
   const failed = attempt.scenarios.find(item => !item.passed);
   if (!failed) return '검증 미완료';
   return `${scenarioLabel(failed.scenario)} 실패 · ${mm(failed.maxHorizontalShiftM)} / ${failed.maxTiltDeg.toFixed(1)}°`;
+}
+
+function reductionPercent(before: number, after: number) {
+  if (before <= 0) return 0;
+  return Math.max(0, (1 - after / before) * 100);
+}
+
+function reinforcementComparison(attempts: InertiaReinforcementAttempt[]) {
+  const baseline = attempts.find(attempt => attempt.level === 0);
+  if (!baseline || baseline.passed) return null;
+  const failed = baseline.scenarios.find(scenario => !scenario.passed);
+  if (!failed) return null;
+  const finalAttempt = [...attempts].reverse().find(attempt => attempt.passed);
+  const finalScenario = finalAttempt?.scenarios.find(scenario => scenario.scenario === failed.scenario);
+  if (!finalAttempt || !finalScenario) return null;
+  return {
+    scenario: failed.scenario,
+    beforeShiftM: failed.maxHorizontalShiftM,
+    afterShiftM: finalScenario.maxHorizontalShiftM,
+    beforeTiltDeg: failed.maxTiltDeg,
+    afterTiltDeg: finalScenario.maxTiltDeg,
+    finalLabel: finalAttempt.levelLabel,
+  };
 }
 
 export default function CertificationResultSummaryBridge() {
@@ -59,6 +88,13 @@ export default function CertificationResultSummaryBridge() {
   const cert = detail.certification;
   const usage = cert.securing;
   const attempts = cert.attempts ?? [];
+  const comparison = reinforcementComparison(attempts);
+  const target = cert.mode === 'pallets' ? readPhysicsTarget() : undefined;
+  const palletPlan = target
+    && target.mode === 'pallets'
+    && cert.targetSignature === createPhysicsTargetSignature(target)
+    ? buildPalletSecuringPlan(target, usage)
+    : null;
 
   return createPortal(<article className="certification-result-card">
     <div className="certification-result-head">
@@ -72,6 +108,14 @@ export default function CertificationResultSummaryBridge() {
       <div><span>박스 제외 보조자재</span><b>약 {usage.estimatedNonCargoWeightKg.toFixed(1)} kg</b></div>
     </div>
 
+    {comparison && <section className="certification-effect" aria-label="보강 전후 관성 비교">
+      <div><b>보강 효과 비교 · {scenarioLabel(comparison.scenario)}</b><span>기본 적재안 → {comparison.finalLabel}</span></div>
+      <div className="certification-effect-grid">
+        <p><span>수평 이동</span><b>{mm(comparison.beforeShiftM)} → {mm(comparison.afterShiftM)}</b><small>{reductionPercent(comparison.beforeShiftM, comparison.afterShiftM).toFixed(0)}% 감소</small></p>
+        <p><span>기울기</span><b>{comparison.beforeTiltDeg.toFixed(1)}° → {comparison.afterTiltDeg.toFixed(1)}°</b><small>{reductionPercent(comparison.beforeTiltDeg, comparison.afterTiltDeg).toFixed(0)}% 감소</small></p>
+      </div>
+    </section>}
+
     {attempts.length > 0 && <section className="certification-attempt-trail" aria-label="자동 보강 이력">
       <div className="certification-attempt-title"><b>자동 보강 이력</b><span>통과할 때까지 필요한 보강만 단계적으로 추가했습니다.</span></div>
       <div className="certification-attempt-steps">
@@ -80,6 +124,21 @@ export default function CertificationResultSummaryBridge() {
           <p><b>{attempt.level === 0 ? '기본 적재안' : attempt.levelLabel}</b><small>{attemptText(attempt)}</small></p>
         </div>)}
       </div>
+    </section>}
+
+    {palletPlan && palletPlan.items.length > 0 && <section className="certification-pallet-plan" aria-label="팔레트별 결속 계획">
+      <div className="certification-pallet-plan-head"><b>팔레트별 결속 계획</b><span>각 팔레트의 실제 적재 높이로 길이를 계산했습니다.</span></div>
+      <div className="certification-pallet-plan-grid">
+        {[...palletPlan.items].sort((a, b) => a.palletIndex - b.palletIndex).map(item => <article key={item.supportId}>
+          <header><b>P{item.palletIndex}</b><span>적재높이 {Math.round(item.loadHeightM * 1000)} mm</span></header>
+          <p><span>밴딩</span><b>{item.bandingStraps}줄 · {item.bandingLengthM.toFixed(1)}m</b></p>
+          <p><span>각대</span><b>{item.cornerGuards}EA · {item.cornerGuardLengthM.toFixed(1)}m</b></p>
+          <p><span>랩핑</span><b>{item.wrappingLengthM > 0 ? `${item.wrappingLengthM.toFixed(1)}m` : '-'}</b></p>
+          <p><span>미끄럼방지</span><b>{item.antiSlipMats > 0 ? `${item.antiSlipMats}EA` : '-'}</b></p>
+          <footer>추가 약 {item.estimatedAddedWeightKg.toFixed(2)} kg</footer>
+        </article>)}
+      </div>
+      {palletPlan.sharedLoadBars > 0 && <div className="certification-shared-securing"><b>컨테이너 공통 고정바</b><span>{palletPlan.sharedLoadBars}EA · 약 {palletPlan.sharedLoadBarWeightKg.toFixed(1)}kg</span></div>}
     </section>}
 
     <div className="certification-material-list">
