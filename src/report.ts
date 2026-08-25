@@ -3,6 +3,7 @@ import { assessWeightBalance } from './engine/weightBalance';
 import { explainLoading } from './engine/explanation';
 import { analyzeFloorLoad } from './engine/floorLoad';
 import { analyzeConstraints } from './engine/constraintAnalysis';
+import { confirmUnverifiedExport, hasCurrentPhysicsVerification } from './exportVerification';
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -29,6 +30,7 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
   const loadedByCargo = new Map<string, number>();
   result.placements.forEach(p => loadedByCargo.set(p.cargoId, (loadedByCargo.get(p.cargoId) ?? 0) + 1));
   const generatedAt = new Date().toLocaleString('ko-KR');
+  const physicsVerified = typeof window !== 'undefined' && hasCurrentPhysicsVerification();
 
   const cargoRows = cargo.map(item => {
     const loaded = loadedByCargo.get(item.id) ?? 0;
@@ -49,9 +51,9 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
     : '<tr><td colspan="3">미적재 화물 없음</td></tr>';
 
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>컨테이너 적재 작업지시서</title><style>
-  body{font-family:Arial,"Noto Sans KR",sans-serif;color:#172033;margin:28px;font-size:12px}h1{font-size:22px;margin:0 0 5px}h2{font-size:15px;margin:22px 0 8px}.sub{color:#687286;margin-bottom:18px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.card{border:1px solid #dfe4eb;border-radius:8px;padding:10px}.card span{display:block;color:#687286;font-size:10px;margin-bottom:4px}.card b{font-size:14px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #dfe4eb;padding:7px;text-align:left;vertical-align:top}th{background:#f3f5f8}.rules{padding:10px 14px;background:#f6f8fb;border:1px solid #e3e7ee;border-radius:8px}.rules li{margin:4px 0}.warn{margin-top:18px;padding:10px;border:1px solid #f2c46d;background:#fff8e8}.footer{margin-top:24px;color:#687286;font-size:10px}.status-pass{color:#238636;font-weight:700}.status-warn{color:#a15c00;font-weight:700}.status-fail{color:#b42318;font-weight:700}.floor-table{font-size:10px}@media print{body{margin:12mm}.no-print{display:none}}
-  </style></head><body><h1>컨테이너 적재 작업지시서</h1><div class="sub">생성: ${escapeHtml(generatedAt)}</div>
-  <div class="grid"><div class="card"><span>컨테이너</span><b>${container.length} × ${container.width} × ${container.height} m</b></div><div class="card"><span>적재 수량</span><b>${result.placements.length} EA</b></div><div class="card"><span>적재 중량</span><b>${result.loadedWeightKg.toLocaleString()} kg</b></div><div class="card"><span>체적 적재율</span><b>${fillRate.toFixed(1)}%</b></div><div class="card"><span>품질 점수</span><b>${quality.loadingQualityScore.toFixed(0)}점 · ${quality.grade}</b></div><div class="card"><span>좌우 편차</span><b>${quality.lateralDeviationPct.toFixed(1)}%</b></div><div class="card"><span>바닥 평균 하중</span><b>${floor.averageKgPerM2.toFixed(0)} kg/m²</b></div><div class="card"><span>바닥 최대 하중</span><b>${floor.maxKgPerM2.toFixed(0)} kg/m²</b></div></div>
+  body{font-family:Arial,"Noto Sans KR",sans-serif;color:#172033;margin:28px;font-size:12px;position:relative}h1{font-size:22px;margin:0 0 5px}h2{font-size:15px;margin:22px 0 8px}.sub{color:#687286;margin-bottom:18px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.card{border:1px solid #dfe4eb;border-radius:8px;padding:10px}.card span{display:block;color:#687286;font-size:10px;margin-bottom:4px}.card b{font-size:14px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #dfe4eb;padding:7px;text-align:left;vertical-align:top}th{background:#f3f5f8}.rules{padding:10px 14px;background:#f6f8fb;border:1px solid #e3e7ee;border-radius:8px}.rules li{margin:4px 0}.warn{margin-top:18px;padding:10px;border:1px solid #f2c46d;background:#fff8e8}.footer{margin-top:24px;color:#687286;font-size:10px}.status-pass{color:#238636;font-weight:700}.status-warn{color:#a15c00;font-weight:700}.status-fail{color:#b42318;font-weight:700}.floor-table{font-size:10px}.unverified{border-color:#ef4444;background:#fff1f2;color:#991b1b}.watermark{position:fixed;inset:42% 0 auto;text-align:center;transform:rotate(-18deg);font-size:54px;font-weight:900;color:rgba(185,28,28,.10);pointer-events:none;z-index:20;letter-spacing:4px}@media print{body{margin:12mm}.no-print{display:none}.watermark{display:${physicsVerified ? 'none' : 'block'}}}
+  </style></head><body>${physicsVerified ? '' : '<div class="watermark">물리 안정성 미검증</div>'}<h1>컨테이너 적재 작업지시서</h1><div class="sub">생성: ${escapeHtml(generatedAt)}</div>
+  <div class="grid"><div class="card"><span>컨테이너</span><b>${container.length} × ${container.width} × ${container.height} m</b></div><div class="card"><span>적재 수량</span><b>${result.placements.length} EA</b></div><div class="card"><span>적재 중량</span><b>${result.loadedWeightKg.toLocaleString()} kg</b></div><div class="card"><span>체적 적재율</span><b>${fillRate.toFixed(1)}%</b></div><div class="card"><span>품질 점수</span><b>${quality.loadingQualityScore.toFixed(0)}점 · ${quality.grade}</b></div><div class="card"><span>좌우 편차</span><b>${quality.lateralDeviationPct.toFixed(1)}%</b></div><div class="card"><span>바닥 최대 하중</span><b>${floor.maxKgPerM2.toFixed(0)} kg/m²</b></div><div class="card ${physicsVerified ? '' : 'unverified'}"><span>물리 안정성</span><b>${physicsVerified ? '검증 완료' : '미검증'}</b></div></div>
   <h2>제약조건 검사</h2><table><thead><tr><th>항목</th><th>상태</th><th>상세</th></tr></thead><tbody>${checkRows}</tbody></table>
   <h2>적재 판단 기준</h2><ul class="rules">${ruleSummary}</ul>
   <h2>품목별 적재 현황</h2><table><thead><tr><th>코드</th><th>품명</th><th>요청</th><th>적재</th><th>잔량</th><th>개당 중량(kg)</th></tr></thead><tbody>${cargoRows}</tbody></table>
@@ -60,10 +62,11 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
   <h2>바닥 하중 격자 (12×4)</h2><table class="floor-table"><thead><tr><th>행</th><th>열</th><th>분배 하중(kg)</th><th>kg/m²</th></tr></thead><tbody>${floorRows}</tbody></table>
   <h2>미적재 사유</h2><table><thead><tr><th>코드</th><th>수량</th><th>사유</th></tr></thead><tbody>${remainingRows}</tbody></table>
   <div class="warn"><b>현장 확인 필수</b><br>본 결과는 작업 의사결정 보조용입니다. 바닥 하중은 적재 화물의 중량을 바닥 투영면적에 분배한 계산값이며, 실제 컨테이너 제조사 바닥 집중하중·축중·박스 압축강도·팔레트 허용하중·결박 및 현장 안전 기준을 대체하지 않습니다.</div>
-  <div class="footer">요청 총수량: ${[...requested.values()].reduce((a,b)=>a+b,0)} EA · 자동 보정: ${result.autoCorrections?.length ?? 0}건 · 검증 이슈: ${result.validationIssues.length}건</div></body></html>`;
+  <div class="footer">요청 총수량: ${[...requested.values()].reduce((a,b)=>a+b,0)} EA · 자동 보정: ${result.autoCorrections?.length ?? 0}건 · 검증 이슈: ${result.validationIssues.length}건 · 물리검증: ${physicsVerified ? '완료' : '미검증'}</div></body></html>`;
 }
 
 export function openLoadingReport(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult): boolean {
+  if (!confirmUnverifiedExport('작업지시서')) return true;
   const popup = window.open('', '_blank');
   if (!popup) return false;
   try { popup.opener = null; } catch { /* 일부 브라우저는 opener 변경을 제한할 수 있음 */ }
