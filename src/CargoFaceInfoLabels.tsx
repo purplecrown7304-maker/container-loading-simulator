@@ -51,11 +51,12 @@ function LabelMaterial({ texture }: { texture: THREE.Texture }) {
       map={texture}
       toneMapped={false}
       transparent
-      side={THREE.FrontSide}
+      side={THREE.DoubleSide}
+      depthTest
       depthWrite={false}
       polygonOffset
-      polygonOffsetFactor={-4}
-      polygonOffsetUnits={-4}
+      polygonOffsetFactor={-8}
+      polygonOffsetUnits={-8}
     />
   );
 }
@@ -65,11 +66,13 @@ export function CargoFaceInfoLabels({
   container,
   scale,
   displayName,
+  verticalOffset = 0,
 }: {
   placements: Placement[];
   container: ContainerSpec;
   scale: number;
   displayName?: string;
+  verticalOffset?: number;
 }) {
   const sample = placements[0];
   const texture = useMemo(
@@ -84,30 +87,30 @@ export function CargoFaceInfoLabels({
     <group>
       {placements.flatMap((box, index) => {
         const cx = (box.x + box.length / 2) * scale - container.length * scale / 2;
-        const cy = (box.z + box.height / 2) * scale;
+        const cy = (box.z + box.height / 2) * scale + verticalOffset;
         const cz = (box.y + box.width / 2) * scale - container.width * scale / 2;
         const length = box.length * scale;
         const width = box.width * scale;
         const height = box.height * scale;
-        const faceHeight = height * 0.76;
-        const longFaceWidth = length * 0.88;
-        const shortFaceWidth = width * 0.88;
-        const gap = 0.008;
+        const faceHeight = Math.max(0.055, height * 0.76);
+        const longFaceWidth = Math.max(0.09, length * 0.88);
+        const shortFaceWidth = Math.max(0.09, width * 0.88);
+        const gap = 0.012;
 
         return [
-          <mesh key={`${box.cargoId}-${index}-front`} position={[cx, cy, cz + width / 2 + gap]} renderOrder={12}>
+          <mesh key={`${box.cargoId}-${index}-front`} position={[cx, cy, cz + width / 2 + gap]} renderOrder={30}>
             <planeGeometry args={[longFaceWidth, faceHeight]} />
             <LabelMaterial texture={texture} />
           </mesh>,
-          <mesh key={`${box.cargoId}-${index}-back`} position={[cx, cy, cz - width / 2 - gap]} rotation={[0, Math.PI, 0]} renderOrder={12}>
+          <mesh key={`${box.cargoId}-${index}-back`} position={[cx, cy, cz - width / 2 - gap]} rotation={[0, Math.PI, 0]} renderOrder={30}>
             <planeGeometry args={[longFaceWidth, faceHeight]} />
             <LabelMaterial texture={texture} />
           </mesh>,
-          <mesh key={`${box.cargoId}-${index}-right`} position={[cx + length / 2 + gap, cy, cz]} rotation={[0, Math.PI / 2, 0]} renderOrder={12}>
+          <mesh key={`${box.cargoId}-${index}-right`} position={[cx + length / 2 + gap, cy, cz]} rotation={[0, Math.PI / 2, 0]} renderOrder={30}>
             <planeGeometry args={[shortFaceWidth, faceHeight]} />
             <LabelMaterial texture={texture} />
           </mesh>,
-          <mesh key={`${box.cargoId}-${index}-left`} position={[cx - length / 2 - gap, cy, cz]} rotation={[0, -Math.PI / 2, 0]} renderOrder={12}>
+          <mesh key={`${box.cargoId}-${index}-left`} position={[cx - length / 2 - gap, cy, cz]} rotation={[0, -Math.PI / 2, 0]} renderOrder={30}>
             <planeGeometry args={[shortFaceWidth, faceHeight]} />
             <LabelMaterial texture={texture} />
           </mesh>,
