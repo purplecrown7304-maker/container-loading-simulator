@@ -20,6 +20,7 @@ const AutoCorrectionPanel = lazy(() => import('./AutoCorrectionPanel'));
 
 type PalletSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult };
 type PalletWindow = Window & { __containerLoadingPalletSnapshot?: PalletSnapshot };
+type AdvancedTab = 'optimize' | 'edit' | 'work';
 
 const PALLET_SPEC_FROM_RESULTS_EVENT = 'container-loading:pallet-spec-from-results';
 const PALLET_SNAPSHOT_UPDATED_EVENT = 'container-loading:pallet-snapshot-updated';
@@ -52,6 +53,7 @@ export default function ResultsOverlay() {
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<ResultsModalDetail | null>(null);
   const [advanced, setAdvanced] = useState(false);
+  const [advancedTab, setAdvancedTab] = useState<AdvancedTab>('optimize');
   const [palletSnapshot, setPalletSnapshot] = useState<PalletSnapshot | null>(null);
 
   useEffect(() => {
@@ -61,6 +63,7 @@ export default function ResultsOverlay() {
       setDetail(next);
       setPalletSnapshot((window as PalletWindow).__containerLoadingPalletSnapshot ?? null);
       setAdvanced(false);
+      setAdvancedTab('optimize');
       setOpen(true);
     };
     window.addEventListener(OPEN_RESULTS_MODAL_EVENT, onOpen);
@@ -78,7 +81,15 @@ export default function ResultsOverlay() {
 
   useEffect(() => {
     document.body.classList.toggle('results-modal-open', open);
-    return () => document.body.classList.remove('results-modal-open');
+    if (!open) return () => document.body.classList.remove('results-modal-open');
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      document.body.classList.remove('results-modal-open');
+    };
   }, [open]);
 
   const effectiveResult = useMemo(() => detail ? toLoadingResult(detail, palletSnapshot) : null, [detail, palletSnapshot]);
@@ -111,22 +122,20 @@ export default function ResultsOverlay() {
   const warned = checks.filter(c => c.status === 'warn').length;
 
   return <div className="results-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
-    <section className="results-modal" role="dialog" aria-modal="true" aria-label="적재 결과">
+    <section className="results-modal" role="dialog" aria-modal="true" aria-labelledby="results-modal-title">
       <header className="results-modal-header">
-        <div><b>적재 결과</b><span>미리보기 정보, 설정, 적재 결과를 한 화면에서 확인합니다.</span></div>
-        <button type="button" onClick={() => setOpen(false)} aria-label="결과창 닫기">✕</button>
+        <div><b id="results-modal-title">적재 결과</b><span>설계 결과 → 검증 → 현장 작업 준비 순서로 확인합니다.</span></div>
+        <button type="button" onClick={() => setOpen(false)} aria-label="결과창 닫기">닫기</button>
       </header>
 
       <article className="results-panel results-preview-info">
-        <div className="results-panel-title"><b>적재 시뮬레이션 미리보기 정보</b><span>{palletSnapshot ? '팔레트 모드' : '박스 모드'}</span></div>
+        <div className="results-panel-title"><b>미리보기 정보</b><span>{palletSnapshot ? '팔레트 모드' : '박스 모드'}</span></div>
         <div className="results-cargo-legend">
           {detail.cargo.slice(0, 12).map(item => <span key={item.id}><i style={{ background: cargoColor(item.id) }} />{item.id}</span>)}
           <span><i className="empty" />여유 공간</span>
         </div>
         {palletSnapshot && <div className="results-pallet-settings">
-          <div className="results-pallet-settings-head">
-            <div><b>팔레트 적재 설정</b><span>여기서 값을 바꾸면 메인 3D 팔레트 배치가 즉시 다시 계산됩니다.</span></div>
-          </div>
+          <div className="results-pallet-settings-head"><div><b>팔레트 적재 설정</b><span>값을 바꾸면 메인 3D 팔레트 배치가 즉시 다시 계산됩니다.</span></div></div>
           <div className="results-pallet-spec-grid">
             <label>길이(m)<input type="number" step=".01" value={palletSnapshot.spec.length} onChange={event => updatePalletSpec('length', event.target.value)} /></label>
             <label>폭(m)<input type="number" step=".01" value={palletSnapshot.spec.width} onChange={event => updatePalletSpec('width', event.target.value)} /></label>
@@ -155,33 +164,34 @@ export default function ResultsOverlay() {
       <div className="results-main-grid">
         <article className="results-panel">
           <div className="results-panel-title"><b>품목별 적재 결과</b><span>색상은 3D와 동일</span></div>
-          <div className="results-table-wrap"><table><thead><tr><th>품목</th><th>요청</th><th>적재</th><th>미적재</th><th>총 중량</th><th>크기(mm)</th></tr></thead><tbody>{detail.cargo.map(item => { const loaded = loadedByCargo.get(item.id) ?? 0; return <tr key={item.id}><td><span className="result-cargo-code"><i style={{background:cargoColor(item.id)}}/>{item.id}</span></td><td>{item.quantity}</td><td>{loaded}</td><td>{Math.max(0,item.quantity-loaded)}</td><td>{(loaded*item.weightKg).toLocaleString()} kg</td><td>{Math.round(item.length*1000)}×{Math.round(item.width*1000)}×{Math.round(item.height*1000)}</td></tr>; })}</tbody></table></div>
+          <div className="results-table-wrap"><table><thead><tr><th>품목</th><th>요청</th><th>적재</th><th>미적재</th><th>총 중량</th><th>크기(mm)</th></tr></thead><tbody>{detail.cargo.map(item => { const loaded = loadedByCargo.get(item.id) ?? 0; return <tr key={item.id}><td><span className="result-cargo-code"><i style={{ background: cargoColor(item.id) }} />{item.id}</span></td><td>{item.quantity}</td><td>{loaded}</td><td>{Math.max(0, item.quantity - loaded)}</td><td>{(loaded * item.weightKg).toLocaleString()} kg</td><td>{Math.round(item.length * 1000)}×{Math.round(item.width * 1000)}×{Math.round(item.height * 1000)}</td></tr>; })}</tbody></table></div>
         </article>
-
         <article className="results-panel results-floor-panel">
           <div className="results-panel-title"><b>바닥 하중 분포</b><span>평균 {floor.averageKgPerM2.toFixed(0)} · 최대 {floor.maxKgPerM2.toFixed(0)} kg/m²</span></div>
-          <div className="results-heatmap">{floor.cells.map((cell,index) => { const ratio = floor.maxKgPerM2 > 0 ? cell.kgPerM2/floor.maxKgPerM2 : 0; return <i key={index} data-level={ratio>=.72?'high':ratio>=.36?'mid':'low'} title={`${cell.kgPerM2.toFixed(0)} kg/m²`}/>; })}</div>
+          <div className="results-heatmap">{floor.cells.map((cell, index) => { const ratio = floor.maxKgPerM2 > 0 ? cell.kgPerM2 / floor.maxKgPerM2 : 0; return <i key={index} data-level={ratio >= .72 ? 'high' : ratio >= .36 ? 'mid' : 'low'} title={`${cell.kgPerM2.toFixed(0)} kg/m²`} />; })}</div>
         </article>
       </div>
 
       <article className="results-panel results-constraints">
         <div className="results-panel-title"><b>제약조건 검사</b><span>실패 {failed} · 확인 {warned}</span></div>
-        <div className="results-check-grid">{checks.map(check => <div key={check.id} data-status={check.status}><span>{check.label}</span><b>{check.status==='pass'?'통과':check.status==='warn'?'확인':'실패'}</b><small>{check.detail}</small></div>)}</div>
+        <div className="results-check-grid">{checks.map(check => <div key={check.id} data-status={check.status}><span>{check.label}</span><b>{check.status === 'pass' ? '통과' : check.status === 'warn' ? '확인' : '실패'}</b><small>{check.detail}</small></div>)}</div>
       </article>
 
-      <button className="advanced-result-toggle" type="button" onClick={() => setAdvanced(v => !v)}>{advanced ? '고급 분석 닫기' : '고급 분석 열기'}</button>
-      {advanced && <div className="results-modal-advanced dashboard-right viewer-card">
-        <Suspense fallback={<div className="results-loading">고급 분석 모듈을 불러오는 중…</div>}>
-          <AutoCorrectionPanel />
-          <StrategyComparisonPanel />
-          <SpareCapacityPanel />
-          <ManualPlacementEditor />
-          <GroupMoveSuggestionPanel />
-          <GroupDragController />
-          <WorkSequencePanel />
-          <ErgonomicRiskPanel />
-        </Suspense>
-      </div>}
+      <button className="advanced-result-toggle" type="button" aria-expanded={advanced} onClick={() => setAdvanced(value => !value)}>{advanced ? '고급 도구 닫기' : '고급 도구 열기'}</button>
+      {advanced && <section className="results-advanced-workflow" aria-label="고급 결과 도구">
+        <div className="results-advanced-tabs" role="tablist" aria-label="고급 도구 단계">
+          <button type="button" role="tab" aria-selected={advancedTab === 'optimize'} className={advancedTab === 'optimize' ? 'active' : ''} onClick={() => setAdvancedTab('optimize')}>1. 비교 / 최적화</button>
+          <button type="button" role="tab" aria-selected={advancedTab === 'edit'} className={advancedTab === 'edit' ? 'active' : ''} onClick={() => setAdvancedTab('edit')}>2. 수동 편집</button>
+          <button type="button" role="tab" aria-selected={advancedTab === 'work'} className={advancedTab === 'work' ? 'active' : ''} onClick={() => setAdvancedTab('work')}>3. 작업 준비</button>
+        </div>
+        <div className="results-modal-advanced dashboard-right viewer-card">
+          <Suspense fallback={<div className="results-loading">고급 분석 모듈을 불러오는 중…</div>}>
+            {advancedTab === 'optimize' && <><AutoCorrectionPanel /><StrategyComparisonPanel /><SpareCapacityPanel /></>}
+            {advancedTab === 'edit' && <><ManualPlacementEditor /><GroupMoveSuggestionPanel /><GroupDragController /></>}
+            {advancedTab === 'work' && <><WorkSequencePanel /><ErgonomicRiskPanel /></>}
+          </Suspense>
+        </div>
+      </section>}
     </section>
   </div>;
 }

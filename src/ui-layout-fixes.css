@@ -1,126 +1,139 @@
-/* Final dashboard layout hotfixes: keep legend in-flow and cargo list inside its panel. */
-.viewer-card > .card-heading-row {
-  min-width: 0 !important;
-  overflow: hidden !important;
-}
-
-.viewer-card > .card-heading-row > div:first-child {
-  min-width: 0 !important;
-  width: 100% !important;
-}
-
-.cargo-legend {
-  position: static !important;
-  left: auto !important;
-  right: auto !important;
-  top: auto !important;
-  bottom: auto !important;
-  z-index: auto !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  max-height: none !important;
-  overflow-x: auto !important;
-  overflow-y: hidden !important;
-  display: flex !important;
-  flex-direction: row !important;
-  flex-wrap: nowrap !important;
-  align-items: center !important;
-  gap: 12px !important;
-  margin: 6px 0 0 !important;
-  padding: 1px 0 4px !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  scrollbar-width: thin;
-}
-
-.cargo-legend > span {
-  flex: 0 0 auto !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 5px !important;
-  white-space: nowrap !important;
-}
-
-.cargo-legend i {
-  flex: 0 0 auto !important;
-}
+/* Dashboard layout refinements and UX states. Keep selectors specific enough to avoid !important overrides. */
+.viewer-card { min-width: 0; }
+.viewer-card > .viewer-host { margin-top: 0; }
 
 .dashboard-left .cargo-browser {
-  display: flex !important;
-  flex-direction: column !important;
-  flex: 1 1 0 !important;
-  min-height: 0 !important;
-  overflow: hidden !important;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
 }
-
 .dashboard-left .cargo-browser > .card-heading-row,
 .dashboard-left .cargo-browser > .mode-tabs,
 .dashboard-left .cargo-browser > .cargo-add-panel,
 .dashboard-left .cargo-browser > .status-message,
-.dashboard-left .cargo-browser > .empty-cargo {
-  flex: 0 0 auto !important;
-}
-
+.dashboard-left .cargo-browser > .empty-cargo { flex: 0 0 auto; }
 .dashboard-left .cargo-browser > .cargo-scroll {
-  flex: 1 1 auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
-  padding-right: 4px !important;
+  padding-right: 4px;
   scrollbar-gutter: stable;
 }
-
-.dashboard-left .cargo-list-item {
-  width: 100% !important;
-  min-width: 0 !important;
-  box-sizing: border-box !important;
-}
-
-.dashboard-left .cargo-list-item > div:nth-child(2) {
-  min-width: 0 !important;
-  overflow: hidden !important;
-}
-
+.dashboard-left .cargo-list-item { width: 100%; min-width: 0; box-sizing: border-box; }
+.dashboard-left .cargo-list-item > div:nth-child(2) { min-width: 0; overflow: hidden; }
 .dashboard-left .cargo-list-item b,
 .dashboard-left .cargo-list-item span,
-.dashboard-left .cargo-list-item small {
-  max-width: 100% !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-}
+.dashboard-left .cargo-list-item small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 
-/* Preview metadata/settings live in Results now. Keep the main canvas as large as possible. */
-.dashboard-center > .viewer-card > .card-heading-row {
-  display: none !important;
+.onboarding-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 1696px;
+  margin: 12px auto 0;
+  padding: 12px 16px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e3a8a;
 }
+.onboarding-banner > div { display: flex; flex-direction: column; gap: 3px; }
+.onboarding-banner b { font-size: 12px; }
+.onboarding-banner span { font-size: 10px; color: #475569; }
+.onboarding-banner button { flex: 0 0 auto; background: #2563eb; color: #fff; font-size: 10px; }
 
-.dashboard-center > .viewer-card > .viewer-host {
-  margin-top: 0 !important;
+.static-setting {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 12px;
+  padding: 10px 11px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #f8fafc;
 }
+.static-setting span { font-size: 10px; color: #64748b; }
+.static-setting b { font-size: 10px; color: #172033; }
+.static-setting small { grid-column: 1 / -1; font-size: 8px; color: #8491a4; }
 
-.pallet-mode-panel-inline {
-  padding-top: 0 !important;
+.fixed-option-list { display: flex; flex-direction: column; gap: 7px; }
+.fixed-option-list > span {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px 9px;
+  border: 1px solid #e5eaf1;
+  border-radius: 8px;
+  background: #f8fafc;
 }
+.fixed-option-list b { font-size: 9px; color: #475569; }
+.fixed-option-list em { font-size: 9px; color: #172033; font-style: normal; line-height: 1.4; }
+.setting-note { display: block; margin-top: 8px; color: #8491a4; font-size: 8px; line-height: 1.4; }
 
-.pallet-mode-panel-inline > .pallet-view-stack {
-  margin-top: 0 !important;
+.status-message {
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 1.45;
 }
+.status-info { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+.status-success { background: #f0fdf4; border-color: #bbf7d0; color: #15803d; }
+.status-warning { background: #fff7ed; border-color: #fed7aa; color: #b45309; }
+.status-error { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+
+.results-advanced-workflow { margin-top: 12px; }
+.results-advanced-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid #dbe3ee;
+  border-radius: 11px;
+  background: #fff;
+}
+.results-advanced-tabs button {
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #52617a;
+  font-size: 10px;
+}
+.results-advanced-tabs button.active {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.results-modal-advanced.dashboard-right.viewer-card {
+  display: block;
+  width: 100%;
+  max-width: none;
+  height: auto;
+  margin-top: 10px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.results-modal-advanced > .dashboard-card,
+.results-modal-advanced > .manual-editor,
+.results-modal-advanced > .group-suggestion-panel,
+.results-modal-advanced > .ergonomic-panel { margin: 0 0 10px; }
+
+.pallet-mode-panel-inline { padding-top: 0; }
+.pallet-mode-panel-inline > .pallet-view-stack { margin-top: 0; }
 
 @media (max-width: 700px) {
-  .dashboard-left .cargo-browser {
-    flex: none !important;
-    max-height: 520px !important;
-  }
-
-  .dashboard-left .cargo-browser > .cargo-scroll {
-    max-height: 330px !important;
-  }
-
-  .cargo-legend {
-    gap: 10px !important;
-  }
+  .onboarding-banner { margin: 8px; align-items: stretch; flex-direction: column; }
+  .onboarding-banner button { width: 100%; }
+  .dashboard-left .cargo-browser { flex: none; max-height: 520px; }
+  .dashboard-left .cargo-browser > .cargo-scroll { max-height: 330px; }
+  .results-advanced-tabs { grid-template-columns: 1fr; }
 }
