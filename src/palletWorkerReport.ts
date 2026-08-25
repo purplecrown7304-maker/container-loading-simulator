@@ -53,6 +53,18 @@ function workOrder(pallets: PalletLoad[]) {
   );
 }
 
+function stackColumns(pallets: PalletLoad[]) {
+  const map = new Map<number, PalletLoad[]>();
+  pallets.forEach(pallet => {
+    const list = map.get(pallet.stackColumn) ?? [];
+    list.push(pallet);
+    map.set(pallet.stackColumn,list);
+  });
+  return [...map.entries()]
+    .map(([column,loads]) => ({ column, loads: loads.sort((a,b) => a.stackLevel-b.stackLevel) }))
+    .sort((a,b) => (a.loads[0]?.x ?? 0)-(b.loads[0]?.x ?? 0) || a.column-b.column);
+}
+
 function topViewSvg(container: ContainerSpec, snapshot: PalletWorkSnapshot, usage: SecuringUsage) {
   const width = 760;
   const height = 220;
@@ -68,12 +80,16 @@ function topViewSvg(container: ContainerSpec, snapshot: PalletWorkSnapshot, usag
   } : null;
   const strapsPerPallet = usage.palletCount ? Math.round(usage.bandingStraps / usage.palletCount) : 0;
 
-  const palletShapes = workOrder(snapshot.result.pallets).map(pallet => {
-    const x = padX + pallet.x * sx;
-    const y = padY + pallet.y * sy;
-    const w = pallet.length * sx;
-    const h = pallet.width * sy;
-    const mainCargo = pallet.cargoPlacements[0]?.cargoId ?? `P${pallet.palletIndex}`;
+  const columnShapes = stackColumns(snapshot.result.pallets).map(({ column, loads }) => {
+    const base = loads[0];
+    if (!base) return '';
+    const topLoad = loads[loads.length - 1];
+    const x = padX + base.x * sx;
+    const y = padY + base.y * sy;
+    const w = base.length * sx;
+    const h = base.width * sy;
+    const mainCargo = topLoad.cargoPlacements[0]?.cargoId ?? base.cargoPlacements[0]?.cargoId ?? `C${column}`;
+    const palletSequence = loads.map(load => `P${load.palletIndex}`).join('→');
     const strapLines = Array.from({ length: strapsPerPallet }, (_, index) => {
       const px = x + w * (index + 1) / (strapsPerPallet + 1);
       return `<line x1="${px.toFixed(1)}" y1="${(y + 2).toFixed(1)}" x2="${px.toFixed(1)}" y2="${(y + h - 2).toFixed(1)}" stroke="#111827" stroke-width="3"/>`;
@@ -84,7 +100,7 @@ function topViewSvg(container: ContainerSpec, snapshot: PalletWorkSnapshot, usag
     const wrap = usage.wrappingLengthM > 0
       ? `<rect x="${(x+3).toFixed(1)}" y="${(y+3).toFixed(1)}" width="${Math.max(1,w-6).toFixed(1)}" height="${Math.max(1,h-6).toFixed(1)}" fill="none" stroke="#38a3d1" stroke-width="2" stroke-dasharray="6 4"/>`
       : '';
-    return `<g><rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="5" fill="${cargoColor(mainCargo)}" stroke="#334155" stroke-width="1.5"/>${wrap}${strapLines}${corners}<circle cx="${(x+w/2).toFixed(1)}" cy="${(y+h/2).toFixed(1)}" r="15" fill="#fff" stroke="#172033" stroke-width="1.5"/><text x="${(x+w/2).toFixed(1)}" y="${(y+h/2+4).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="800" fill="#172033">P${pallet.palletIndex}</text><text x="${(x+w/2).toFixed(1)}" y="${(y+h-7).toFixed(1)}" text-anchor="middle" font-size="8" font-weight="700" fill="#334155">C${pallet.stackColumn} · L${pallet.stackLevel}</text></g>`;
+    return `<g><rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="5" fill="${cargoColor(mainCargo)}" stroke="#334155" stroke-width="1.5"/>${wrap}${strapLines}${corners}<circle cx="${(x+w/2).toFixed(1)}" cy="${(y+h/2-7).toFixed(1)}" r="14" fill="#fff" stroke="#172033" stroke-width="1.5"/><text x="${(x+w/2).toFixed(1)}" y="${(y+h/2-3).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="900" fill="#172033">C${column}</text><text x="${(x+w/2).toFixed(1)}" y="${(y+h/2+15).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="800" fill="#172033">${palletSequence}</text><text x="${(x+w/2).toFixed(1)}" y="${(y+h-6).toFixed(1)}" text-anchor="middle" font-size="7.5" font-weight="700" fill="#475569">${loads.length}단 적층 위치</text></g>`;
   }).join('');
 
   const loadBars = occupied && usage.loadBars > 0
@@ -95,7 +111,7 @@ function topViewSvg(container: ContainerSpec, snapshot: PalletWorkSnapshot, usag
     }).join('')
     : '';
 
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="팔레트 위에서 본 적재도"><rect width="${width}" height="${height}" fill="#fff"/><text x="${padX}" y="18" font-size="12" font-weight="800" fill="#172033">위에서 본 배치 · P번호대로 확인</text><rect x="${padX}" y="${padY}" width="${innerW}" height="${innerH}" rx="7" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>${palletShapes}${loadBars}<text x="${padX}" y="${height-5}" font-size="10" font-weight="800" fill="#1d4ed8">◀ 안쪽</text><text x="${width-padX}" y="${height-5}" text-anchor="end" font-size="10" font-weight="800" fill="#dc2626">문쪽 ▶</text></svg>`;
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="팔레트 위에서 본 적재도"><rect width="${width}" height="${height}" fill="#fff"/><text x="${padX}" y="18" font-size="12" font-weight="800" fill="#172033">위에서 본 바닥 위치 · C=수직 적층 자리 · P1→P2 순서로 위로 적층</text><rect x="${padX}" y="${padY}" width="${innerW}" height="${innerH}" rx="7" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>${columnShapes}${loadBars}<text x="${padX}" y="${height-5}" font-size="10" font-weight="800" fill="#1d4ed8">◀ 안쪽</text><text x="${width-padX}" y="${height-5}" text-anchor="end" font-size="10" font-weight="800" fill="#dc2626">문쪽 ▶</text></svg>`;
 }
 
 function sideViewSvg(container: ContainerSpec, snapshot: PalletWorkSnapshot, usage: SecuringUsage) {
@@ -184,7 +200,7 @@ export function openPalletLoadingReport(container: ContainerSpec, cargo: CargoIt
   }
   const certification = matchingPalletCertification();
   if (!certification) {
-    window.alert('팔레트 작업지시서는 현재 팔레트 적재안이 출발 가속·급정거·급회전 관성 시뮬레이션 3종을 모두 통과한 뒤 출력할 수 있습니다. 먼저 결과 보기를 실행해 최종 관성검증을 완료하세요.');
+    window.alert('팔레트 작업지시서는 현재 팔레트 적재안이 출발 가속·급정거·급회전 관성 시뮬레이션 3종을 모두 통과한 뒤 출력할 수 있습니다. 먼저 자동 적재의 최종 관성검증을 완료하세요.');
     return true;
   }
   if (!confirmUnverifiedExport('팔레트 작업지시서')) return true;
