@@ -32,6 +32,8 @@ export type InertiaAttemptScenario = {
   passed: boolean;
   maxHorizontalShiftM: number;
   maxTiltDeg: number;
+  maxCargoRelativeSlipM?: number;
+  maxSupportShiftM?: number;
 };
 
 export type InertiaReinforcementAttempt = {
@@ -53,6 +55,10 @@ export type InertiaCertification = {
   failedScenarios: InertiaScenario[];
   maxHorizontalShiftM: number;
   maxTiltDeg: number;
+  maxCargoRelativeSlipM?: number;
+  maxSupportShiftM?: number;
+  maxCargoRestraintForceN?: number;
+  maxSupportRestraintForceN?: number;
   results: Partial<Record<InertiaScenario, InertiaAnimationResult>>;
   payloadWithinLimit: boolean;
   attempts?: InertiaReinforcementAttempt[];
@@ -78,6 +84,8 @@ export const INERTIA_CERTIFICATION_EVENT = 'container-loading:inertia-certificat
 
 export const INERTIA_PASS_SHIFT_M = 0.012;
 export const INERTIA_PASS_TILT_DEG = 1.8;
+export const INERTIA_PASS_PALLET_CARGO_SLIP_M = 0.008;
+export const INERTIA_PASS_SUPPORT_SHIFT_M = 0.012;
 
 const SCENARIOS: InertiaScenario[] = ['acceleration', 'braking', 'cornering'];
 const EPS = 1e-6;
@@ -123,6 +131,7 @@ function supportLoadHeight(target: PhysicsTarget, support: PhysicsSupport) {
 
 export function createPhysicsTargetSignature(target: PhysicsTarget) {
   return JSON.stringify({
+    physicsModel: 'restraint-v2',
     mode: target.mode,
     container: target.container,
     placements: target.result.placements.map(item => [item.cargoId, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg]),
@@ -146,8 +155,13 @@ export function requestCertifiedResults(detail: CertificationRequestDetail) {
   window.dispatchEvent(new CustomEvent<CertificationRequestDetail>(REQUEST_CERTIFIED_RESULTS_EVENT, { detail }));
 }
 
-export function isInertiaStable(result: InertiaAnimationResult) {
-  return result.maxHorizontalShiftM <= INERTIA_PASS_SHIFT_M && result.maxTiltDeg <= INERTIA_PASS_TILT_DEG;
+export function isInertiaStable(result: InertiaAnimationResult, mode: PhysicsTarget['mode'] = 'boxes') {
+  if (result.maxHorizontalShiftM > INERTIA_PASS_SHIFT_M || result.maxTiltDeg > INERTIA_PASS_TILT_DEG) return false;
+  if (mode === 'pallets') {
+    if ((result.maxCargoRelativeSlipM ?? result.maxHorizontalShiftM) > INERTIA_PASS_PALLET_CARGO_SLIP_M) return false;
+    if ((result.maxSupportShiftM ?? 0) > INERTIA_PASS_SUPPORT_SHIFT_M) return false;
+  }
+  return true;
 }
 
 export function securingProfileForLevel(mode: PhysicsTarget['mode'], level: SecuringLevel): InertiaSecuringProfile {
@@ -280,7 +294,7 @@ export async function runInertiaCertification(
       );
       levelResults[scenario] = result;
       onScenarioResult?.(result, level);
-      if (!isInertiaStable(result)) {
+      if (!isInertiaStable(result, target.mode)) {
         allPassed = false;
         break;
       }
@@ -290,9 +304,11 @@ export async function runInertiaCertification(
       const result = levelResults[scenario];
       return result ? [{
         scenario,
-        passed: isInertiaStable(result),
+        passed: isInertiaStable(result, target.mode),
         maxHorizontalShiftM: result.maxHorizontalShiftM,
         maxTiltDeg: result.maxTiltDeg,
+        maxCargoRelativeSlipM: result.maxCargoRelativeSlipM,
+        maxSupportShiftM: result.maxSupportShiftM,
       } satisfies InertiaAttemptScenario] : [];
     });
     const levelPassed = allPassed && scenarioAttempts.length === SCENARIOS.length;
@@ -311,7 +327,7 @@ export async function runInertiaCertification(
   const usage = buildSecuringUsage(target, finalLevel);
   const failedScenarios = SCENARIOS.filter(scenario => {
     const result = finalResults[scenario];
-    return !result || !isInertiaStable(result);
+    return !result || !isInertiaStable(result, target.mode);
   });
   const results = Object.values(finalResults).filter((result): result is InertiaAnimationResult => Boolean(result));
   const payloadOk = payloadWithinLimit(target, usage);
@@ -324,10 +340,14 @@ export async function runInertiaCertification(
     testedAt: new Date().toISOString(),
     securing: usage,
     testedScenarios: results.length,
-    passedScenarios: results.filter(isInertiaStable).length,
+    passedScenarios: results.filter(result => isInertiaStable(result, target.mode)).length,
     failedScenarios,
     maxHorizontalShiftM: results.reduce((max, result) => Math.max(max, result.maxHorizontalShiftM), 0),
     maxTiltDeg: results.reduce((max, result) => Math.max(max, result.maxTiltDeg), 0),
+    maxCargoRelativeSlipM: results.reduce((max, result) => Math.max(max, result.maxCargoRelativeSlipM ?? 0), 0),
+    maxSupportShiftM: results.reduce((max, result) => Math.max(max, result.maxSupportShiftM ?? 0), 0),
+    maxCargoRestraintForceN: results.reduce((max, result) => Math.max(max, result.maxCargoRestraintForceN ?? 0), 0),
+    maxSupportRestraintForceN: results.reduce((max, result) => Math.max(max, result.maxSupportRestraintForceN ?? 0), 0),
     results: finalResults,
     payloadWithinLimit: payloadOk,
     attempts,
