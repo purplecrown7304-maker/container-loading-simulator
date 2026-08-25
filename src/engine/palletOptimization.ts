@@ -200,16 +200,23 @@ function redistributeForLowUtilization(
   const columns = [...byColumn.entries()].sort((a, b) => Math.min(...a[1].map((p) => p.x)) - Math.min(...b[1].map((p) => p.x)));
   const rowCapacity = Math.max(1, Math.floor((container.width + EPS) / pallet.width));
   const maxX = Math.max(0, container.length - pallet.length);
-  const xSlots = Array.from({ length: columns.length }, (_, index) =>
-    columns.length === 1 ? 0 : index * maxX / (columns.length - 1),
+  const maxBandsWithoutOverlap = Math.max(1, Math.floor((maxX + EPS) / pallet.length) + 1);
+  const bandCount = Math.min(columns.length, maxBandsWithoutOverlap);
+  const xSlots = Array.from({ length: bandCount }, (_, index) =>
+    bandCount === 1 ? 0 : index * maxX / (bandCount - 1),
   );
   const ySlots = Array.from({ length: rowCapacity }, (_, index) => index * pallet.width)
     .sort((a, b) => Math.abs(a + pallet.width / 2 - container.width / 2) - Math.abs(b + pallet.width / 2 - container.width / 2));
 
+  // 컨테이너의 물리적 팔레트 슬롯 수를 넘는 경우에는 기존 안전 배치를 유지한다.
+  if (columns.length > bandCount * rowCapacity) return { result: input, redistributed: false };
+
   const moved: PalletLoad[] = [];
   columns.forEach(([, loads], columnIndex) => {
-    const x = Math.min(maxX, xSlots[columnIndex] ?? 0);
-    const y = Math.min(container.width - pallet.width, ySlots[columnIndex % rowCapacity] ?? 0);
+    const band = columnIndex % bandCount;
+    const row = Math.floor(columnIndex / bandCount);
+    const x = Math.min(maxX, xSlots[band] ?? 0);
+    const y = Math.min(container.width - pallet.width, ySlots[row] ?? 0);
     loads.forEach((load) => moved.push(moveLoad(load, x, y)));
   });
 
