@@ -16,15 +16,11 @@ const SIMULATION_HZ = 60;
 export type InertiaPhase = 'settle' | 'force' | 'coast';
 
 export type InertiaSecuringProfile = {
-  /** 접촉면 마찰계수. 미끄럼방지재/포장 보강을 반영한다. */
   frictionCoefficient?: number;
-  /** 기존 단계별 보강 강도. 물리 구속모델이 없으면 스프링-댐퍼 계수로 변환한다. */
   cargoRetentionRatio?: number;
-  /** 기존 팔레트 고정 강도. 물리 구속모델이 없으면 스프링-댐퍼 계수로 변환한다. */
   supportRetentionRatio?: number;
-  /** 밴딩·각대·랩핑에 의한 화물-팔레트 또는 화물-적재면 수평 구속. */
   cargoRestraint?: RestraintModel;
-  /** 미끄럼방지재·블로킹·고정바에 의한 팔레트-하부 지지체 수평 구속. */
+  /** Container-level blocking/load-bar restraint; stacked upper pallets rely on friction/contact. */
   supportRestraint?: RestraintModel;
 };
 
@@ -44,9 +40,8 @@ export type InertiaAnimationResult = {
   frames: InertiaAnimationFrame[];
   maxHorizontalShiftM: number;
   maxTiltDeg: number;
-  /** 팔레트에 대한 화물의 최대 상대 미끄럼. 직접적재는 최초 위치 대비 이동과 같다. */
   maxCargoRelativeSlipM?: number;
-  /** 1단은 컨테이너, 상단 팔레트는 바로 아래 팔레트에 대한 최대 상대 이동. */
+  /** Floor pallets relative to container; upper pallets relative to the pallet directly below. */
   maxSupportShiftM?: number;
   maxCargoRestraintForceN?: number;
   maxSupportRestraintForceN?: number;
@@ -138,11 +133,6 @@ function packTransforms(entries: Array<{ body: { translation: () => { x: number;
   return packed;
 }
 
-/**
- * Rapier 강체에 운송 관성력을 그대로 가하고 보강재는 별도의 수평 구속력으로 계산한다.
- * 팔레트 화물은 자기 팔레트의 현재 위치/속도를 기준점으로 사용한다.
- * 적층 팔레트는 바로 아래 같은 적층열의 팔레트를 기준점으로 사용해 적층 전체의 동반 이동을 보존한다.
- */
 export async function runInertiaAnimation(
   container: ContainerSpec,
   placements: Placement[],
@@ -188,9 +178,7 @@ export async function runInertiaAnimation(
   ) => {
     const center = toPhysicsCenter(container, item);
     const desc = dynamic ? RAPIER.RigidBodyDesc.dynamic() : RAPIER.RigidBodyDesc.fixed();
-    const body = world.createRigidBody(
-      desc.setTranslation(center.x, center.y, center.z).setCanSleep(true).setCcdEnabled(false),
-    );
+    const body = world.createRigidBody(desc.setTranslation(center.x, center.y, center.z).setCanSleep(true).setCcdEnabled(false));
     const collider = RAPIER.ColliderDesc.cuboid(
       Math.max(EPS, item.length / 2 - 0.0005),
       Math.max(EPS, item.height / 2 - 0.0005),
@@ -250,12 +238,7 @@ export async function runInertiaAnimation(
         : { x: entry.center.x, z: entry.center.z };
       maxCargoRelativeSlipM = Math.max(maxCargoRelativeSlipM, Math.hypot(p.x - target.x, p.z - target.z));
     });
-    frames.push({
-      cargo: packTransforms(cargoBodies),
-      supports: packTransforms(supportBodies),
-      phase: phaseForStep(step, totalSteps),
-      step,
-    });
+    frames.push({ cargo: packTransforms(cargoBodies), supports: packTransforms(supportBodies), phase: phaseForStep(step, totalSteps), step });
   };
 
   try {
@@ -269,35 +252,21 @@ export async function runInertiaAnimation(
           const hasCargoMarker = 'supportIndex' in entry;
           const usingPhysicalRestraint = hasCargoMarker ? Boolean(cargoRestraint) : Boolean(supportRestraint);
           const transmittedRatio = usingPhysicalRestraint ? 1 : 1 - entry.retentionRatio;
-          entry.body.addForce({
-            x: accel.x * entry.massKg * transmittedRatio,
-            y: 0,
-            z: accel.z * entry.massKg * transmittedRatio,
-          }, true);
+          entry.body.addForce({ x: accel.x * entry.massKg * transmittedRatio, y: 0, z: accel.z * entry.massKg * transmittedRatio }, true);
         }
       });
 
       if (supportRestraint) {
-        supportBodies.forEach((entry, index) => {
-          if (!entry.dynamic) return;
+        supportBodies.forEach(entry => {
+          if (!entry.dynamic || entry.parentSupportIndex >= 0) return;
           const p = entry.body.translation();
           const v = entry.body.linvel();
-          const parent = entry.parentSupportIndex >= 0 ? supportBodies[entry.parentSupportIndex] : undefined;
-          const parentPosition = parent?.body.translation();
-          const parentVelocity = parent?.body.linvel();
-          const offset = supportAnchorOffsets[index];
-          const target = parentPosition
-            ? { x: parentPosition.x + offset.x, z: parentPosition.z + offset.z }
-            : { x: entry.center.x, z: entry.center.z };
-          const targetVelocity = parentVelocity
-            ? { x: parentVelocity.x, z: parentVelocity.z }
-            : { x: 0, z: 0 };
           const force = horizontalRestraintForce(
             entry.massKg,
             { x: p.x, z: p.z },
-            target,
+            { x: entry.center.x, z: entry.center.z },
             { x: v.x, z: v.z },
-            targetVelocity,
+            { x: 0, z: 0 },
             supportRestraint,
           );
           maxSupportRestraintForceN = Math.max(maxSupportRestraintForceN, force.magnitudeN);
@@ -316,9 +285,7 @@ export async function runInertiaAnimation(
           const target = supportPosition
             ? { x: supportPosition.x + offset.x, z: supportPosition.z + offset.z }
             : { x: entry.center.x, z: entry.center.z };
-          const targetVelocity = supportVelocity
-            ? { x: supportVelocity.x, z: supportVelocity.z }
-            : { x: 0, z: 0 };
+          const targetVelocity = supportVelocity ? { x: supportVelocity.x, z: supportVelocity.z } : { x: 0, z: 0 };
           const force = horizontalRestraintForce(
             entry.massKg,
             { x: p.x, z: p.z },
