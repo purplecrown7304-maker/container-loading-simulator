@@ -5,13 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit -p tsconfig.app.json && vite build",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "check": "npm run verify:predeploy",
     "check:bundle": "node scripts/check-bundle-size.mjs",
-    "verify:predeploy": "npm run test && npm run build && npm run check:bundle",
+    "verify:predeploy": "npm run test && npm run typecheck && npm run build && npm run check:bundle",
     "verify:full": "npm run verify:predeploy && npm run test:e2e",
     "preview": "vite preview"
   },
