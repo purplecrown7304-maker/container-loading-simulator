@@ -8,10 +8,12 @@ import { runInertiaAnimation, type InertiaAnimationResult, type InertiaPhase } f
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { PhysicsScenario } from './engine/physicsValidation';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
+import { openInertiaImprovementReport } from './inertiaReport';
 import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
 import { PHYSICS_TARGET_EVENT, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
 export type InertiaScenario = Exclude<PhysicsScenario, 'settle'>;
+type CompletedInertiaResults = Partial<Record<InertiaScenario, InertiaAnimationResult>>;
 
 type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type LoadingWindow = Window & { __containerLoadingLatestResult?: LoadingDetail };
@@ -145,6 +147,7 @@ export default function InertiaTestTool() {
   const [target, setTarget] = useState<PhysicsTarget | undefined>(undefined);
   const [scenario, setScenario] = useState<InertiaScenario>('acceleration');
   const [animation, setAnimation] = useState<InertiaAnimationResult | null>(null);
+  const [completedResults, setCompletedResults] = useState<CompletedInertiaResults>({});
   const [generating, setGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -157,6 +160,8 @@ export default function InertiaTestTool() {
     const next = currentTarget();
     setTarget(next);
     setAnimation(null);
+    setCompletedResults({});
+    setScenario('acceleration');
     setPlayhead(0);
     setPlaying(false);
     setError(next ? '' : '먼저 자동 적재를 실행해 적재 결과를 만들어 주세요.');
@@ -173,6 +178,7 @@ export default function InertiaTestTool() {
       if (!open) return;
       setTarget(currentTarget());
       setAnimation(null);
+      setCompletedResults({});
       setPlaying(false);
       setPlayhead(0);
       setError('적재 결과가 변경되었습니다. 새 좌표로 관성 테스트를 다시 준비합니다.');
@@ -203,6 +209,7 @@ export default function InertiaTestTool() {
     ).then(result => {
       if (generationId.current !== id) return;
       setAnimation(result);
+      setCompletedResults(current => ({ ...current, [scenario]: result }));
       setGenerating(false);
       setGenerationProgress(100);
       setPlayhead(0);
@@ -241,6 +248,11 @@ export default function InertiaTestTool() {
   const frameIndex = animation ? Math.min(animation.frames.length - 1, Math.floor(playhead)) : 0;
   const frame = animation?.frames[frameIndex];
   const elapsedSeconds = animation && frame ? frame.step / 60 : 0;
+  const testedCount = Object.keys(completedResults).length;
+  const openReport = () => {
+    if (!target || testedCount === 0) return;
+    if (!openInertiaImprovementReport(target, completedResults)) setError('팝업이 차단되어 보완 보고서를 열지 못했습니다.');
+  };
 
   if (!open) return null;
   return createPortal(<div className="inertia-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
@@ -251,7 +263,10 @@ export default function InertiaTestTool() {
           <h2 id="inertia-title">관성 애니메이션 테스트</h2>
           <p>실제 물리검증과 같은 중력·충돌·마찰 조건으로 상자와 팔레트의 움직임을 눈으로 확인합니다.</p>
         </div>
-        <button type="button" onClick={() => setOpen(false)} aria-label="관성 테스트 닫기">닫기</button>
+        <div className="inertia-head-actions">
+          {testedCount > 0 && <button type="button" className="inertia-report-action" onClick={openReport}>평가 · 보완 보고서 <b>{testedCount}/3</b></button>}
+          <button type="button" onClick={() => setOpen(false)} aria-label="관성 테스트 닫기">닫기</button>
+        </div>
       </header>
 
       <div className="inertia-scenario-tabs" role="tablist" aria-label="관성 테스트 상황">
@@ -263,7 +278,7 @@ export default function InertiaTestTool() {
           className={scenario === item.id ? 'active' : ''}
           onClick={() => setScenario(item.id)}
         >
-          <b>{item.label}</b><span>{item.forceLabel}</span>
+          <b>{item.label}</b><span>{item.forceLabel}{completedResults[item.id] ? ' · 완료' : ''}</span>
         </button>)}
       </div>
 
@@ -288,6 +303,7 @@ export default function InertiaTestTool() {
           {animation.supportCount > 0 && <span>팔레트 <b>{animation.supportCount} EA</b></span>}
           <span>최대 이동 <b>{mm(animation.maxHorizontalShiftM)}</b></span>
           <span>최대 기울기 <b>{animation.maxTiltDeg.toFixed(1)}°</b></span>
+          <span>평가 진행 <b>{testedCount} / 3</b></span>
         </div>
         <input
           className="inertia-timeline"
@@ -302,13 +318,14 @@ export default function InertiaTestTool() {
         <div className="inertia-controls">
           <button type="button" onClick={() => { setPlayhead(0); setPlaying(true); }}>처음부터</button>
           <button type="button" className="primary" onClick={() => setPlaying(value => !value)}>{playing ? '일시정지' : '재생'}</button>
+          <button type="button" className="inertia-report-control" onClick={openReport}>평가 · 보완 보고서</button>
           <div className="inertia-speed" aria-label="재생 속도">
             {[0.5, 1, 2].map(value => <button key={value} type="button" className={speed === value ? 'active' : ''} onClick={() => setSpeed(value)}>{value}×</button>)}
           </div>
         </div>
       </>}
 
-      <footer className="inertia-footnote">0.30g 출발 가속, 0.50g 급제동, 0.35g 횡가속은 적재안 비교용 기본 시나리오입니다. 실제 운송에서는 차량, 노면, 결박, 마찰계수와 회사/법규 기준을 별도로 확인해야 합니다.</footer>
+      <footer className="inertia-footnote">0.30g 출발 가속, 0.50g 급제동, 0.35g 횡가속은 적재안 비교용 기본 시나리오입니다. 보고서의 안정/보완/위험 평가는 물리검증과 같은 내부 이동·기울기 경고 기준을 사용하며 실제 운송에서는 차량, 노면, 결박, 마찰계수와 회사/법규 기준을 별도로 확인해야 합니다.</footer>
     </section>
   </div>, document.body);
 }
