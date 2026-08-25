@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { cargoColor } from './cargoColors';
 import { CargoFaceInfoLabels } from './CargoFaceInfoLabels';
 import { validatePlacements } from './engine/constraints';
-import { defaultPalletSpec, packOnPallets, type PalletLoad, type PalletPackingResult, type PalletSpec } from './engine/palletPacking';
+import { defaultPalletSpec, packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import { clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
 import { PreviewCameraController, PreviewViewControls, readBoxLabelPreference, saveBoxLabelPreference, type PreviewView } from './PreviewViewControls';
@@ -13,7 +13,7 @@ import { AxisGuide, ClearanceGuide, clearanceValues } from './SceneGuides';
 
 type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number };
 
-function PalletBoards({ container, result, spec, scale, onOpen }: { container: ContainerSpec; result: PalletPackingResult; spec: PalletSpec; scale: number; onOpen: (p: PalletLoad) => void }) {
+function PalletBoards({ container, result, spec, scale, onOpen }: { container: ContainerSpec; result: OptimizedPalletPackingResult; spec: PalletSpec; scale: number; onOpen: (p: PalletLoad) => void }) {
   const ref = useRef<THREE.InstancedMesh>(null);
   useLayoutEffect(() => {
     const mesh = ref.current;
@@ -125,7 +125,7 @@ function CargoEdges({ container, placements, scale }: { container: ContainerSpec
   );
 }
 
-function palletForPlacement(result: PalletPackingResult, box: Placement) {
+function palletForPlacement(result: OptimizedPalletPackingResult, box: Placement) {
   return result.pallets.find((pallet) => pallet.cargoPlacements.includes(box) || pallet.cargoPlacements.some((candidate) =>
     Math.abs(candidate.x - box.x) < 1e-6 &&
     Math.abs(candidate.y - box.y) < 1e-6 &&
@@ -134,7 +134,7 @@ function palletForPlacement(result: PalletPackingResult, box: Placement) {
   ));
 }
 
-function PalletScene({ container, result, spec, cargo, onOpen, view, showLabels }: { container: ContainerSpec; result: PalletPackingResult; spec: PalletSpec; cargo: CargoItem[]; onOpen: (p: PalletLoad) => void; view: PreviewView; showLabels: boolean }) {
+function PalletScene({ container, result, spec, cargo, onOpen, view, showLabels }: { container: ContainerSpec; result: OptimizedPalletPackingResult; spec: PalletSpec; cargo: CargoItem[]; onOpen: (p: PalletLoad) => void; view: PreviewView; showLabels: boolean }) {
   const scale = 0.42;
   const groups = useMemo(() => {
     const map = new Map<string, Placement[]>();
@@ -243,7 +243,7 @@ function PalletContents({ pallet, cargo, onClose }: { pallet: PalletLoad; cargo:
 
 export default function PalletModePanel({ container, cargo, runToken }: Props) {
   const [spec, setSpec] = useState<PalletSpec>(defaultPalletSpec);
-  const [result, setResult] = useState<PalletPackingResult>(() => packOnPallets(container, cargo.filter((item) => item.quantity > 0), defaultPalletSpec));
+  const [result, setResult] = useState<OptimizedPalletPackingResult>(() => packOnPallets(container, cargo.filter((item) => item.quantity > 0), defaultPalletSpec));
   const [opened, setOpened] = useState<PalletLoad | null>(null);
   const [view, setView] = useState<PreviewView>('free');
   const [showLabels, setShowLabels] = useState(readBoxLabelPreference);
@@ -327,6 +327,8 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
           <div><span>적재 화물</span><strong>{result.placements.length} EA</strong></div>
           <div><span>적층 팔레트</span><strong>{result.stackedPallets}</strong></div>
           <div><span>총 팔레트화 중량</span><strong>{result.totalPalletizedWeightKg.toFixed(0)} kg</strong></div>
+          <div><span>전역 최적화</span><strong>{result.optimization.selectedStackTarget}단 후보 · 바닥 {result.optimization.floorPositions}열</strong></div>
+          <div><span>재배치 / 병합</span><strong>{result.optimization.redistributedForLowUtilization ? '균등분산' : '기본배치'} · {result.optimization.consolidationPasses}회</strong></div>
         </div>
       </section>
     </div>

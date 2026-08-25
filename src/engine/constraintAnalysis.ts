@@ -4,7 +4,7 @@ import type { FloorLoadAnalysis } from './floorLoad';
 export type ConstraintStatus = 'pass' | 'warn' | 'fail';
 
 export type ConstraintCheck = {
-  id: 'payload' | 'bounds' | 'height' | 'stack' | 'topLoad' | 'floorLoad' | 'door';
+  id: 'payload' | 'bounds' | 'height' | 'stack' | 'topLoad' | 'floorLoad' | 'door' | 'doorSpace';
   label: string;
   status: ConstraintStatus;
   detail: string;
@@ -53,8 +53,22 @@ export function analyzeConstraints(
     if (supportedWeight > spec.maxTopLoadKg + EPS) topLoadViolation += 1;
   }
 
+  const floorLimit = Number.isFinite(container.floorLoadLimitKgPerM2) && (container.floorLoadLimitKgPerM2 ?? 0) > 0
+    ? container.floorLoadLimitKgPerM2!
+    : 1500;
+  const floorMultiplier = Number.isFinite(container.floorLoadWarningMultiplier) && (container.floorLoadWarningMultiplier ?? 0) > 0
+    ? container.floorLoadWarningMultiplier!
+    : 3;
+  const floorLoadWarn = floorLoad.averageKgPerM2 > EPS &&
+    floorLoad.maxKgPerM2 > floorLoad.averageKgPerM2 * floorMultiplier &&
+    floorLoad.maxKgPerM2 > floorLimit;
+
   const doorBandStart = container.length * 0.92;
   const doorBlockedHigh = result.placements.some(p => p.x + p.length > doorBandStart && p.z + p.height > container.height * 0.92);
+  const farthestCargoEnd = Math.max(0, ...result.placements.map(p => p.x + p.length));
+  const doorGapM = Math.max(0, container.length - farthestCargoEnd);
+  const doorSpaceUtilization = container.length > EPS ? Math.min(100, farthestCargoEnd / container.length * 100) : 0;
+  const doorSpaceWarn = result.placements.length > 0 && doorSpaceUtilization < 80;
 
   return [
     {
@@ -84,13 +98,18 @@ export function analyzeConstraints(
     },
     {
       id: 'floorLoad', label: '바닥 하중 분포',
-      status: floorLoad.maxKgPerM2 > floorLoad.averageKgPerM2 * 3 && floorLoad.maxKgPerM2 > 1500 ? 'warn' : 'pass',
-      detail: `최대 ${floorLoad.maxKgPerM2.toFixed(0)} kg/m² · 평균 ${floorLoad.averageKgPerM2.toFixed(0)} kg/m²`,
+      status: floorLoadWarn ? 'warn' : 'pass',
+      detail: `최대 ${floorLoad.maxKgPerM2.toFixed(0)} kg/m² · 평균 ${floorLoad.averageKgPerM2.toFixed(0)} kg/m² · 경고기준 ${floorLimit.toFixed(0)} kg/m² / 평균×${floorMultiplier.toFixed(1)}`,
     },
     {
-      id: 'door', label: '문쪽 개방 여유',
+      id: 'door', label: '문쪽 낙하 위험',
       status: doorBlockedHigh ? 'warn' : 'pass',
-      detail: doorBlockedHigh ? '문쪽 최상단 적재 확인 필요' : '문쪽 높이 여유 양호',
+      detail: doorBlockedHigh ? '문쪽 8% 구간에 천장 높이의 92%를 넘는 화물이 있어 개방 전 재확인 필요' : '문 개방 시 상단 낙하 위험 기준 통과',
+    },
+    {
+      id: 'doorSpace', label: '문쪽 공간 활용도',
+      status: doorSpaceWarn ? 'warn' : 'pass',
+      detail: `길이 활용 ${doorSpaceUtilization.toFixed(1)}% · 문쪽 공백 ${(doorGapM * 1000).toFixed(0)} mm`,
     },
   ];
 }

@@ -166,7 +166,16 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
       usedVolumeM3 += cbm(item);
     }
     const left = quantity - mixedPlaced;
-    if (left > 0) remaining.push({ cargoId: item.id, quantity: left, reason: loadedWeightKg + EPS >= container.maxPayloadKg ? '컨테이너 최대 적재 중량에 도달하여 적재하지 못함' : '회전·경계·적층단·상부 허용중량 조건을 만족하는 배치 위치를 찾지 못함' });
+    if (left > 0) {
+      const nextBoxWouldExceedPayload = loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS;
+      remaining.push({
+        cargoId: item.id,
+        quantity: left,
+        reason: nextBoxWouldExceedPayload
+          ? '컨테이너 최대 적재 중량을 초과하므로 추가 적재하지 못함'
+          : '회전·경계·적층단·상부 허용중량 조건을 만족하는 배치 위치를 찾지 못함',
+      });
+    }
   }
 
   const shapeResult = optimizeLoadingShape(container, placements, cargoById);
