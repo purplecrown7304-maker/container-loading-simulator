@@ -69,4 +69,18 @@ describe('packOnPallets', () => {
     expect(result.placements).toHaveLength(18);
     expect(result.remaining).toHaveLength(0);
   });
+
+  it('does not place a large box on a tiny supporting box', () => {
+    const result = packOnPallets(
+      { length: 2.2, width: 1.1, height: 2.0, maxPayloadKg: 5000 },
+      [
+        box({ id: 'SMALL', name: 'SMALL', length: 0.4, width: 0.4, height: 0.4, weightKg: 50, quantity: 1, allowRotation: false }),
+        box({ id: 'LARGE', name: 'LARGE', length: 0.8, width: 0.8, height: 0.4, weightKg: 10, quantity: 1, allowRotation: false }),
+      ],
+      { ...defaultPalletSpec, length: 1.1, width: 1.1, height: 0.15, maxStackLevels: 1 },
+    );
+    expect(result.palletCount).toBe(2);
+    const large = result.placements.find((placement) => placement.cargoId === 'LARGE');
+    expect(large?.z).toBeCloseTo(0.15, 5);
+  });
 });
