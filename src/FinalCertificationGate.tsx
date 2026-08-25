@@ -7,6 +7,7 @@ import {
   INERTIA_PASS_TILT_DEG,
   REQUEST_CERTIFIED_RESULTS_EVENT,
   buildSecuringUsage,
+  clearLatestInertiaCertification,
   createPhysicsTargetSignature,
   runInertiaCertification,
   type CertificationProgress,
@@ -61,6 +62,7 @@ export default function FinalCertificationGate() {
 
   const execute = useCallback(async (detail: CertificationRequestDetail, nextTarget: PhysicsTarget) => {
     const id = ++runId.current;
+    const requestedSignature = createPhysicsTargetSignature(nextTarget);
     setRequest(detail);
     setTarget(nextTarget);
     setOpen(true);
@@ -86,11 +88,23 @@ export default function FinalCertificationGate() {
         },
       );
       if (runId.current !== id) return;
+
+      const currentTarget = readPhysicsTarget();
+      const stillCurrent = Boolean(currentTarget && createPhysicsTargetSignature(currentTarget) === requestedSignature && result.targetSignature === requestedSignature);
+      if (!stillCurrent) {
+        clearLatestInertiaCertification();
+        cache.current = null;
+        setCertification(null);
+        setRunning(false);
+        setError('관성 검증 중 적재안 또는 보조자재 설정이 변경되어 이전 검증 결과를 폐기했습니다. 현재 적재안으로 다시 검증하세요.');
+        return;
+      }
+
       setCertification(result);
       setUsage(result.securing);
       setRunning(false);
       if (result.status === 'passed') {
-        cache.current = { signature: createPhysicsTargetSignature(nextTarget), certification: result };
+        cache.current = { signature: requestedSignature, certification: result };
         setOpen(false);
         openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: result });
       } else if (!result.payloadWithinLimit) {
