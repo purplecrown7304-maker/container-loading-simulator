@@ -27,6 +27,21 @@ export type SecuringUsage = {
   materialUnitWeights?: SecuringMaterialSettings;
 };
 
+export type InertiaAttemptScenario = {
+  scenario: InertiaScenario;
+  passed: boolean;
+  maxHorizontalShiftM: number;
+  maxTiltDeg: number;
+};
+
+export type InertiaReinforcementAttempt = {
+  level: SecuringLevel;
+  levelLabel: string;
+  payloadWithinLimit: boolean;
+  passed: boolean;
+  scenarios: InertiaAttemptScenario[];
+};
+
 export type InertiaCertification = {
   status: CertificationStatus;
   mode: PhysicsTarget['mode'];
@@ -40,6 +55,7 @@ export type InertiaCertification = {
   maxTiltDeg: number;
   results: Partial<Record<InertiaScenario, InertiaAnimationResult>>;
   payloadWithinLimit: boolean;
+  attempts?: InertiaReinforcementAttempt[];
 };
 
 export type CertificationRequestDetail = {
@@ -228,12 +244,15 @@ export async function runInertiaCertification(
 ): Promise<InertiaCertification> {
   let finalResults: Partial<Record<InertiaScenario, InertiaAnimationResult>> = {};
   let finalLevel: SecuringLevel = 0;
+  const attempts: InertiaReinforcementAttempt[] = [];
 
   for (let rawLevel = 0; rawLevel <= 3; rawLevel += 1) {
     const level = rawLevel as SecuringLevel;
     const securing = buildSecuringUsage(target, level);
     finalLevel = level;
-    if (!payloadWithinLimit(target, securing)) {
+    const payloadOk = payloadWithinLimit(target, securing);
+    if (!payloadOk) {
+      attempts.push({ level, levelLabel: securing.levelLabel, payloadWithinLimit: false, passed: false, scenarios: [] });
       finalResults = {};
       break;
     }
@@ -267,8 +286,26 @@ export async function runInertiaCertification(
       }
     }
 
+    const scenarioAttempts = SCENARIOS.flatMap(scenario => {
+      const result = levelResults[scenario];
+      return result ? [{
+        scenario,
+        passed: isInertiaStable(result),
+        maxHorizontalShiftM: result.maxHorizontalShiftM,
+        maxTiltDeg: result.maxTiltDeg,
+      } satisfies InertiaAttemptScenario] : [];
+    });
+    const levelPassed = allPassed && scenarioAttempts.length === SCENARIOS.length;
+    attempts.push({
+      level,
+      levelLabel: securing.levelLabel,
+      payloadWithinLimit: true,
+      passed: levelPassed,
+      scenarios: scenarioAttempts,
+    });
+
     finalResults = levelResults;
-    if (allPassed && Object.keys(levelResults).length === SCENARIOS.length) break;
+    if (levelPassed) break;
   }
 
   const usage = buildSecuringUsage(target, finalLevel);
@@ -293,6 +330,7 @@ export async function runInertiaCertification(
     maxTiltDeg: results.reduce((max, result) => Math.max(max, result.maxTiltDeg), 0),
     results: finalResults,
     payloadWithinLimit: payloadOk,
+    attempts,
   };
 
   if (typeof window !== 'undefined') {
