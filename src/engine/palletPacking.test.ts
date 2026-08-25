@@ -33,6 +33,68 @@ describe('packOnPallets', () => {
     expect(result.totalPalletizedWeightKg).toBeLessThanOrEqual(300 + 1e-9);
   });
 
+  it('reserves enabled packaging weight before accepting cargo', () => {
+    const result = packOnPallets(
+      { length: 1.1, width: 1.1, height: 1.2, maxPayloadKg: 100 },
+      [box({ length: 1.1, width: 1.1, height: 0.4, quantity: 1, weightKg: 70, maxStackLayers: 1, allowRotation: false })],
+      {
+        ...defaultPalletSpec,
+        length: 1.1,
+        width: 1.1,
+        height: 0.15,
+        tareWeightKg: 25,
+        maxStackLevels: 2,
+        useCornerGuards: true,
+        cornerGuardWeightKg: 10,
+        useWrapping: false,
+        minimizePackaging: true,
+      },
+    );
+    expect(result.placements).toHaveLength(0);
+    expect(result.remaining[0]?.quantity).toBe(1);
+    expect(result.totalPalletizedWeightKg).toBeLessThanOrEqual(100 + 1e-9);
+  });
+
+  it('prioritizes heavier cargo before lighter input rows when payload is tight', () => {
+    const result = packOnPallets(
+      { length: 2.2, width: 1.1, height: 1.2, maxPayloadKg: 100 },
+      [
+        box({ id: 'LIGHT', name: 'LIGHT', length: 1.1, width: 1.1, height: 0.4, quantity: 1, weightKg: 10, maxStackLayers: 1, allowRotation: false }),
+        box({ id: 'HEAVY', name: 'HEAVY', length: 1.1, width: 1.1, height: 0.4, quantity: 1, weightKg: 70, maxStackLayers: 1, allowRotation: false }),
+      ],
+      { ...defaultPalletSpec, length: 1.1, width: 1.1, height: 0.15, tareWeightKg: 25, maxStackLevels: 1 },
+    );
+    expect(result.placements.map((placement) => placement.cargoId)).toEqual(['HEAVY']);
+    expect(result.remaining.find((item) => item.cargoId === 'LIGHT')?.quantity).toBe(1);
+  });
+
+  it('keeps primary pallets single-SKU when a lower-priority pallet cannot be fully consolidated', () => {
+    const result = packOnPallets(
+      { length: 2.2, width: 1.1, height: 1.2, maxPayloadKg: 5000 },
+      [
+        box({ id: 'A', name: 'A', length: 0.5, width: 1.0, height: 0.4, quantity: 1, weightKg: 30, maxStackLayers: 1, allowRotation: false }),
+        box({ id: 'B', name: 'B', length: 0.5, width: 1.0, height: 0.4, quantity: 2, weightKg: 20, maxStackLayers: 1, allowRotation: false }),
+      ],
+      { ...defaultPalletSpec, length: 1.0, width: 1.0, height: 0.15, maxStackLevels: 1 },
+    );
+    expect(result.palletCount).toBe(2);
+    expect(result.pallets.every((pallet) => new Set(pallet.cargoPlacements.map((placement) => placement.cargoId)).size === 1)).toBe(true);
+  });
+
+  it('uses mixed loading only as a final consolidation fallback when the whole remainder fits', () => {
+    const result = packOnPallets(
+      { length: 2.0, width: 1.0, height: 1.2, maxPayloadKg: 5000 },
+      [
+        box({ id: 'A', name: 'A', length: 0.5, width: 1.0, height: 0.4, quantity: 1, weightKg: 30, maxStackLayers: 1, allowRotation: false }),
+        box({ id: 'B', name: 'B', length: 0.5, width: 1.0, height: 0.4, quantity: 1, weightKg: 20, maxStackLayers: 1, allowRotation: false }),
+      ],
+      { ...defaultPalletSpec, length: 1.0, width: 1.0, height: 0.15, maxStackLevels: 1 },
+    );
+    expect(result.palletCount).toBe(1);
+    expect(new Set(result.pallets[0].cargoPlacements.map((placement) => placement.cargoId))).toEqual(new Set(['A', 'B']));
+    expect(result.consolidatedPallets).toBeGreaterThan(0);
+  });
+
   it('never uses more than the configured pallet stack levels', () => {
     const result = packOnPallets(
       container,
