@@ -12,6 +12,23 @@ import { PreviewCameraController, PreviewViewControls, readBoxLabelPreference, s
 import { AxisGuide, ClearanceGuide, clearanceValues } from './SceneGuides';
 
 type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number };
+type PalletSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult };
+type PalletWindow = Window & { __containerLoadingPalletSnapshot?: PalletSnapshot };
+
+const PALLET_SPEC_FROM_RESULTS_EVENT = 'container-loading:pallet-spec-from-results';
+const PALLET_SNAPSHOT_UPDATED_EVENT = 'container-loading:pallet-snapshot-updated';
+
+function sanitizeSpec(spec: PalletSpec): PalletSpec {
+  return {
+    ...spec,
+    length: Math.max(0.01, Number(spec.length) || 0.01),
+    width: Math.max(0.01, Number(spec.width) || 0.01),
+    height: Math.max(0.01, Number(spec.height) || 0.01),
+    tareWeightKg: Math.max(0, Number(spec.tareWeightKg) || 0),
+    maxLoadKg: Math.max(0, Number(spec.maxLoadKg) || 0),
+    maxStackLevels: Math.max(1, Math.min(3, Math.floor(Number(spec.maxStackLevels) || 1))),
+  };
+}
 
 function PalletBoards({ container, result, spec, scale, onOpen }: { container: ContainerSpec; result: OptimizedPalletPackingResult; spec: PalletSpec; scale: number; onOpen: (p: PalletLoad) => void }) {
   const ref = useRef<THREE.InstancedMesh>(null);
@@ -250,11 +267,34 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
 
   useEffect(() => {
     if (runToken === 0) return;
-    const safe = { ...spec, maxStackLevels: Math.max(1, Math.min(3, Math.floor(spec.maxStackLevels || 1))) };
+    const safe = sanitizeSpec(spec);
     setSpec(safe);
     setResult(packOnPallets(container, cargo.filter((item) => item.quantity > 0), safe));
     setOpened(null);
   }, [runToken]);
+
+  useEffect(() => {
+    const onSpecFromResults = (event: Event) => {
+      const requested = (event as CustomEvent<PalletSpec>).detail;
+      if (!requested) return;
+      const safe = sanitizeSpec(requested);
+      setSpec(safe);
+      setResult(packOnPallets(container, cargo.filter((item) => item.quantity > 0), safe));
+      setOpened(null);
+    };
+    window.addEventListener(PALLET_SPEC_FROM_RESULTS_EVENT, onSpecFromResults);
+    return () => window.removeEventListener(PALLET_SPEC_FROM_RESULTS_EVENT, onSpecFromResults);
+  }, [container, cargo]);
+
+  useEffect(() => {
+    const snapshot: PalletSnapshot = { spec, result };
+    (window as PalletWindow).__containerLoadingPalletSnapshot = snapshot;
+    window.dispatchEvent(new CustomEvent<PalletSnapshot>(PALLET_SNAPSHOT_UPDATED_EVENT, { detail: snapshot }));
+  }, [spec, result]);
+
+  useEffect(() => () => {
+    (window as PalletWindow).__containerLoadingPalletSnapshot = undefined;
+  }, []);
 
   useEffect(() => {
     const loadingResult: LoadingResult = {
@@ -289,20 +329,6 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
   return (
     <div className="pallet-inline-workspace">
       <section className="pallet-mode-panel pallet-mode-panel-inline">
-        <div className="pallet-panel-head">
-          <div>
-            <b>팔레트 적재 설정</b>
-            <span>팔레트/화물 우클릭 = 팔레트 속 내용 확인</span>
-          </div>
-        </div>
-        <div className="pallet-spec-grid">
-          <label>길이(m)<input type="number" step=".01" value={spec.length} onChange={(event) => setSpec({ ...spec, length: Number(event.target.value) })} /></label>
-          <label>폭(m)<input type="number" step=".01" value={spec.width} onChange={(event) => setSpec({ ...spec, width: Number(event.target.value) })} /></label>
-          <label>높이(m)<input type="number" step=".01" value={spec.height} onChange={(event) => setSpec({ ...spec, height: Number(event.target.value) })} /></label>
-          <label>팔레트 중량(kg)<input type="number" value={spec.tareWeightKg} onChange={(event) => setSpec({ ...spec, tareWeightKg: Number(event.target.value) })} /></label>
-          <label>최대 적재중량(kg)<input type="number" value={spec.maxLoadKg} onChange={(event) => setSpec({ ...spec, maxLoadKg: Number(event.target.value) })} /></label>
-          <label>최대 적층단<input type="number" min="1" max="3" value={spec.maxStackLevels} onChange={(event) => setSpec({ ...spec, maxStackLevels: Number(event.target.value) })} /></label>
-        </div>
         <div className="pallet-view-stack">
           <div className="pallet-preview">
             <PreviewViewControls view={view} onViewChange={setView} showLabels={showLabels} onToggleLabels={toggleLabels} />
