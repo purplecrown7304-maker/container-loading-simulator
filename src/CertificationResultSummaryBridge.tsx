@@ -48,7 +48,7 @@ export default function CertificationResultSummaryBridge() {
 
   return createPortal(<article className="certification-result-card">
     <div className="certification-result-head">
-      <div><span>FINAL INERTIA CERTIFIED</span><b>관성 검증 3종 통과 · 최종 적재안</b><small>{usage.levelLabel}</small></div>
+      <div><span>INTERNAL INERTIA SIMULATION PASSED</span><b>관성 시뮬레이션 3종 내부 기준 통과 · 최종 적재안</b><small>{usage.levelLabel}</small></div>
       <strong>PASS</strong>
     </div>
     <div className="certification-result-kpi">
@@ -65,6 +65,6 @@ export default function CertificationResultSummaryBridge() {
       <span><b>고정바</b>{usage.loadBars}EA</span>
       <span><b>추가 보강재 중량</b>약 {usage.estimatedAddedWeightKg.toFixed(1)}kg</span>
     </div>
-    <p>팔레트 중량은 현재 시뮬레이션의 팔레트/기존 포장 중량을 합산하고, 밴딩·각대·필름·미끄럼방지재·고정바는 기본 단위중량으로 추정합니다. 실제 작업지시 전 현장 자재 규격으로 재계산하세요.</p>
+    <p>이 PASS는 시뮬레이터 내부 비교 기준(최대 이동 12 mm 이하, 최대 기울기 1.8° 이하)을 뜻하며 실제 운송 안전 인증을 의미하지 않습니다. 팔레트 중량은 현재 모델 값을 합산하고 밴딩·각대·필름·미끄럼방지재·고정바는 기본 단위중량으로 추정하므로, 작업지시 전 현장 자재 규격으로 재계산하세요.</p>
   </article>, host);
 }
