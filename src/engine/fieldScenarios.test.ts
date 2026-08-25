@@ -55,15 +55,15 @@ describe('field-style loading scenarios', () => {
     }
   });
 
-  it('uses rotation for narrow width combinations without crossing walls', () => {
-    const container: ContainerSpec = { length: 4, width: 1.15, height: 1.5, maxPayloadKg: 5000 };
-    const cargo = [
-      item('ROT-A', 0.7, 0.4, 0.3, 12, 30, 5, 160, true),
-      item('ROT-B', 0.65, 0.35, 0.3, 10, 30, 5, 150, true),
-    ];
+  it('uses rotation when the normal footprint cannot fit but the rotated footprint can', () => {
+    const container: ContainerSpec = { length: 0.6, width: 0.9, height: 0.8, maxPayloadKg: 5000 };
+    const cargo = [item('ROT-REQUIRED', 0.8, 0.5, 0.3, 12, 1, 2, 160, true)];
     const result = loadContainer(container, cargo);
     assertSafe(result, container);
-    expect(result.placements.some((p) => p.rotated)).toBe(true);
+    expect(result.placements).toHaveLength(1);
+    expect(result.placements[0]?.rotated).toBe(true);
+    expect(result.placements[0]?.length).toBeCloseTo(0.5, 6);
+    expect(result.placements[0]?.width).toBeCloseTo(0.8, 6);
   });
 
   it('keeps ragged multi-SKU remainder geometrically safe while treating legacy shape defects as diagnostics', () => {
