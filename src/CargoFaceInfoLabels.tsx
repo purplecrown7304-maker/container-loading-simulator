@@ -8,7 +8,7 @@ function makeInfoTexture(sample: Placement, displayName?: string) {
   canvas.height = 420;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = 'rgba(255,255,255,.98)';
+  ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.strokeStyle = '#0f172a';
   ctx.lineWidth = 14;
@@ -50,13 +50,13 @@ function LabelMaterial({ texture }: { texture: THREE.Texture }) {
     <meshBasicMaterial
       map={texture}
       toneMapped={false}
-      transparent
+      transparent={false}
       side={THREE.DoubleSide}
       depthTest
-      depthWrite={false}
+      depthWrite
       polygonOffset
-      polygonOffsetFactor={-4}
-      polygonOffsetUnits={-4}
+      polygonOffsetFactor={-10}
+      polygonOffsetUnits={-10}
     />
   );
 }
@@ -93,20 +93,20 @@ export function CargoFaceInfoLabels({
         const width = box.width * scale;
         const height = box.height * scale;
 
-        // Sticker dimensions always remain inside the physical box face.
         const faceHeight = height * 0.68;
         const longFaceWidth = length * 0.82;
         const shortFaceWidth = width * 0.82;
 
-        // Keep the sticker visually flush with the carton. This is only enough
-        // separation to prevent z-fighting; it must never look like a floating label.
-        const surfaceOffset = Math.max(0.00015, scale * 0.00035);
+        // Large enough to eliminate z-fighting at oblique camera angles while
+        // remaining visually flush with the carton surface.
+        const surfaceOffset = Math.max(0.0008, scale * 0.0022);
 
         return [
           <mesh
             key={`${box.cargoId}-${index}-front`}
             position={[cx, cy, cz + width / 2 + surfaceOffset]}
-            renderOrder={30}
+            renderOrder={40}
+            frustumCulled={false}
           >
             <planeGeometry args={[longFaceWidth, faceHeight]} />
             <LabelMaterial texture={texture} />
@@ -115,7 +115,8 @@ export function CargoFaceInfoLabels({
             key={`${box.cargoId}-${index}-back`}
             position={[cx, cy, cz - width / 2 - surfaceOffset]}
             rotation={[0, Math.PI, 0]}
-            renderOrder={30}
+            renderOrder={40}
+            frustumCulled={false}
           >
             <planeGeometry args={[longFaceWidth, faceHeight]} />
             <LabelMaterial texture={texture} />
@@ -124,7 +125,8 @@ export function CargoFaceInfoLabels({
             key={`${box.cargoId}-${index}-right`}
             position={[cx + length / 2 + surfaceOffset, cy, cz]}
             rotation={[0, Math.PI / 2, 0]}
-            renderOrder={30}
+            renderOrder={40}
+            frustumCulled={false}
           >
             <planeGeometry args={[shortFaceWidth, faceHeight]} />
             <LabelMaterial texture={texture} />
@@ -133,7 +135,8 @@ export function CargoFaceInfoLabels({
             key={`${box.cargoId}-${index}-left`}
             position={[cx - length / 2 - surfaceOffset, cy, cz]}
             rotation={[0, -Math.PI / 2, 0]}
-            renderOrder={30}
+            renderOrder={40}
+            frustumCulled={false}
           >
             <planeGeometry args={[shortFaceWidth, faceHeight]} />
             <LabelMaterial texture={texture} />
