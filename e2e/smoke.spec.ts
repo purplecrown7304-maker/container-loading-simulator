@@ -67,8 +67,9 @@ test('result gate distinguishes direct-box and pallet certification modes', asyn
 
   await page.locator('.viewer-bottom-actions .result-open-action').click();
   await expect(page.locator('.final-cert-modal')).toContainText('DIRECT BOX');
-  await page.locator('.final-cert-modal').getByRole('button', { name: '닫기' }).click().catch(() => undefined);
 
+  await page.reload();
+  await restoreSample(page);
   await page.getByRole('button', { name: '팔레트', exact: true }).click();
   await expect(page.locator('.pallet-preview canvas')).toBeVisible({ timeout: 20_000 });
   await page.locator('.viewer-bottom-actions .result-open-action').click();
