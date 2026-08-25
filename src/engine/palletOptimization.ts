@@ -70,10 +70,6 @@ function packagingReserve(pallet: PalletSpec) {
     (pallet.useWrapping ? pallet.wrappingExtraHeightM : 0);
 }
 
-/**
- * 팔레트 적층 목표가 2~3단일 때 한 팔레트가 컨테이너 높이를 독점하지 않도록
- * 박스 층수를 제한한 별도 후보를 만든다. 기존 최대적층단은 상한으로 유지한다.
- */
 function cargoForStackTarget(container: ContainerSpec, cargo: CargoItem[], pallet: PalletSpec, targetLevels: number) {
   if (targetLevels <= 1) return cargo.map((item) => ({ ...item }));
   const perPalletHeight = Math.max(0, container.height / targetLevels - pallet.height - packagingReserve(pallet));
@@ -136,10 +132,6 @@ function canPairMerge(first: PalletLoad, second: PalletLoad, all: PalletLoad[]) 
   return first.stackLevel === 1 && second.stackLevel === 1 && !firstHasStackMate && !secondHasStackMate;
 }
 
-/**
- * 전체 팔레트 쌍을 반복 탐색한다. 한 쌍의 내용물이 단일 팔레트로 재패킹 가능하면
- * 병합하고 처음부터 다시 탐색하며, 더 이상 병합이 발생하지 않을 때 종료한다.
- */
 function consolidateUntilStable(
   input: PalletPackingResult,
   container: ContainerSpec,
@@ -190,10 +182,6 @@ function consolidateUntilStable(
   return { result: rebuildMetrics(input, pallets, passes, container), passes };
 }
 
-/**
- * 보고서 권고대로 체적 활용률이 50% 미만이면 팔레트 스택 열을 컨테이너 길이에
- * 균등하게 재배치한다. 같은 stackColumn의 상·하 팔레트는 함께 이동한다.
- */
 function redistributeForLowUtilization(
   input: PalletPackingResult,
   container: ContainerSpec,
@@ -211,20 +199,17 @@ function redistributeForLowUtilization(
   }
   const columns = [...byColumn.entries()].sort((a, b) => Math.min(...a[1].map((p) => p.x)) - Math.min(...b[1].map((p) => p.x)));
   const rowCapacity = Math.max(1, Math.floor((container.width + EPS) / pallet.width));
-  const bandCount = Math.max(1, Math.ceil(columns.length / rowCapacity));
   const maxX = Math.max(0, container.length - pallet.length);
-  const xSlots = Array.from({ length: bandCount }, (_, index) =>
-    bandCount === 1 ? 0 : index * maxX / (bandCount - 1),
+  const xSlots = Array.from({ length: columns.length }, (_, index) =>
+    columns.length === 1 ? 0 : index * maxX / (columns.length - 1),
   );
   const ySlots = Array.from({ length: rowCapacity }, (_, index) => index * pallet.width)
     .sort((a, b) => Math.abs(a + pallet.width / 2 - container.width / 2) - Math.abs(b + pallet.width / 2 - container.width / 2));
 
   const moved: PalletLoad[] = [];
   columns.forEach(([, loads], columnIndex) => {
-    const band = Math.floor(columnIndex / rowCapacity);
-    const row = columnIndex % rowCapacity;
-    const x = Math.min(maxX, xSlots[band] ?? 0);
-    const y = Math.min(container.width - pallet.width, ySlots[row] ?? 0);
+    const x = Math.min(maxX, xSlots[columnIndex] ?? 0);
+    const y = Math.min(container.width - pallet.width, ySlots[columnIndex % rowCapacity] ?? 0);
     loads.forEach((load) => moved.push(moveLoad(load, x, y)));
   });
 
@@ -258,13 +243,6 @@ function betterCandidate(a: PalletPackingResult, b: PalletPackingResult) {
   return A.stacked > B.stacked;
 }
 
-/**
- * 보고서 기반 팔레트 전역 최적화.
- * 1) 박스 층수 최대 후보와 2~3단 팔레트 적층 후보를 모두 생성한다.
- * 2) 각 후보에서 반복 병합을 수행한다.
- * 3) 적재수량을 보존하면서 바닥 점유 열 수가 가장 적은 후보를 선택한다.
- * 4) 체적 활용률 50% 미만이면 컨테이너 길이에 균등 재배치한다.
- */
 export function packOnPallets(
   container: ContainerSpec,
   cargo: CargoItem[],
