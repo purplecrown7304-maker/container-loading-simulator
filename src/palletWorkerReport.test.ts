@@ -60,13 +60,15 @@ const certification: InertiaCertification = {
     estimatedAddedWeightKg: 2.1, estimatedNonCargoWeightKg: 52.1,
   },
   testedScenarios: 3, passedScenarios: 3, failedScenarios: [], maxHorizontalShiftM: 0.006,
-  maxTiltDeg: 0.9, results: {}, payloadWithinLimit: true,
+  maxCargoRelativeSlipM: 0.003, maxSupportShiftM: 0.004, maxTiltDeg: 0.9,
+  maxCargoRestraintForceN: 2400, maxSupportRestraintForceN: 0,
+  results: {}, payloadWithinLimit: true,
   attempts: [
-    { level: 0, levelLabel: '보조 고정 없음', payloadWithinLimit: true, passed: false, scenarios: [{ scenario: 'braking', passed: false, maxHorizontalShiftM: 0.02, maxTiltDeg: 2.4 }] },
+    { level: 0, levelLabel: '보조 고정 없음', payloadWithinLimit: true, passed: false, scenarios: [{ scenario: 'braking', passed: false, maxHorizontalShiftM: 0.02, maxCargoRelativeSlipM: 0.014, maxSupportShiftM: 0.013, maxTiltDeg: 2.4 }] },
     { level: 2, levelLabel: '2차 보강 · 밴딩+각대+랩핑', payloadWithinLimit: true, passed: true, scenarios: [
-      { scenario: 'acceleration', passed: true, maxHorizontalShiftM: 0.005, maxTiltDeg: 0.7 },
-      { scenario: 'braking', passed: true, maxHorizontalShiftM: 0.006, maxTiltDeg: 0.9 },
-      { scenario: 'cornering', passed: true, maxHorizontalShiftM: 0.004, maxTiltDeg: 0.6 },
+      { scenario: 'acceleration', passed: true, maxHorizontalShiftM: 0.005, maxCargoRelativeSlipM: 0.002, maxSupportShiftM: 0.003, maxTiltDeg: 0.7 },
+      { scenario: 'braking', passed: true, maxHorizontalShiftM: 0.006, maxCargoRelativeSlipM: 0.003, maxSupportShiftM: 0.004, maxTiltDeg: 0.9 },
+      { scenario: 'cornering', passed: true, maxHorizontalShiftM: 0.004, maxCargoRelativeSlipM: 0.002, maxSupportShiftM: 0.003, maxTiltDeg: 0.6 },
     ] },
   ],
 };
@@ -93,6 +95,18 @@ describe('pallet worker report', () => {
     expect(html).toContain('밴딩 3줄 결속');
     expect(html).toContain('자동 보강 이력');
     expect(html).toContain('급정거 FAIL');
+    expect(html).toContain('화물↔팔레트 14.0mm');
+    expect(html).toContain('팔레트 13.0mm');
+  });
+
+  it('prints the split pallet inertia metrics and internal restraint force', () => {
+    const html = buildPalletLoadingReportHtml(container, cargo, snapshot, certification);
+    expect(html).toContain('관성 안전 지표');
+    expect(html).toContain('화물↔팔레트 미끄럼');
+    expect(html).toContain('팔레트 상대 이동');
+    expect(html).toContain('3.0 mm');
+    expect(html).toContain('4.0 mm');
+    expect(html).toContain('2.4 kN');
   });
 
   it('escapes cargo names in the worker table', () => {
