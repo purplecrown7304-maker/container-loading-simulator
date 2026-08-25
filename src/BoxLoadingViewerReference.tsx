@@ -97,6 +97,40 @@ function CargoGroup({
   );
 }
 
+function CargoEdges({ items, container, scale }: { items: IndexedPlacement[]; container: ContainerSpec; scale: number }) {
+  const geometry = useMemo(() => {
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    const edges = new THREE.EdgesGeometry(box, 15);
+    box.dispose();
+    return edges;
+  }, []);
+  const material = useMemo(() => new THREE.LineBasicMaterial({ color: '#16324f', transparent: false, depthTest: true, depthWrite: false }), []);
+
+  useEffect(() => () => {
+    geometry.dispose();
+    material.dispose();
+  }, [geometry, material]);
+
+  return (
+    <group>
+      {items.map(({ placement, index }) => (
+        <lineSegments
+          key={`${placement.cargoId}-edge-${index}`}
+          geometry={geometry}
+          material={material}
+          position={[
+            (placement.x + placement.length / 2) * scale - container.length * scale / 2,
+            (placement.z + placement.height / 2) * scale + 0.03,
+            (placement.y + placement.width / 2) * scale - container.width * scale / 2,
+          ]}
+          scale={[placement.length * scale * 1.006, placement.height * scale * 1.006, placement.width * scale * 1.006]}
+          renderOrder={16}
+        />
+      ))}
+    </group>
+  );
+}
+
 function BoxOutline({ p, container, scale }: { p: Placement; container: ContainerSpec; scale: number }) {
   const position: [number, number, number] = [
     (p.x + p.length / 2) * scale - container.length * scale / 2,
@@ -104,10 +138,10 @@ function BoxOutline({ p, container, scale }: { p: Placement; container: Containe
     (p.y + p.width / 2) * scale - container.width * scale / 2,
   ];
   return (
-    <mesh position={position} scale={[p.length * scale * 1.02, p.height * scale * 1.02, p.width * scale * 1.02]}>
+    <mesh position={position} scale={[p.length * scale * 1.025, p.height * scale * 1.025, p.width * scale * 1.025]} renderOrder={18}>
       <boxGeometry />
-      <meshBasicMaterial transparent opacity={0} />
-      <Edges color="#163b66" linewidth={1.4} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      <Edges color="#0f62fe" linewidth={1.8} />
     </mesh>
   );
 }
@@ -215,12 +249,14 @@ export default function BoxLoadingViewerReference({ result, container }: { resul
           {groups.map(([id, items]) => (
             <group key={id}>
               <CargoGroup items={items} container={container} scale={scale} selectedIndex={selectedIndex} onSelect={(index) => change(index)} />
+              <CargoEdges items={items} container={container} scale={scale} />
               {showLabels && (
                 <CargoFaceInfoLabels
                   placements={items.map(({ placement }) => placement)}
                   container={container}
                   scale={scale}
                   displayName={cargoMap.get(id)?.name ?? id}
+                  verticalOffset={0.03}
                 />
               )}
             </group>
