@@ -1,0 +1,109 @@
+/* Final dashboard layout hotfixes: keep legend in-flow and cargo list inside its panel. */
+.viewer-card > .card-heading-row {
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+.viewer-card > .card-heading-row > div:first-child {
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+.cargo-legend {
+  position: static !important;
+  left: auto !important;
+  right: auto !important;
+  top: auto !important;
+  bottom: auto !important;
+  z-index: auto !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  max-height: none !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 12px !important;
+  margin: 6px 0 0 !important;
+  padding: 1px 0 4px !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  scrollbar-width: thin;
+}
+
+.cargo-legend > span {
+  flex: 0 0 auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  white-space: nowrap !important;
+}
+
+.cargo-legend i {
+  flex: 0 0 auto !important;
+}
+
+.dashboard-left .cargo-browser {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.dashboard-left .cargo-browser > .card-heading-row,
+.dashboard-left .cargo-browser > .mode-tabs,
+.dashboard-left .cargo-browser > .cargo-add-panel,
+.dashboard-left .cargo-browser > .status-message,
+.dashboard-left .cargo-browser > .empty-cargo {
+  flex: 0 0 auto !important;
+}
+
+.dashboard-left .cargo-browser > .cargo-scroll {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain;
+  padding-right: 4px !important;
+  scrollbar-gutter: stable;
+}
+
+.dashboard-left .cargo-list-item {
+  width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.dashboard-left .cargo-list-item > div:nth-child(2) {
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+.dashboard-left .cargo-list-item b,
+.dashboard-left .cargo-list-item span,
+.dashboard-left .cargo-list-item small {
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+@media (max-width: 700px) {
+  .dashboard-left .cargo-browser {
+    flex: none !important;
+    max-height: 520px !important;
+  }
+
+  .dashboard-left .cargo-browser > .cargo-scroll {
+    max-height: 330px !important;
+  }
+
+  .cargo-legend {
+    gap: 10px !important;
+  }
+}
