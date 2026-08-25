@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { cargoColor } from './cargoColors';
+import { CargoFaceInfoLabels } from './CargoFaceInfoLabels';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import { PreviewCameraController, PreviewViewControls, readBoxLabelPreference, saveBoxLabelPreference, type PreviewView } from './PreviewViewControls';
@@ -10,11 +11,240 @@ import { AxisGuide, ClearanceGuide, clearanceValues } from './SceneGuides';
 import { PLACEMENT_SELECT_EVENT, selectPlacement, type PlacementSelectDetail } from './selectionEvents';
 import { readStoredState } from './storage';
 
-type IndexedPlacement={placement:Placement;index:number};
-function labelTexture(item:CargoItem|undefined,p:Placement){const c=document.createElement('canvas');c.width=512;c.height=300;const x=c.getContext('2d')!;x.fillStyle='rgba(255,255,255,.94)';x.fillRect(0,0,c.width,c.height);x.strokeStyle='#475569';x.lineWidth=10;x.strokeRect(8,8,c.width-16,c.height-16);x.textAlign='center';x.fillStyle='#172033';x.font='700 54px sans-serif';const name=(item?.name||p.cargoId).slice(0,18);x.fillText(name,256,84);x.font='700 38px sans-serif';x.fillText(`${p.weightKg.toFixed(p.weightKg%1?1:0)} kg`,256,154);x.fillStyle='#2563eb';x.font='700 32px sans-serif';x.fillText(`${(p.length*p.width*p.height).toFixed(3)} CBM`,256,220);const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=4;t.needsUpdate=true;return t}
-function doorTexture(){const c=document.createElement('canvas');c.width=900;c.height=700;const x=c.getContext('2d')!;x.clearRect(0,0,c.width,c.height);x.strokeStyle='#1769d2';x.lineWidth=18;x.setLineDash([34,22]);x.strokeRect(85,105,730,465);x.setLineDash([]);x.fillStyle='#165dcc';x.textAlign='center';x.font='800 72px sans-serif';x.fillText('CONTAINER DOOR',450,300);x.font='800 58px sans-serif';x.fillText('문',450,385);x.font='800 72px sans-serif';x.fillText('←        →',450,500);const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=4;t.needsUpdate=true;return t}
-function BoxFaceLabels({items,container,scale,item}:{items:IndexedPlacement[];container:ContainerSpec;scale:number;item?:CargoItem}){const sample=items[0]?.placement;const texture=useMemo(()=>sample?labelTexture(item,sample):null,[item,sample?.cargoId,sample?.length,sample?.width,sample?.height,sample?.weightKg]);useEffect(()=>()=>texture?.dispose(),[texture]);if(!texture)return null;return <group>{items.map(({placement:p,index})=>{const cx=(p.x+p.length/2)*scale-container.length*scale/2,cy=(p.z+p.height/2)*scale+.03,cz=(p.y+p.width/2)*scale-container.width*scale/2;const w=Math.max(.13,p.length*scale*.72),h=Math.max(.09,Math.min(p.height*scale*.72,w*.58));return <mesh key={index} position={[cx,cy,cz+p.width*scale/2+.004]} renderOrder={7}><planeGeometry args={[w,h]}/><meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} transparent polygonOffset polygonOffsetFactor={-2}/></mesh>})}</group>}
-function CargoGroup({items,container,scale,selectedIndex,onSelect}:{items:IndexedPlacement[];container:ContainerSpec;scale:number;selectedIndex:number|null;onSelect:(index:number)=>void}){const ref=useRef<THREE.InstancedMesh>(null);const cargoId=items[0]?.placement.cargoId??'';const base=useMemo(()=>new THREE.Color(cargoColor(cargoId)),[cargoId]);useLayoutEffect(()=>{const mesh=ref.current;if(!mesh)return;const obj=new THREE.Object3D();items.forEach(({placement:p,index},i)=>{obj.position.set((p.x+p.length/2)*scale-container.length*scale/2,(p.z+p.height/2)*scale+.03,(p.y+p.width/2)*scale-container.width*scale/2);obj.scale.set(p.length*scale*.985,p.height*scale*.985,p.width*scale*.985);obj.updateMatrix();mesh.setMatrixAt(i,obj.matrix);const c=base.clone();if(selectedIndex!==null&&selectedIndex!==index)c.multiplyScalar(.86);if(selectedIndex===index)c.lerp(new THREE.Color('#ffffff'),.22);mesh.setColorAt(i,c)});mesh.instanceMatrix.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true},[items,container,scale,base,selectedIndex]);return <instancedMesh ref={ref} args={[undefined,undefined,items.length]} onClick={e=>{e.stopPropagation();if(e.instanceId===undefined)return;const v=items[e.instanceId];if(v)onSelect(v.index)}} castShadow receiveShadow><boxGeometry/><meshStandardMaterial roughness={.58} metalness={.01}/></instancedMesh>}
-function BoxOutline({p,container,scale}:{p:Placement;container:ContainerSpec;scale:number}){const pos:[number,number,number]=[(p.x+p.length/2)*scale-container.length*scale/2,(p.z+p.height/2)*scale+.03,(p.y+p.width/2)*scale-container.width*scale/2];return <mesh position={pos} scale={[p.length*scale*1.02,p.height*scale*1.02,p.width*scale*1.02]}><boxGeometry/><meshBasicMaterial transparent opacity={0}/><Edges color="#163b66" linewidth={1.4}/></mesh>}
-function ContainerShell({container,scale}:{container:ContainerSpec;scale:number}){const L=container.length*scale,W=container.width*scale,H=container.height*scale,doorX=L/2;const texture=useMemo(()=>doorTexture(),[]);useEffect(()=>()=>texture.dispose(),[texture]);return <group><mesh position={[0,-.025,0]} receiveShadow><boxGeometry args={[L,.05,W]}/><meshStandardMaterial color="#e7eef6" roughness={.9}/><Edges color="#526f90"/></mesh><mesh position={[0,H/2,-W/2]}><boxGeometry args={[L,H,.025]}/><meshBasicMaterial color="#e8f0f8" transparent opacity={.13}/><Edges color="#66819f" linewidth={1.2}/></mesh><mesh position={[0,H/2,W/2]}><boxGeometry args={[L,H,.025]}/><meshBasicMaterial color="#e8f0f8" transparent opacity={.05}/><Edges color="#7e94ad"/></mesh><mesh position={[0,H,0]}><boxGeometry args={[L,.025,W]}/><meshBasicMaterial color="#f8fbff" transparent opacity={.10}/><Edges color="#7e94ad"/></mesh><mesh position={[-L/2,H/2,0]}><boxGeometry args={[.03,H,W]}/><meshBasicMaterial color="#f4f8fc" transparent opacity={.16}/><Edges color="#526f90" linewidth={1.4}/></mesh><group position={[doorX+.022,H/2,0]} rotation={[0,Math.PI/2,0]}><mesh><planeGeometry args={[W*.96,H*.96]}/><meshBasicMaterial map={texture} transparent toneMapped={false} side={THREE.DoubleSide} depthWrite={false}/></mesh><mesh position={[0,0,-.018]}><boxGeometry args={[W,H,.035]}/><meshBasicMaterial color="#e8f2ff" transparent opacity={.08}/><Edges color="#2573d9" linewidth={2}/></mesh></group></group>}
-export default function BoxLoadingViewerReference({result,container}:{result:LoadingResult;container:ContainerSpec}){const [selectedIndex,setSelectedIndex]=useState<number|null>(null);const [view,setView]=useState<PreviewView>('free');const [showLabels,setShowLabels]=useState(readBoxLabelPreference);const scale=.5;const cargoMap=useMemo(()=>new Map((readStoredState()?.cargo??[]).map(x=>[x.id,x])),[result.placements]);const addresses=useMemo(()=>buildPlacementAddresses(result.placements,container.length),[result.placements,container.length]);const groups=useMemo(()=>{const m=new Map<string,IndexedPlacement[]>();result.placements.forEach((p,index)=>{const a=m.get(p.cargoId)??[];a.push({placement:p,index});m.set(p.cargoId,a)});return [...m.entries()]},[result.placements]);const selected=selectedIndex===null?undefined:result.placements[selectedIndex];const clearances=useMemo(()=>clearanceValues(container,result.placements),[container,result.placements]);const change=(i:number|null)=>{setSelectedIndex(i);selectPlacement(i)};const toggleLabels=()=>setShowLabels(current=>{const next=!current;saveBoxLabelPreference(next);return next});useEffect(()=>{const fn=(e:Event)=>{const i=(e as CustomEvent<PlacementSelectDetail>).detail?.index??null;if(i!==null&&!result.placements[i])return;setSelectedIndex(i)};window.addEventListener(PLACEMENT_SELECT_EVENT,fn);return()=>window.removeEventListener(PLACEMENT_SELECT_EVENT,fn)},[result.placements]);return <section className="viewer reference-viewer"><div className="reference-3d"><PreviewViewControls view={view} onViewChange={setView} showLabels={showLabels} onToggleLabels={toggleLabels}/><Canvas shadows camera={{position:[7.6,4.8,7.2],fov:46}} dpr={[1,1.25]} gl={{antialias:true,powerPreference:'high-performance'}} onPointerMissed={()=>change(null)}><color attach="background" args={['#edf3f9']}/><ambientLight intensity={2.1}/><directionalLight castShadow position={[3,7,5]} intensity={2.5}/><ContainerShell container={container} scale={scale}/><AxisGuide container={container} scale={scale}/><ClearanceGuide container={container} placements={result.placements} scale={scale}/>{groups.map(([id,items])=><group key={id}><CargoGroup items={items} container={container} scale={scale} selectedIndex={selectedIndex} onSelect={i=>change(i)}/>{showLabels&&<BoxFaceLabels items={items} container={container} scale={scale} item={cargoMap.get(id)}/>}</group>)}{selected&&<BoxOutline p={selected} container={container} scale={scale}/>}<PreviewCameraController view={view} container={container} scale={scale}/></Canvas>{clearances&&<div className="reference-clearance-strip"><span>안쪽 <b>{clearances.back}</b></span><span>문쪽 <b>{clearances.door}</b></span><span>좌측 <b>{clearances.left}</b></span><span>우측 <b>{clearances.right}</b></span><span>천장 <b>{clearances.top}</b></span></div>}{selected&&<div className="reference-selected"><i style={{background:cargoColor(selected.cargoId)}}/><b>{cargoMap.get(selected.cargoId)?.name||selected.cargoId}</b><span>{selected.weightKg}kg · {(selected.length*selected.width*selected.height).toFixed(3)} CBM · R{addresses[selectedIndex!]?.row} C{addresses[selectedIndex!]?.column} L{addresses[selectedIndex!]?.layer}</span></div>}</div></section>}
+type IndexedPlacement = { placement: Placement; index: number };
+
+function doorTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 900;
+  canvas.height = 700;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = '#1769d2';
+  ctx.lineWidth = 18;
+  ctx.setLineDash([34, 22]);
+  ctx.strokeRect(85, 105, 730, 465);
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#165dcc';
+  ctx.textAlign = 'center';
+  ctx.font = '800 72px sans-serif';
+  ctx.fillText('CONTAINER DOOR', 450, 300);
+  ctx.font = '800 58px sans-serif';
+  ctx.fillText('문', 450, 385);
+  ctx.font = '800 72px sans-serif';
+  ctx.fillText('←        →', 450, 500);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function CargoGroup({
+  items,
+  container,
+  scale,
+  selectedIndex,
+  onSelect,
+}: {
+  items: IndexedPlacement[];
+  container: ContainerSpec;
+  scale: number;
+  selectedIndex: number | null;
+  onSelect: (index: number) => void;
+}) {
+  const ref = useRef<THREE.InstancedMesh>(null);
+  const cargoId = items[0]?.placement.cargoId ?? '';
+  const base = useMemo(() => new THREE.Color(cargoColor(cargoId)), [cargoId]);
+
+  useLayoutEffect(() => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    const object = new THREE.Object3D();
+    items.forEach(({ placement, index }, instanceIndex) => {
+      object.position.set(
+        (placement.x + placement.length / 2) * scale - container.length * scale / 2,
+        (placement.z + placement.height / 2) * scale + 0.03,
+        (placement.y + placement.width / 2) * scale - container.width * scale / 2,
+      );
+      object.scale.set(placement.length * scale * 0.985, placement.height * scale * 0.985, placement.width * scale * 0.985);
+      object.updateMatrix();
+      mesh.setMatrixAt(instanceIndex, object.matrix);
+      const color = base.clone();
+      if (selectedIndex !== null && selectedIndex !== index) color.multiplyScalar(0.86);
+      if (selectedIndex === index) color.lerp(new THREE.Color('#ffffff'), 0.22);
+      mesh.setColorAt(instanceIndex, color);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }, [items, container, scale, base, selectedIndex]);
+
+  return (
+    <instancedMesh
+      ref={ref}
+      args={[undefined, undefined, items.length]}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (event.instanceId === undefined) return;
+        const value = items[event.instanceId];
+        if (value) onSelect(value.index);
+      }}
+      castShadow
+      receiveShadow
+    >
+      <boxGeometry />
+      <meshStandardMaterial roughness={0.58} metalness={0.01} />
+    </instancedMesh>
+  );
+}
+
+function BoxOutline({ p, container, scale }: { p: Placement; container: ContainerSpec; scale: number }) {
+  const position: [number, number, number] = [
+    (p.x + p.length / 2) * scale - container.length * scale / 2,
+    (p.z + p.height / 2) * scale + 0.03,
+    (p.y + p.width / 2) * scale - container.width * scale / 2,
+  ];
+  return (
+    <mesh position={position} scale={[p.length * scale * 1.02, p.height * scale * 1.02, p.width * scale * 1.02]}>
+      <boxGeometry />
+      <meshBasicMaterial transparent opacity={0} />
+      <Edges color="#163b66" linewidth={1.4} />
+    </mesh>
+  );
+}
+
+function ContainerShell({ container, scale }: { container: ContainerSpec; scale: number }) {
+  const length = container.length * scale;
+  const width = container.width * scale;
+  const height = container.height * scale;
+  const doorX = length / 2;
+  const texture = useMemo(() => doorTexture(), []);
+  useEffect(() => () => texture.dispose(), [texture]);
+
+  return (
+    <group>
+      <mesh position={[0, -0.025, 0]} receiveShadow>
+        <boxGeometry args={[length, 0.05, width]} />
+        <meshStandardMaterial color="#e7eef6" roughness={0.9} />
+        <Edges color="#526f90" />
+      </mesh>
+      <mesh position={[0, height / 2, -width / 2]}>
+        <boxGeometry args={[length, height, 0.025]} />
+        <meshBasicMaterial color="#e8f0f8" transparent opacity={0.13} />
+        <Edges color="#66819f" linewidth={1.2} />
+      </mesh>
+      <mesh position={[0, height / 2, width / 2]}>
+        <boxGeometry args={[length, height, 0.025]} />
+        <meshBasicMaterial color="#e8f0f8" transparent opacity={0.05} />
+        <Edges color="#7e94ad" />
+      </mesh>
+      <mesh position={[0, height, 0]}>
+        <boxGeometry args={[length, 0.025, width]} />
+        <meshBasicMaterial color="#f8fbff" transparent opacity={0.1} />
+        <Edges color="#7e94ad" />
+      </mesh>
+      <mesh position={[-length / 2, height / 2, 0]}>
+        <boxGeometry args={[0.03, height, width]} />
+        <meshBasicMaterial color="#f4f8fc" transparent opacity={0.16} />
+        <Edges color="#526f90" linewidth={1.4} />
+      </mesh>
+      <group position={[doorX + 0.022, height / 2, 0]} rotation={[0, Math.PI / 2, 0]}>
+        <mesh>
+          <planeGeometry args={[width * 0.96, height * 0.96]} />
+          <meshBasicMaterial map={texture} transparent toneMapped={false} side={THREE.DoubleSide} depthWrite={false} />
+        </mesh>
+        <mesh position={[0, 0, -0.018]}>
+          <boxGeometry args={[width, height, 0.035]} />
+          <meshBasicMaterial color="#e8f2ff" transparent opacity={0.08} />
+          <Edges color="#2573d9" linewidth={2} />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+export default function BoxLoadingViewerReference({ result, container }: { result: LoadingResult; container: ContainerSpec }) {
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [view, setView] = useState<PreviewView>('free');
+  const [showLabels, setShowLabels] = useState(readBoxLabelPreference);
+  const scale = 0.5;
+  const cargoMap = useMemo(() => new Map((readStoredState()?.cargo ?? []).map((item) => [item.id, item] as [string, CargoItem])), [result.placements]);
+  const addresses = useMemo(() => buildPlacementAddresses(result.placements, container.length), [result.placements, container.length]);
+  const groups = useMemo(() => {
+    const map = new Map<string, IndexedPlacement[]>();
+    result.placements.forEach((placement, index) => {
+      const list = map.get(placement.cargoId) ?? [];
+      list.push({ placement, index });
+      map.set(placement.cargoId, list);
+    });
+    return [...map.entries()];
+  }, [result.placements]);
+  const selected = selectedIndex === null ? undefined : result.placements[selectedIndex];
+  const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
+
+  const change = (index: number | null) => {
+    setSelectedIndex(index);
+    selectPlacement(index);
+  };
+  const toggleLabels = () => setShowLabels((current) => {
+    const next = !current;
+    saveBoxLabelPreference(next);
+    return next;
+  });
+
+  useEffect(() => {
+    const onSelect = (event: Event) => {
+      const index = (event as CustomEvent<PlacementSelectDetail>).detail?.index ?? null;
+      if (index !== null && !result.placements[index]) return;
+      setSelectedIndex(index);
+    };
+    window.addEventListener(PLACEMENT_SELECT_EVENT, onSelect);
+    return () => window.removeEventListener(PLACEMENT_SELECT_EVENT, onSelect);
+  }, [result.placements]);
+
+  return (
+    <section className="viewer reference-viewer">
+      <div className="reference-3d">
+        <PreviewViewControls view={view} onViewChange={setView} showLabels={showLabels} onToggleLabels={toggleLabels} />
+        <Canvas shadows camera={{ position: [7.6, 4.8, 7.2], fov: 46 }} dpr={[1, 1.25]} gl={{ antialias: true, powerPreference: 'high-performance' }} onPointerMissed={() => change(null)}>
+          <color attach="background" args={['#edf3f9']} />
+          <ambientLight intensity={2.1} />
+          <directionalLight castShadow position={[3, 7, 5]} intensity={2.5} />
+          <ContainerShell container={container} scale={scale} />
+          <AxisGuide container={container} scale={scale} />
+          <ClearanceGuide container={container} placements={result.placements} scale={scale} />
+          {groups.map(([id, items]) => (
+            <group key={id}>
+              <CargoGroup items={items} container={container} scale={scale} selectedIndex={selectedIndex} onSelect={(index) => change(index)} />
+              {showLabels && (
+                <CargoFaceInfoLabels
+                  placements={items.map(({ placement }) => placement)}
+                  container={container}
+                  scale={scale}
+                  displayName={cargoMap.get(id)?.name ?? id}
+                />
+              )}
+            </group>
+          ))}
+          {selected && <BoxOutline p={selected} container={container} scale={scale} />}
+          <PreviewCameraController view={view} container={container} scale={scale} />
+        </Canvas>
+        {clearances && (
+          <div className="reference-clearance-strip">
+            <span>안쪽 <b>{clearances.back}</b></span>
+            <span>문쪽 <b>{clearances.door}</b></span>
+            <span>좌측 <b>{clearances.left}</b></span>
+            <span>우측 <b>{clearances.right}</b></span>
+            <span>천장 <b>{clearances.top}</b></span>
+          </div>
+        )}
+        {selected && (
+          <div className="reference-selected">
+            <i style={{ background: cargoColor(selected.cargoId) }} />
+            <b>{cargoMap.get(selected.cargoId)?.name || selected.cargoId}</b>
+            <span>{selected.weightKg}kg · {(selected.length * selected.width * selected.height).toFixed(3)} CBM · R{addresses[selectedIndex!]?.row} C{addresses[selectedIndex!]?.column} L{addresses[selectedIndex!]?.layer}</span>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
