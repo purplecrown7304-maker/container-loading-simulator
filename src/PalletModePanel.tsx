@@ -8,9 +8,11 @@ import { centerPalletCargo } from './engine/palletCentering';
 import { validatePlacements } from './engine/constraints';
 import { defaultPalletSpec, packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
+import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
 import { clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
 import { PreviewCameraController, PreviewViewControls, readBoxLabelPreference, saveBoxLabelPreference, type PreviewView } from './PreviewViewControls';
 import { AxisGuide, ClearanceGuide, clearanceValues } from './SceneGuides';
+import SecuringAids3D from './SecuringAids3D';
 
 type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number };
 type PalletSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult };
@@ -156,7 +158,7 @@ function palletForPlacement(result: OptimizedPalletPackingResult, box: Placement
   ));
 }
 
-function PalletScene({ container, result, spec, cargo, onOpen, view, showLabels }: { container: ContainerSpec; result: OptimizedPalletPackingResult; spec: PalletSpec; cargo: CargoItem[]; onOpen: (p: PalletLoad) => void; view: PreviewView; showLabels: boolean }) {
+function PalletScene({ container, result, spec, cargo, onOpen, view, showLabels, securingUsage }: { container: ContainerSpec; result: OptimizedPalletPackingResult; spec: PalletSpec; cargo: CargoItem[]; onOpen: (p: PalletLoad) => void; view: PreviewView; showLabels: boolean; securingUsage: SecuringUsage | null }) {
   const scale = 0.42;
   const groups = useMemo(() => {
     const map = new Map<string, Placement[]>();
@@ -202,6 +204,7 @@ function PalletScene({ container, result, spec, cargo, onOpen, view, showLabels 
           )}
         </group>
       ))}
+      <SecuringAids3D container={container} pallets={result.pallets} usage={securingUsage} scale={scale} />
       {result.pallets.map((pallet) => {
         const px = (pallet.x + pallet.length / 2) * scale - container.length * scale / 2;
         const pz = (pallet.y + pallet.width / 2) * scale - container.width * scale / 2;
@@ -323,6 +326,10 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
   const [opened, setOpened] = useState<PalletLoad | null>(null);
   const [view, setView] = useState<PreviewView>('free');
   const [showLabels, setShowLabels] = useState(readBoxLabelPreference);
+  const [certification, setCertification] = useState<InertiaCertification | null>(() => {
+    const latest = readLatestInertiaCertification();
+    return latest?.mode === 'pallets' && latest.status === 'passed' ? latest : null;
+  });
 
   useEffect(() => {
     if (runToken === 0) return;
@@ -330,6 +337,7 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
     setSpec(safe);
     setResult(packCentered(container, cargo.filter((item) => item.quantity > 0), safe));
     setOpened(null);
+    setCertification(null);
   }, [runToken]);
 
   useEffect(() => {
@@ -340,10 +348,20 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
       setSpec(safe);
       setResult(packCentered(container, cargo.filter((item) => item.quantity > 0), safe));
       setOpened(null);
+      setCertification(null);
     };
     window.addEventListener(PALLET_SPEC_FROM_RESULTS_EVENT, onSpecFromResults);
     return () => window.removeEventListener(PALLET_SPEC_FROM_RESULTS_EVENT, onSpecFromResults);
   }, [container, cargo]);
+
+  useEffect(() => {
+    const onCertification = (event: Event) => {
+      const next = (event as CustomEvent<InertiaCertification>).detail;
+      setCertification(next?.mode === 'pallets' && next.status === 'passed' ? next : null);
+    };
+    window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
+    return () => window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
+  }, []);
 
   useEffect(() => {
     const snapshot: PalletSnapshot = { spec, result };
@@ -356,6 +374,7 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
   }, []);
 
   useEffect(() => {
+    setCertification(null);
     const loadingResult: LoadingResult = {
       placements: result.placements,
       remaining: result.remaining,
@@ -379,6 +398,7 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
   }, [container, cargo, result]);
 
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
+  const securingUsage = certification?.securing ?? null;
   const toggleLabels = () => setShowLabels((current) => {
     const next = !current;
     saveBoxLabelPreference(next);
@@ -393,8 +413,16 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
             <PreviewViewControls view={view} onViewChange={setView} showLabels={showLabels} onToggleLabels={toggleLabels} />
             <Canvas camera={{ position: [6.2, 4.8, 6.6], fov: 46 }} dpr={[1, 1.25]} gl={{ antialias: true, powerPreference: 'high-performance' }} onContextMenu={(event) => event.nativeEvent.preventDefault()}>
               <color attach="background" args={['#edf3f9']} />
-              <PalletScene container={container} result={result} spec={spec} cargo={cargo} onOpen={setOpened} view={view} showLabels={showLabels} />
+              <PalletScene container={container} result={result} spec={spec} cargo={cargo} onOpen={setOpened} view={view} showLabels={showLabels} securingUsage={securingUsage} />
             </Canvas>
+            {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip">
+              <b>관성 보강 적용</b>
+              <span>밴딩 {securingUsage.bandingStraps}줄</span>
+              <span>각대 {securingUsage.cornerGuards}EA</span>
+              <span>랩핑 {securingUsage.wrappingLengthM.toFixed(0)}m</span>
+              <span>미끄럼방지 {securingUsage.antiSlipMats}EA</span>
+              {securingUsage.loadBars > 0 && <span>고정바 {securingUsage.loadBars}EA</span>}
+            </div>}
             {clearances && (
               <div className="reference-clearance-strip">
                 <span>안쪽 <b>{clearances.back}</b></span>
@@ -414,6 +442,8 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
           <div><span>총 팔레트화 중량</span><strong>{result.totalPalletizedWeightKg.toFixed(0)} kg</strong></div>
           <div><span>전역 최적화</span><strong>{result.optimization.selectedStackTarget}단 후보 · 바닥 {result.optimization.floorPositions}열</strong></div>
           <div><span>재배치 / 병합</span><strong>{result.optimization.redistributedForLowUtilization ? '균등분산' : '기본배치'} · {result.optimization.consolidationPasses}회</strong></div>
+          <div><span>관성 보강</span><strong>{securingUsage?.levelLabel ?? '결과 보기 전 검증'}</strong></div>
+          <div><span>보조자재 중량</span><strong>{securingUsage ? `약 ${securingUsage.estimatedNonCargoWeightKg.toFixed(1)} kg` : '-'}</strong></div>
         </div>
       </section>
     </div>
