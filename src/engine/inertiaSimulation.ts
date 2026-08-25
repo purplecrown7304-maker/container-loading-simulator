@@ -14,6 +14,15 @@ const SIMULATION_HZ = 60;
 
 export type InertiaPhase = 'settle' | 'force' | 'coast';
 
+export type InertiaSecuringProfile = {
+  /** 접촉면 마찰계수. 미끄럼방지재/포장 보강을 단순화해 반영한다. */
+  frictionCoefficient?: number;
+  /** 밴딩·랩핑·각대 등으로 화물 관성력이 적재면에 전달되는 비율(0~0.95). */
+  cargoRetentionRatio?: number;
+  /** 팔레트 미끄럼방지/고정으로 팔레트 관성력이 바닥에 전달되는 비율(0~0.95). */
+  supportRetentionRatio?: number;
+};
+
 export type InertiaAnimationFrame = {
   cargo: Float32Array;
   supports: Float32Array;
@@ -105,6 +114,7 @@ function packTransforms(entries: Array<{ body: { translation: () => { x: number;
 /**
  * Rapier 월드의 실제 강체 위치/회전을 프레임으로 기록한다.
  * UI는 이 결과를 재생만 하므로 검증 엔진과 동일한 충돌/마찰/중력 동작을 눈으로 확인할 수 있다.
+ * securing은 밴딩·각대·랩핑·미끄럼방지재의 구속 효과를 비교용 계수로 반영한다.
  */
 export async function runInertiaAnimation(
   container: ContainerSpec,
@@ -112,17 +122,21 @@ export async function runInertiaAnimation(
   scenario: PhysicsScenario,
   supports: PhysicsSupport[] = [],
   onProgress?: (value: number) => void,
+  securing?: InertiaSecuringProfile,
 ): Promise<InertiaAnimationResult> {
   const RAPIER = await getRapier();
   const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   const totalSteps = chooseStepCount(placements.length + supports.length);
   const frames: InertiaAnimationFrame[] = [];
+  const friction = Math.max(0.05, Math.min(2, securing?.frictionCoefficient ?? DEFAULT_FRICTION));
+  const cargoRetentionRatio = Math.max(0, Math.min(0.95, securing?.cargoRetentionRatio ?? 0));
+  const supportRetentionRatio = Math.max(0, Math.min(0.95, securing?.supportRetentionRatio ?? 0));
 
   const fixed = (hx: number, hy: number, hz: number, x: number, y: number, z: number) => {
     world.createCollider(
       RAPIER.ColliderDesc.cuboid(hx, hy, hz)
         .setTranslation(x, y, z)
-        .setFriction(DEFAULT_FRICTION)
+        .setFriction(friction)
         .setRestitution(DEFAULT_RESTITUTION),
     );
   };
@@ -141,6 +155,7 @@ export async function runInertiaAnimation(
     item: Pick<Placement, 'x' | 'y' | 'z' | 'length' | 'width' | 'height'>,
     weightKg: number,
     dynamic: boolean,
+    retentionRatio: number,
   ) => {
     const center = toPhysicsCenter(container, item);
     const desc = dynamic ? RAPIER.RigidBodyDesc.dynamic() : RAPIER.RigidBodyDesc.fixed();
@@ -151,14 +166,14 @@ export async function runInertiaAnimation(
       Math.max(EPS, item.length / 2 - 0.0005),
       Math.max(EPS, item.height / 2 - 0.0005),
       Math.max(EPS, item.width / 2 - 0.0005),
-    ).setFriction(DEFAULT_FRICTION).setRestitution(DEFAULT_RESTITUTION);
+    ).setFriction(friction).setRestitution(DEFAULT_RESTITUTION);
     if (dynamic) collider.setMass(Math.max(0.01, weightKg));
     world.createCollider(collider, body);
-    return { body, center, massKg: Math.max(0.01, weightKg), dynamic };
+    return { body, center, massKg: Math.max(0.01, weightKg), dynamic, retentionRatio };
   };
 
-  const cargoBodies = placements.map(item => createBody(item, item.weightKg, true));
-  const supportBodies = supports.map(item => createBody(item, item.weightKg, item.dynamic !== false));
+  const cargoBodies = placements.map(item => createBody(item, item.weightKg, true, cargoRetentionRatio));
+  const supportBodies = supports.map(item => createBody(item, item.weightKg, item.dynamic !== false, supportRetentionRatio));
   const dynamicBodies = [...cargoBodies, ...supportBodies].filter(entry => entry.dynamic);
   let maxHorizontalShiftM = 0;
   let maxTiltDeg = 0;
@@ -189,7 +204,12 @@ export async function runInertiaAnimation(
       dynamicBodies.forEach(entry => {
         entry.body.resetForces(false);
         if (accel.x || accel.z) {
-          entry.body.addForce({ x: accel.x * entry.massKg, y: 0, z: accel.z * entry.massKg }, true);
+          const transmittedRatio = 1 - entry.retentionRatio;
+          entry.body.addForce({
+            x: accel.x * entry.massKg * transmittedRatio,
+            y: 0,
+            z: accel.z * entry.massKg * transmittedRatio,
+          }, true);
         }
       });
       world.step();
