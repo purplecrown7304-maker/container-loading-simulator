@@ -21,10 +21,13 @@ const palletTarget: PhysicsTarget = {
   container: { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 },
   cargo: [{ id: 'A', name: 'A', length: 0.5, width: 0.4, height: 0.3, weightKg: 10, quantity: 1 }],
   result: {
-    placements: [{ cargoId: 'A', x: 0, y: 0, z: 0.15, length: 0.5, width: 0.4, height: 0.3, weightKg: 10 }],
+    placements: [
+      { cargoId: 'A', x: 0, y: 0, z: 0.15, length: 0.5, width: 0.4, height: 0.3, weightKg: 10 },
+      { cargoId: 'A', x: 1.1, y: 0, z: 0.15, length: 0.5, width: 0.4, height: 0.6, weightKg: 10 },
+    ],
     remaining: [],
-    loadedWeightKg: 35,
-    usedVolumeM3: 0.06,
+    loadedWeightKg: 70,
+    usedVolumeM3: 0.18,
     validationIssues: [],
   },
   supports: [
@@ -69,7 +72,16 @@ describe('inertia certification', () => {
     expect(usage.cornerGuards).toBe(8);
     expect(usage.antiSlipMats).toBe(2);
     expect(usage.dunnageBlocks).toBe(0);
+    expect(usage.bandingLengthM).toBeGreaterThan(0);
+    expect(usage.cornerGuardLengthM).toBeCloseTo(3.6, 5);
     expect(usage.estimatedNonCargoWeightKg).toBeGreaterThan(50);
+  });
+
+  it('increases wrapping length from actual pallet load height at level 2', () => {
+    const usage = buildSecuringUsage(palletTarget, 2);
+    expect(usage.bandingStraps).toBe(6);
+    expect(usage.wrappingLengthM).toBeGreaterThan(0);
+    expect(usage.cornerGuardLengthM).toBeCloseTo(3.6, 5);
   });
 
   it('uses blocking materials instead of pallet banding for direct-box reinforcement', () => {
@@ -77,6 +89,7 @@ describe('inertia certification', () => {
     expect(usage.palletCount).toBe(0);
     expect(usage.bandingStraps).toBe(0);
     expect(usage.cornerGuards).toBe(0);
+    expect(usage.cornerGuardLengthM).toBe(0);
     expect(usage.dunnageBlocks).toBeGreaterThanOrEqual(4);
     expect(usage.loadBars).toBe(2);
     expect(usage.antiSlipMats).toBeGreaterThanOrEqual(2);
