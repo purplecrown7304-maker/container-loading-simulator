@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { cargoColor } from './cargoColors';
+import { CargoFaceInfoLabels } from './CargoFaceInfoLabels';
 import { validatePlacements } from './engine/constraints';
 import { defaultPalletSpec, packOnPallets, type PalletLoad, type PalletPackingResult, type PalletSpec } from './engine/palletPacking';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
@@ -11,32 +12,6 @@ import { PreviewCameraController, PreviewViewControls, readBoxLabelPreference, s
 import { AxisGuide, ClearanceGuide, clearanceValues } from './SceneGuides';
 
 type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number };
-
-function cargoLabelTexture(item: CargoItem | undefined, p: Placement) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 300;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = 'rgba(255,255,255,.94)';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = '#475569';
-  ctx.lineWidth = 10;
-  ctx.strokeRect(8, 8, canvas.width - 16, canvas.height - 16);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#172033';
-  ctx.font = '700 54px sans-serif';
-  ctx.fillText((item?.name || p.cargoId).slice(0, 18), 256, 84);
-  ctx.font = '700 38px sans-serif';
-  ctx.fillText(`${p.weightKg.toFixed(p.weightKg % 1 ? 1 : 0)} kg`, 256, 154);
-  ctx.fillStyle = '#2563eb';
-  ctx.font = '700 32px sans-serif';
-  ctx.fillText(`${(p.length * p.width * p.height).toFixed(3)} CBM`, 256, 220);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
-  texture.needsUpdate = true;
-  return texture;
-}
 
 function PalletBoards({ container, result, spec, scale, onOpen }: { container: ContainerSpec; result: PalletPackingResult; spec: PalletSpec; scale: number; onOpen: (p: PalletLoad) => void }) {
   const ref = useRef<THREE.InstancedMesh>(null);
@@ -150,31 +125,6 @@ function CargoEdges({ container, placements, scale }: { container: ContainerSpec
   );
 }
 
-function CargoFaceLabels({ container, placements, scale, item }: { container: ContainerSpec; placements: Placement[]; scale: number; item?: CargoItem }) {
-  const sample = placements[0];
-  const texture = useMemo(() => sample ? cargoLabelTexture(item, sample) : null, [item, sample?.cargoId, sample?.length, sample?.width, sample?.height, sample?.weightKg]);
-  useEffect(() => () => texture?.dispose(), [texture]);
-  if (!texture) return null;
-
-  return (
-    <group>
-      {placements.map((box, index) => {
-        const cx = (box.x + box.length / 2) * scale - container.length * scale / 2;
-        const cy = (box.z + box.height / 2) * scale;
-        const cz = (box.y + box.width / 2) * scale - container.width * scale / 2;
-        const width = Math.max(0.12, box.length * scale * 0.7);
-        const height = Math.max(0.075, Math.min(box.height * scale * 0.68, width * 0.55));
-        return (
-          <mesh key={index} position={[cx, cy, cz + box.width * scale / 2 + 0.003]} renderOrder={9}>
-            <planeGeometry args={[width, height]} />
-            <meshBasicMaterial map={texture} toneMapped={false} transparent side={THREE.DoubleSide} />
-          </mesh>
-        );
-      })}
-    </group>
-  );
-}
-
 function palletForPlacement(result: PalletPackingResult, box: Placement) {
   return result.pallets.find((pallet) => pallet.cargoPlacements.includes(box) || pallet.cargoPlacements.some((candidate) =>
     Math.abs(candidate.x - box.x) < 1e-6 &&
@@ -220,7 +170,14 @@ function PalletScene({ container, result, spec, cargo, onOpen, view, showLabels 
             }}
           />
           <CargoEdges container={container} placements={placements} scale={scale} />
-          {showLabels && <CargoFaceLabels container={container} placements={placements} scale={scale} item={cargoMap.get(id)} />}
+          {showLabels && (
+            <CargoFaceInfoLabels
+              container={container}
+              placements={placements}
+              scale={scale}
+              displayName={cargoMap.get(id)?.name ?? id}
+            />
+          )}
         </group>
       ))}
       {result.pallets.map((pallet) => {
