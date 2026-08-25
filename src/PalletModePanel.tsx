@@ -63,7 +63,7 @@ function CargoInstances({ container, placements, scale, onOpen }: { container: C
         (box.z + box.height / 2) * scale,
         (box.y + box.width / 2) * scale - container.width * scale / 2,
       );
-      object.scale.set(box.length * scale * 0.99, box.height * scale * 0.99, box.width * scale * 0.99);
+      object.scale.set(box.length * scale * 0.985, box.height * scale * 0.985, box.width * scale * 0.985);
       object.updateMatrix();
       mesh.setMatrixAt(index, object.matrix);
       mesh.setColorAt(index, color);
@@ -98,7 +98,7 @@ function CargoEdges({ container, placements, scale }: { container: ContainerSpec
     box.dispose();
     return edges;
   }, []);
-  const material = useMemo(() => new THREE.LineBasicMaterial({ color: '#334155', transparent: true, opacity: 0.92 }), []);
+  const material = useMemo(() => new THREE.LineBasicMaterial({ color: '#16324f', transparent: false, depthTest: true, depthWrite: false }), []);
 
   useEffect(() => () => {
     geometry.dispose();
@@ -117,8 +117,8 @@ function CargoEdges({ container, placements, scale }: { container: ContainerSpec
             (box.z + box.height / 2) * scale,
             (box.y + box.width / 2) * scale - container.width * scale / 2,
           ]}
-          scale={[box.length * scale * 0.997, box.height * scale * 0.997, box.width * scale * 0.997]}
-          renderOrder={8}
+          scale={[box.length * scale * 1.006, box.height * scale * 1.006, box.width * scale * 1.006]}
+          renderOrder={16}
         />
       ))}
     </group>
