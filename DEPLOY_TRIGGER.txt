@@ -1,6 +1,5 @@
 Vercel production deployment trigger
-Retry after successful full-feature Preview verification
+2026-08-26T07:56+09:00
 Target: https://container-loading-simulator-1li2.vercel.app/
-Reason: production deploy of pallet footer layout + inertia test + assessment/improvement report
-Verified Preview build: d61cca9447bfea3d78010ca6279f8425e586efa6
-Source feature commit: 689292a461d4640ceada9c68f7fa2c177e2a0e93
+Reason: retry production deployment after Vercel Hobby limit window
+Source main commit before trigger: 7c6ee494c369899d0f2cbeec028c71d927b8bd11
