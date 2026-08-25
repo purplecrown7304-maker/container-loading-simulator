@@ -18,6 +18,7 @@ export type SecuringUsage = {
   cornerGuards: number;
   wrappingLengthM: number;
   antiSlipMats: number;
+  dunnageBlocks: number;
   loadBars: number;
   estimatedAddedWeightKg: number;
   estimatedNonCargoWeightKg: number;
@@ -65,8 +66,8 @@ type CertificationWindow = Window & { __containerLoadingLatestCertification?: In
 
 const LEVEL_LABEL: Record<SecuringLevel, string> = {
   0: '보조 고정 없음',
-  1: '1차 보강 · 밴딩+각대',
-  2: '2차 보강 · 밴딩+각대+랩핑',
+  1: '1차 보강 · 기본 고정',
+  2: '2차 보강 · 강화 고정',
   3: '3차 보강 · 최대 결속',
 };
 
@@ -104,9 +105,9 @@ export function securingProfileForLevel(mode: PhysicsTarget['mode'], level: Secu
     if (level === 2) return { frictionCoefficient: 0.84, cargoRetentionRatio: 0.58, supportRetentionRatio: 0.30 };
     return { frictionCoefficient: 0.92, cargoRetentionRatio: 0.78, supportRetentionRatio: 0.48 };
   }
-  if (level === 1) return { frictionCoefficient: 0.70, cargoRetentionRatio: 0.20, supportRetentionRatio: 0 };
-  if (level === 2) return { frictionCoefficient: 0.80, cargoRetentionRatio: 0.38, supportRetentionRatio: 0 };
-  return { frictionCoefficient: 0.88, cargoRetentionRatio: 0.58, supportRetentionRatio: 0 };
+  if (level === 1) return { frictionCoefficient: 0.72, cargoRetentionRatio: 0.16, supportRetentionRatio: 0 };
+  if (level === 2) return { frictionCoefficient: 0.82, cargoRetentionRatio: 0.34, supportRetentionRatio: 0 };
+  return { frictionCoefficient: 0.90, cargoRetentionRatio: 0.54, supportRetentionRatio: 0 };
 }
 
 export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel): SecuringUsage {
@@ -120,6 +121,7 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
   let cornerGuards = 0;
   let wrappingLengthM = 0;
   let antiSlipMats = 0;
+  let dunnageBlocks = 0;
   let loadBars = 0;
 
   if (target.mode === 'pallets' && level > 0) {
@@ -131,10 +133,10 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     wrappingLengthM = level >= 2 ? palletCount * (level === 2 ? 12 : 20) : 0;
     loadBars = level === 3 && palletCount > 0 ? 2 : 0;
   } else if (target.mode === 'boxes' && level > 0) {
-    antiSlipMats = Math.max(1, Math.ceil(target.result.placements.length / (level === 1 ? 24 : 16)));
+    const boxCount = Math.max(1, target.result.placements.length);
+    antiSlipMats = Math.max(2, Math.ceil(boxCount / (level === 1 ? 30 : 20)));
+    dunnageBlocks = Math.max(level === 1 ? 2 : level === 2 ? 4 : 6, Math.ceil(boxCount / 80) * 2);
     loadBars = level >= 2 ? 2 : 0;
-    bandingStraps = level === 3 ? Math.max(2, Math.ceil(target.result.placements.length / 40) * 2) : 0;
-    bandingLengthM = bandingStraps * 5.5;
   }
 
   // 실제 자재 규격이 입력되기 전까지 결과 비교용 보수적 기본 중량을 사용한다.
@@ -143,11 +145,16 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     cornerGuards * 0.18 +
     wrappingLengthM * 0.018 +
     antiSlipMats * 0.35 +
+    dunnageBlocks * 0.75 +
     loadBars * 4.5;
 
   return {
     level,
-    levelLabel: LEVEL_LABEL[level],
+    levelLabel: target.mode === 'pallets' && level > 0
+      ? level === 1 ? '1차 보강 · 밴딩+각대' : level === 2 ? '2차 보강 · 밴딩+각대+랩핑' : '3차 보강 · 최대 결속'
+      : target.mode === 'boxes' && level > 0
+        ? level === 1 ? '1차 보강 · 미끄럼방지+블로킹' : level === 2 ? '2차 보강 · 블로킹+고정바' : '3차 보강 · 최대 블로킹'
+        : LEVEL_LABEL[level],
     palletCount,
     palletWeightKg,
     bandingStraps,
@@ -155,6 +162,7 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     cornerGuards,
     wrappingLengthM,
     antiSlipMats,
+    dunnageBlocks,
     loadBars,
     estimatedAddedWeightKg,
     estimatedNonCargoWeightKg: palletWeightKg + estimatedAddedWeightKg,
@@ -195,7 +203,7 @@ export async function runInertiaCertification(
         target.supports ?? [],
         value => onProgress?.({
           level,
-          levelLabel: LEVEL_LABEL[level],
+          levelLabel: buildSecuringUsage(target, level).levelLabel,
           scenario,
           scenarioIndex: index + 1,
           scenarioCount: SCENARIOS.length,
