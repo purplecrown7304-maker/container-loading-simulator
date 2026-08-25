@@ -5,7 +5,7 @@ import {
   type PalletPackingResult,
   type PalletSpec,
 } from './palletPacking';
-import type { CargoItem, ContainerSpec, Placement } from './types';
+import type { CargoItem, ContainerSpec } from './types';
 
 export { defaultPalletSpec };
 export type { PalletLoad, PalletPackingResult, PalletSpec };
@@ -95,14 +95,25 @@ function cargoCountsFromLoads(loads: PalletLoad[], cargoMap: Map<string, CargoIt
   });
 }
 
-function rebuildMetrics(base: PalletPackingResult, pallets: PalletLoad[], extraConsolidated: number): PalletPackingResult {
+function recalcLateralImbalance(pallets: PalletLoad[], container: ContainerSpec) {
+  let left = 0;
+  let right = 0;
+  for (const pallet of pallets) {
+    if (pallet.centerOfGravity.y < container.width / 2) left += pallet.totalWeightKg;
+    else right += pallet.totalWeightKg;
+  }
+  return Math.abs(left - right);
+}
+
+function rebuildMetrics(
+  base: PalletPackingResult,
+  pallets: PalletLoad[],
+  extraConsolidated: number,
+  container: ContainerSpec,
+): PalletPackingResult {
   const normalized = pallets.map((pallet, index) => ({ ...pallet, palletIndex: index + 1 }));
   const placements = normalized.flatMap((pallet) => pallet.cargoPlacements);
-  const leftWeight = normalized
-    .filter((pallet) => pallet.centerOfGravity.y < 0)
-    .reduce((sum, pallet) => sum + pallet.totalWeightKg, 0);
   const totalWeight = normalized.reduce((sum, pallet) => sum + pallet.totalWeightKg, 0);
-  // 기존 좌우 편차는 아래 redistribute 단계에서 컨테이너 폭 기준으로 다시 계산한다.
   return {
     ...base,
     pallets: normalized,
@@ -115,15 +126,11 @@ function rebuildMetrics(base: PalletPackingResult, pallets: PalletLoad[], extraC
     consolidatedPallets: base.consolidatedPallets + extraConsolidated,
     stackedPallets: normalized.filter((pallet) => pallet.stackLevel > 1).length,
     maxUsedStackLevel: normalized.reduce((max, pallet) => Math.max(max, pallet.stackLevel), 1),
-    lateralImbalanceKg: Math.abs(leftWeight - (totalWeight - leftWeight)),
+    lateralImbalanceKg: recalcLateralImbalance(normalized, container),
   };
 }
 
-function canPairMerge(
-  first: PalletLoad,
-  second: PalletLoad,
-  all: PalletLoad[],
-) {
+function canPairMerge(first: PalletLoad, second: PalletLoad, all: PalletLoad[]) {
   const firstHasStackMate = all.some((pallet) => pallet !== first && pallet.stackColumn === first.stackColumn);
   const secondHasStackMate = all.some((pallet) => pallet !== second && pallet.stackColumn === second.stackColumn);
   return first.stackLevel === 1 && second.stackLevel === 1 && !firstHasStackMate && !secondHasStackMate;
@@ -157,7 +164,10 @@ function consolidateUntilStable(
           length: pallet.length,
           width: pallet.width,
           height: container.height,
-          maxPayloadKg: Math.min(container.maxPayloadKg, pallet.maxLoadKg + pallet.tareWeightKg + 20),
+          maxPayloadKg: Math.min(
+            container.maxPayloadKg,
+            pallet.maxLoadKg + pallet.tareWeightKg + pallet.cornerGuardWeightKg + pallet.wrappingWeightKg,
+          ),
         };
         const packed = packOnPalletsBase(virtualContainer, pairCargo, { ...pallet, maxStackLevels: 1 });
         if (packed.palletCount !== 1 || packed.placements.length !== expected || packed.remaining.some((item) => item.quantity > 0)) continue;
@@ -177,17 +187,7 @@ function consolidateUntilStable(
     }
   }
 
-  return { result: rebuildMetrics(input, pallets, passes), passes };
-}
-
-function recalcLateralImbalance(pallets: PalletLoad[], container: ContainerSpec) {
-  let left = 0;
-  let right = 0;
-  for (const pallet of pallets) {
-    if (pallet.centerOfGravity.y < container.width / 2) left += pallet.totalWeightKg;
-    else right += pallet.totalWeightKg;
-  }
-  return Math.abs(left - right);
+  return { result: rebuildMetrics(input, pallets, passes, container), passes };
 }
 
 /**
@@ -211,10 +211,10 @@ function redistributeForLowUtilization(
   }
   const columns = [...byColumn.entries()].sort((a, b) => Math.min(...a[1].map((p) => p.x)) - Math.min(...b[1].map((p) => p.x)));
   const rowCapacity = Math.max(1, Math.floor((container.width + EPS) / pallet.width));
-  const maxXIndex = Math.max(0, Math.floor((container.length - pallet.length + EPS) / pallet.length));
   const bandCount = Math.max(1, Math.ceil(columns.length / rowCapacity));
-  const xIndexes = Array.from({ length: bandCount }, (_, index) =>
-    bandCount === 1 ? 0 : Math.round(index * maxXIndex / (bandCount - 1)),
+  const maxX = Math.max(0, container.length - pallet.length);
+  const xSlots = Array.from({ length: bandCount }, (_, index) =>
+    bandCount === 1 ? 0 : index * maxX / (bandCount - 1),
   );
   const ySlots = Array.from({ length: rowCapacity }, (_, index) => index * pallet.width)
     .sort((a, b) => Math.abs(a + pallet.width / 2 - container.width / 2) - Math.abs(b + pallet.width / 2 - container.width / 2));
@@ -223,7 +223,7 @@ function redistributeForLowUtilization(
   columns.forEach(([, loads], columnIndex) => {
     const band = Math.floor(columnIndex / rowCapacity);
     const row = columnIndex % rowCapacity;
-    const x = Math.min(container.length - pallet.length, xIndexes[band] * pallet.length);
+    const x = Math.min(maxX, xSlots[band] ?? 0);
     const y = Math.min(container.width - pallet.width, ySlots[row] ?? 0);
     loads.forEach((load) => moved.push(moveLoad(load, x, y)));
   });
