@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "npx vitest run src/report.test.ts src/engine/palletPacking.test.ts src/engine/palletFieldQA.test.ts src/engine/floorLoad.test.ts && npm run build",
+  "buildCommand": "npx vitest run src/engine/physicsValidation.test.ts src/physicsReport.test.ts && npm run build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
