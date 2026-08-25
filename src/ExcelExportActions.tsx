@@ -7,6 +7,7 @@ import { buildWorkSequence } from './engine/workSequence';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { confirmUnverifiedExport, hasCurrentPhysicsVerification } from './exportVerification';
 import { createPhysicsTargetSignature, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
+import { defaultSecuringMaterialSettings } from './securingMaterialSettings';
 
 type Detail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type ExportWindow = Window & { __containerLoadingLatestResult?: Detail };
@@ -28,6 +29,7 @@ function exportWorkbook(detail: Detail, certification: InertiaCertification) {
   const unloadSteps = buildWorkSequence(container,cargo,result,'UNLOAD');
   const physicsVerified = hasCurrentPhysicsVerification();
   const securing = certification.securing;
+  const unit = securing.materialUnitWeights ?? defaultSecuringMaterialSettings;
 
   const summary = [
     ['항목', '값'],
@@ -64,13 +66,13 @@ function exportWorkbook(detail: Detail, certification: InertiaCertification) {
     X_m:step.x, Y_m:step.y, Z_m:step.z, 하역우선순위:step.unloadPriority ?? '', 작업지시:step.instruction,
   }));
   const materialRows = [
-    securing.palletCount > 0 ? { 자재: '팔레트', 수량: securing.palletCount, 단위: 'EA', 길이_m: '', 중량_kg: Number(securing.palletWeightKg.toFixed(2)), 비고: '팔레트/기존 포장 중량' } : null,
-    securing.bandingStraps > 0 ? { 자재: '밴딩', 수량: securing.bandingStraps, 단위: '줄', 길이_m: Number(securing.bandingLengthM.toFixed(2)), 중량_kg: Number((securing.bandingLengthM * 0.025).toFixed(2)), 비고: '적재 규격/높이 기반 계산' } : null,
-    securing.cornerGuards > 0 ? { 자재: '각대', 수량: securing.cornerGuards, 단위: 'EA', 길이_m: Number(securing.cornerGuardLengthM.toFixed(2)), 중량_kg: Number((securing.cornerGuardLengthM * 0.12).toFixed(2)), 비고: '총 세로 길이' } : null,
-    securing.wrappingLengthM > 0 ? { 자재: '랩핑 필름', 수량: 1, 단위: '작업', 길이_m: Number(securing.wrappingLengthM.toFixed(2)), 중량_kg: Number((securing.wrappingLengthM * 0.018).toFixed(2)), 비고: '50% 겹침 기준 추정' } : null,
-    securing.antiSlipMats > 0 ? { 자재: '미끄럼방지재', 수량: securing.antiSlipMats, 단위: 'EA', 길이_m: '', 중량_kg: Number((securing.antiSlipMats * 0.35).toFixed(2)), 비고: '바닥/접촉면' } : null,
-    securing.dunnageBlocks > 0 ? { 자재: '블로킹재', 수량: securing.dunnageBlocks, 단위: 'EA', 길이_m: '', 중량_kg: Number((securing.dunnageBlocks * 0.75).toFixed(2)), 비고: '빈 공간 이동 억제' } : null,
-    securing.loadBars > 0 ? { 자재: '고정바', 수량: securing.loadBars, 단위: 'EA', 길이_m: '', 중량_kg: Number((securing.loadBars * 4.5).toFixed(2)), 비고: '길이 방향 블로킹' } : null,
+    securing.palletCount > 0 ? { 자재: '팔레트', 수량: securing.palletCount, 단위: 'EA', 길이_m: '', 단위중량: '', 중량_kg: Number(securing.palletWeightKg.toFixed(2)), 비고: '팔레트/기존 포장 중량' } : null,
+    securing.bandingStraps > 0 ? { 자재: '밴딩', 수량: securing.bandingStraps, 단위: '줄', 길이_m: Number(securing.bandingLengthM.toFixed(2)), 단위중량: `${unit.bandingKgPerM} kg/m`, 중량_kg: Number((securing.bandingLengthM * unit.bandingKgPerM).toFixed(2)), 비고: '적재 규격/높이 기반 계산' } : null,
+    securing.cornerGuards > 0 ? { 자재: '각대', 수량: securing.cornerGuards, 단위: 'EA', 길이_m: Number(securing.cornerGuardLengthM.toFixed(2)), 단위중량: `${unit.cornerGuardKgPerM} kg/m`, 중량_kg: Number((securing.cornerGuardLengthM * unit.cornerGuardKgPerM).toFixed(2)), 비고: '총 세로 길이' } : null,
+    securing.wrappingLengthM > 0 ? { 자재: '랩핑 필름', 수량: 1, 단위: '작업', 길이_m: Number(securing.wrappingLengthM.toFixed(2)), 단위중량: `${unit.wrappingKgPerM} kg/m`, 중량_kg: Number((securing.wrappingLengthM * unit.wrappingKgPerM).toFixed(2)), 비고: '50% 겹침 기준 추정' } : null,
+    securing.antiSlipMats > 0 ? { 자재: '미끄럼방지재', 수량: securing.antiSlipMats, 단위: 'EA', 길이_m: '', 단위중량: `${unit.antiSlipKgPerEa} kg/EA`, 중량_kg: Number((securing.antiSlipMats * unit.antiSlipKgPerEa).toFixed(2)), 비고: '바닥/접촉면' } : null,
+    securing.dunnageBlocks > 0 ? { 자재: '블로킹재', 수량: securing.dunnageBlocks, 단위: 'EA', 길이_m: '', 단위중량: `${unit.dunnageKgPerEa} kg/EA`, 중량_kg: Number((securing.dunnageBlocks * unit.dunnageKgPerEa).toFixed(2)), 비고: '빈 공간 이동 억제' } : null,
+    securing.loadBars > 0 ? { 자재: '고정바', 수량: securing.loadBars, 단위: 'EA', 길이_m: '', 단위중량: `${unit.loadBarKgPerEa} kg/EA`, 중량_kg: Number((securing.loadBars * unit.loadBarKgPerEa).toFixed(2)), 비고: '길이 방향 블로킹' } : null,
   ].filter((item): item is NonNullable<typeof item> => Boolean(item));
 
   const wb = XLSX.utils.book_new();
@@ -79,7 +81,7 @@ function exportWorkbook(detail: Detail, certification: InertiaCertification) {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(placementRows), '배치좌표');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(floorRows), '바닥하중');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(checkRows), '제약조건');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(materialRows.length ? materialRows : [{ 자재: '추가 보조자재 없음', 수량: 0, 단위: '', 길이_m: '', 중량_kg: 0, 비고: '' }]), '보조자재');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(materialRows.length ? materialRows : [{ 자재: '추가 보조자재 없음', 수량: 0, 단위: '', 길이_m: '', 단위중량: '', 중량_kg: 0, 비고: '' }]), '보조자재');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(remainingRows), '미적재');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(correctionRows), '자동보정');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(toStepRows(loadSteps)), '적재작업순서');
