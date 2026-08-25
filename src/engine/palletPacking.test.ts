@@ -83,4 +83,26 @@ describe('packOnPallets', () => {
     const large = result.placements.find((placement) => placement.cargoId === 'LARGE');
     expect(large?.z).toBeCloseTo(0.15, 5);
   });
+
+  it('does not block pallet stacking only because maxTopLoadKg is unspecified', () => {
+    const result = packOnPallets(
+      { length: 1.1, width: 1.1, height: 2.6, maxPayloadKg: 5000 },
+      [box({ length: 0.55, width: 0.55, height: 0.45, quantity: 16, weightKg: 10, maxStackLayers: 2, maxTopLoadKg: undefined, allowRotation: false })],
+      { ...defaultPalletSpec, length: 1.1, width: 1.1, height: 0.15, maxLoadKg: 100, maxStackLevels: 2, maxSupportedTopWeightKg: 1000 },
+    );
+    expect(result.palletCount).toBeGreaterThan(1);
+    expect(result.maxUsedStackLevel).toBe(2);
+    expect(result.stackedPallets).toBeGreaterThan(0);
+  });
+
+  it('still blocks pallet stacking when a configured top-load limit is too low', () => {
+    const result = packOnPallets(
+      { length: 1.1, width: 1.1, height: 2.6, maxPayloadKg: 5000 },
+      [box({ length: 0.55, width: 0.55, height: 0.45, quantity: 16, weightKg: 10, maxStackLayers: 2, maxTopLoadKg: 1, allowRotation: false })],
+      { ...defaultPalletSpec, length: 1.1, width: 1.1, height: 0.15, maxLoadKg: 100, maxStackLevels: 2, maxSupportedTopWeightKg: 1000 },
+    );
+    expect(result.palletCount).toBeGreaterThan(1);
+    expect(result.maxUsedStackLevel).toBe(1);
+    expect(result.stackedPallets).toBe(0);
+  });
 });
