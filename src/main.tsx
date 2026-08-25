@@ -12,6 +12,7 @@ import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
 import PhysicsValidationTool from './PhysicsValidationTool';
 import InertiaTestTool from './InertiaTestTool';
 import InertiaTestLauncher from './InertiaTestLauncher';
+import PalletFooterSummaryBridge from './PalletFooterSummaryBridge';
 import './styles.css';
 import './mode.css';
 import './error.css';
@@ -40,6 +41,7 @@ import './physics-pallet.css';
 import './ui-layout-fixes.css';
 import './inertia-test.css';
 import './inertia-launcher.css';
+import './pallet-footer-summary.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -47,6 +49,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ReferenceWorkspaceBar />
       <ResultsOverlay />
       <App />
+      <PalletFooterSummaryBridge />
       <WorkspaceTools />
       <PhysicsValidationTool />
       <InertiaTestTool />
