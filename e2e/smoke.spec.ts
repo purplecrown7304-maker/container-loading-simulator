@@ -11,7 +11,7 @@ async function restoreSample(page: import('@playwright/test').Page) {
   await expect(page.locator('.cargo-list-item').first()).toBeVisible();
 }
 
-test('current dashboard and sample cargo workflow mount correctly', async ({ page }) => {
+test('current dashboard and field material settings mount correctly', async ({ page }) => {
   await page.goto('/');
 
   await expect(page.getByText('컨테이너 적재 시뮬레이터')).toBeVisible();
@@ -26,9 +26,26 @@ test('current dashboard and sample cargo workflow mount correctly', async ({ pag
   await expect(page.locator('.cargo-list-item')).not.toHaveCount(0);
   await expect(page.getByRole('button', { name: /물리 최적 자동 적재/ })).toBeEnabled();
   await expect(page.getByRole('button', { name: /Excel 내보내기/ })).toBeVisible();
+  await expect(page.getByText('적재 보조자재 실제 중량 설정')).toBeVisible();
 });
 
-test('final results are gated by automatic inertia certification', async ({ page }) => {
+test('box optimization automatically continues into final inertia certification', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await restoreSample(page);
+
+  await page.getByRole('button', { name: /물리 최적 자동 적재/ }).click();
+  const gate = page.locator('.final-cert-modal');
+  await expect(gate).toBeVisible({ timeout: 70_000 });
+  await expect(gate.getByRole('heading', { name: '최종 적재 결과 전 관성 검증' })).toBeVisible();
+  await expect(gate).toContainText('DIRECT BOX');
+  await expect(gate).toContainText('출발 가속');
+  await expect(gate).toContainText('급정거');
+  await expect(gate).toContainText('급회전');
+  await expect(gate).toContainText('통과 기준');
+});
+
+test('manual result view remains gated before a certified result exists', async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto('/');
   await restoreSample(page);
@@ -36,16 +53,12 @@ test('final results are gated by automatic inertia certification', async ({ page
   await page.locator('.viewer-bottom-actions .result-open-action').click();
   const gate = page.locator('.final-cert-modal');
   await expect(gate).toBeVisible({ timeout: 10_000 });
-  await expect(gate.getByRole('heading', { name: '최종 적재 결과 전 관성 검증' })).toBeVisible();
-  await expect(gate).toContainText('출발 가속');
-  await expect(gate).toContainText('급정거');
-  await expect(gate).toContainText('급회전');
-  await expect(gate).toContainText('통과 기준');
+  await expect(gate).toContainText('DIRECT BOX');
   await expect(page.locator('.results-modal')).toHaveCount(0);
 });
 
-test('pallet mode mounts optimized pallet preview and securing-ready metrics', async ({ page }) => {
-  test.setTimeout(40_000);
+test('pallet optimization automatically requests pallet inertia certification', async ({ page }) => {
+  test.setTimeout(70_000);
   await page.goto('/');
   await restoreSample(page);
 
@@ -56,8 +69,8 @@ test('pallet mode mounts optimized pallet preview and securing-ready metrics', a
   await expect(page.getByText('보조자재 중량', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: /물리 최적 자동 적재/ }).click();
-  await expect(page.locator('.pallet-preview canvas')).toBeVisible();
-  await expect(page.getByText(/전역 최적화/)).toBeVisible();
+  await expect(page.locator('.final-cert-modal')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.final-cert-modal')).toContainText('PALLET');
 });
 
 test('result gate distinguishes direct-box and pallet certification modes', async ({ page }) => {
