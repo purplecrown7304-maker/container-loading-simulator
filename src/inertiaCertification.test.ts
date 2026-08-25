@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import type { PhysicsTarget } from './physicsTarget';
-import { buildSecuringUsage, isInertiaStable, securingProfileForLevel } from './inertiaCertification';
+import { buildSecuringUsage, createPhysicsTargetSignature, isInertiaStable, securingProfileForLevel } from './inertiaCertification';
 
 function animation(shift: number, tilt: number): InertiaAnimationResult {
   return {
@@ -33,6 +33,28 @@ const palletTarget: PhysicsTarget = {
   ],
 };
 
+const boxTarget: PhysicsTarget = {
+  mode: 'boxes',
+  container: palletTarget.container,
+  cargo: palletTarget.cargo,
+  result: {
+    placements: Array.from({ length: 40 }, (_, index) => ({
+      cargoId: 'A',
+      x: (index % 10) * 0.5,
+      y: Math.floor(index / 10) * 0.4,
+      z: 0,
+      length: 0.5,
+      width: 0.4,
+      height: 0.3,
+      weightKg: 10,
+    })),
+    remaining: [],
+    loadedWeightKg: 400,
+    usedVolumeM3: 2.4,
+    validationIssues: [],
+  },
+};
+
 describe('inertia certification', () => {
   it('requires both movement and tilt to stay inside the stable threshold', () => {
     expect(isInertiaStable(animation(0.012, 1.8))).toBe(true);
@@ -46,7 +68,18 @@ describe('inertia certification', () => {
     expect(usage.bandingStraps).toBe(4);
     expect(usage.cornerGuards).toBe(8);
     expect(usage.antiSlipMats).toBe(2);
+    expect(usage.dunnageBlocks).toBe(0);
     expect(usage.estimatedNonCargoWeightKg).toBeGreaterThan(50);
+  });
+
+  it('uses blocking materials instead of pallet banding for direct-box reinforcement', () => {
+    const usage = buildSecuringUsage(boxTarget, 2);
+    expect(usage.palletCount).toBe(0);
+    expect(usage.bandingStraps).toBe(0);
+    expect(usage.cornerGuards).toBe(0);
+    expect(usage.dunnageBlocks).toBeGreaterThanOrEqual(4);
+    expect(usage.loadBars).toBe(2);
+    expect(usage.antiSlipMats).toBeGreaterThanOrEqual(2);
   });
 
   it('escalates the simulated restraint as the securing level increases', () => {
@@ -55,5 +88,17 @@ describe('inertia certification', () => {
     expect(max.cargoRetentionRatio).toBeGreaterThan(base.cargoRetentionRatio ?? 0);
     expect(max.supportRetentionRatio).toBeGreaterThan(base.supportRetentionRatio ?? 0);
     expect(max.frictionCoefficient).toBeGreaterThan(base.frictionCoefficient ?? 0);
+  });
+
+  it('changes target signature when a placement changes', () => {
+    const first = createPhysicsTargetSignature(boxTarget);
+    const moved: PhysicsTarget = {
+      ...boxTarget,
+      result: {
+        ...boxTarget.result,
+        placements: boxTarget.result.placements.map((item, index) => index === 0 ? { ...item, x: item.x + 0.1 } : item),
+      },
+    };
+    expect(createPhysicsTargetSignature(moved)).not.toBe(first);
   });
 });
