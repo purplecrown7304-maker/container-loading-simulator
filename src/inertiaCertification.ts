@@ -168,7 +168,7 @@ export function securingProfileForLevel(mode: PhysicsTarget['mode'], level: Secu
   if (level === 0) return { frictionCoefficient: 0.62, cargoRetentionRatio: 0, supportRetentionRatio: 0 };
   if (mode === 'pallets') {
     if (level === 1) return { frictionCoefficient: 0.74, cargoRetentionRatio: 0.36, supportRetentionRatio: 0.16 };
-    if (level === 2) return { frictionCoefficient: 0.84, cargoRetentionRatio: 0.58, supportRetentionRatio: 0.30 };
+    if (level === 2) return { frictionCoefficient: 0.84, cargoRetentionRatio: 0.58, supportRetentionRatio: 0.16 };
     return { frictionCoefficient: 0.92, cargoRetentionRatio: 0.78, supportRetentionRatio: 0.48 };
   }
   if (level === 1) return { frictionCoefficient: 0.72, cargoRetentionRatio: 0.16, supportRetentionRatio: 0 };
