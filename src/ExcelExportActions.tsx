@@ -49,13 +49,30 @@ function appendMaterialSheet(wb: XLSX.WorkBook, securing: SecuringUsage) {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ 자재: '추가 보조자재 없음', 수량: 0, 단위: '', 길이_m: '', 단위중량: '', 중량_kg: 0, 비고: '' }]), '보조자재');
 }
 
+function appendInertiaMetricsSheet(wb: XLSX.WorkBook, certification: InertiaCertification) {
+  const row = {
+    적재모드: certification.mode === 'pallets' ? '팔레트' : '박스 직접 적재',
+    전체최대이동_mm: Number((certification.maxHorizontalShiftM * 1000).toFixed(2)),
+    화물팔레트상대미끄럼_mm: certification.mode === 'pallets' ? Number(((certification.maxCargoRelativeSlipM ?? 0) * 1000).toFixed(2)) : '',
+    팔레트상대이동_mm: certification.mode === 'pallets' ? Number(((certification.maxSupportShiftM ?? 0) * 1000).toFixed(2)) : '',
+    최대기울기_deg: Number(certification.maxTiltDeg.toFixed(2)),
+    최대화물구속력_kN: Number(((certification.maxCargoRestraintForceN ?? 0) / 1000).toFixed(3)),
+    최대팔레트구속력_kN: Number(((certification.maxSupportRestraintForceN ?? 0) / 1000).toFixed(3)),
+    판정: certification.status === 'passed' ? 'PASS' : 'FAIL',
+    비고: '구속력은 내부 물리모델 비교값이며 실제 자재 정격을 대체하지 않음',
+  };
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([row]), '관성안전지표');
+}
+
 function appendInertiaHistorySheet(wb: XLSX.WorkBook, certification: InertiaCertification) {
   const rows = (certification.attempts ?? []).flatMap((attempt, attemptIndex) => {
     if (!attempt.scenarios.length) return [{
       순서: attemptIndex + 1,
       단계: attempt.level === 0 ? '기본 적재안' : attempt.levelLabel,
       시나리오: '-',
-      수평이동_mm: '',
+      전체수평이동_mm: '',
+      화물팔레트미끄럼_mm: '',
+      팔레트상대이동_mm: '',
       기울기_deg: '',
       판정: attempt.payloadWithinLimit ? '검증 미완료' : '보조자재 포함 최대중량 초과',
     }];
@@ -63,7 +80,9 @@ function appendInertiaHistorySheet(wb: XLSX.WorkBook, certification: InertiaCert
       순서: attemptIndex + 1,
       단계: attempt.level === 0 ? '기본 적재안' : attempt.levelLabel,
       시나리오: scenario.scenario === 'acceleration' ? '출발 가속' : scenario.scenario === 'braking' ? '급정거' : '급회전',
-      수평이동_mm: Number((scenario.maxHorizontalShiftM * 1000).toFixed(2)),
+      전체수평이동_mm: Number((scenario.maxHorizontalShiftM * 1000).toFixed(2)),
+      화물팔레트미끄럼_mm: certification.mode === 'pallets' ? Number(((scenario.maxCargoRelativeSlipM ?? 0) * 1000).toFixed(2)) : '',
+      팔레트상대이동_mm: certification.mode === 'pallets' ? Number(((scenario.maxSupportShiftM ?? 0) * 1000).toFixed(2)) : '',
       기울기_deg: Number(scenario.maxTiltDeg.toFixed(2)),
       판정: scenario.passed ? 'PASS' : 'FAIL',
     }));
@@ -89,7 +108,8 @@ function exportBoxWorkbook(detail: Detail, certification: InertiaCertification) 
     ['적재 부피(m3)', result.usedVolumeM3], ['적재 박스 수(EA)', result.placements.length],
     ['바닥 평균 하중(kg/m2)', Number(floor.averageKgPerM2.toFixed(1))], ['바닥 최대 하중(kg/m2)', Number(floor.maxKgPerM2.toFixed(1))],
     ['물리 안정성 검증', physicsVerified ? '검증 완료' : '별도 확인'],
-    ['최종 관성검증', `통과 · 최대 이동 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)}mm · 최대 기울기 ${certification.maxTiltDeg.toFixed(1)}°`],
+    ['최종 관성검증', `PASS · 전체 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)}mm · 기울기 ${certification.maxTiltDeg.toFixed(1)}°`],
+    ['내부 최대 화물 구속력(kN)', Number(((certification.maxCargoRestraintForceN ?? 0) / 1000).toFixed(3))],
     ['보강 단계', securing.levelLabel], ['박스 제외 보조자재 중량(kg)', Number(securing.estimatedNonCargoWeightKg.toFixed(2))],
   ];
   const cargoRows = cargo.map(item => ({ 코드: item.id, 품명: item.name, 요청수량: item.quantity, 적재수량: loadedByCargo.get(item.id) ?? 0, 잔량: Math.max(0, item.quantity - (loadedByCargo.get(item.id) ?? 0)), 길이_m: item.length, 폭_m: item.width, 높이_m: item.height, 개당중량_kg: item.weightKg, 최대적층단: item.maxStackLayers ?? '', 상부허용중량_kg: item.maxTopLoadKg ?? '', 회전허용: item.allowRotation !== false ? 'Y' : 'N', 하역순서: item.unloadPriority ?? '' }));
@@ -107,6 +127,7 @@ function exportBoxWorkbook(detail: Detail, certification: InertiaCertification) 
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(floorRows), '바닥하중');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(checkRows), '제약조건');
   appendMaterialSheet(wb, securing);
+  appendInertiaMetricsSheet(wb, certification);
   appendInertiaHistorySheet(wb, certification);
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(remainingRows), '미적재');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(correctionRows), '자동보정');
@@ -127,7 +148,10 @@ function exportPalletWorkbook(target: CurrentTarget, snapshot: PalletSnapshot, c
     ['팔레트 규격', `${snapshot.spec.length} × ${snapshot.spec.width} × ${snapshot.spec.height} m`],
     ['사용 팔레트(EA)', result.palletCount], ['바닥 위치(열)', result.optimization.floorPositions], ['적층 팔레트(EA)', result.stackedPallets], ['최대 적층단', result.maxUsedStackLevel],
     ['적재 화물(EA)', result.placements.length], ['화물 중량(kg)', Number(result.loadedCargoWeightKg.toFixed(2))], ['총 팔레트화 중량(kg)', Number(result.totalPalletizedWeightKg.toFixed(2))],
-    ['좌우 편차(kg)', Number(result.lateralImbalanceKg.toFixed(2))], ['관성검증', `PASS · ${(certification.maxHorizontalShiftM * 1000).toFixed(1)}mm / ${certification.maxTiltDeg.toFixed(1)}°`],
+    ['좌우 편차(kg)', Number(result.lateralImbalanceKg.toFixed(2))],
+    ['관성검증', `PASS · 전체 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)}mm · 화물↔팔레트 ${((certification.maxCargoRelativeSlipM ?? 0) * 1000).toFixed(1)}mm · 팔레트 ${((certification.maxSupportShiftM ?? 0) * 1000).toFixed(1)}mm · ${certification.maxTiltDeg.toFixed(1)}°`],
+    ['내부 최대 화물 구속력(kN)', Number(((certification.maxCargoRestraintForceN ?? 0) / 1000).toFixed(3))],
+    ['내부 최대 팔레트 구속력(kN)', Number(((certification.maxSupportRestraintForceN ?? 0) / 1000).toFixed(3))],
     ['보강 단계', securing.levelLabel], ['박스 제외 보조자재 중량(kg)', Number(securing.estimatedNonCargoWeightKg.toFixed(2))],
   ];
   const pallets = [...result.pallets].sort((a, b) => a.x - b.x || a.stackColumn - b.stackColumn || a.stackLevel - b.stackLevel || a.y - b.y).map((pallet, index) => {
@@ -186,6 +210,7 @@ function exportPalletWorkbook(target: CurrentTarget, snapshot: PalletSnapshot, c
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(boxes), '팔레트박스구성');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(securingRows.length ? securingRows : [{ 순서: 1, 팔레트: '추가 보강 없음', 결속작업순서: '기본 적재안으로 관성검증 통과' }]), '팔레트별결속');
   appendMaterialSheet(wb, securing);
+  appendInertiaMetricsSheet(wb, certification);
   appendInertiaHistorySheet(wb, certification);
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(remaining.length ? remaining : [{ 코드: '미적재 없음', 수량: 0, 사유: '' }]), '미적재');
   XLSX.writeFile(wb, `container-loading-pallet-${new Date().toISOString().slice(0, 10)}.xlsx`, { compression: true });
