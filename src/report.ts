@@ -1,10 +1,7 @@
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
-import { assessWeightBalance } from './engine/weightBalance';
-import { explainLoading } from './engine/explanation';
-import { analyzeFloorLoad } from './engine/floorLoad';
-import { analyzeConstraints } from './engine/constraintAnalysis';
 import { confirmUnverifiedExport, hasCurrentPhysicsVerification } from './exportVerification';
 import { createPhysicsTargetSignature, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
+import { buildProgressSvgs, buildSideViewSvg, buildTopViewSvg, buildWorkerStepGroups } from './workerReportGraphics';
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -15,11 +12,6 @@ function escapeHtml(value: unknown): string {
     .replaceAll("'", '&#039;');
 }
 
-function pointText(point?: { x: number; y: number; z: number }) {
-  if (!point) return '-';
-  return `X ${point.x.toFixed(2)} / Y ${point.y.toFixed(2)} / Z ${point.z.toFixed(2)}m`;
-}
-
 function matchingBoxCertification(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult): InertiaCertification | undefined {
   const certification = readLatestInertiaCertification();
   if (!certification || certification.status !== 'passed' || certification.mode !== 'boxes') return undefined;
@@ -27,67 +19,67 @@ function matchingBoxCertification(container: ContainerSpec, cargo: CargoItem[], 
   return certification.targetSignature === signature ? certification : undefined;
 }
 
-export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult): string {
-  const quality = assessWeightBalance(container, result);
-  const explanation = explainLoading(container, cargo, result);
-  const floor = analyzeFloorLoad(container, result, 12, 4);
-  const checks = analyzeConstraints(container, cargo, result, floor);
-  const totalVolume = container.length * container.width * container.height;
-  const fillRate = totalVolume > 0 ? result.usedVolumeM3 / totalVolume * 100 : 0;
-  const requested = new Map(cargo.map(item => [item.id, item.quantity]));
-  const loadedByCargo = new Map<string, number>();
-  result.placements.forEach(p => loadedByCargo.set(p.cargoId, (loadedByCargo.get(p.cargoId) ?? 0) + 1));
-  const generatedAt = new Date().toLocaleString('ko-KR');
-  const physicsVerified = typeof window !== 'undefined' && hasCurrentPhysicsVerification();
-  const inertiaCertification = matchingBoxCertification(container, cargo, result);
-  const securing = inertiaCertification?.securing;
+function rangeText(min: number, max: number, prefix: string) {
+  if (min <= 0 && max <= 0) return '-';
+  return min === max ? `${prefix}${min}` : `${prefix}${min}~${max}`;
+}
 
-  const cargoRows = cargo.map(item => {
-    const loaded = loadedByCargo.get(item.id) ?? 0;
-    return `<tr><td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.name)}</td><td>${item.quantity}</td><td>${loaded}</td><td>${Math.max(0, item.quantity - loaded)}</td><td>${item.weightKg}</td></tr>`;
+export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult): string {
+  const certification = matchingBoxCertification(container, cargo, result);
+  const securing = certification?.securing;
+  const physicsVerified = typeof window !== 'undefined' && hasCurrentPhysicsVerification();
+  const groups = buildWorkerStepGroups(container, cargo, result);
+  const topView = buildTopViewSvg(container, cargo, result, groups);
+  const sideView = buildSideViewSvg(container, cargo, result, groups);
+  const progressViews = buildProgressSvgs(container, result, groups);
+  const generatedAt = new Date().toLocaleString('ko-KR');
+
+  const workRows = groups.map(group => {
+    const steps = group.fromStep === group.toStep ? `${group.fromStep}` : `${group.fromStep}~${group.toStep}`;
+    const rows = rangeText(group.minRow, group.maxRow, 'R');
+    const columns = rangeText(group.minColumn, group.maxColumn, 'C');
+    return `<tr>
+      <td class="group-no"><b>${group.group}</b></td>
+      <td><b>${escapeHtml(group.cargoId)}</b><small>${escapeHtml(group.label)}</small></td>
+      <td><b>${group.quantity} EA</b><small>박스순서 ${steps}</small></td>
+      <td><b>${escapeHtml(group.zone)} · ${group.layer}단</b><small>${rows} / ${columns}</small></td>
+      <td class="check">□</td>
+    </tr>`;
   }).join('');
 
-  const explanationRows = explanation.cargo.map(item => `<tr><td>${escapeHtml(item.cargoId)}</td><td>${escapeHtml(item.zone)}</td><td>${item.rotated}</td><td>${item.priorityScore.toFixed(3)}</td><td>${item.reasons.map(escapeHtml).join('<br>')}</td></tr>`).join('');
-  const ruleSummary = explanation.summary.map(item => `<li>${escapeHtml(item)}</li>`).join('');
-  const checkRows = checks.map(item => `<tr><td>${escapeHtml(item.label)}</td><td class="status-${item.status}">${item.status === 'pass' ? '통과' : item.status === 'warn' ? '확인' : '실패'}</td><td>${escapeHtml(item.detail)}</td></tr>`).join('');
-  const floorRows = floor.cells.map(cell => `<tr><td>${cell.row + 1}</td><td>${cell.column + 1}</td><td>${cell.loadKg.toFixed(1)}</td><td>${cell.kgPerM2.toFixed(0)}</td></tr>`).join('');
-
-  const correctionRows = result.autoCorrections?.length
-    ? result.autoCorrections.map(item => `<tr><td>${escapeHtml(item.label)}</td><td>${escapeHtml(item.cargoId ?? '-')}</td><td>${escapeHtml(item.description)}</td><td>${escapeHtml(pointText(item.from))}</td><td>${escapeHtml(pointText(item.to))}</td><td>${item.beforeScore !== undefined && item.afterScore !== undefined ? `${item.beforeScore.toFixed(2)} → ${item.afterScore.toFixed(2)}` : '-'}</td></tr>`).join('')
-    : '<tr><td colspan="6">자동 재배치 없음</td></tr>';
-
-  const remainingRows = result.remaining.length
-    ? result.remaining.map(item => `<tr><td>${escapeHtml(item.cargoId)}</td><td>${item.quantity}</td><td>${escapeHtml(item.reason)}</td></tr>`).join('')
-    : '<tr><td colspan="3">미적재 화물 없음</td></tr>';
-
-  const securingItems: Array<[string, string, string]> = [];
+  const materialItems: Array<[string, string]> = [];
   if (securing) {
-    if (securing.palletCount > 0) securingItems.push(['팔레트', `${securing.palletCount} EA`, `${securing.palletWeightKg.toFixed(1)} kg`]);
-    if (securing.bandingStraps > 0) securingItems.push(['밴딩', `${securing.bandingStraps} 줄`, `${securing.bandingLengthM.toFixed(1)} m`]);
-    if (securing.cornerGuards > 0) securingItems.push(['각대', `${securing.cornerGuards} EA`, '모서리 보호']);
-    if (securing.wrappingLengthM > 0) securingItems.push(['랩핑', `${securing.wrappingLengthM.toFixed(0)} m`, '스트레치 필름']);
-    if (securing.antiSlipMats > 0) securingItems.push(['미끄럼방지재', `${securing.antiSlipMats} EA`, '바닥/접촉면']);
-    if (securing.dunnageBlocks > 0) securingItems.push(['블로킹재', `${securing.dunnageBlocks} EA`, '빈 공간 이동 억제']);
-    if (securing.loadBars > 0) securingItems.push(['고정바', `${securing.loadBars} EA`, '길이 방향 블로킹']);
+    if (securing.antiSlipMats > 0) materialItems.push(['미끄럼방지재', `${securing.antiSlipMats} EA`]);
+    if (securing.dunnageBlocks > 0) materialItems.push(['블로킹재', `${securing.dunnageBlocks} EA`]);
+    if (securing.loadBars > 0) materialItems.push(['고정바', `${securing.loadBars} EA`]);
+    if (securing.bandingStraps > 0) materialItems.push(['밴딩', `${securing.bandingStraps} 줄 / ${securing.bandingLengthM.toFixed(1)} m`]);
+    if (securing.cornerGuards > 0) materialItems.push(['각대', `${securing.cornerGuards} EA / ${securing.cornerGuardLengthM.toFixed(1)} m`]);
+    if (securing.wrappingLengthM > 0) materialItems.push(['랩핑', `${securing.wrappingLengthM.toFixed(0)} m`]);
   }
-  const securingRows = securingItems.length
-    ? securingItems.map(([name, quantity, note]) => `<tr><td>${name}</td><td>${quantity}</td><td>${note}</td></tr>`).join('')
-    : '<tr><td colspan="3">추가 적재 보조자재 없음</td></tr>';
+  const materialCards = materialItems.length
+    ? materialItems.map(([name, value]) => `<div><span>${escapeHtml(name)}</span><b>${escapeHtml(value)}</b><i>□ 설치 확인</i></div>`).join('')
+    : '<div><span>추가 보강재</span><b>없음</b><i>기본 적재안</i></div>';
+
+  const remainingText = result.remaining.length
+    ? result.remaining.map(item => `${item.cargoId} ${item.quantity}EA`).join(' · ')
+    : '없음';
 
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>컨테이너 적재 작업지시서</title><style>
-  body{font-family:Arial,"Noto Sans KR",sans-serif;color:#172033;margin:28px;font-size:12px;position:relative}h1{font-size:22px;margin:0 0 5px}h2{font-size:15px;margin:22px 0 8px}.sub{color:#687286;margin-bottom:18px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.card{border:1px solid #dfe4eb;border-radius:8px;padding:10px}.card span{display:block;color:#687286;font-size:10px;margin-bottom:4px}.card b{font-size:14px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #dfe4eb;padding:7px;text-align:left;vertical-align:top}th{background:#f3f5f8}.rules{padding:10px 14px;background:#f6f8fb;border:1px solid #e3e7ee;border-radius:8px}.rules li{margin:4px 0}.warn{margin-top:18px;padding:10px;border:1px solid #f2c46d;background:#fff8e8}.footer{margin-top:24px;color:#687286;font-size:10px}.status-pass{color:#238636;font-weight:700}.status-warn{color:#a15c00;font-weight:700}.status-fail{color:#b42318;font-weight:700}.floor-table{font-size:10px}.unverified{border-color:#ef4444;background:#fff1f2;color:#991b1b}.certified{border-color:#86efac;background:#f0fdf4;color:#166534}.materials-summary{margin-top:8px;padding:10px;border:1px solid #bbf7d0;background:#f0fdf4;border-radius:8px}.watermark{position:fixed;inset:42% 0 auto;text-align:center;transform:rotate(-18deg);font-size:54px;font-weight:900;color:rgba(185,28,28,.10);pointer-events:none;z-index:20;letter-spacing:4px}@media print{body{margin:12mm}.no-print{display:none}.watermark{display:${physicsVerified && inertiaCertification ? 'none' : 'block'}}}
-  </style></head><body>${physicsVerified && inertiaCertification ? '' : '<div class="watermark">최종 관성검증 미완료</div>'}<h1>컨테이너 적재 작업지시서</h1><div class="sub">생성: ${escapeHtml(generatedAt)} · 관성 시뮬레이션 내부 기준 통과 적재안</div>
-  <div class="grid"><div class="card"><span>컨테이너</span><b>${container.length} × ${container.width} × ${container.height} m</b></div><div class="card"><span>적재 수량</span><b>${result.placements.length} EA</b></div><div class="card"><span>적재 중량</span><b>${result.loadedWeightKg.toLocaleString()} kg</b></div><div class="card"><span>체적 적재율</span><b>${fillRate.toFixed(1)}%</b></div><div class="card"><span>품질 점수</span><b>${quality.loadingQualityScore.toFixed(0)}점 · ${quality.grade}</b></div><div class="card"><span>좌우 편차</span><b>${quality.lateralDeviationPct.toFixed(1)}%</b></div><div class="card"><span>바닥 최대 하중</span><b>${floor.maxKgPerM2.toFixed(0)} kg/m²</b></div><div class="card ${inertiaCertification ? 'certified' : 'unverified'}"><span>최종 관성검증</span><b>${inertiaCertification ? `통과 · ${inertiaCertification.maxHorizontalShiftM * 1000 <= 0.1 ? (inertiaCertification.maxHorizontalShiftM * 1000).toFixed(2) : (inertiaCertification.maxHorizontalShiftM * 1000).toFixed(1)}mm / ${inertiaCertification.maxTiltDeg.toFixed(1)}°` : '미완료'}</b></div></div>
-  <h2>적재 보조자재 명세</h2><div class="materials-summary"><b>${securing?.levelLabel ?? '보조 고정 없음'}</b> · 박스 제외 보조자재 약 ${securing?.estimatedNonCargoWeightKg.toFixed(1) ?? '0.0'} kg · 추가 보강재 약 ${securing?.estimatedAddedWeightKg.toFixed(1) ?? '0.0'} kg</div><table><thead><tr><th>자재</th><th>사용량</th><th>비고</th></tr></thead><tbody>${securingRows}</tbody></table>
-  <h2>제약조건 검사</h2><table><thead><tr><th>항목</th><th>상태</th><th>상세</th></tr></thead><tbody>${checkRows}</tbody></table>
-  <h2>적재 판단 기준</h2><ul class="rules">${ruleSummary}</ul>
-  <h2>품목별 적재 현황</h2><table><thead><tr><th>코드</th><th>품명</th><th>요청</th><th>적재</th><th>잔량</th><th>개당 중량(kg)</th></tr></thead><tbody>${cargoRows}</tbody></table>
-  <h2>품목별 배치 사유</h2><table><thead><tr><th>코드</th><th>주 배치 구역</th><th>회전 수량</th><th>우선순위 점수</th><th>설명</th></tr></thead><tbody>${explanationRows}</tbody></table>
-  <h2>자동 보정 이력</h2><table><thead><tr><th>보정</th><th>품목</th><th>내용</th><th>이동 전</th><th>이동 후</th><th>점수 변화</th></tr></thead><tbody>${correctionRows}</tbody></table>
-  <h2>바닥 하중 격자 (12×4)</h2><table class="floor-table"><thead><tr><th>행</th><th>열</th><th>분배 하중(kg)</th><th>kg/m²</th></tr></thead><tbody>${floorRows}</tbody></table>
-  <h2>미적재 사유</h2><table><thead><tr><th>코드</th><th>수량</th><th>사유</th></tr></thead><tbody>${remainingRows}</tbody></table>
-  <div class="warn"><b>현장 확인 필수</b><br>본 결과의 관성 PASS는 시뮬레이터 내부 비교 기준을 뜻하며 실제 운송 안전 인증을 의미하지 않습니다. 바닥 하중은 적재 화물의 중량을 바닥 투영면적에 분배한 계산값이며, 실제 컨테이너 제조사 바닥 집중하중·축중·박스 압축강도·팔레트 허용하중·결박 및 현장 안전 기준을 대체하지 않습니다. 팔레트·밴딩·각대·랩핑·미끄럼방지재·블로킹재·고정바 중량은 실제 규격 입력 전까지 현재 모델 값 또는 기본 단위중량 추정값입니다.</div>
-  <div class="footer">요청 총수량: ${[...requested.values()].reduce((a,b)=>a+b,0)} EA · 자동 보정: ${result.autoCorrections?.length ?? 0}건 · 검증 이슈: ${result.validationIssues.length}건 · 물리검증: ${physicsVerified ? '완료' : '미검증'} · 관성 3종: ${inertiaCertification ? '통과' : '미완료'}</div></body></html>`;
+    @page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}body{font-family:Arial,"Noto Sans KR",sans-serif;color:#172033;margin:0;font-size:10px;background:#fff}h1,h2,p{margin:0}.sheet{max-width:794px;margin:0 auto;padding:4px}.header{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;border-bottom:3px solid #172033;padding-bottom:9px}.header h1{font-size:24px;letter-spacing:-.5px}.header p{margin-top:4px;color:#64748b}.pass{padding:8px 12px;border:2px solid #16a34a;border-radius:10px;background:#f0fdf4;color:#166534;text-align:center}.pass b{display:block;font-size:15px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0}.summary div{padding:8px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc}.summary span{display:block;color:#64748b;font-size:9px}.summary b{display:block;margin-top:2px;font-size:13px}.direction{display:flex;align-items:center;justify-content:center;gap:16px;margin:6px 0;padding:7px;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:900}.direction em{font-style:normal;color:#475569}.diagram-grid{display:grid;grid-template-columns:1fr;gap:7px}.diagram-grid svg{width:100%;height:auto;display:block;border:1px solid #e2e8f0;border-radius:10px}.section-title{display:flex;justify-content:space-between;align-items:end;margin:10px 0 5px}.section-title h2{font-size:15px}.section-title span{color:#64748b;font-size:9px}.progress{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.progress svg{width:100%;height:auto}.work-table{width:100%;border-collapse:collapse}.work-table th,.work-table td{border:1px solid #cbd5e1;padding:6px;vertical-align:middle}.work-table th{background:#172033;color:#fff;font-size:9px}.work-table small{display:block;margin-top:2px;color:#64748b;font-size:8px}.group-no{width:38px;text-align:center;background:#eff6ff;color:#1d4ed8}.group-no b{font-size:16px}.check{width:36px;text-align:center;font-size:19px}.materials{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.materials div{padding:7px;border:1px solid #cbd5e1;border-radius:8px}.materials span,.materials i{display:block;color:#64748b;font-size:8px}.materials b{display:block;margin:2px 0;font-size:12px}.materials i{font-style:normal;color:#166534}.final-check{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}.final-check div{padding:8px;border:1px solid #f0b85f;border-radius:8px;background:#fff8e8;font-weight:800}.footer{display:flex;justify-content:space-between;gap:10px;margin-top:8px;padding-top:6px;border-top:1px solid #cbd5e1;color:#64748b;font-size:8px}.watermark{position:fixed;inset:42% 0 auto;text-align:center;transform:rotate(-18deg);font-size:48px;font-weight:900;color:rgba(185,28,28,.09);pointer-events:none;z-index:20}.worker-note{margin-top:7px;padding:7px;border-left:4px solid #2563eb;background:#eff6ff;font-size:9px;line-height:1.5}.technical-note{margin-top:6px;color:#64748b;font-size:7.5px;line-height:1.4}@media print{.watermark{display:${physicsVerified && certification ? 'none' : 'block'}}}
+  </style></head><body>${physicsVerified && certification ? '' : '<div class="watermark">검증 확인 필요</div>'}<main class="sheet">
+    <header class="header"><div><h1>컨테이너 적재 작업지시서</h1><p>${escapeHtml(generatedAt)} · 그림의 숫자 = 아래 작업순서 번호</p></div><div class="pass"><span>관성 3종</span><b>${certification ? 'PASS' : '확인 필요'}</b></div></header>
+    <section class="summary"><div><span>컨테이너</span><b>${container.length}×${container.width}×${container.height}m</b></div><div><span>총 적재</span><b>${result.placements.length} EA</b></div><div><span>총 중량</span><b>${result.loadedWeightKg.toLocaleString()} kg</b></div><div><span>미적재</span><b>${escapeHtml(remainingText)}</b></div></section>
+    <div class="direction"><em>◀ 컨테이너 안쪽</em><span>① 안쪽부터 · ② 바닥부터 · ③ 번호 순서대로</span><strong>문쪽 ▶</strong></div>
+    <section class="diagram-grid">${topView}${sideView}</section>
+    <div class="section-title"><h2>3단계 진행 그림</h2><span>작업 중 현재 위치 확인용</span></div><section class="progress">${progressViews.join('')}</section>
+    <div class="section-title"><h2>작업 순서</h2><span>한 줄 끝날 때마다 □ 체크</span></div>
+    <table class="work-table"><thead><tr><th>그림번호</th><th>품목</th><th>수량</th><th>넣을 위치</th><th>완료</th></tr></thead><tbody>${workRows}</tbody></table>
+    <div class="section-title"><h2>필요 보조자재</h2><span>${escapeHtml(securing?.levelLabel ?? '보조 고정 없음')}</span></div><section class="materials">${materialCards}</section>
+    <div class="final-check"><div>□ 문 닫힘 간섭 없음</div><div>□ 흔들림/빈 공간 보강 확인</div><div>□ 작업지시 수량과 실물 수량 일치</div></div>
+    <p class="worker-note"><b>작업자가 기억할 것:</b> 그림 번호가 바뀌기 전까지는 같은 묶음입니다. 같은 묶음 안에서는 <b>안쪽 → 문쪽, 바닥 → 위</b> 순서로 채우고 임의로 가운데를 비우지 마세요.</p>
+    <p class="technical-note">관성 PASS는 시뮬레이터 내부 비교 기준이며 실제 운송 안전 인증을 의미하지 않습니다. 작업 전 컨테이너 상태, 실제 포장 강도, 현장 결박 기준과 보조자재 규격을 확인하세요.</p>
+    <footer class="footer"><span>물리검증: ${physicsVerified ? '완료' : '미검증'}</span><span>관성 최종검증: ${certification ? '통과' : '미완료'}</span><span>보조재 추정중량: ${securing ? `${securing.estimatedAddedWeightKg.toFixed(1)} kg` : '0 kg'}</span></footer>
+  </main></body></html>`;
 }
 
 export function openLoadingReport(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult): boolean {
