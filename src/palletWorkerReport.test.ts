@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import type { CargoItem, ContainerSpec } from './engine/types';
 import type { InertiaCertification } from './inertiaCertification';
 import { buildPalletLoadingReportHtml, type PalletWorkSnapshot } from './palletWorkerReport';
-import type { CargoItem, ContainerSpec } from './engine/types';
 
 const container: ContainerSpec = { length: 4.4, width: 2.2, height: 2.6, maxPayloadKg: 5000 };
 const cargo: CargoItem[] = [{ id: 'A', name: '<b>제품 A</b>', length: 0.5, width: 0.5, height: 0.4, weightKg: 10, quantity: 4 }];
@@ -61,6 +61,14 @@ const certification: InertiaCertification = {
   },
   testedScenarios: 3, passedScenarios: 3, failedScenarios: [], maxHorizontalShiftM: 0.006,
   maxTiltDeg: 0.9, results: {}, payloadWithinLimit: true,
+  attempts: [
+    { level: 0, levelLabel: '보조 고정 없음', payloadWithinLimit: true, passed: false, scenarios: [{ scenario: 'braking', passed: false, maxHorizontalShiftM: 0.02, maxTiltDeg: 2.4 }] },
+    { level: 2, levelLabel: '2차 보강 · 밴딩+각대+랩핑', payloadWithinLimit: true, passed: true, scenarios: [
+      { scenario: 'acceleration', passed: true, maxHorizontalShiftM: 0.005, maxTiltDeg: 0.7 },
+      { scenario: 'braking', passed: true, maxHorizontalShiftM: 0.006, maxTiltDeg: 0.9 },
+      { scenario: 'cornering', passed: true, maxHorizontalShiftM: 0.004, maxTiltDeg: 0.6 },
+    ] },
+  ],
 };
 
 describe('pallet worker report', () => {
@@ -75,6 +83,16 @@ describe('pallet worker report', () => {
     expect(html).toContain('밴딩 3줄');
     expect(html).toContain('파란 점선=랩핑');
     expect(html).toContain('□ 팔레트 흔들림·오버행 없음');
+  });
+
+  it('renders pallet-specific securing steps and reinforcement history', () => {
+    const html = buildPalletLoadingReportHtml(container, cargo, snapshot, certification);
+    expect(html).toContain('팔레트별 결속 작업 순서');
+    expect(html).toContain('미끄럼방지재 1EA 설치');
+    expect(html).toContain('각대 4EA 설치');
+    expect(html).toContain('밴딩 3줄 결속');
+    expect(html).toContain('자동 보강 이력');
+    expect(html).toContain('급정거 FAIL');
   });
 
   it('escapes cargo names in the worker table', () => {
