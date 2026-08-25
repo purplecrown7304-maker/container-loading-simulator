@@ -1,7 +1,7 @@
 {
   "name": "container-loading-simulator",
   "private": true,
-  "version": "2.4.0",
+  "version": "2.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,8 +9,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "check": "npm run test && npm run build && npm run check:bundle",
+    "check": "npm run verify:predeploy",
     "check:bundle": "node scripts/check-bundle-size.mjs",
+    "verify:predeploy": "npm run test && npm run build && npm run check:bundle",
+    "verify:full": "npm run verify:predeploy && npm run test:e2e",
     "preview": "vite preview"
   },
   "dependencies": {
