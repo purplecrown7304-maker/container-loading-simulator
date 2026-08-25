@@ -54,6 +54,22 @@ describe('report-driven pallet optimization', () => {
     expect(Math.max(...result.pallets.map((pallet) => pallet.x))).toBeGreaterThan(container.length * 0.7);
   });
 
+  it('keeps a single low-utilization pallet lane on the container centerline', () => {
+    const result = packOnPallets(container, cargo, {
+      ...defaultPalletSpec,
+      length: 1.1,
+      width: 1.1,
+      height: 0.15,
+      maxStackLevels: 2,
+      maxSupportedTopWeightKg: 1000,
+    });
+
+    const floorPallets = result.pallets.filter((pallet) => pallet.stackLevel === 1);
+    const expectedY = (container.width - 1.1) / 2;
+    expect(floorPallets.length).toBeGreaterThan(0);
+    floorPallets.forEach((pallet) => expect(pallet.y).toBeCloseTo(expectedY, 5));
+  });
+
   it('never loses cargo while evaluating global pallet candidates', () => {
     const result = packOnPallets(container, cargo, {
       ...defaultPalletSpec,
