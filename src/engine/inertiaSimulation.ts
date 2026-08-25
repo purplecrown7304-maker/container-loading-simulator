@@ -46,7 +46,7 @@ export type InertiaAnimationResult = {
   maxTiltDeg: number;
   /** 팔레트에 대한 화물의 최대 상대 미끄럼. 직접적재는 최초 위치 대비 이동과 같다. */
   maxCargoRelativeSlipM?: number;
-  /** 팔레트/지지체 자체의 컨테이너 기준 최대 이동. */
+  /** 1단은 컨테이너, 상단 팔레트는 바로 아래 팔레트에 대한 최대 상대 이동. */
   maxSupportShiftM?: number;
   maxCargoRestraintForceN?: number;
   maxSupportRestraintForceN?: number;
@@ -227,9 +227,15 @@ export async function runInertiaAnimation(
   let maxSupportRestraintForceN = 0;
 
   const record = (step: number) => {
-    supportBodies.forEach(entry => {
+    supportBodies.forEach((entry, index) => {
       const p = entry.body.translation();
-      maxSupportShiftM = Math.max(maxSupportShiftM, Math.hypot(p.x - entry.center.x, p.z - entry.center.z));
+      const parent = entry.parentSupportIndex >= 0 ? supportBodies[entry.parentSupportIndex] : undefined;
+      const parentPosition = parent?.body.translation();
+      const offset = supportAnchorOffsets[index];
+      const target = parentPosition
+        ? { x: parentPosition.x + offset.x, z: parentPosition.z + offset.z }
+        : { x: entry.center.x, z: entry.center.z };
+      maxSupportShiftM = Math.max(maxSupportShiftM, Math.hypot(p.x - target.x, p.z - target.z));
     });
     cargoBodies.forEach((entry, index) => {
       const p = entry.body.translation();
