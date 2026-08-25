@@ -46,6 +46,15 @@ function overlap1d(a0: number, a1: number, b0: number, b1: number) {
   return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
 }
 
+function overlapRatio(
+  item: Pick<PhysicsSupport, 'x' | 'y' | 'length' | 'width'>,
+  candidate: Pick<PhysicsSupport, 'x' | 'y' | 'length' | 'width'>,
+) {
+  const overlapX = overlap1d(item.x, item.x + item.length, candidate.x, candidate.x + candidate.length);
+  const overlapY = overlap1d(item.y, item.y + item.width, candidate.y, candidate.y + candidate.width);
+  return overlapX * overlapY / Math.max(EPS, item.length * item.width);
+}
+
 /**
  * Maps cargo to the highest pallet/support below it. This is important for stacked pallets:
  * upper-pallet cargo follows the upper pallet rather than being tied to the floor or lower pallet.
@@ -62,6 +71,26 @@ export function supportingIndexForPlacement(placement: Placement, supports: Phys
     if (overlapX * overlapY / footprint < 0.55) return;
     if (supportTop > bestTop) {
       bestTop = supportTop;
+      bestIndex = index;
+    }
+  });
+  return bestIndex;
+}
+
+/**
+ * Returns the nearest lower pallet in the same vertical stack. Floor pallets return -1.
+ * The vertical gap may contain the lower pallet's cargo, so only footprint alignment and z-order are used.
+ */
+export function supportingIndexForSupport(supportIndex: number, supports: PhysicsSupport[]) {
+  const support = supports[supportIndex];
+  if (!support || support.z <= 0.01) return -1;
+  let bestIndex = -1;
+  let bestZ = -Infinity;
+  supports.forEach((candidate, index) => {
+    if (index === supportIndex || candidate.z >= support.z - EPS) return;
+    if (overlapRatio(support, candidate) < 0.8) return;
+    if (candidate.z > bestZ) {
+      bestZ = candidate.z;
       bestIndex = index;
     }
   });
