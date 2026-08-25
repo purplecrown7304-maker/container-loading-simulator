@@ -3,7 +3,7 @@ import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import type { PhysicsTarget } from './physicsTarget';
 import { buildSecuringUsage, createPhysicsTargetSignature, isInertiaStable, securingProfileForLevel } from './inertiaCertification';
 
-function animation(shift: number, tilt: number): InertiaAnimationResult {
+function animation(shift: number, tilt: number, extra: Partial<InertiaAnimationResult> = {}): InertiaAnimationResult {
   return {
     scenario: 'braking',
     fps: 30,
@@ -13,6 +13,7 @@ function animation(shift: number, tilt: number): InertiaAnimationResult {
     frames: [],
     maxHorizontalShiftM: shift,
     maxTiltDeg: tilt,
+    ...extra,
   };
 }
 
@@ -63,6 +64,15 @@ describe('inertia certification', () => {
     expect(isInertiaStable(animation(0.012, 1.8))).toBe(true);
     expect(isInertiaStable(animation(0.0121, 1.8))).toBe(false);
     expect(isInertiaStable(animation(0.012, 1.81))).toBe(false);
+  });
+
+  it('separately rejects excessive cargo-on-pallet slip', () => {
+    expect(isInertiaStable(animation(0.006, 0.9, { maxCargoRelativeSlipM: 0.007, maxSupportShiftM: 0.005 }), 'pallets')).toBe(true);
+    expect(isInertiaStable(animation(0.006, 0.9, { maxCargoRelativeSlipM: 0.0081, maxSupportShiftM: 0.005 }), 'pallets')).toBe(false);
+  });
+
+  it('separately rejects excessive pallet movement', () => {
+    expect(isInertiaStable(animation(0.006, 0.9, { maxCargoRelativeSlipM: 0.004, maxSupportShiftM: 0.0121 }), 'pallets')).toBe(false);
   });
 
   it('adds banding, corner guards and anti-slip material for pallet reinforcement', () => {
