@@ -22,7 +22,13 @@ function attemptText(attempt: InertiaReinforcementAttempt) {
   if (attempt.passed) return '3종 PASS';
   const failed = attempt.scenarios.find(item => !item.passed);
   if (!failed) return '검증 미완료';
-  return `${scenarioLabel(failed.scenario)} 실패 · ${mm(failed.maxHorizontalShiftM)} / ${failed.maxTiltDeg.toFixed(1)}°`;
+  const detail = [
+    `전체 ${mm(failed.maxHorizontalShiftM)}`,
+    failed.maxCargoRelativeSlipM != null ? `화물미끄럼 ${mm(failed.maxCargoRelativeSlipM)}` : '',
+    failed.maxSupportShiftM != null ? `팔레트이동 ${mm(failed.maxSupportShiftM)}` : '',
+    `기울기 ${failed.maxTiltDeg.toFixed(1)}°`,
+  ].filter(Boolean).join(' · ');
+  return `${scenarioLabel(failed.scenario)} 실패 · ${detail}`;
 }
 
 function reductionPercent(before: number, after: number) {
@@ -44,6 +50,10 @@ function reinforcementComparison(attempts: InertiaReinforcementAttempt[]) {
     afterShiftM: finalScenario.maxHorizontalShiftM,
     beforeTiltDeg: failed.maxTiltDeg,
     afterTiltDeg: finalScenario.maxTiltDeg,
+    beforeCargoSlipM: failed.maxCargoRelativeSlipM,
+    afterCargoSlipM: finalScenario.maxCargoRelativeSlipM,
+    beforeSupportShiftM: failed.maxSupportShiftM,
+    afterSupportShiftM: finalScenario.maxSupportShiftM,
     finalLabel: finalAttempt.levelLabel,
   };
 }
@@ -89,7 +99,8 @@ export default function CertificationResultSummaryBridge() {
   const usage = cert.securing;
   const attempts = cert.attempts ?? [];
   const comparison = reinforcementComparison(attempts);
-  const target = cert.mode === 'pallets' ? readPhysicsTarget() : undefined;
+  const palletMode = cert.mode === 'pallets';
+  const target = palletMode ? readPhysicsTarget() : undefined;
   const palletPlan = target
     && target.mode === 'pallets'
     && cert.targetSignature === createPhysicsTargetSignature(target)
@@ -102,17 +113,21 @@ export default function CertificationResultSummaryBridge() {
       <strong>PASS</strong>
     </div>
     <div className="certification-result-kpi">
-      <div><span>최대 이동</span><b>{mm(cert.maxHorizontalShiftM)}</b></div>
+      <div><span>컨테이너 기준 최대 이동</span><b>{mm(cert.maxHorizontalShiftM)}</b></div>
       <div><span>최대 기울기</span><b>{cert.maxTiltDeg.toFixed(1)}°</b></div>
-      <div><span>{cert.mode === 'pallets' ? '팔레트' : '블로킹재'}</span><b>{cert.mode === 'pallets' ? `${usage.palletCount} EA` : `${usage.dunnageBlocks} EA`}</b></div>
+      {palletMode && <div><span>화물↔팔레트 상대 미끄럼</span><b>{mm(cert.maxCargoRelativeSlipM ?? 0)}</b></div>}
+      {palletMode && <div><span>팔레트 자체 최대 이동</span><b>{mm(cert.maxSupportShiftM ?? 0)}</b></div>}
+      <div><span>{palletMode ? '팔레트' : '블로킹재'}</span><b>{palletMode ? `${usage.palletCount} EA` : `${usage.dunnageBlocks} EA`}</b></div>
       <div><span>박스 제외 보조자재</span><b>약 {usage.estimatedNonCargoWeightKg.toFixed(1)} kg</b></div>
     </div>
 
     {comparison && <section className="certification-effect" aria-label="보강 전후 관성 비교">
       <div><b>보강 효과 비교 · {scenarioLabel(comparison.scenario)}</b><span>기본 적재안 → {comparison.finalLabel}</span></div>
       <div className="certification-effect-grid">
-        <p><span>수평 이동</span><b>{mm(comparison.beforeShiftM)} → {mm(comparison.afterShiftM)}</b><small>{reductionPercent(comparison.beforeShiftM, comparison.afterShiftM).toFixed(0)}% 감소</small></p>
+        <p><span>전체 수평 이동</span><b>{mm(comparison.beforeShiftM)} → {mm(comparison.afterShiftM)}</b><small>{reductionPercent(comparison.beforeShiftM, comparison.afterShiftM).toFixed(0)}% 감소</small></p>
         <p><span>기울기</span><b>{comparison.beforeTiltDeg.toFixed(1)}° → {comparison.afterTiltDeg.toFixed(1)}°</b><small>{reductionPercent(comparison.beforeTiltDeg, comparison.afterTiltDeg).toFixed(0)}% 감소</small></p>
+        {comparison.beforeCargoSlipM != null && comparison.afterCargoSlipM != null && <p><span>화물↔팔레트 미끄럼</span><b>{mm(comparison.beforeCargoSlipM)} → {mm(comparison.afterCargoSlipM)}</b><small>{reductionPercent(comparison.beforeCargoSlipM, comparison.afterCargoSlipM).toFixed(0)}% 감소</small></p>}
+        {comparison.beforeSupportShiftM != null && comparison.afterSupportShiftM != null && <p><span>팔레트 자체 이동</span><b>{mm(comparison.beforeSupportShiftM)} → {mm(comparison.afterSupportShiftM)}</b><small>{reductionPercent(comparison.beforeSupportShiftM, comparison.afterSupportShiftM).toFixed(0)}% 감소</small></p>}
       </div>
     </section>}
 
@@ -150,7 +165,9 @@ export default function CertificationResultSummaryBridge() {
       {usage.dunnageBlocks > 0 && <span><b>블로킹재</b>{usage.dunnageBlocks}EA</span>}
       {usage.loadBars > 0 && <span><b>고정바</b>{usage.loadBars}EA</span>}
       <span><b>추가 보강재 중량</b>약 {usage.estimatedAddedWeightKg.toFixed(1)}kg</span>
+      {(cert.maxCargoRestraintForceN ?? 0) > 0 && <span><b>최대 화물 구속력</b>{((cert.maxCargoRestraintForceN ?? 0) / 1000).toFixed(1)}kN</span>}
+      {(cert.maxSupportRestraintForceN ?? 0) > 0 && <span><b>최대 팔레트 구속력</b>{((cert.maxSupportRestraintForceN ?? 0) / 1000).toFixed(1)}kN</span>}
     </div>
-    <p>이 PASS는 시뮬레이터 내부 비교 기준(최대 이동 12 mm 이하, 최대 기울기 1.8° 이하)을 뜻하며 실제 운송 안전 인증을 의미하지 않습니다. 보조자재 중량은 저장된 현장 단위중량을 사용하므로 실제 작업 전 자재 규격·정격을 확인하세요.</p>
+    <p>이 PASS는 시뮬레이터 내부 비교 기준이며 실제 운송 안전 인증을 의미하지 않습니다. 팔레트 모드에서는 전체 이동·기울기 외에 화물-팔레트 상대 미끄럼과 팔레트 자체 이동을 별도로 제한합니다. 계산된 구속력은 내부 물리모델의 비교값이며 실제 밴딩·고정바 정격을 대체하지 않습니다.</p>
   </article>, host);
 }
