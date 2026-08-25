@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import {
+  INERTIA_PASS_PALLET_CARGO_SLIP_M,
+  INERTIA_PASS_SHIFT_M,
+  INERTIA_PASS_SUPPORT_SHIFT_M,
+  INERTIA_PASS_TILT_DEG,
   REQUEST_CERTIFIED_RESULTS_EVENT,
   buildSecuringUsage,
   createPhysicsTargetSignature,
@@ -92,7 +96,9 @@ export default function FinalCertificationGate() {
       } else if (!result.payloadWithinLimit) {
         setError('보강 자재 중량까지 포함하면 컨테이너 최대 허용중량을 초과합니다. 적재량 또는 보강안을 조정해야 합니다.');
       } else {
-        setError('최대 보강까지 적용했지만 3개 관성 시나리오를 모두 안정 기준 안으로 만들지 못했습니다. 적재 높이·배치·중량 중심을 수정해야 합니다.');
+        setError(nextTarget.mode === 'pallets'
+          ? '최대 보강까지 적용했지만 전체 이동·기울기·화물-팔레트 상대 미끄럼·팔레트 자체 이동 중 하나 이상이 내부 안정 기준을 넘었습니다. 적재 높이·배치·중량 중심을 수정해야 합니다.'
+          : '최대 보강까지 적용했지만 3개 관성 시나리오를 모두 안정 기준 안으로 만들지 못했습니다. 적재 높이·배치·중량 중심을 수정해야 합니다.');
       }
     } catch (reason) {
       if (runId.current !== id) return;
@@ -162,9 +168,13 @@ export default function FinalCertificationGate() {
       </div>}
 
       {latestResult && <div className="final-cert-metrics">
-        <span>현재 최대 이동 <b>{mm(latestResult.maxHorizontalShiftM)}</b></span>
-        <span>현재 최대 기울기 <b>{latestResult.maxTiltDeg.toFixed(1)}°</b></span>
-        <span>통과 기준 <b>≤ 12 mm / ≤ 1.8°</b></span>
+        <span>전체 이동 <b>{mm(latestResult.maxHorizontalShiftM)}</b></span>
+        <span>기울기 <b>{latestResult.maxTiltDeg.toFixed(1)}°</b></span>
+        {palletMode && <span>화물↔팔레트 미끄럼 <b>{mm(latestResult.maxCargoRelativeSlipM ?? 0)}</b></span>}
+        {palletMode && <span>팔레트 이동 <b>{mm(latestResult.maxSupportShiftM ?? 0)}</b></span>}
+        {(latestResult.maxCargoRestraintForceN ?? 0) > 0 && <span>화물 구속력 <b>{((latestResult.maxCargoRestraintForceN ?? 0) / 1000).toFixed(1)} kN</b></span>}
+        {(latestResult.maxSupportRestraintForceN ?? 0) > 0 && <span>팔레트 구속력 <b>{((latestResult.maxSupportRestraintForceN ?? 0) / 1000).toFixed(1)} kN</b></span>}
+        <span>통과 기준 <b>이동 ≤ {Math.round(INERTIA_PASS_SHIFT_M * 1000)}mm · 기울기 ≤ {INERTIA_PASS_TILT_DEG.toFixed(1)}°{palletMode ? ` · 상대미끄럼 ≤ ${Math.round(INERTIA_PASS_PALLET_CARGO_SLIP_M * 1000)}mm · 팔레트이동 ≤ ${Math.round(INERTIA_PASS_SUPPORT_SHIFT_M * 1000)}mm` : ''}</b></span>
       </div>}
 
       {currentUsage && <article className="final-cert-materials">
@@ -179,7 +189,7 @@ export default function FinalCertificationGate() {
           {currentUsage.loadBars > 0 && <div><span>고정바</span><b>{currentUsage.loadBars} EA</b><small>길이 방향 고정</small></div>}
           {currentUsage.level === 0 && <div><span>추가 보강</span><b>불필요</b><small>기본 적재안으로 통과</small></div>}
         </div>
-        <p>보조자재 중량은 ‘적재 보조자재 실제 중량 설정’의 현장값으로 계산합니다. 실제 작업 전 자재 규격과 정격을 다시 확인하세요.</p>
+        <p>보조자재 중량은 ‘적재 보조자재 실제 중량 설정’의 현장값으로 계산합니다. 계산된 구속력은 내부 물리모델 비교값이며 실제 자재 정격을 대체하지 않습니다.</p>
       </article>}
 
       {error && <div className="final-cert-error"><b>최종 결과 잠금 유지</b><span>{error}</span></div>}
