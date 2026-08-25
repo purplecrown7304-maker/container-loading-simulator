@@ -1,4 +1,5 @@
 import type { CargoItem, ContainerSpec, Placement } from './types';
+import { hasAdequateSupport } from './support';
 
 export type PalletSpec = {
   length: number;
@@ -153,6 +154,8 @@ function slotFor(load: PalletLoad, item: CargoItem, pallet: PalletSpec, containe
     .filter((o) => o.colsX > 0 && o.colsY > 0)
     .sort((a, b) => (b.colsX * b.colsY) - (a.colsX * a.colsY) || Number(a.rotated) - Number(b.rotated));
 
+  const baseSurface = { x: load.x, y: load.y, z: load.z + pallet.height, length: pallet.length, width: pallet.width };
+
   for (const option of options) {
     for (let layer = 0; layer < maxLayers; layer += 1) {
       for (let row = 0; row < option.colsX; row += 1) {
@@ -169,7 +172,9 @@ function slotFor(load: PalletLoad, item: CargoItem, pallet: PalletSpec, containe
             rotated: option.rotated,
           };
           const collides = load.cargoPlacements.some((p) => candidate.x < p.x + p.length - EPS && candidate.x + candidate.length > p.x + EPS && candidate.y < p.y + p.width - EPS && candidate.y + candidate.width > p.y + EPS && candidate.z < p.z + p.height - EPS && candidate.z + candidate.height > p.z + EPS);
-          if (!collides && candidate.z + candidate.height <= container.height + EPS) return candidate;
+          if (collides || candidate.z + candidate.height > container.height + EPS) continue;
+          if (!hasAdequateSupport(candidate, load.cargoPlacements, baseSurface)) continue;
+          return candidate;
         }
       }
     }
@@ -223,12 +228,28 @@ function canSupportUpper(lower: PalletLoad, upperWeightKg: number, cargoMap: Map
   });
 }
 
+function hasPalletFootprintSupport(lower: PalletLoad, pallet: PalletSpec) {
+  const top = cargoTop(lower);
+  const footprint: Placement = {
+    cargoId: '__PALLET_SUPPORT_CHECK__',
+    x: lower.x,
+    y: lower.y,
+    z: top,
+    length: pallet.length,
+    width: pallet.width,
+    height: pallet.height,
+    weightKg: pallet.tareWeightKg,
+  };
+  return hasAdequateSupport(footprint, lower.cargoPlacements);
+}
+
 function columnSupportsNewLoad(loads: PalletLoad[], newLoad: PalletLoad, cargoMap: Map<string, CargoItem>, pallet: PalletSpec) {
   for (let i = 0; i < loads.length; i += 1) {
     const existingAbove = loads.slice(i + 1).reduce((sum, p) => sum + p.totalWeightKg, 0);
     if (!canSupportUpper(loads[i], existingAbove + newLoad.totalWeightKg, cargoMap, pallet)) return false;
   }
-  return true;
+  const immediateLower = loads[loads.length - 1];
+  return Boolean(immediateLower && hasPalletFootprintSupport(immediateLower, pallet));
 }
 
 function moveLoad(load: PalletLoad, x: number, y: number, z: number, level: number, column: number, pallet: PalletSpec) {
@@ -322,7 +343,7 @@ export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pall
         left -= 1;
       }
     }
-    if (left > 0) remaining.push({ cargoId: item.id, quantity: left, reason: '회전을 포함해 팔레트 면적·높이·허용중량 또는 컨테이너 최대중량 조건 때문에 적재하지 못함' });
+    if (left > 0) remaining.push({ cargoId: item.id, quantity: left, reason: '팔레트 면적·높이·허용중량·최소 지지면 또는 컨테이너 최대중량 조건 때문에 적재하지 못함' });
   }
   const usedPallets = pallets.filter((p) => p && p.cargoPlacements.length > 0);
   const consolidatedPallets = tryConsolidate(usedPallets, cargoMap, pallet, container);
