@@ -2,10 +2,12 @@ import { Edges } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import BoxSecuringAids3D from './BoxSecuringAids3D';
 import { cargoColor } from './cargoColors';
 import { CargoFaceInfoLabels } from './CargoFaceInfoLabels';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
+import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
 import { PreviewCameraController, PreviewViewControls, readBoxLabelPreference, saveBoxLabelPreference, type PreviewView } from './PreviewViewControls';
 import { AxisGuide, ClearanceGuide, clearanceValues } from './SceneGuides';
 import { PLACEMENT_SELECT_EVENT, selectPlacement, type PlacementSelectDetail } from './selectionEvents';
@@ -200,6 +202,10 @@ export default function BoxLoadingViewerReference({ result, container }: { resul
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [view, setView] = useState<PreviewView>('free');
   const [showLabels, setShowLabels] = useState(readBoxLabelPreference);
+  const [certification, setCertification] = useState<InertiaCertification | null>(() => {
+    const latest = readLatestInertiaCertification();
+    return latest?.mode === 'boxes' && latest.status === 'passed' ? latest : null;
+  });
   const scale = 0.5;
   const cargoMap = useMemo(() => new Map((readStoredState()?.cargo ?? []).map((item) => [item.id, item] as [string, CargoItem])), [result.placements]);
   const addresses = useMemo(() => buildPlacementAddresses(result.placements, container.length), [result.placements, container.length]);
@@ -214,6 +220,7 @@ export default function BoxLoadingViewerReference({ result, container }: { resul
   }, [result.placements]);
   const selected = selectedIndex === null ? undefined : result.placements[selectedIndex];
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
+  const securingUsage = certification?.securing ?? null;
 
   const change = (index: number | null) => {
     setSelectedIndex(index);
@@ -224,6 +231,19 @@ export default function BoxLoadingViewerReference({ result, container }: { resul
     saveBoxLabelPreference(next);
     return next;
   });
+
+  useEffect(() => {
+    setCertification(null);
+  }, [result, container]);
+
+  useEffect(() => {
+    const onCertification = (event: Event) => {
+      const next = (event as CustomEvent<InertiaCertification>).detail;
+      setCertification(next?.mode === 'boxes' && next.status === 'passed' ? next : null);
+    };
+    window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
+    return () => window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
+  }, []);
 
   useEffect(() => {
     const onSelect = (event: Event) => {
@@ -261,9 +281,16 @@ export default function BoxLoadingViewerReference({ result, container }: { resul
               )}
             </group>
           ))}
+          <BoxSecuringAids3D container={container} placements={result.placements} usage={securingUsage} scale={scale} />
           {selected && <BoxOutline p={selected} container={container} scale={scale} />}
           <PreviewCameraController view={view} container={container} scale={scale} />
         </Canvas>
+        {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip">
+          <b>관성 보강 적용</b>
+          <span>미끄럼방지 {securingUsage.antiSlipMats}EA</span>
+          <span>블로킹재 {securingUsage.dunnageBlocks}EA</span>
+          {securingUsage.loadBars > 0 && <span>고정바 {securingUsage.loadBars}EA</span>}
+        </div>}
         {clearances && (
           <div className="reference-clearance-strip">
             <span>안쪽 <b>{clearances.back}</b></span>
