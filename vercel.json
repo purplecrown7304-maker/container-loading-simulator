@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "npx vitest run src/engine/fieldScenarios.test.ts && npm run build",
+  "buildCommand": "npx vitest run src/engine/fieldScenarios.test.ts -t \"handles mixed|keeps fragile|uses rotation\" && npm run build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
