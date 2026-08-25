@@ -27,12 +27,13 @@ describe('Rapier physics validation', () => {
     expect(result.placements[0].reason).toContain('높이 변화');
   }, 20_000);
 
-  it('runs gravity, braking and cornering as one transport suite', async () => {
+  it('runs gravity, start acceleration, braking and cornering as one transport suite', async () => {
     const result = await runPhysicsValidationSuite(container, [box(0)]);
-    expect(result.scenarios.map(row => row.scenario)).toEqual(['settle', 'braking', 'cornering']);
+    expect(result.scenarios.map(row => row.scenario)).toEqual(['settle', 'acceleration', 'braking', 'cornering']);
+    expect(result.scenarios.find(row => row.scenario === 'acceleration')?.summary).toContain('출발 가속');
     expect(result.score).toBeGreaterThanOrEqual(85);
     expect(result.unstableCount).toBe(0);
-  }, 30_000);
+  }, 40_000);
 
   it('uses a pallet rigid body as physical support for palletized cargo', async () => {
     const palletHeight = 0.15;
@@ -46,5 +47,5 @@ describe('Rapier physics validation', () => {
     expect(result.supportUnstableCount).toBe(0);
     expect(result.unstableCount).toBe(0);
     expect(result.scenarios.every(row => row.supportCount === 1)).toBe(true);
-  }, 30_000);
+  }, 40_000);
 });
