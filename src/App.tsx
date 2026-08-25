@@ -5,6 +5,7 @@ import { loadContainer, type LoadingStrategy } from './engine/loadingEngine';
 import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
+import { openPalletLoadingReport } from './palletWorkerReport';
 import { openLoadingReport } from './report';
 import { openResultsModal } from './resultsModalEvents';
 import { createRandomSampleCargo } from './sampleCargo';
@@ -192,8 +193,10 @@ export default function App() {
 
   const showResults = () => openResultsModal({ container, cargo, result });
   const printReport = () => {
-    if (mode !== 'boxes') return announce('warning', '작업지시서 출력은 박스만 적재 모드에서 실행하세요.');
-    if (!openLoadingReport(container, cargo, result)) announce('error', '팝업이 차단되어 작업지시서를 열지 못했습니다.');
+    const opened = mode === 'pallets'
+      ? openPalletLoadingReport(container, cargo)
+      : openLoadingReport(container, cargo, result);
+    if (!opened) announce('error', '팝업이 차단되어 작업지시서를 열지 못했습니다.');
   };
   const saveLocal = () => { writeStoredState({ container, cargo }); announce('success', '현재 데이터가 이 브라우저에 저장되었습니다.'); };
   const loadLocal = () => {
