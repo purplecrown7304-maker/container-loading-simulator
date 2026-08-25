@@ -2,7 +2,7 @@ import type { InertiaAnimationResult, InertiaSecuringProfile } from './engine/in
 import { runInertiaAnimation } from './engine/inertiaSimulation';
 import type { PhysicsScenario, PhysicsSupport } from './engine/physicsValidation';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
-import type { PhysicsTarget } from './physicsTarget';
+import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { readSecuringMaterialSettings, type SecuringMaterialSettings } from './securingMaterialSettings';
 
 export type InertiaScenario = Exclude<PhysicsScenario, 'settle'>;
@@ -399,8 +399,11 @@ export async function runInertiaCertification(
   };
 
   if (typeof window !== 'undefined') {
-    (window as CertificationWindow).__containerLoadingLatestCertification = certification;
-    window.dispatchEvent(new CustomEvent<InertiaCertification>(INERTIA_CERTIFICATION_EVENT, { detail: certification }));
+    const currentTarget = readPhysicsTarget();
+    if (currentTarget && createPhysicsTargetSignature(currentTarget) === certification.targetSignature) {
+      (window as CertificationWindow).__containerLoadingLatestCertification = certification;
+      window.dispatchEvent(new CustomEvent<InertiaCertification>(INERTIA_CERTIFICATION_EVENT, { detail: certification }));
+    }
   }
   return certification;
 }
