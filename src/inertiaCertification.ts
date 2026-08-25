@@ -111,6 +111,7 @@ export function createPhysicsTargetSignature(target: PhysicsTarget) {
     container: target.container,
     placements: target.result.placements.map(item => [item.cargoId, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg]),
     supports: (target.supports ?? []).map(item => [item.id, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg]),
+    materialUnitWeights: readSecuringMaterialSettings(),
   });
 }
 
