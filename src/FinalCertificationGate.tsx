@@ -34,6 +34,10 @@ function targetFromRequest(detail: CertificationRequestDetail): PhysicsTarget {
   };
 }
 
+function resultDetailFromTarget(target: PhysicsTarget) {
+  return { container: target.container, cargo: target.cargo, result: target.result };
+}
+
 function mm(value: number) {
   return `${(value * 1000).toFixed(value * 1000 >= 10 ? 0 : 1)} mm`;
 }
@@ -84,7 +88,7 @@ export default function FinalCertificationGate() {
       if (result.status === 'passed') {
         cache.current = { signature: createPhysicsTargetSignature(nextTarget), certification: result };
         setOpen(false);
-        openResultsModal({ ...detail, certification: result });
+        openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: result });
       } else if (!result.payloadWithinLimit) {
         setError('보강 자재 중량까지 포함하면 컨테이너 최대 허용중량을 초과합니다. 적재량 또는 보강안을 조정해야 합니다.');
       } else {
@@ -113,7 +117,7 @@ export default function FinalCertificationGate() {
       }
       const signature = createPhysicsTargetSignature(nextTarget);
       if (cache.current?.signature === signature && cache.current.certification.status === 'passed') {
-        openResultsModal({ ...detail, certification: cache.current.certification });
+        openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: cache.current.certification });
         return;
       }
       void execute(detail, nextTarget);
@@ -175,7 +179,7 @@ export default function FinalCertificationGate() {
           {currentUsage.loadBars > 0 && <div><span>고정바</span><b>{currentUsage.loadBars} EA</b><small>길이 방향 고정</small></div>}
           {currentUsage.level === 0 && <div><span>추가 보강</span><b>불필요</b><small>기본 적재안으로 통과</small></div>}
         </div>
-        <p>자재 중량은 실제 자재 규격이 입력되기 전까지 시뮬레이션 비교용 기본 단위중량으로 추정합니다. 최종 현장 작업 전 실제 팔레트·밴딩·각대·필름·블로킹재·고정바 규격으로 교체 계산해야 합니다.</p>
+        <p>보조자재 중량은 ‘적재 보조자재 실제 중량 설정’의 현장값으로 계산합니다. 실제 작업 전 자재 규격과 정격을 다시 확인하세요.</p>
       </article>}
 
       {error && <div className="final-cert-error"><b>최종 결과 잠금 유지</b><span>{error}</span></div>}
