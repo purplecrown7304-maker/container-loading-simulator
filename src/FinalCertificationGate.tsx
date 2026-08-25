@@ -166,13 +166,14 @@ export default function FinalCertificationGate() {
       {currentUsage && <article className="final-cert-materials">
         <div className="final-cert-material-head"><div><b>자동 적용 적재 보조재</b><span>{currentUsage.levelLabel}</span></div><strong>박스 제외 약 {currentUsage.estimatedNonCargoWeightKg.toFixed(1)} kg</strong></div>
         <div className="final-cert-material-grid">
-          {palletMode && <div><span>팔레트</span><b>{currentUsage.palletCount} EA</b><small>{currentUsage.palletWeightKg.toFixed(1)} kg</small></div>}
-          {palletMode && <div><span>밴딩</span><b>{currentUsage.bandingStraps} 줄</b><small>{currentUsage.bandingLengthM.toFixed(1)} m</small></div>}
-          {palletMode && <div><span>각대</span><b>{currentUsage.cornerGuards} EA</b><small>모서리 보호</small></div>}
-          {palletMode && <div><span>랩핑</span><b>{currentUsage.wrappingLengthM.toFixed(0)} m</b><small>스트레치 필름</small></div>}
-          <div><span>미끄럼방지재</span><b>{currentUsage.antiSlipMats} EA</b><small>{palletMode ? '팔레트/바닥' : '박스/바닥'}</small></div>
-          {!palletMode && <div><span>블로킹재</span><b>{currentUsage.dunnageBlocks} EA</b><small>빈 공간 이동 억제</small></div>}
-          <div><span>고정바</span><b>{currentUsage.loadBars} EA</b><small>길이 방향 고정</small></div>
+          {palletMode && currentUsage.palletCount > 0 && <div><span>팔레트</span><b>{currentUsage.palletCount} EA</b><small>{currentUsage.palletWeightKg.toFixed(1)} kg</small></div>}
+          {palletMode && currentUsage.bandingStraps > 0 && <div><span>밴딩</span><b>{currentUsage.bandingStraps} 줄</b><small>{currentUsage.bandingLengthM.toFixed(1)} m</small></div>}
+          {palletMode && currentUsage.cornerGuards > 0 && <div><span>각대</span><b>{currentUsage.cornerGuards} EA</b><small>총 {currentUsage.cornerGuardLengthM.toFixed(1)} m</small></div>}
+          {palletMode && currentUsage.wrappingLengthM > 0 && <div><span>랩핑</span><b>{currentUsage.wrappingLengthM.toFixed(0)} m</b><small>스트레치 필름</small></div>}
+          {currentUsage.antiSlipMats > 0 && <div><span>미끄럼방지재</span><b>{currentUsage.antiSlipMats} EA</b><small>{palletMode ? '팔레트/바닥' : '박스/바닥'}</small></div>}
+          {!palletMode && currentUsage.dunnageBlocks > 0 && <div><span>블로킹재</span><b>{currentUsage.dunnageBlocks} EA</b><small>빈 공간 이동 억제</small></div>}
+          {currentUsage.loadBars > 0 && <div><span>고정바</span><b>{currentUsage.loadBars} EA</b><small>길이 방향 고정</small></div>}
+          {currentUsage.level === 0 && <div><span>추가 보강</span><b>불필요</b><small>기본 적재안으로 통과</small></div>}
         </div>
         <p>자재 중량은 실제 자재 규격이 입력되기 전까지 시뮬레이션 비교용 기본 단위중량으로 추정합니다. 최종 현장 작업 전 실제 팔레트·밴딩·각대·필름·블로킹재·고정바 규격으로 교체 계산해야 합니다.</p>
       </article>}
