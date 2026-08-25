@@ -1,7 +1,7 @@
 import type { InertiaAnimationResult, InertiaSecuringProfile } from './engine/inertiaSimulation';
 import { runInertiaAnimation } from './engine/inertiaSimulation';
-import type { PhysicsScenario } from './engine/physicsValidation';
-import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
+import type { PhysicsScenario, PhysicsSupport } from './engine/physicsValidation';
+import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import type { PhysicsTarget } from './physicsTarget';
 
 export type InertiaScenario = Exclude<PhysicsScenario, 'settle'>;
@@ -16,6 +16,7 @@ export type SecuringUsage = {
   bandingStraps: number;
   bandingLengthM: number;
   cornerGuards: number;
+  cornerGuardLengthM: number;
   wrappingLengthM: number;
   antiSlipMats: number;
   dunnageBlocks: number;
@@ -61,6 +62,7 @@ export const INERTIA_PASS_SHIFT_M = 0.012;
 export const INERTIA_PASS_TILT_DEG = 1.8;
 
 const SCENARIOS: InertiaScenario[] = ['acceleration', 'braking', 'cornering'];
+const EPS = 1e-6;
 
 type CertificationWindow = Window & { __containerLoadingLatestCertification?: InertiaCertification };
 
@@ -70,6 +72,36 @@ const LEVEL_LABEL: Record<SecuringLevel, string> = {
   2: '2차 보강 · 강화 고정',
   3: '3차 보강 · 최대 결속',
 };
+
+function overlap1d(a0: number, a1: number, b0: number, b1: number) {
+  return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+}
+
+function isAboveSupport(placement: Placement, support: PhysicsSupport) {
+  const overlapX = overlap1d(placement.x, placement.x + placement.length, support.x, support.x + support.length);
+  const overlapY = overlap1d(placement.y, placement.y + placement.width, support.y, support.y + support.width);
+  const footprint = Math.max(EPS, placement.length * placement.width);
+  return overlapX * overlapY / footprint >= 0.55 && placement.z + EPS >= support.z + support.height;
+}
+
+function supportLoadHeight(target: PhysicsTarget, support: PhysicsSupport) {
+  const supports = target.supports ?? [];
+  const upperSupportZ = supports
+    .filter(candidate => candidate !== support && candidate.z > support.z + EPS)
+    .filter(candidate => {
+      const overlapX = overlap1d(candidate.x, candidate.x + candidate.length, support.x, support.x + support.length);
+      const overlapY = overlap1d(candidate.y, candidate.y + candidate.width, support.y, support.y + support.width);
+      return overlapX >= Math.min(candidate.length, support.length) * 0.8 && overlapY >= Math.min(candidate.width, support.width) * 0.8;
+    })
+    .reduce((min, candidate) => Math.min(min, candidate.z), Number.POSITIVE_INFINITY);
+
+  const supportTop = support.z + support.height;
+  const top = target.result.placements
+    .filter(placement => isAboveSupport(placement, support))
+    .filter(placement => !Number.isFinite(upperSupportZ) || placement.z < upperSupportZ - EPS)
+    .reduce((max, placement) => Math.max(max, placement.z + placement.height), supportTop);
+  return Math.max(0, top - supportTop);
+}
 
 export function createPhysicsTargetSignature(target: PhysicsTarget) {
   return JSON.stringify({
@@ -111,14 +143,14 @@ export function securingProfileForLevel(mode: PhysicsTarget['mode'], level: Secu
 }
 
 export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel): SecuringUsage {
-  const palletCount = target.mode === 'pallets' ? (target.supports?.length ?? 0) : 0;
-  const palletWeightKg = target.mode === 'pallets'
-    ? (target.supports ?? []).reduce((sum, support) => sum + Math.max(0, support.weightKg), 0)
-    : 0;
+  const supports = target.mode === 'pallets' ? (target.supports ?? []) : [];
+  const palletCount = supports.length;
+  const palletWeightKg = supports.reduce((sum, support) => sum + Math.max(0, support.weightKg), 0);
 
   let bandingStraps = 0;
   let bandingLengthM = 0;
   let cornerGuards = 0;
+  let cornerGuardLengthM = 0;
   let wrappingLengthM = 0;
   let antiSlipMats = 0;
   let dunnageBlocks = 0;
@@ -127,11 +159,21 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
   if (target.mode === 'pallets' && level > 0) {
     const strapsPerPallet = level === 1 ? 2 : level === 2 ? 3 : 4;
     bandingStraps = palletCount * strapsPerPallet;
-    bandingLengthM = bandingStraps * 4.5;
     cornerGuards = palletCount * 4;
     antiSlipMats = palletCount * (level === 3 ? 2 : 1);
-    wrappingLengthM = level >= 2 ? palletCount * (level === 2 ? 12 : 20) : 0;
     loadBars = level === 3 && palletCount > 0 ? 2 : 0;
+
+    supports.forEach(support => {
+      const loadHeight = supportLoadHeight(target, support);
+      const strapRun = 2 * (Math.min(support.length, support.width) + loadHeight) + 0.3;
+      bandingLengthM += strapsPerPallet * strapRun;
+      cornerGuardLengthM += 4 * loadHeight;
+      if (level >= 2 && loadHeight > 0) {
+        const wrapCircumference = 2 * (support.length + support.width);
+        const verticalTurns = Math.max(3, Math.ceil(loadHeight / 0.25) + 2);
+        wrappingLengthM += wrapCircumference * verticalTurns * 1.08;
+      }
+    });
   } else if (target.mode === 'boxes' && level > 0) {
     const boxCount = Math.max(1, target.result.placements.length);
     antiSlipMats = Math.max(2, Math.ceil(boxCount / (level === 1 ? 30 : 20)));
@@ -139,10 +181,10 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     loadBars = level >= 2 ? 2 : 0;
   }
 
-  // 실제 자재 규격이 입력되기 전까지 결과 비교용 보수적 기본 중량을 사용한다.
+  // 실제 자재 규격이 입력되기 전까지 결과 비교용 보수적 기본 단위중량을 사용한다.
   const estimatedAddedWeightKg =
     bandingLengthM * 0.025 +
-    cornerGuards * 0.18 +
+    cornerGuardLengthM * 0.12 +
     wrappingLengthM * 0.018 +
     antiSlipMats * 0.35 +
     dunnageBlocks * 0.75 +
@@ -160,6 +202,7 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     bandingStraps,
     bandingLengthM,
     cornerGuards,
+    cornerGuardLengthM,
     wrappingLengthM,
     antiSlipMats,
     dunnageBlocks,
@@ -203,7 +246,7 @@ export async function runInertiaCertification(
         target.supports ?? [],
         value => onProgress?.({
           level,
-          levelLabel: buildSecuringUsage(target, level).levelLabel,
+          levelLabel: securing.levelLabel,
           scenario,
           scenarioIndex: index + 1,
           scenarioCount: SCENARIOS.length,
