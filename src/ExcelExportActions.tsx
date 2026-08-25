@@ -5,6 +5,7 @@ import { analyzeFloorLoad } from './engine/floorLoad';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import { buildWorkSequence } from './engine/workSequence';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
+import { confirmUnverifiedExport, hasCurrentPhysicsVerification } from './exportVerification';
 
 type Detail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type ExportWindow = Window & { __containerLoadingLatestResult?: Detail };
@@ -17,6 +18,7 @@ function exportWorkbook(detail: Detail) {
   result.placements.forEach(p => loadedByCargo.set(p.cargoId, (loadedByCargo.get(p.cargoId) ?? 0) + 1));
   const loadSteps = buildWorkSequence(container,cargo,result,'LOAD');
   const unloadSteps = buildWorkSequence(container,cargo,result,'UNLOAD');
+  const physicsVerified = hasCurrentPhysicsVerification();
 
   const summary = [
     ['항목', '값'],
@@ -24,6 +26,8 @@ function exportWorkbook(detail: Detail) {
     ['최대 적재중량(kg)', container.maxPayloadKg], ['적재 중량(kg)', result.loadedWeightKg],
     ['적재 부피(m3)', result.usedVolumeM3], ['적재 박스 수(EA)', result.placements.length],
     ['바닥 평균 하중(kg/m2)', Number(floor.averageKgPerM2.toFixed(1))], ['바닥 최대 하중(kg/m2)', Number(floor.maxKgPerM2.toFixed(1))],
+    ['바닥 하중 경고 기준(kg/m2)', container.floorLoadLimitKgPerM2 ?? 1500],
+    ['물리 안정성 검증', physicsVerified ? '검증 완료' : '미검증 - 현장 사용 전 반드시 검증'],
   ];
   const cargoRows = cargo.map(item => ({
     코드: item.id, 품명: item.name, 요청수량: item.quantity, 적재수량: loadedByCargo.get(item.id) ?? 0,
@@ -75,7 +79,11 @@ export default function ExcelExportActions() {
     button.className = 'excel-export-runtime';
     button.textContent = '▧ Excel 내보내기';
     button.disabled = !detail;
-    const click = () => detail && exportWorkbook(detail);
+    const click = () => {
+      if (!detail) return;
+      if (!confirmUnverifiedExport('Excel 파일')) return;
+      exportWorkbook(detail);
+    };
     button.addEventListener('click', click);
     quickRow.appendChild(button);
     return () => { button.removeEventListener('click', click); button.remove(); };
