@@ -1,5 +1,6 @@
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
-import { requestCertifiedResults, type InertiaCertification } from './inertiaCertification';
+import { createPhysicsTargetSignature, requestCertifiedResults, type InertiaCertification } from './inertiaCertification';
+import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
 export const OPEN_RESULTS_MODAL_EVENT = 'container-loading-open-results-modal';
 
@@ -10,8 +11,18 @@ export type ResultsModalDetail = {
   certification?: InertiaCertification;
 };
 
+export function certificationMatchesTarget(certification: InertiaCertification | undefined, target: PhysicsTarget | undefined) {
+  return Boolean(
+    certification?.status === 'passed'
+    && target
+    && certification.mode === target.mode
+    && certification.targetSignature === createPhysicsTargetSignature(target),
+  );
+}
+
 export function openResultsModal(detail: ResultsModalDetail) {
-  if (detail.certification?.status !== 'passed') {
+  const target = readPhysicsTarget();
+  if (!certificationMatchesTarget(detail.certification, target)) {
     requestCertifiedResults({ container: detail.container, cargo: detail.cargo, result: detail.result });
     return;
   }

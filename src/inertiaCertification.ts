@@ -1,8 +1,9 @@
 import type { InertiaAnimationResult, InertiaSecuringProfile } from './engine/inertiaSimulation';
 import { runInertiaAnimation } from './engine/inertiaSimulation';
-import type { PhysicsScenario } from './engine/physicsValidation';
-import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
-import type { PhysicsTarget } from './physicsTarget';
+import type { PhysicsScenario, PhysicsSupport } from './engine/physicsValidation';
+import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
+import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
+import { readSecuringMaterialSettings, type SecuringMaterialSettings } from './securingMaterialSettings';
 
 export type InertiaScenario = Exclude<PhysicsScenario, 'settle'>;
 export type CertificationStatus = 'passed' | 'failed';
@@ -16,16 +17,37 @@ export type SecuringUsage = {
   bandingStraps: number;
   bandingLengthM: number;
   cornerGuards: number;
+  cornerGuardLengthM: number;
   wrappingLengthM: number;
   antiSlipMats: number;
+  dunnageBlocks: number;
   loadBars: number;
   estimatedAddedWeightKg: number;
   estimatedNonCargoWeightKg: number;
+  materialUnitWeights?: SecuringMaterialSettings;
+};
+
+export type InertiaAttemptScenario = {
+  scenario: InertiaScenario;
+  passed: boolean;
+  maxHorizontalShiftM: number;
+  maxTiltDeg: number;
+  maxCargoRelativeSlipM?: number;
+  maxSupportShiftM?: number;
+};
+
+export type InertiaReinforcementAttempt = {
+  level: SecuringLevel;
+  levelLabel: string;
+  payloadWithinLimit: boolean;
+  passed: boolean;
+  scenarios: InertiaAttemptScenario[];
 };
 
 export type InertiaCertification = {
   status: CertificationStatus;
   mode: PhysicsTarget['mode'];
+  targetSignature: string;
   testedAt: string;
   securing: SecuringUsage;
   testedScenarios: number;
@@ -33,8 +55,13 @@ export type InertiaCertification = {
   failedScenarios: InertiaScenario[];
   maxHorizontalShiftM: number;
   maxTiltDeg: number;
+  maxCargoRelativeSlipM?: number;
+  maxSupportShiftM?: number;
+  maxCargoRestraintForceN?: number;
+  maxSupportRestraintForceN?: number;
   results: Partial<Record<InertiaScenario, InertiaAnimationResult>>;
   payloadWithinLimit: boolean;
+  attempts?: InertiaReinforcementAttempt[];
 };
 
 export type CertificationRequestDetail = {
@@ -57,85 +84,211 @@ export const INERTIA_CERTIFICATION_EVENT = 'container-loading:inertia-certificat
 
 export const INERTIA_PASS_SHIFT_M = 0.012;
 export const INERTIA_PASS_TILT_DEG = 1.8;
+export const INERTIA_PASS_PALLET_CARGO_SLIP_M = 0.008;
+export const INERTIA_PASS_SUPPORT_SHIFT_M = 0.012;
 
 const SCENARIOS: InertiaScenario[] = ['acceleration', 'braking', 'cornering'];
+const EPS = 1e-6;
+
+type CertificationWindow = Window & { __containerLoadingLatestCertification?: InertiaCertification };
 
 const LEVEL_LABEL: Record<SecuringLevel, string> = {
   0: '보조 고정 없음',
-  1: '1차 보강 · 밴딩+각대',
-  2: '2차 보강 · 밴딩+각대+랩핑',
+  1: '1차 보강 · 기본 고정',
+  2: '2차 보강 · 강화 고정',
   3: '3차 보강 · 최대 결속',
 };
+
+function overlap1d(a0: number, a1: number, b0: number, b1: number) {
+  return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+}
+
+function isAboveSupport(placement: Placement, support: PhysicsSupport) {
+  const overlapX = overlap1d(placement.x, placement.x + placement.length, support.x, support.x + support.length);
+  const overlapY = overlap1d(placement.y, placement.y + placement.width, support.y, support.y + support.width);
+  const footprint = Math.max(EPS, placement.length * placement.width);
+  return overlapX * overlapY / footprint >= 0.55 && placement.z + EPS >= support.z + support.height;
+}
+
+function supportLoadHeight(target: PhysicsTarget, support: PhysicsSupport) {
+  const supports = target.supports ?? [];
+  const upperSupportZ = supports
+    .filter(candidate => candidate !== support && candidate.z > support.z + EPS)
+    .filter(candidate => {
+      const overlapX = overlap1d(candidate.x, candidate.x + candidate.length, support.x, support.x + support.length);
+      const overlapY = overlap1d(candidate.y, candidate.y + candidate.width, support.y, support.y + support.width);
+      return overlapX >= Math.min(candidate.length, support.length) * 0.8 && overlapY >= Math.min(candidate.width, support.width) * 0.8;
+    })
+    .reduce((min, candidate) => Math.min(min, candidate.z), Number.POSITIVE_INFINITY);
+
+  const supportTop = support.z + support.height;
+  const top = target.result.placements
+    .filter(placement => isAboveSupport(placement, support))
+    .filter(placement => !Number.isFinite(upperSupportZ) || placement.z < upperSupportZ - EPS)
+    .reduce((max, placement) => Math.max(max, placement.z + placement.height), supportTop);
+  return Math.max(0, top - supportTop);
+}
+
+export function createPhysicsTargetSignature(target: PhysicsTarget) {
+  return JSON.stringify({
+    physicsModel: 'restraint-v3-material-derived',
+    mode: target.mode,
+    container: target.container,
+    placements: target.result.placements.map(item => [item.cargoId, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg]),
+    supports: (target.supports ?? []).map(item => [item.id, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg]),
+    materialUnitWeights: readSecuringMaterialSettings(),
+  });
+}
+
+export function readLatestInertiaCertification() {
+  if (typeof window === 'undefined') return undefined;
+  return (window as CertificationWindow).__containerLoadingLatestCertification;
+}
+
+export function clearLatestInertiaCertification() {
+  if (typeof window === 'undefined') return;
+  (window as CertificationWindow).__containerLoadingLatestCertification = undefined;
+  window.dispatchEvent(new CustomEvent<InertiaCertification | undefined>(INERTIA_CERTIFICATION_EVENT, { detail: undefined }));
+}
 
 export function requestCertifiedResults(detail: CertificationRequestDetail) {
   window.dispatchEvent(new CustomEvent<CertificationRequestDetail>(REQUEST_CERTIFIED_RESULTS_EVENT, { detail }));
 }
 
-export function isInertiaStable(result: InertiaAnimationResult) {
-  return result.maxHorizontalShiftM <= INERTIA_PASS_SHIFT_M && result.maxTiltDeg <= INERTIA_PASS_TILT_DEG;
+export function isInertiaStable(result: InertiaAnimationResult, mode: PhysicsTarget['mode'] = 'boxes') {
+  if (result.maxHorizontalShiftM > INERTIA_PASS_SHIFT_M || result.maxTiltDeg > INERTIA_PASS_TILT_DEG) return false;
+  if (mode === 'pallets') {
+    if ((result.maxCargoRelativeSlipM ?? result.maxHorizontalShiftM) > INERTIA_PASS_PALLET_CARGO_SLIP_M) return false;
+    if ((result.maxSupportShiftM ?? 0) > INERTIA_PASS_SUPPORT_SHIFT_M) return false;
+  }
+  return true;
 }
 
+/** Legacy level summary retained for UI/tests. Certification itself uses securingProfileForUsage below. */
 export function securingProfileForLevel(mode: PhysicsTarget['mode'], level: SecuringLevel): InertiaSecuringProfile {
   if (level === 0) return { frictionCoefficient: 0.62, cargoRetentionRatio: 0, supportRetentionRatio: 0 };
   if (mode === 'pallets') {
     if (level === 1) return { frictionCoefficient: 0.74, cargoRetentionRatio: 0.36, supportRetentionRatio: 0.16 };
-    if (level === 2) return { frictionCoefficient: 0.84, cargoRetentionRatio: 0.58, supportRetentionRatio: 0.30 };
-    return { frictionCoefficient: 0.92, cargoRetentionRatio: 0.78, supportRetentionRatio: 0.48 };
+    if (level === 2) return { frictionCoefficient: 0.74, cargoRetentionRatio: 0.58, supportRetentionRatio: 0.16 };
+    return { frictionCoefficient: 0.82, cargoRetentionRatio: 0.78, supportRetentionRatio: 0.48 };
   }
-  if (level === 1) return { frictionCoefficient: 0.70, cargoRetentionRatio: 0.20, supportRetentionRatio: 0 };
-  if (level === 2) return { frictionCoefficient: 0.80, cargoRetentionRatio: 0.38, supportRetentionRatio: 0 };
-  return { frictionCoefficient: 0.88, cargoRetentionRatio: 0.58, supportRetentionRatio: 0 };
+  if (level === 1) return { frictionCoefficient: 0.72, cargoRetentionRatio: 0.16, supportRetentionRatio: 0 };
+  if (level === 2) return { frictionCoefficient: 0.82, cargoRetentionRatio: 0.34, supportRetentionRatio: 0 };
+  return { frictionCoefficient: 0.90, cargoRetentionRatio: 0.54, supportRetentionRatio: 0 };
+}
+
+/**
+ * Builds the actual physics restraint from the material BOM rather than from a level number alone.
+ * The constants are conservative internal comparison coefficients, not manufacturer-rated capacities.
+ */
+export function securingProfileForUsage(mode: PhysicsTarget['mode'], usage: SecuringUsage): InertiaSecuringProfile {
+  if (usage.level === 0) return { frictionCoefficient: 0.62 };
+
+  if (mode === 'pallets') {
+    const strapsPerPallet = usage.palletCount > 0 ? usage.bandingStraps / usage.palletCount : 0;
+    const hasWrap = usage.wrappingLengthM > EPS;
+    const hasAntiSlip = usage.antiSlipMats > 0;
+    const hasLoadBars = usage.loadBars > 0;
+    const cargoCapacityG = Math.min(0.78, Math.max(0.12, strapsPerPallet * 0.11 + (hasWrap ? 0.14 : 0)));
+    const cargoSpring = 8 + strapsPerPallet * 4.5 + (hasWrap ? 7 : 0);
+    const cargoDamping = 3 + strapsPerPallet * 0.8 + (hasWrap ? 1.5 : 0);
+    return {
+      frictionCoefficient: hasAntiSlip ? (usage.antiSlipMats > usage.palletCount ? 0.82 : 0.74) : 0.62,
+      cargoRestraint: strapsPerPallet > 0 || hasWrap ? {
+        springAccelerationPerM: cargoSpring,
+        dampingPerSecond: cargoDamping,
+        maxAccelerationG: cargoCapacityG,
+      } : undefined,
+      supportRestraint: hasLoadBars ? {
+        springAccelerationPerM: 20 + usage.loadBars * 7,
+        dampingPerSecond: 6 + usage.loadBars,
+        maxAccelerationG: Math.min(0.72, 0.24 + usage.loadBars * 0.22),
+      } : undefined,
+    };
+  }
+
+  const hasAntiSlip = usage.antiSlipMats > 0;
+  const blockingStrength = usage.dunnageBlocks * 0.035;
+  const barStrength = usage.loadBars * 0.18;
+  const capacityG = Math.min(0.62, blockingStrength + barStrength);
+  return {
+    frictionCoefficient: hasAntiSlip ? (usage.level >= 3 ? 0.88 : 0.76) : 0.62,
+    cargoRestraint: capacityG > 0 ? {
+      springAccelerationPerM: 7 + usage.dunnageBlocks * 1.3 + usage.loadBars * 6,
+      dampingPerSecond: 3 + usage.dunnageBlocks * 0.18 + usage.loadBars * 1.2,
+      maxAccelerationG: capacityG,
+    } : undefined,
+  };
 }
 
 export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel): SecuringUsage {
-  const palletCount = target.mode === 'pallets' ? (target.supports?.length ?? 0) : 0;
-  const palletWeightKg = target.mode === 'pallets'
-    ? (target.supports ?? []).reduce((sum, support) => sum + Math.max(0, support.weightKg), 0)
-    : 0;
+  const supports = target.mode === 'pallets' ? (target.supports ?? []) : [];
+  const palletCount = supports.length;
+  const palletWeightKg = supports.reduce((sum, support) => sum + Math.max(0, support.weightKg), 0);
+  const unitWeights = readSecuringMaterialSettings();
 
   let bandingStraps = 0;
   let bandingLengthM = 0;
   let cornerGuards = 0;
+  let cornerGuardLengthM = 0;
   let wrappingLengthM = 0;
   let antiSlipMats = 0;
+  let dunnageBlocks = 0;
   let loadBars = 0;
 
   if (target.mode === 'pallets' && level > 0) {
     const strapsPerPallet = level === 1 ? 2 : level === 2 ? 3 : 4;
     bandingStraps = palletCount * strapsPerPallet;
-    bandingLengthM = bandingStraps * 4.5;
     cornerGuards = palletCount * 4;
     antiSlipMats = palletCount * (level === 3 ? 2 : 1);
-    wrappingLengthM = level >= 2 ? palletCount * (level === 2 ? 12 : 20) : 0;
     loadBars = level === 3 && palletCount > 0 ? 2 : 0;
+
+    supports.forEach(support => {
+      const loadHeight = supportLoadHeight(target, support);
+      const strapRun = 2 * (Math.min(support.length, support.width) + loadHeight) + 0.3;
+      bandingLengthM += strapsPerPallet * strapRun;
+      cornerGuardLengthM += 4 * loadHeight;
+      if (level >= 2 && loadHeight > 0) {
+        const wrapCircumference = 2 * (support.length + support.width);
+        const verticalTurns = Math.max(3, Math.ceil(loadHeight / 0.25) + 2);
+        wrappingLengthM += wrapCircumference * verticalTurns * 1.08;
+      }
+    });
   } else if (target.mode === 'boxes' && level > 0) {
-    antiSlipMats = Math.max(1, Math.ceil(target.result.placements.length / (level === 1 ? 24 : 16)));
+    const boxCount = Math.max(1, target.result.placements.length);
+    antiSlipMats = Math.max(2, Math.ceil(boxCount / (level === 1 ? 30 : 20)));
+    dunnageBlocks = Math.max(level === 1 ? 2 : level === 2 ? 4 : 6, Math.ceil(boxCount / 80) * 2);
     loadBars = level >= 2 ? 2 : 0;
-    bandingStraps = level === 3 ? Math.max(2, Math.ceil(target.result.placements.length / 40) * 2) : 0;
-    bandingLengthM = bandingStraps * 5.5;
   }
 
-  // 실제 자재 규격이 입력되기 전까지 결과 비교용 보수적 기본 중량을 사용한다.
   const estimatedAddedWeightKg =
-    bandingLengthM * 0.025 +
-    cornerGuards * 0.18 +
-    wrappingLengthM * 0.018 +
-    antiSlipMats * 0.35 +
-    loadBars * 4.5;
+    bandingLengthM * unitWeights.bandingKgPerM +
+    cornerGuardLengthM * unitWeights.cornerGuardKgPerM +
+    wrappingLengthM * unitWeights.wrappingKgPerM +
+    antiSlipMats * unitWeights.antiSlipKgPerEa +
+    dunnageBlocks * unitWeights.dunnageKgPerEa +
+    loadBars * unitWeights.loadBarKgPerEa;
 
   return {
     level,
-    levelLabel: LEVEL_LABEL[level],
+    levelLabel: target.mode === 'pallets' && level > 0
+      ? level === 1 ? '1차 보강 · 밴딩+각대' : level === 2 ? '2차 보강 · 밴딩+각대+랩핑' : '3차 보강 · 최대 결속'
+      : target.mode === 'boxes' && level > 0
+        ? level === 1 ? '1차 보강 · 미끄럼방지+블로킹' : level === 2 ? '2차 보강 · 블로킹+고정바' : '3차 보강 · 최대 블로킹'
+        : LEVEL_LABEL[level],
     palletCount,
     palletWeightKg,
     bandingStraps,
     bandingLengthM,
     cornerGuards,
+    cornerGuardLengthM,
     wrappingLengthM,
     antiSlipMats,
+    dunnageBlocks,
     loadBars,
     estimatedAddedWeightKg,
     estimatedNonCargoWeightKg: palletWeightKg + estimatedAddedWeightKg,
+    materialUnitWeights: unitWeights,
   };
 }
 
@@ -150,17 +303,20 @@ export async function runInertiaCertification(
 ): Promise<InertiaCertification> {
   let finalResults: Partial<Record<InertiaScenario, InertiaAnimationResult>> = {};
   let finalLevel: SecuringLevel = 0;
+  const attempts: InertiaReinforcementAttempt[] = [];
 
   for (let rawLevel = 0; rawLevel <= 3; rawLevel += 1) {
     const level = rawLevel as SecuringLevel;
     const securing = buildSecuringUsage(target, level);
     finalLevel = level;
-    if (!payloadWithinLimit(target, securing)) {
+    const payloadOk = payloadWithinLimit(target, securing);
+    if (!payloadOk) {
+      attempts.push({ level, levelLabel: securing.levelLabel, payloadWithinLimit: false, passed: false, scenarios: [] });
       finalResults = {};
       break;
     }
 
-    const profile = securingProfileForLevel(target.mode, level);
+    const profile = securingProfileForUsage(target.mode, securing);
     const levelResults: Partial<Record<InertiaScenario, InertiaAnimationResult>> = {};
     let allPassed = true;
 
@@ -173,7 +329,7 @@ export async function runInertiaCertification(
         target.supports ?? [],
         value => onProgress?.({
           level,
-          levelLabel: LEVEL_LABEL[level],
+          levelLabel: securing.levelLabel,
           scenario,
           scenarioIndex: index + 1,
           scenarioCount: SCENARIOS.length,
@@ -183,20 +339,40 @@ export async function runInertiaCertification(
       );
       levelResults[scenario] = result;
       onScenarioResult?.(result, level);
-      if (!isInertiaStable(result)) {
+      if (!isInertiaStable(result, target.mode)) {
         allPassed = false;
         break;
       }
     }
 
+    const scenarioAttempts = SCENARIOS.flatMap(scenario => {
+      const result = levelResults[scenario];
+      return result ? [{
+        scenario,
+        passed: isInertiaStable(result, target.mode),
+        maxHorizontalShiftM: result.maxHorizontalShiftM,
+        maxTiltDeg: result.maxTiltDeg,
+        maxCargoRelativeSlipM: result.maxCargoRelativeSlipM,
+        maxSupportShiftM: result.maxSupportShiftM,
+      } satisfies InertiaAttemptScenario] : [];
+    });
+    const levelPassed = allPassed && scenarioAttempts.length === SCENARIOS.length;
+    attempts.push({
+      level,
+      levelLabel: securing.levelLabel,
+      payloadWithinLimit: true,
+      passed: levelPassed,
+      scenarios: scenarioAttempts,
+    });
+
     finalResults = levelResults;
-    if (allPassed && Object.keys(levelResults).length === SCENARIOS.length) break;
+    if (levelPassed) break;
   }
 
   const usage = buildSecuringUsage(target, finalLevel);
   const failedScenarios = SCENARIOS.filter(scenario => {
     const result = finalResults[scenario];
-    return !result || !isInertiaStable(result);
+    return !result || !isInertiaStable(result, target.mode);
   });
   const results = Object.values(finalResults).filter((result): result is InertiaAnimationResult => Boolean(result));
   const payloadOk = payloadWithinLimit(target, usage);
@@ -205,17 +381,29 @@ export async function runInertiaCertification(
   const certification: InertiaCertification = {
     status: passed ? 'passed' : 'failed',
     mode: target.mode,
+    targetSignature: createPhysicsTargetSignature(target),
     testedAt: new Date().toISOString(),
     securing: usage,
     testedScenarios: results.length,
-    passedScenarios: results.filter(isInertiaStable).length,
+    passedScenarios: results.filter(result => isInertiaStable(result, target.mode)).length,
     failedScenarios,
     maxHorizontalShiftM: results.reduce((max, result) => Math.max(max, result.maxHorizontalShiftM), 0),
     maxTiltDeg: results.reduce((max, result) => Math.max(max, result.maxTiltDeg), 0),
+    maxCargoRelativeSlipM: results.reduce((max, result) => Math.max(max, result.maxCargoRelativeSlipM ?? 0), 0),
+    maxSupportShiftM: results.reduce((max, result) => Math.max(max, result.maxSupportShiftM ?? 0), 0),
+    maxCargoRestraintForceN: results.reduce((max, result) => Math.max(max, result.maxCargoRestraintForceN ?? 0), 0),
+    maxSupportRestraintForceN: results.reduce((max, result) => Math.max(max, result.maxSupportRestraintForceN ?? 0), 0),
     results: finalResults,
     payloadWithinLimit: payloadOk,
+    attempts,
   };
 
-  window.dispatchEvent(new CustomEvent<InertiaCertification>(INERTIA_CERTIFICATION_EVENT, { detail: certification }));
+  if (typeof window !== 'undefined') {
+    const currentTarget = readPhysicsTarget();
+    if (currentTarget && createPhysicsTargetSignature(currentTarget) === certification.targetSignature) {
+      (window as CertificationWindow).__containerLoadingLatestCertification = certification;
+      window.dispatchEvent(new CustomEvent<InertiaCertification>(INERTIA_CERTIFICATION_EVENT, { detail: certification }));
+    }
+  }
   return certification;
 }

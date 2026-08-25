@@ -124,7 +124,7 @@ function rebuildMetrics(
     totalPalletizedWeightKg: totalWeight,
     consolidatedPallets: base.consolidatedPallets + extraConsolidated,
     stackedPallets: normalized.filter((pallet) => pallet.stackLevel > 1).length,
-    maxUsedStackLevel: normalized.reduce((max, pallet) => Math.max(max, pallet.stackLevel), 1),
+    maxUsedStackLevel: normalized.length ? normalized.reduce((max, pallet) => Math.max(max, pallet.stackLevel), 1) : 0,
     lateralImbalanceKg: recalcLateralImbalance(normalized, container),
   };
 }

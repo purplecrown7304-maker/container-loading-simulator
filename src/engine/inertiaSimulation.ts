@@ -1,4 +1,5 @@
 import type { PhysicsScenario, PhysicsSupport } from './physicsValidation';
+import { horizontalRestraintForce, supportingIndexForPlacement, supportingIndexForSupport, type RestraintModel } from './restraintPhysics';
 import type { ContainerSpec, Placement } from './types';
 
 const EPS = 1e-6;
@@ -15,12 +16,12 @@ const SIMULATION_HZ = 60;
 export type InertiaPhase = 'settle' | 'force' | 'coast';
 
 export type InertiaSecuringProfile = {
-  /** 접촉면 마찰계수. 미끄럼방지재/포장 보강을 단순화해 반영한다. */
   frictionCoefficient?: number;
-  /** 밴딩·랩핑·각대 등으로 화물 관성력이 적재면에 전달되는 비율(0~0.95). */
   cargoRetentionRatio?: number;
-  /** 팔레트 미끄럼방지/고정으로 팔레트 관성력이 바닥에 전달되는 비율(0~0.95). */
   supportRetentionRatio?: number;
+  cargoRestraint?: RestraintModel;
+  /** Container-level blocking/load-bar restraint; stacked upper pallets rely on friction/contact. */
+  supportRestraint?: RestraintModel;
 };
 
 export type InertiaAnimationFrame = {
@@ -39,6 +40,11 @@ export type InertiaAnimationResult = {
   frames: InertiaAnimationFrame[];
   maxHorizontalShiftM: number;
   maxTiltDeg: number;
+  maxCargoRelativeSlipM?: number;
+  /** Floor pallets relative to container; upper pallets relative to the pallet directly below. */
+  maxSupportShiftM?: number;
+  maxCargoRestraintForceN?: number;
+  maxSupportRestraintForceN?: number;
 };
 
 let rapierPromise: ReturnType<typeof loadRapier> | null = null;
@@ -78,6 +84,22 @@ function accelerationForScenario(scenario: PhysicsScenario, step: number, totalS
   return { x: 0, z: 0 };
 }
 
+function restraintFromRatio(ratio: number, role: 'cargo' | 'support'): RestraintModel | undefined {
+  if (ratio <= 0) return undefined;
+  if (role === 'cargo') {
+    return {
+      springAccelerationPerM: 6 + ratio * 24,
+      dampingPerSecond: 2 + ratio * 6,
+      maxAccelerationG: 0.08 + ratio * 0.62,
+    };
+  }
+  return {
+    springAccelerationPerM: 4 + ratio * 18,
+    dampingPerSecond: 2 + ratio * 5,
+    maxAccelerationG: 0.06 + ratio * 0.70,
+  };
+}
+
 function toPhysicsCenter(
   container: ContainerSpec,
   item: Pick<Placement, 'x' | 'y' | 'z' | 'length' | 'width' | 'height'>,
@@ -111,11 +133,6 @@ function packTransforms(entries: Array<{ body: { translation: () => { x: number;
   return packed;
 }
 
-/**
- * Rapier 월드의 실제 강체 위치/회전을 프레임으로 기록한다.
- * UI는 이 결과를 재생만 하므로 검증 엔진과 동일한 충돌/마찰/중력 동작을 눈으로 확인할 수 있다.
- * securing은 밴딩·각대·랩핑·미끄럼방지재의 구속 효과를 비교용 계수로 반영한다.
- */
 export async function runInertiaAnimation(
   container: ContainerSpec,
   placements: Placement[],
@@ -131,6 +148,8 @@ export async function runInertiaAnimation(
   const friction = Math.max(0.05, Math.min(2, securing?.frictionCoefficient ?? DEFAULT_FRICTION));
   const cargoRetentionRatio = Math.max(0, Math.min(0.95, securing?.cargoRetentionRatio ?? 0));
   const supportRetentionRatio = Math.max(0, Math.min(0.95, securing?.supportRetentionRatio ?? 0));
+  const cargoRestraint = securing?.cargoRestraint ?? restraintFromRatio(cargoRetentionRatio, 'cargo');
+  const supportRestraint = securing?.supportRestraint ?? restraintFromRatio(supportRetentionRatio, 'support');
 
   const fixed = (hx: number, hy: number, hz: number, x: number, y: number, z: number) => {
     world.createCollider(
@@ -159,9 +178,7 @@ export async function runInertiaAnimation(
   ) => {
     const center = toPhysicsCenter(container, item);
     const desc = dynamic ? RAPIER.RigidBodyDesc.dynamic() : RAPIER.RigidBodyDesc.fixed();
-    const body = world.createRigidBody(
-      desc.setTranslation(center.x, center.y, center.z).setCanSleep(true).setCcdEnabled(false),
-    );
+    const body = world.createRigidBody(desc.setTranslation(center.x, center.y, center.z).setCanSleep(true).setCcdEnabled(false));
     const collider = RAPIER.ColliderDesc.cuboid(
       Math.max(EPS, item.length / 2 - 0.0005),
       Math.max(EPS, item.height / 2 - 0.0005),
@@ -172,28 +189,56 @@ export async function runInertiaAnimation(
     return { body, center, massKg: Math.max(0.01, weightKg), dynamic, retentionRatio };
   };
 
-  const cargoBodies = placements.map(item => createBody(item, item.weightKg, true, cargoRetentionRatio));
-  const supportBodies = supports.map(item => createBody(item, item.weightKg, item.dynamic !== false, supportRetentionRatio));
+  const supportBodies = supports.map((item, index) => ({
+    ...createBody(item, item.weightKg, item.dynamic !== false, supportRetentionRatio),
+    parentSupportIndex: supportingIndexForSupport(index, supports),
+  }));
+  const cargoBodies = placements.map(item => ({
+    ...createBody(item, item.weightKg, true, cargoRetentionRatio),
+    supportIndex: supportingIndexForPlacement(item, supports),
+  }));
   const dynamicBodies = [...cargoBodies, ...supportBodies].filter(entry => entry.dynamic);
+  const cargoAnchorOffsets = cargoBodies.map(entry => {
+    const support = entry.supportIndex >= 0 ? supportBodies[entry.supportIndex] : undefined;
+    return support ? { x: entry.center.x - support.center.x, z: entry.center.z - support.center.z } : { x: 0, z: 0 };
+  });
+  const supportAnchorOffsets = supportBodies.map(entry => {
+    const parent = entry.parentSupportIndex >= 0 ? supportBodies[entry.parentSupportIndex] : undefined;
+    return parent ? { x: entry.center.x - parent.center.x, z: entry.center.z - parent.center.z } : { x: 0, z: 0 };
+  });
+
   let maxHorizontalShiftM = 0;
   let maxTiltDeg = 0;
+  let maxCargoRelativeSlipM = 0;
+  let maxSupportShiftM = 0;
+  let maxCargoRestraintForceN = 0;
+  let maxSupportRestraintForceN = 0;
 
   const record = (step: number) => {
-    cargoBodies.forEach(entry => {
+    supportBodies.forEach((entry, index) => {
+      const p = entry.body.translation();
+      const parent = entry.parentSupportIndex >= 0 ? supportBodies[entry.parentSupportIndex] : undefined;
+      const parentPosition = parent?.body.translation();
+      const offset = supportAnchorOffsets[index];
+      const target = parentPosition
+        ? { x: parentPosition.x + offset.x, z: parentPosition.z + offset.z }
+        : { x: entry.center.x, z: entry.center.z };
+      maxSupportShiftM = Math.max(maxSupportShiftM, Math.hypot(p.x - target.x, p.z - target.z));
+    });
+    cargoBodies.forEach((entry, index) => {
       const p = entry.body.translation();
       const q = entry.body.rotation();
-      maxHorizontalShiftM = Math.max(
-        maxHorizontalShiftM,
-        Math.hypot(p.x - entry.center.x, p.z - entry.center.z),
-      );
+      maxHorizontalShiftM = Math.max(maxHorizontalShiftM, Math.hypot(p.x - entry.center.x, p.z - entry.center.z));
       maxTiltDeg = Math.max(maxTiltDeg, tiltFromQuaternion(q));
+      const support = entry.supportIndex >= 0 ? supportBodies[entry.supportIndex] : undefined;
+      const supportPosition = support?.body.translation();
+      const offset = cargoAnchorOffsets[index];
+      const target = supportPosition
+        ? { x: supportPosition.x + offset.x, z: supportPosition.z + offset.z }
+        : { x: entry.center.x, z: entry.center.z };
+      maxCargoRelativeSlipM = Math.max(maxCargoRelativeSlipM, Math.hypot(p.x - target.x, p.z - target.z));
     });
-    frames.push({
-      cargo: packTransforms(cargoBodies),
-      supports: packTransforms(supportBodies),
-      phase: phaseForStep(step, totalSteps),
-      step,
-    });
+    frames.push({ cargo: packTransforms(cargoBodies), supports: packTransforms(supportBodies), phase: phaseForStep(step, totalSteps), step });
   };
 
   try {
@@ -204,14 +249,56 @@ export async function runInertiaAnimation(
       dynamicBodies.forEach(entry => {
         entry.body.resetForces(false);
         if (accel.x || accel.z) {
-          const transmittedRatio = 1 - entry.retentionRatio;
-          entry.body.addForce({
-            x: accel.x * entry.massKg * transmittedRatio,
-            y: 0,
-            z: accel.z * entry.massKg * transmittedRatio,
-          }, true);
+          const hasCargoMarker = 'supportIndex' in entry;
+          const usingPhysicalRestraint = hasCargoMarker ? Boolean(cargoRestraint) : Boolean(supportRestraint);
+          const transmittedRatio = usingPhysicalRestraint ? 1 : 1 - entry.retentionRatio;
+          entry.body.addForce({ x: accel.x * entry.massKg * transmittedRatio, y: 0, z: accel.z * entry.massKg * transmittedRatio }, true);
         }
       });
+
+      if (supportRestraint) {
+        supportBodies.forEach(entry => {
+          if (!entry.dynamic || entry.parentSupportIndex >= 0) return;
+          const p = entry.body.translation();
+          const v = entry.body.linvel();
+          const force = horizontalRestraintForce(
+            entry.massKg,
+            { x: p.x, z: p.z },
+            { x: entry.center.x, z: entry.center.z },
+            { x: v.x, z: v.z },
+            { x: 0, z: 0 },
+            supportRestraint,
+          );
+          maxSupportRestraintForceN = Math.max(maxSupportRestraintForceN, force.magnitudeN);
+          entry.body.addForce({ x: force.x, y: 0, z: force.z }, true);
+        });
+      }
+
+      if (cargoRestraint) {
+        cargoBodies.forEach((entry, index) => {
+          const p = entry.body.translation();
+          const v = entry.body.linvel();
+          const support = entry.supportIndex >= 0 ? supportBodies[entry.supportIndex] : undefined;
+          const offset = cargoAnchorOffsets[index];
+          const supportPosition = support?.body.translation();
+          const supportVelocity = support?.body.linvel();
+          const target = supportPosition
+            ? { x: supportPosition.x + offset.x, z: supportPosition.z + offset.z }
+            : { x: entry.center.x, z: entry.center.z };
+          const targetVelocity = supportVelocity ? { x: supportVelocity.x, z: supportVelocity.z } : { x: 0, z: 0 };
+          const force = horizontalRestraintForce(
+            entry.massKg,
+            { x: p.x, z: p.z },
+            target,
+            { x: v.x, z: v.z },
+            targetVelocity,
+            cargoRestraint,
+          );
+          maxCargoRestraintForceN = Math.max(maxCargoRestraintForceN, force.magnitudeN);
+          entry.body.addForce({ x: force.x, y: 0, z: force.z }, true);
+        });
+      }
+
       world.step();
       if ((step + 1) % RECORD_EVERY_STEPS === 0 || step === totalSteps - 1) record(step + 1);
       if (step % 24 === 23) {
@@ -229,6 +316,10 @@ export async function runInertiaAnimation(
       frames,
       maxHorizontalShiftM,
       maxTiltDeg,
+      maxCargoRelativeSlipM,
+      maxSupportShiftM,
+      maxCargoRestraintForceN,
+      maxSupportRestraintForceN,
     };
   } finally {
     world.free();

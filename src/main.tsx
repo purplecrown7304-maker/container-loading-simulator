@@ -7,8 +7,11 @@ import ExcelExportActions from './ExcelExportActions';
 import LocationSelectionBridge from './LocationSelectionBridge';
 import DashboardRuntimeEnhancer from './DashboardRuntimeEnhancer';
 import ResultsOverlay from './ResultsOverlay';
+import AutoCertificationBridge from './AutoCertificationBridge';
+import CertificationInvalidationBridge from './CertificationInvalidationBridge';
 import CertificationResultSummaryBridge from './CertificationResultSummaryBridge';
 import FinalCertificationGate from './FinalCertificationGate';
+import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
 import WorkspaceTools from './WorkspaceTools';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
 import PhysicsValidationTool from './PhysicsValidationTool';
@@ -45,15 +48,19 @@ import './inertia-test.css';
 import './inertia-launcher.css';
 import './pallet-footer-summary.css';
 import './final-certification.css';
+import './securing-material-settings.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <ReferenceWorkspaceBar />
       <ResultsOverlay />
+      <AutoCertificationBridge />
+      <CertificationInvalidationBridge />
       <CertificationResultSummaryBridge />
       <FinalCertificationGate />
       <App />
+      <SecuringMaterialSettingsPanel />
       <PalletFooterSummaryBridge />
       <WorkspaceTools />
       <PhysicsValidationTool />

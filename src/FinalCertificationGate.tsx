@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import {
+  INERTIA_PASS_PALLET_CARGO_SLIP_M,
+  INERTIA_PASS_SHIFT_M,
+  INERTIA_PASS_SUPPORT_SHIFT_M,
+  INERTIA_PASS_TILT_DEG,
   REQUEST_CERTIFIED_RESULTS_EVENT,
   buildSecuringUsage,
+  clearLatestInertiaCertification,
+  createPhysicsTargetSignature,
   runInertiaCertification,
   type CertificationProgress,
   type CertificationRequestDetail,
@@ -33,13 +39,8 @@ function targetFromRequest(detail: CertificationRequestDetail): PhysicsTarget {
   };
 }
 
-function targetSignature(target: PhysicsTarget) {
-  return JSON.stringify({
-    mode: target.mode,
-    container: target.container,
-    placements: target.result.placements.map(item => [item.cargoId, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg]),
-    supports: (target.supports ?? []).map(item => [item.id, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg]),
-  });
+function resultDetailFromTarget(target: PhysicsTarget) {
+  return { container: target.container, cargo: target.cargo, result: target.result };
 }
 
 function mm(value: number) {
@@ -61,6 +62,7 @@ export default function FinalCertificationGate() {
 
   const execute = useCallback(async (detail: CertificationRequestDetail, nextTarget: PhysicsTarget) => {
     const id = ++runId.current;
+    const requestedSignature = createPhysicsTargetSignature(nextTarget);
     setRequest(detail);
     setTarget(nextTarget);
     setOpen(true);
@@ -86,17 +88,31 @@ export default function FinalCertificationGate() {
         },
       );
       if (runId.current !== id) return;
+
+      const currentTarget = readPhysicsTarget();
+      const stillCurrent = Boolean(currentTarget && createPhysicsTargetSignature(currentTarget) === requestedSignature && result.targetSignature === requestedSignature);
+      if (!stillCurrent) {
+        clearLatestInertiaCertification();
+        cache.current = null;
+        setCertification(null);
+        setRunning(false);
+        setError('관성 검증 중 적재안 또는 보조자재 설정이 변경되어 이전 검증 결과를 폐기했습니다. 현재 적재안으로 다시 검증하세요.');
+        return;
+      }
+
       setCertification(result);
       setUsage(result.securing);
       setRunning(false);
       if (result.status === 'passed') {
-        cache.current = { signature: targetSignature(nextTarget), certification: result };
+        cache.current = { signature: requestedSignature, certification: result };
         setOpen(false);
-        openResultsModal({ ...detail, certification: result });
+        openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: result });
       } else if (!result.payloadWithinLimit) {
         setError('보강 자재 중량까지 포함하면 컨테이너 최대 허용중량을 초과합니다. 적재량 또는 보강안을 조정해야 합니다.');
       } else {
-        setError('최대 보강까지 적용했지만 3개 관성 시나리오를 모두 안정 기준 안으로 만들지 못했습니다. 적재 높이·배치·중량 중심을 수정해야 합니다.');
+        setError(nextTarget.mode === 'pallets'
+          ? '최대 보강까지 적용했지만 전체 이동·기울기·화물-팔레트 상대 미끄럼·팔레트 자체 이동 중 하나 이상이 내부 안정 기준을 넘었습니다. 적재 높이·배치·중량 중심을 수정해야 합니다.'
+          : '최대 보강까지 적용했지만 3개 관성 시나리오를 모두 안정 기준 안으로 만들지 못했습니다. 적재 높이·배치·중량 중심을 수정해야 합니다.');
       }
     } catch (reason) {
       if (runId.current !== id) return;
@@ -119,9 +135,9 @@ export default function FinalCertificationGate() {
         setError('관성 검증할 적재 결과가 없습니다. 먼저 자동 적재를 실행하세요.');
         return;
       }
-      const signature = targetSignature(nextTarget);
+      const signature = createPhysicsTargetSignature(nextTarget);
       if (cache.current?.signature === signature && cache.current.certification.status === 'passed') {
-        openResultsModal({ ...detail, certification: cache.current.certification });
+        openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: cache.current.certification });
         return;
       }
       void execute(detail, nextTarget);
@@ -136,14 +152,15 @@ export default function FinalCertificationGate() {
   const currentUsage = usage ?? (target ? buildSecuringUsage(target, 0) : null);
   const scenarioLabel = progress ? SCENARIO_LABEL[progress.scenario] : '-';
   const progressPercent = progress ? Math.round(progress.physicsProgress * 100) : 0;
+  const palletMode = target?.mode === 'pallets';
 
   return <div className="final-cert-backdrop">
     <section className="final-cert-modal" role="dialog" aria-modal="true" aria-labelledby="final-cert-title">
       <header>
         <div>
-          <span>FINAL SAFETY GATE · RAPIER 3D</span>
+          <span>FINAL SAFETY GATE · RAPIER 3D · {palletMode ? 'PALLET' : 'DIRECT BOX'}</span>
           <h2 id="final-cert-title">최종 적재 결과 전 관성 검증</h2>
-          <p>출발 가속 · 급정거 · 급회전을 모두 통과해야 최종 결과가 열립니다. 실패하면 필요한 고정 보조재를 자동 적용해 다시 시험합니다.</p>
+          <p>출발 가속 · 급정거 · 급회전을 모두 통과해야 최종 결과가 열립니다. 실패하면 적재 방식에 맞는 고정 보조재를 자동 적용해 다시 시험합니다.</p>
         </div>
         {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
       </header>
@@ -165,22 +182,28 @@ export default function FinalCertificationGate() {
       </div>}
 
       {latestResult && <div className="final-cert-metrics">
-        <span>현재 최대 이동 <b>{mm(latestResult.maxHorizontalShiftM)}</b></span>
-        <span>현재 최대 기울기 <b>{latestResult.maxTiltDeg.toFixed(1)}°</b></span>
-        <span>통과 기준 <b>≤ 12 mm / ≤ 1.8°</b></span>
+        <span>전체 이동 <b>{mm(latestResult.maxHorizontalShiftM)}</b></span>
+        <span>기울기 <b>{latestResult.maxTiltDeg.toFixed(1)}°</b></span>
+        {palletMode && <span>화물↔팔레트 미끄럼 <b>{mm(latestResult.maxCargoRelativeSlipM ?? 0)}</b></span>}
+        {palletMode && <span>팔레트 이동 <b>{mm(latestResult.maxSupportShiftM ?? 0)}</b></span>}
+        {(latestResult.maxCargoRestraintForceN ?? 0) > 0 && <span>화물 구속력 <b>{((latestResult.maxCargoRestraintForceN ?? 0) / 1000).toFixed(1)} kN</b></span>}
+        {(latestResult.maxSupportRestraintForceN ?? 0) > 0 && <span>팔레트 구속력 <b>{((latestResult.maxSupportRestraintForceN ?? 0) / 1000).toFixed(1)} kN</b></span>}
+        <span>통과 기준 <b>이동 ≤ {Math.round(INERTIA_PASS_SHIFT_M * 1000)}mm · 기울기 ≤ {INERTIA_PASS_TILT_DEG.toFixed(1)}°{palletMode ? ` · 상대미끄럼 ≤ ${Math.round(INERTIA_PASS_PALLET_CARGO_SLIP_M * 1000)}mm · 팔레트이동 ≤ ${Math.round(INERTIA_PASS_SUPPORT_SHIFT_M * 1000)}mm` : ''}</b></span>
       </div>}
 
       {currentUsage && <article className="final-cert-materials">
         <div className="final-cert-material-head"><div><b>자동 적용 적재 보조재</b><span>{currentUsage.levelLabel}</span></div><strong>박스 제외 약 {currentUsage.estimatedNonCargoWeightKg.toFixed(1)} kg</strong></div>
         <div className="final-cert-material-grid">
-          <div><span>팔레트</span><b>{currentUsage.palletCount} EA</b><small>{currentUsage.palletWeightKg.toFixed(1)} kg</small></div>
-          <div><span>밴딩</span><b>{currentUsage.bandingStraps} 줄</b><small>{currentUsage.bandingLengthM.toFixed(1)} m</small></div>
-          <div><span>각대</span><b>{currentUsage.cornerGuards} EA</b><small>모서리 보호</small></div>
-          <div><span>랩핑</span><b>{currentUsage.wrappingLengthM.toFixed(0)} m</b><small>스트레치 필름</small></div>
-          <div><span>미끄럼방지재</span><b>{currentUsage.antiSlipMats} EA</b><small>팔레트/바닥</small></div>
-          <div><span>고정바</span><b>{currentUsage.loadBars} EA</b><small>최대 보강 시</small></div>
+          {palletMode && currentUsage.palletCount > 0 && <div><span>팔레트</span><b>{currentUsage.palletCount} EA</b><small>{currentUsage.palletWeightKg.toFixed(1)} kg</small></div>}
+          {palletMode && currentUsage.bandingStraps > 0 && <div><span>밴딩</span><b>{currentUsage.bandingStraps} 줄</b><small>{currentUsage.bandingLengthM.toFixed(1)} m</small></div>}
+          {palletMode && currentUsage.cornerGuards > 0 && <div><span>각대</span><b>{currentUsage.cornerGuards} EA</b><small>총 {currentUsage.cornerGuardLengthM.toFixed(1)} m</small></div>}
+          {palletMode && currentUsage.wrappingLengthM > 0 && <div><span>랩핑</span><b>{currentUsage.wrappingLengthM.toFixed(0)} m</b><small>스트레치 필름</small></div>}
+          {currentUsage.antiSlipMats > 0 && <div><span>미끄럼방지재</span><b>{currentUsage.antiSlipMats} EA</b><small>{palletMode ? '팔레트/바닥' : '박스/바닥'}</small></div>}
+          {!palletMode && currentUsage.dunnageBlocks > 0 && <div><span>블로킹재</span><b>{currentUsage.dunnageBlocks} EA</b><small>빈 공간 이동 억제</small></div>}
+          {currentUsage.loadBars > 0 && <div><span>고정바</span><b>{currentUsage.loadBars} EA</b><small>길이 방향 고정</small></div>}
+          {currentUsage.level === 0 && <div><span>추가 보강</span><b>불필요</b><small>기본 적재안으로 통과</small></div>}
         </div>
-        <p>자재 중량은 실제 자재 규격이 입력되기 전까지 시뮬레이션 비교용 기본 단위중량으로 추정합니다. 최종 현장 작업 전 실제 밴딩·각대·필름 규격으로 교체 계산해야 합니다.</p>
+        <p>보조자재 중량은 ‘적재 보조자재 실제 중량 설정’의 현장값으로 계산합니다. 계산된 구속력은 내부 물리모델 비교값이며 실제 자재 정격을 대체하지 않습니다.</p>
       </article>}
 
       {error && <div className="final-cert-error"><b>최종 결과 잠금 유지</b><span>{error}</span></div>}

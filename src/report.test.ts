@@ -12,16 +12,33 @@ const result: LoadingResult = {
   validationIssues: [],
 };
 
-describe('loading report', () => {
-  it('renders summary, constraints, floor load and escapes user-provided text', () => {
+describe('loading work order', () => {
+  it('renders only worker essentials with visual loading guides', () => {
     const html = buildLoadingReportHtml(container, cargo, result);
     expect(html).toContain('컨테이너 적재 작업지시서');
-    expect(html).toContain('제약조건 검사');
-    expect(html).toContain('바닥 하중 격자 (12×4)');
-    expect(html).toContain('kg/m²');
+    expect(html).toContain('위에서 본 적재도');
+    expect(html).toContain('옆에서 본 적재도');
+    expect(html).toContain('3단계 진행 그림');
+    expect(html).toContain('작업 순서');
+    expect(html).toContain('필요 보조자재');
+    expect(html).toContain('문 닫힘 간섭 없음');
+    expect(html).toContain('안쪽부터');
+    expect(html).toContain('바닥부터');
+  });
+
+  it('removes engineering-detail tables from the worker sheet', () => {
+    const html = buildLoadingReportHtml(container, cargo, result);
+    expect(html).not.toContain('바닥 하중 격자 (12×4)');
+    expect(html).not.toContain('자동 보정 이력');
+    expect(html).not.toContain('품목별 배치 사유');
+    expect(html).not.toContain('제약조건 검사');
+  });
+
+  it('escapes cargo labels and remaining cargo summary', () => {
+    const html = buildLoadingReportHtml(container, cargo, result);
     expect(html).toContain('BOX-A');
     expect(html).toContain('&lt;b&gt;BOX A&lt;/b&gt;');
-    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).not.toContain('<b>BOX A</b>');
     expect(html).not.toContain('<script>alert(1)</script>');
   });
 });

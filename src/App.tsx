@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { requestExactCertification, requestNextPalletCertification } from './autoCertification';
 import { cargoColor, cargoTint } from './cargoColors';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import { loadContainer, type LoadingStrategy } from './engine/loadingEngine';
 import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
+import { openPalletLoadingReport } from './palletWorkerReport';
 import { openLoadingReport } from './report';
 import { openResultsModal } from './resultsModalEvents';
 import { createRandomSampleCargo } from './sampleCargo';
@@ -157,8 +159,9 @@ export default function App() {
     if (!cargo.some(item => item.quantity > 0)) return announce('warning', '적재할 화물이 없습니다. 화물을 등록하거나 샘플 복원을 사용하세요.');
     if (mode === 'pallets') {
       invalidatePhysics();
+      requestNextPalletCertification();
       setPalletRunToken(token => token + 1);
-      announce('info', '팔레트 전역 최적화 적재안을 다시 계산했습니다. 물리 검증 후 내보내기를 권장합니다.');
+      announce('info', '팔레트 최적 적재 계산 후 관성 3종을 자동 검증합니다. PASS한 적재안만 최종 결과로 엽니다.');
       return;
     }
     const activeCargo = cargo.filter(item => item.quantity > 0);
@@ -173,17 +176,18 @@ export default function App() {
       });
       const published = loadContainer(container, activeCargo, { strategy: optimized.strategy });
       setResult(published);
+      requestExactCertification({ mode: 'boxes', container, cargo: activeCargo, result: published });
       setPhysicsScore(optimized.physics.score);
       setPhysicsStrategy(optimized.strategy);
       (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = optimized.physics;
       window.dispatchEvent(new CustomEvent('container-loading:physics-validation-result', { detail: { mode: 'boxes', result: optimized.physics } }));
-      announce('success', `물리 최적화 완료 · ${published.placements.length}EA · ${optimized.physics.score}점 · ${strategyLabel(optimized.strategy)} 선택`);
+      announce('success', `최적 적재 계산 완료 · ${published.placements.length}EA · 관성 3종 최종검증 진행 중`);
       setOptimizationMessage('');
     } catch (error) {
       console.error('Physics optimization failed', error);
       const fallback = loadContainer(container, activeCargo, { strategy: 'stability' });
       setResult(fallback);
-      announce('warning', '물리 최적화 실행 중 오류가 발생해 안정성 우선 기본 적재안을 표시했습니다. 물리 검증을 다시 실행하세요.');
+      announce('warning', '물리 최적화 실행 중 오류가 발생해 안정성 우선 기본 적재안을 표시했습니다. 최종 결과로 사용하기 전 물리 검증을 다시 실행하세요.');
       setOptimizationMessage('');
     } finally {
       setIsRunning(false);
@@ -192,8 +196,10 @@ export default function App() {
 
   const showResults = () => openResultsModal({ container, cargo, result });
   const printReport = () => {
-    if (mode !== 'boxes') return announce('warning', '작업지시서 출력은 박스만 적재 모드에서 실행하세요.');
-    if (!openLoadingReport(container, cargo, result)) announce('error', '팝업이 차단되어 작업지시서를 열지 못했습니다.');
+    const opened = mode === 'pallets'
+      ? openPalletLoadingReport(container, cargo)
+      : openLoadingReport(container, cargo, result);
+    if (!opened) announce('error', '팝업이 차단되어 작업지시서를 열지 못했습니다.');
   };
   const saveLocal = () => { writeStoredState({ container, cargo }); announce('success', '현재 데이터가 이 브라우저에 저장되었습니다.'); };
   const loadLocal = () => {
@@ -339,7 +345,7 @@ export default function App() {
         </div><button className="constraint-ok" onClick={showResults}>{physicsScore !== null ? '물리 최적안 선택 완료' : '결과 상세 보기'}</button></section>
 
         <section className="dashboard-card constraint-card"><h2>5. 제약 조건 체크</h2><div className="constraint-list">
-          <span><span>중량 제한</span><b>필수</b></span><span><span>경계 / 겹침</span><b>필수</b></span><span><span>최대 적층단</span><b>필수</b></span><span><span>상부 허용중량</span><b>필수</b></span><span><span>무게중심</span><b>{quality.balanceScore.toFixed(0)}점</b></span><span><span>운송 물리 안정성</span><b>{physicsScore !== null ? `${physicsScore}점` : '자동 적재 후 계산'}</b></span>
+          <span><span>중량 제한</span><b>필수</b></span><span><span>경계 / 겹침</span><b>필수</b></span><span><span>최대 적층단</span><b>필수</b></span><span><span>상부 허용중량</span><b>입력 시</b></span><span><span>무게중심</span><b>{quality.balanceScore.toFixed(0)}점</b></span><span><span>운송 물리 안정성</span><b>{physicsScore !== null ? `${physicsScore}점` : '자동 적재 후 계산'}</b></span>
         </div></section>
 
         <section className="dashboard-card quick-card"><h2>6. 빠른 작업</h2>
