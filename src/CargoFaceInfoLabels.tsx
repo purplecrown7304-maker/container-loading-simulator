@@ -55,8 +55,8 @@ function LabelMaterial({ texture }: { texture: THREE.Texture }) {
       depthTest
       depthWrite={false}
       polygonOffset
-      polygonOffsetFactor={-8}
-      polygonOffsetUnits={-8}
+      polygonOffsetFactor={-4}
+      polygonOffsetUnits={-4}
     />
   );
 }
@@ -92,25 +92,49 @@ export function CargoFaceInfoLabels({
         const length = box.length * scale;
         const width = box.width * scale;
         const height = box.height * scale;
-        const faceHeight = Math.max(0.055, height * 0.76);
-        const longFaceWidth = Math.max(0.09, length * 0.88);
-        const shortFaceWidth = Math.max(0.09, width * 0.88);
-        const gap = 0.012;
+
+        // Sticker dimensions always remain inside the physical box face.
+        const faceHeight = height * 0.68;
+        const longFaceWidth = length * 0.82;
+        const shortFaceWidth = width * 0.82;
+
+        // Keep the sticker visually flush with the carton. This is only enough
+        // separation to prevent z-fighting; it must never look like a floating label.
+        const surfaceOffset = Math.max(0.00015, scale * 0.00035);
 
         return [
-          <mesh key={`${box.cargoId}-${index}-front`} position={[cx, cy, cz + width / 2 + gap]} renderOrder={30}>
+          <mesh
+            key={`${box.cargoId}-${index}-front`}
+            position={[cx, cy, cz + width / 2 + surfaceOffset]}
+            renderOrder={30}
+          >
             <planeGeometry args={[longFaceWidth, faceHeight]} />
             <LabelMaterial texture={texture} />
           </mesh>,
-          <mesh key={`${box.cargoId}-${index}-back`} position={[cx, cy, cz - width / 2 - gap]} rotation={[0, Math.PI, 0]} renderOrder={30}>
+          <mesh
+            key={`${box.cargoId}-${index}-back`}
+            position={[cx, cy, cz - width / 2 - surfaceOffset]}
+            rotation={[0, Math.PI, 0]}
+            renderOrder={30}
+          >
             <planeGeometry args={[longFaceWidth, faceHeight]} />
             <LabelMaterial texture={texture} />
           </mesh>,
-          <mesh key={`${box.cargoId}-${index}-right`} position={[cx + length / 2 + gap, cy, cz]} rotation={[0, Math.PI / 2, 0]} renderOrder={30}>
+          <mesh
+            key={`${box.cargoId}-${index}-right`}
+            position={[cx + length / 2 + surfaceOffset, cy, cz]}
+            rotation={[0, Math.PI / 2, 0]}
+            renderOrder={30}
+          >
             <planeGeometry args={[shortFaceWidth, faceHeight]} />
             <LabelMaterial texture={texture} />
           </mesh>,
-          <mesh key={`${box.cargoId}-${index}-left`} position={[cx - length / 2 - gap, cy, cz]} rotation={[0, -Math.PI / 2, 0]} renderOrder={30}>
+          <mesh
+            key={`${box.cargoId}-${index}-left`}
+            position={[cx - length / 2 - surfaceOffset, cy, cz]}
+            rotation={[0, -Math.PI / 2, 0]}
+            renderOrder={30}
+          >
             <planeGeometry args={[shortFaceWidth, faceHeight]} />
             <LabelMaterial texture={texture} />
           </mesh>,
