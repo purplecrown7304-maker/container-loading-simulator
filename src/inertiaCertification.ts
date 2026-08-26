@@ -99,6 +99,12 @@ const LEVEL_LABEL: Record<SecuringLevel, string> = {
   3: '3차 보강 · 최대 결속',
 };
 
+export function minimumSecuringLevelForMode(mode: PhysicsTarget['mode']): SecuringLevel {
+  // 운송 가능한 최종 적재안은 물리적으로 서 있기만 하는 상태가 아니라
+  // 최소한의 실제 고정/유닛화가 적용된 상태에서 검증한다.
+  return mode === 'pallets' ? 1 : 1;
+}
+
 function overlap1d(a0: number, a1: number, b0: number, b1: number) {
   return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
 }
@@ -248,10 +254,12 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
       const strapRun = 2 * (Math.min(support.length, support.width) + loadHeight) + 0.3;
       bandingLengthM += strapsPerPallet * strapRun;
       cornerGuardLengthM += 4 * loadHeight;
-      if (level >= 2 && loadHeight > 0) {
+      if (loadHeight > 0) {
         const wrapCircumference = 2 * (support.length + support.width);
-        const verticalTurns = Math.max(3, Math.ceil(loadHeight / 0.25) + 2);
-        wrappingLengthM += wrapCircumference * verticalTurns * 1.08;
+        const verticalTurns = level === 1
+          ? Math.max(3, Math.ceil(loadHeight / 0.35) + 1)
+          : Math.max(3, Math.ceil(loadHeight / 0.25) + 2);
+        wrappingLengthM += wrapCircumference * verticalTurns * (level === 1 ? 1.04 : 1.08);
       }
     });
   } else if (target.mode === 'boxes' && level > 0) {
@@ -272,9 +280,9 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
   return {
     level,
     levelLabel: target.mode === 'pallets' && level > 0
-      ? level === 1 ? '1차 보강 · 밴딩+각대' : level === 2 ? '2차 보강 · 밴딩+각대+랩핑' : '3차 보강 · 최대 결속'
+      ? level === 1 ? '기본 운송 고정 · 밴딩+각대+랩핑' : level === 2 ? '2차 보강 · 강화 밴딩+각대+랩핑' : '3차 보강 · 고정바 포함 최대 결속'
       : target.mode === 'boxes' && level > 0
-        ? level === 1 ? '1차 보강 · 미끄럼방지+블로킹' : level === 2 ? '2차 보강 · 블로킹+고정바' : '3차 보강 · 최대 블로킹'
+        ? level === 1 ? '기본 운송 고정 · 미끄럼방지+블로킹' : level === 2 ? '2차 보강 · 블로킹+고정바' : '3차 보강 · 최대 블로킹'
         : LEVEL_LABEL[level],
     palletCount,
     palletWeightKg,
@@ -302,10 +310,11 @@ export async function runInertiaCertification(
   onScenarioResult?: (result: InertiaAnimationResult, level: SecuringLevel) => void,
 ): Promise<InertiaCertification> {
   let finalResults: Partial<Record<InertiaScenario, InertiaAnimationResult>> = {};
-  let finalLevel: SecuringLevel = 0;
+  const minimumLevel = minimumSecuringLevelForMode(target.mode);
+  let finalLevel: SecuringLevel = minimumLevel;
   const attempts: InertiaReinforcementAttempt[] = [];
 
-  for (let rawLevel = 0; rawLevel <= 3; rawLevel += 1) {
+  for (let rawLevel = minimumLevel; rawLevel <= 3; rawLevel += 1) {
     const level = rawLevel as SecuringLevel;
     const securing = buildSecuringUsage(target, level);
     finalLevel = level;
