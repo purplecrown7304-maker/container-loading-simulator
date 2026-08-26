@@ -8,7 +8,16 @@ import { runInertiaAnimation, type InertiaAnimationResult, type InertiaPhase } f
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { PhysicsScenario } from './engine/physicsValidation';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
+import {
+  buildSecuringUsage,
+  createPhysicsTargetSignature,
+  minimumSecuringLevelForMode,
+  readLatestInertiaCertification,
+  securingProfileForUsage,
+  type SecuringUsage,
+} from './inertiaCertification';
 import { openInertiaImprovementReport } from './inertiaReport';
+import InertiaSecuringAids3D from './InertiaSecuringAids3D';
 import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
 import { PHYSICS_TARGET_EVENT, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
@@ -36,6 +45,28 @@ function currentTarget(): PhysicsTarget | undefined {
   if (explicit) return explicit;
   const detail = (window as LoadingWindow).__containerLoadingLatestResult;
   return detail ? { mode: 'boxes', container: detail.container, cargo: detail.cargo, result: detail.result } : undefined;
+}
+
+function securingForTarget(target: PhysicsTarget): SecuringUsage {
+  const latest = readLatestInertiaCertification();
+  const signature = createPhysicsTargetSignature(target);
+  if (latest?.mode === target.mode && latest.targetSignature === signature) return latest.securing;
+  return buildSecuringUsage(target, minimumSecuringLevelForMode(target.mode));
+}
+
+function securingSummary(usage: SecuringUsage, mode: PhysicsTarget['mode']) {
+  const parts: string[] = [];
+  if (mode === 'pallets') {
+    if (usage.bandingStraps > 0) parts.push(`밴딩 ${usage.bandingStraps}줄`);
+    if (usage.cornerGuards > 0) parts.push(`각대 ${usage.cornerGuards}EA`);
+    if (usage.wrappingLengthM > 0) parts.push(`랩핑 ${usage.wrappingLengthM.toFixed(0)}m`);
+    if (usage.antiSlipMats > 0) parts.push(`미끄럼방지 ${usage.antiSlipMats}EA`);
+  } else {
+    if (usage.antiSlipMats > 0) parts.push(`미끄럼방지 ${usage.antiSlipMats}EA`);
+    if (usage.dunnageBlocks > 0) parts.push(`블로킹 ${usage.dunnageBlocks}EA`);
+  }
+  if (usage.loadBars > 0) parts.push(`고정바 ${usage.loadBars}EA`);
+  return parts.join(' · ') || '추가 보강 없음';
 }
 
 function phaseLabel(phase: InertiaPhase) {
@@ -105,7 +136,17 @@ function InstancedSupports({ target, transforms }: { target: PhysicsTarget; tran
   </instancedMesh>;
 }
 
-function InertiaScene({ target, animation, frameIndex }: { target: PhysicsTarget; animation: InertiaAnimationResult; frameIndex: number }) {
+function InertiaScene({
+  target,
+  animation,
+  frameIndex,
+  usage,
+}: {
+  target: PhysicsTarget;
+  animation: InertiaAnimationResult;
+  frameIndex: number;
+  usage: SecuringUsage;
+}) {
   const frame = animation.frames[Math.min(frameIndex, animation.frames.length - 1)];
   const { container } = target;
   return <Canvas
@@ -131,6 +172,7 @@ function InertiaScene({ target, animation, frameIndex }: { target: PhysicsTarget
     </mesh>
     <InstancedCargo placements={target.result.placements} transforms={frame.cargo} />
     <InstancedSupports target={target} transforms={frame.supports} />
+    <InertiaSecuringAids3D target={target} frame={frame} usage={usage} />
     <OrbitControls
       makeDefault
       target={[0, container.height * 0.42, 0]}
@@ -194,6 +236,8 @@ export default function InertiaTestTool() {
   useEffect(() => {
     if (!open || !target || (!target.result.placements.length && !(target.supports?.length))) return;
     const id = ++generationId.current;
+    const usage = securingForTarget(target);
+    const securingProfile = securingProfileForUsage(target.mode, usage);
     setGenerating(true);
     setGenerationProgress(0);
     setAnimation(null);
@@ -206,6 +250,7 @@ export default function InertiaTestTool() {
       scenario,
       target.supports ?? [],
       value => { if (generationId.current === id) setGenerationProgress(Math.round(value * 100)); },
+      securingProfile,
     ).then(result => {
       if (generationId.current !== id) return;
       setAnimation(result);
@@ -249,6 +294,7 @@ export default function InertiaTestTool() {
   const frame = animation?.frames[frameIndex];
   const elapsedSeconds = animation && frame ? frame.step / 60 : 0;
   const testedCount = Object.keys(completedResults).length;
+  const securingUsage = target ? securingForTarget(target) : null;
   const openReport = () => {
     if (!target || testedCount === 0) return;
     if (!openInertiaImprovementReport(target, completedResults)) setError('팝업이 차단되어 보완 보고서를 열지 못했습니다.');
@@ -261,7 +307,7 @@ export default function InertiaTestTool() {
         <div>
           <span>RAPIER 3D LIVE MOTION · {target?.mode === 'pallets' ? 'PALLET MODE' : 'BOX MODE'}</span>
           <h2 id="inertia-title">관성 애니메이션 테스트</h2>
-          <p>실제 물리검증과 같은 중력·충돌·마찰 조건으로 상자와 팔레트의 움직임을 눈으로 확인합니다.</p>
+          <p>현재 적재안의 실제 보강자재와 같은 마찰·구속 조건으로 상자와 팔레트의 움직임을 눈으로 확인합니다.</p>
         </div>
         <div className="inertia-head-actions">
           {testedCount > 0 && <button type="button" className="inertia-report-action" onClick={openReport}>평가 · 보완 보고서 <b>{testedCount}/3</b></button>}
@@ -283,17 +329,21 @@ export default function InertiaTestTool() {
       </div>
 
       <div className="inertia-description"><b>{scenarioInfo.label}</b><span>{scenarioInfo.explanation}</span></div>
+      {target && securingUsage && <div className="inertia-description">
+        <b>적용 고정재 · {securingUsage.levelLabel}</b>
+        <span>{securingSummary(securingUsage, target.mode)}</span>
+      </div>}
 
       <div className="inertia-stage">
-        {target && animation && frame ? <>
-          <InertiaScene target={target} animation={animation} frameIndex={frameIndex} />
+        {target && animation && frame && securingUsage ? <>
+          <InertiaScene target={target} animation={animation} frameIndex={frameIndex} usage={securingUsage} />
           <div className="inertia-stage-status">
             <b>{phaseLabel(frame.phase)}</b>
             <span>{frame.phase === 'force' ? scenarioInfo.forceLabel : frame.phase === 'settle' ? '관성력 적용 전 적재물 정착 중' : '외력이 끝난 뒤 남은 흔들림 확인'}</span>
           </div>
           <div className="inertia-time">{elapsedSeconds.toFixed(2)} / {animation.simulatedSeconds.toFixed(2)} s</div>
         </> : <div className="inertia-loading">
-          {generating ? <><div className="physics-spinner"/><b>Rapier 프레임 생성 중 · {generationProgress}%</b><span>상자별 위치와 회전값을 계산하고 있습니다.</span></> : <><b>관성 테스트 준비</b><span>{error || '자동 적재 후 테스트할 수 있습니다.'}</span></>}
+          {generating ? <><div className="physics-spinner"/><b>Rapier 프레임 생성 중 · {generationProgress}%</b><span>상자·팔레트 위치와 포장자재 구속력을 함께 계산하고 있습니다.</span></> : <><b>관성 테스트 준비</b><span>{error || '자동 적재 후 테스트할 수 있습니다.'}</span></>}
         </div>}
       </div>
 
@@ -303,6 +353,7 @@ export default function InertiaTestTool() {
           {animation.supportCount > 0 && <span>팔레트 <b>{animation.supportCount} EA</b></span>}
           <span>최대 이동 <b>{mm(animation.maxHorizontalShiftM)}</b></span>
           <span>최대 기울기 <b>{animation.maxTiltDeg.toFixed(1)}°</b></span>
+          {securingUsage && <span>고정재 <b>{securingUsage.levelLabel}</b></span>}
           <span>평가 진행 <b>{testedCount} / 3</b></span>
         </div>
         <input
@@ -325,7 +376,7 @@ export default function InertiaTestTool() {
         </div>
       </>}
 
-      <footer className="inertia-footnote">0.30g 출발 가속, 0.50g 급제동, 0.35g 횡가속은 적재안 비교용 기본 시나리오입니다. 보고서의 안정/보완/위험 평가는 물리검증과 같은 내부 이동·기울기 경고 기준을 사용하며 실제 운송에서는 차량, 노면, 결박, 마찰계수와 회사/법규 기준을 별도로 확인해야 합니다.</footer>
+      <footer className="inertia-footnote">0.30g 출발 가속, 0.50g 급제동, 0.35g 횡가속은 적재안 비교용 기본 시나리오입니다. 관성 애니메이션은 메인 3D에 표시된 고정재와 동일한 보강 단계의 마찰·구속 프로필을 적용합니다. 실제 운송에서는 차량, 노면, 결박, 마찰계수와 회사/법규 기준을 별도로 확인해야 합니다.</footer>
     </section>
   </div>, document.body);
 }
