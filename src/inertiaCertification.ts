@@ -100,8 +100,6 @@ const LEVEL_LABEL: Record<SecuringLevel, string> = {
 };
 
 export function minimumSecuringLevelForMode(mode: PhysicsTarget['mode']): SecuringLevel {
-  // 운송 가능한 최종 적재안은 물리적으로 서 있기만 하는 상태가 아니라
-  // 최소한의 실제 고정/유닛화가 적용된 상태에서 검증한다.
   return mode === 'pallets' ? 1 : 1;
 }
 
@@ -137,7 +135,7 @@ function supportLoadHeight(target: PhysicsTarget, support: PhysicsSupport) {
 
 export function createPhysicsTargetSignature(target: PhysicsTarget) {
   return JSON.stringify({
-    physicsModel: 'restraint-v3-material-derived',
+    physicsModel: 'restraint-v4-transport-anchor-aware',
     mode: target.mode,
     container: target.container,
     placements: target.result.placements.map(item => [item.cargoId, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg]),
@@ -170,7 +168,6 @@ export function isInertiaStable(result: InertiaAnimationResult, mode: PhysicsTar
   return true;
 }
 
-/** Legacy level summary retained for UI/tests. Certification itself uses securingProfileForUsage below. */
 export function securingProfileForLevel(mode: PhysicsTarget['mode'], level: SecuringLevel): InertiaSecuringProfile {
   if (level === 0) return { frictionCoefficient: 0.62, cargoRetentionRatio: 0, supportRetentionRatio: 0 };
   if (mode === 'pallets') {
@@ -183,10 +180,6 @@ export function securingProfileForLevel(mode: PhysicsTarget['mode'], level: Secu
   return { frictionCoefficient: 0.90, cargoRetentionRatio: 0.54, supportRetentionRatio: 0 };
 }
 
-/**
- * Builds the actual physics restraint from the material BOM rather than from a level number alone.
- * The constants are conservative internal comparison coefficients, not manufacturer-rated capacities.
- */
 export function securingProfileForUsage(mode: PhysicsTarget['mode'], usage: SecuringUsage): InertiaSecuringProfile {
   if (usage.level === 0) return { frictionCoefficient: 0.62 };
 
@@ -232,6 +225,7 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
   const palletCount = supports.length;
   const palletWeightKg = supports.reduce((sum, support) => sum + Math.max(0, support.weightKg), 0);
   const unitWeights = readSecuringMaterialSettings();
+  const loadBarsAllowed = target.container.transportKind !== 'truck' || target.container.loadBarAnchors === true;
 
   let bandingStraps = 0;
   let bandingLengthM = 0;
@@ -247,7 +241,7 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     bandingStraps = palletCount * strapsPerPallet;
     cornerGuards = palletCount * 4;
     antiSlipMats = palletCount * (level === 3 ? 2 : 1);
-    loadBars = level === 3 && palletCount > 0 ? 2 : 0;
+    loadBars = loadBarsAllowed && level === 3 && palletCount > 0 ? 2 : 0;
 
     supports.forEach(support => {
       const loadHeight = supportLoadHeight(target, support);
@@ -266,7 +260,7 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     const boxCount = Math.max(1, target.result.placements.length);
     antiSlipMats = Math.max(2, Math.ceil(boxCount / (level === 1 ? 30 : 20)));
     dunnageBlocks = Math.max(level === 1 ? 2 : level === 2 ? 4 : 6, Math.ceil(boxCount / 80) * 2);
-    loadBars = level >= 2 ? 2 : 0;
+    loadBars = loadBarsAllowed && level >= 2 ? 2 : 0;
   }
 
   const estimatedAddedWeightKg =
@@ -277,12 +271,25 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     dunnageBlocks * unitWeights.dunnageKgPerEa +
     loadBars * unitWeights.loadBarKgPerEa;
 
+  const palletLevelLabel = level === 1
+    ? '기본 운송 고정 · 밴딩+각대+랩핑'
+    : level === 2
+      ? '2차 보강 · 강화 밴딩+각대+랩핑'
+      : loadBars > 0
+        ? '3차 보강 · 고정바 포함 최대 결속'
+        : '3차 보강 · 최대 밴딩+각대+랩핑';
+  const boxLevelLabel = level === 1
+    ? '기본 운송 고정 · 미끄럼방지+블로킹'
+    : level === 2
+      ? loadBars > 0 ? '2차 보강 · 블로킹+고정바' : '2차 보강 · 강화 블로킹'
+      : loadBars > 0 ? '3차 보강 · 최대 블로킹+고정바' : '3차 보강 · 최대 블로킹';
+
   return {
     level,
     levelLabel: target.mode === 'pallets' && level > 0
-      ? level === 1 ? '기본 운송 고정 · 밴딩+각대+랩핑' : level === 2 ? '2차 보강 · 강화 밴딩+각대+랩핑' : '3차 보강 · 고정바 포함 최대 결속'
+      ? palletLevelLabel
       : target.mode === 'boxes' && level > 0
-        ? level === 1 ? '기본 운송 고정 · 미끄럼방지+블로킹' : level === 2 ? '2차 보강 · 블로킹+고정바' : '3차 보강 · 최대 블로킹'
+        ? boxLevelLabel
         : LEVEL_LABEL[level],
     palletCount,
     palletWeightKg,
