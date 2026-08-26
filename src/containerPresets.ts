@@ -20,6 +20,10 @@ export type ContainerPreset = {
 const commonFloor = {
   floorLoadLimitKgPerM2: 1500,
   floorLoadWarningMultiplier: 3,
+  transportKind: 'container' as const,
+  transportType: 'dry',
+  sideWallModel: 'rigid' as const,
+  roofModel: 'rigid' as const,
 };
 
 export const CONTAINER_PRESETS: ContainerPreset[] = [
@@ -66,9 +70,9 @@ export const CONTAINER_PRESETS: ContainerPreset[] = [
   {
     id: 'custom',
     label: 'CUSTOM CONTAINER',
-    shortLabel: 'Custom',
+    shortLabel: 'Custom Container',
     category: 'custom',
-    note: '기존 길이·폭·높이·최대중량 직접 입력 사용',
+    note: '컨테이너 강체 벽 모델을 유지한 채 길이·폭·높이·최대중량 직접 입력',
   },
 ];
 
@@ -83,6 +87,7 @@ export const SPECIAL_CONTAINER_REFERENCES = [
 const near = (a: number, b: number) => Math.abs(a - b) < 0.015;
 
 export function matchContainerPreset(container: ContainerSpec): ContainerPresetId {
+  if (container.transportKind === 'truck') return 'custom';
   const match = CONTAINER_PRESETS.find(preset => preset.spec
     && near(container.length, preset.spec.length)
     && near(container.width, preset.spec.width)
