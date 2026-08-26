@@ -1,3 +1,7 @@
+export type TransportKind = 'container' | 'truck';
+export type TransportWallModel = 'rigid' | 'curtain';
+export type TransportRoofModel = 'rigid' | 'soft' | 'open';
+
 export type ContainerSpec = {
   length: number;
   width: number;
@@ -7,6 +11,16 @@ export type ContainerSpec = {
   floorLoadLimitKgPerM2?: number;
   /** 평균 바닥하중 대비 국부하중 경고 배수. 미입력 시 3배를 사용한다. */
   floorLoadWarningMultiplier?: number;
+  /** 운송장비 구분. 기존 저장데이터는 생략 시 container로 간주한다. */
+  transportKind?: TransportKind;
+  /** 예: dry, tautliner, refrigerated-truck, mega-trailer, custom-truck */
+  transportType?: string;
+  /** 화물 지지에 사용할 수 있는 측벽인지 여부. curtain은 고정벽 collider로 사용하지 않는다. */
+  sideWallModel?: TransportWallModel;
+  /** 지붕의 구조 모델. soft/open은 고정 천장 collider로 사용하지 않는다. */
+  roofModel?: TransportRoofModel;
+  /** 냉동/보냉 장비 표시용 메타데이터. */
+  temperatureControlled?: boolean;
 };
 
 export type CargoItem = {
