@@ -1,4 +1,5 @@
 import type { ContainerSpec, Placement } from './types';
+import { buildTransportShell } from './transportShell';
 
 const EPS = 1e-6;
 const WALL_THICKNESS = 0.04;
@@ -147,7 +148,7 @@ function isCenterOutOfBounds(
 
 function describeMotion(input: Omit<MotionMetrics, 'reason' | 'severity'>): Pick<MotionMetrics, 'severity' | 'reason'> {
   const reasons: string[] = [];
-  if (input.outOfBounds) reasons.push('컨테이너 경계 이탈');
+  if (input.outOfBounds) reasons.push('적재공간 경계 이탈');
   if (input.horizontalShiftM > 0.03) reasons.push(`수평 이동 ${(input.horizontalShiftM * 1000).toFixed(0)}mm`);
   if (Math.abs(input.verticalShiftM) > 0.03) reasons.push(`높이 변화 ${(input.verticalShiftM * 1000).toFixed(0)}mm`);
   if (input.tiltDeg > 3) reasons.push(`기울기 ${input.tiltDeg.toFixed(1)}°`);
@@ -174,7 +175,7 @@ function scenarioAcceleration(scenario: PhysicsScenario, step: number, totalStep
   const forceEnd = Math.floor(totalSteps * 0.78);
   if (step < settleEnd || step >= forceEnd) return { x: 0, z: 0 };
 
-  // X축은 컨테이너 길이 방향이다. 출발 가속은 급제동과 반대 방향의
+  // X축은 운송장비 길이 방향이다. 출발 가속은 급제동과 반대 방향의
   // 관성 하중을 적용해 화물이 뒤쪽으로 밀리거나 전도되는 상황을 검증한다.
   if (scenario === 'acceleration') return { x: -9.81 * START_ACCELERATION_G, z: 0 };
   if (scenario === 'braking') return { x: 9.81 * BRAKING_G, z: 0 };
@@ -231,12 +232,13 @@ export async function runPhysicsValidation(
   const halfL = container.length / 2;
   const halfW = container.width / 2;
   const wall = WALL_THICKNESS;
+  const shell = buildTransportShell(container);
   fixed(halfL + wall, wall, halfW + wall, 0, -wall, 0);
-  fixed(halfL + wall, wall, halfW + wall, 0, container.height + wall, 0);
-  fixed(wall, container.height / 2, halfW + wall, -halfL - wall, container.height / 2, 0);
-  fixed(wall, container.height / 2, halfW + wall, halfL + wall, container.height / 2, 0);
-  fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, -halfW - wall);
-  fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, halfW + wall);
+  if (shell.roof) fixed(halfL + wall, wall, halfW + wall, 0, container.height + wall, 0);
+  if (shell.frontWall) fixed(wall, container.height / 2, halfW + wall, -halfL - wall, container.height / 2, 0);
+  if (shell.rearWall) fixed(wall, container.height / 2, halfW + wall, halfL + wall, container.height / 2, 0);
+  if (shell.leftWall) fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, -halfW - wall);
+  if (shell.rightWall) fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, halfW + wall);
 
   const createDynamicBody = (item: Pick<Placement, 'x' | 'y' | 'z' | 'length' | 'width' | 'height'>, weightKg: number, dynamic = true) => {
     const center = toPhysicsCenter(container, item);
@@ -320,11 +322,12 @@ export async function runPhysicsValidation(
           : `횡가속 ${CORNERING_G.toFixed(2)}g`;
     const totalUnstable = unstableCount + supportUnstableCount;
     const totalWarning = warningCount + supportWarningCount;
+    const shellNote = container.transportKind === 'truck' ? ` · ${shell.description}` : '';
     const summary = totalUnstable
-      ? `${scenarioName}: 불안정 ${totalUnstable}개 · 주의 ${totalWarning}개 감지. 재배치가 필요합니다.`
+      ? `${scenarioName}: 불안정 ${totalUnstable}개 · 주의 ${totalWarning}개 감지. 재배치가 필요합니다.${shellNote}`
       : totalWarning
-        ? `${scenarioName}: 붕괴 수준의 이동은 없지만 ${totalWarning}개 위치 재확인이 필요합니다.`
-        : `${scenarioName}: 전체 적재물이 안정적으로 유지되었습니다.`;
+        ? `${scenarioName}: 붕괴 수준의 이동은 없지만 ${totalWarning}개 위치 재확인이 필요합니다.${shellNote}`
+        : `${scenarioName}: 전체 적재물이 안정적으로 유지되었습니다.${shellNote}`;
 
     return {
       engine: 'Rapier 3D', scenario, simulatedSeconds, steps, simulatedCount: placements.length, supportCount: supports.length,
@@ -364,11 +367,13 @@ export async function runPhysicsValidationSuite(
   const settled = results.every(x => x.settled);
   const totalUnstable = unstableCount + supportUnstableCount;
   const totalWarning = warningCount + supportWarningCount;
+  const shell = buildTransportShell(container);
+  const summarySuffix = container.transportKind === 'truck' ? ` · ${shell.description}` : '';
   const summary = totalUnstable
-    ? `운송 종합검증에서 불안정 ${totalUnstable}개 · 주의 ${totalWarning}개가 감지되었습니다.`
+    ? `운송 종합검증에서 불안정 ${totalUnstable}개 · 주의 ${totalWarning}개가 감지되었습니다.${summarySuffix}`
     : totalWarning
-      ? `운송 종합검증에서 ${totalWarning}개 위치가 주의 수준입니다.`
-      : '정적 중력·출발 가속·급제동·횡가속 시나리오를 모두 통과했습니다.';
+      ? `운송 종합검증에서 ${totalWarning}개 위치가 주의 수준입니다.${summarySuffix}`
+      : `정적 중력·출발 가속·급제동·횡가속 시나리오를 모두 통과했습니다.${summarySuffix}`;
 
   return {
     engine: 'Rapier 3D', score, stableCount, warningCount, unstableCount,
