@@ -38,6 +38,8 @@ export type ContainerSpec = {
   temperatureControlled?: boolean;
   /** 실제 차량 축 위치/허용하중을 아는 경우에만 사용하는 단순보 반력 모델. */
   truckAxles?: TruckAxleModel;
+  /** 트럭 내부에 정격 고정바 레일/앵커가 실제로 있을 때만 true. */
+  loadBarAnchors?: boolean;
 };
 
 export type CargoItem = {
