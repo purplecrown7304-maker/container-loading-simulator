@@ -204,7 +204,7 @@ export default function BoxLoadingViewerReference({ result, container }: { resul
   const [showLabels, setShowLabels] = useState(readBoxLabelPreference);
   const [certification, setCertification] = useState<InertiaCertification | null>(() => {
     const latest = readLatestInertiaCertification();
-    return latest?.mode === 'boxes' && latest.status === 'passed' ? latest : null;
+    return latest?.mode === 'boxes' ? latest : null;
   });
   const scale = 0.5;
   const cargoMap = useMemo(() => new Map((readStoredState()?.cargo ?? []).map((item) => [item.id, item] as [string, CargoItem])), [result.placements]);
@@ -238,8 +238,8 @@ export default function BoxLoadingViewerReference({ result, container }: { resul
 
   useEffect(() => {
     const onCertification = (event: Event) => {
-      const next = (event as CustomEvent<InertiaCertification>).detail;
-      setCertification(next?.mode === 'boxes' && next.status === 'passed' ? next : null);
+      const next = (event as CustomEvent<InertiaCertification | undefined>).detail;
+      setCertification(next?.mode === 'boxes' ? next : null);
     };
     window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
     return () => window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
