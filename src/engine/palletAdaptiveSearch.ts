@@ -7,7 +7,8 @@ import {
   PALLET_PATTERN_STATIC_PENALTY,
   applyPalletPatternVariant,
 } from './palletPatternVariants';
-import type { CargoItem, ContainerSpec, LoadingResult } from './types';
+import { assessTruckAxlePlacements } from './truckAxleLoad';
+import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
 import {
   INERTIA_CERTIFICATION_EVENT,
   INERTIA_PASS_PALLET_CARGO_SLIP_M,
@@ -151,12 +152,32 @@ function maxUnitHeight(result: OptimizedPalletPackingResult) {
   }, 0);
 }
 
-function staticPenalty(result: OptimizedPalletPackingResult) {
+export function palletTruckAxlePlacements(result: OptimizedPalletPackingResult): Placement[] {
+  const palletTare = result.pallets.map((pallet, index): Placement => ({
+    cargoId: `__PALLET_TARE_${index}`,
+    x: pallet.x,
+    y: pallet.y,
+    z: pallet.z,
+    length: pallet.length,
+    width: pallet.width,
+    height: pallet.height,
+    weightKg: Math.max(0, pallet.totalWeightKg - pallet.cargoWeightKg),
+  }));
+  return [...result.placements, ...palletTare];
+}
+
+export function palletTruckAxleAssessment(container: ContainerSpec, result: OptimizedPalletPackingResult) {
+  return assessTruckAxlePlacements(container, palletTruckAxlePlacements(result));
+}
+
+function staticPenalty(result: OptimizedPalletPackingResult, container: ContainerSpec) {
+  const axle = palletTruckAxleAssessment(container, result);
   return result.stackedPallets * 24
     + Math.max(0, result.maxUsedStackLevel - 1) * 10
     + maxUnitHeight(result) * 4
     + result.lateralImbalanceKg / 1200
-    + result.palletCount * 0.02;
+    + result.palletCount * 0.02
+    + (axle?.penalty ?? 0);
 }
 
 function cappedCargo(cargo: CargoItem[], spec: PalletSpec, heightRatio: number) {
@@ -183,7 +204,7 @@ function addCandidate(
   const signature = createPhysicsTargetSignature(target);
   if (seen.has(signature)) return;
   seen.add(signature);
-  list.push({ label, spec, result, target, staticPenalty: staticPenalty(result) + extraPenalty });
+  list.push({ label, spec, result, target, staticPenalty: staticPenalty(result, current.container) + extraPenalty });
 }
 
 export function buildPalletAdaptiveCandidates(current: PhysicsTarget, snapshot: PalletSnapshot): PalletAdaptiveCandidate[] {
@@ -226,7 +247,7 @@ export function baselinePalletCandidate(current: PhysicsTarget, snapshot: Pallet
     spec: snapshot.spec,
     result: snapshot.result,
     target: current,
-    staticPenalty: staticPenalty(snapshot.result),
+    staticPenalty: staticPenalty(snapshot.result, current.container),
   };
 }
 
