@@ -42,10 +42,24 @@ function capacityScore(item: CargoItem) {
   return cbm(item) * item.quantity + item.weightKg * 0.001;
 }
 
+function totalCbm(item: CargoItem) {
+  return cbm(item) * item.quantity;
+}
+
+function totalWeight(item: CargoItem) {
+  return item.weightKg * item.quantity;
+}
+
 function prioritizedCargo(cargo: CargoItem[], strategy: LoadingStrategy): CargoItem[] {
   return [...cargo].sort((a, b) => {
-    const weightDiff = b.weightKg - a.weightKg;
-    if (Math.abs(weightDiff) > EPS) return weightDiff;
+    // 기본 작업 순서: SKU별 총 CBM이 큰 화물부터 안쪽에 배치하고,
+    // CBM이 비슷하면 총중량/개당중량이 큰 화물을 먼저 둔다.
+    const cbmDiff = totalCbm(b) - totalCbm(a);
+    if (Math.abs(cbmDiff) > EPS) return cbmDiff;
+    const totalWeightDiff = totalWeight(b) - totalWeight(a);
+    if (Math.abs(totalWeightDiff) > EPS) return totalWeightDiff;
+    const unitWeightDiff = b.weightKg - a.weightKg;
+    if (Math.abs(unitWeightDiff) > EPS) return unitWeightDiff;
     if (strategy === 'stability') {
       const footprintDiff = b.length * b.width - a.length * a.width;
       if (Math.abs(footprintDiff) > EPS) return footprintDiff;
@@ -140,19 +154,22 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     const layersHigh = Math.max(1, geometry.layers);
     const occupiedWidth = columnsAcross * orientation.width;
     const yOffset = geometry.centered ? Math.max(0, (container.width - occupiedWidth) / 2) : 0;
-    const boxesPerSlice = columnsAcross * layersHigh;
     let placed = 0;
 
-    // 같은 SKU는 완전한 슬라이스만 만들고 잔량을 뒤로 미루지 않는다.
-    // 마지막 슬라이스가 일부만 차더라도 현재 SKU 블록 안에서 먼저 채워
-    // 동일 품목이 여러 구역으로 갈라지는 것을 최소화한다.
-    while (placed < item.quantity) {
+    // 일반 적재 구역에서는 세로 스택을 끝까지 완성할 수 있을 때만 배치한다.
+    // 한 SKU의 마지막 수량이 천장(또는 허용 적층단)까지 못 올라가면 여기서 억지로
+    // 낮은 산 모양을 만들지 않고 전량을 후순위 혼합적재로 넘긴다.
+    while (placed + layersHigh <= item.quantity) {
       if (cursorX + orientation.length > container.length + EPS) break;
-      let slicePlaced = 0;
-      let sliceBlocked = false;
-      for (let layer = 0; layer < layersHigh && placed < item.quantity; layer += 1) {
-        for (let col = 0; col < columnsAcross && placed < item.quantity; col += 1) {
-          if (loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS) { sliceBlocked = true; break; }
+      let stacksPlacedInSlice = 0;
+
+      for (let col = 0; col < columnsAcross && placed + layersHigh <= item.quantity; col += 1) {
+        const stackWeightKg = layersHigh * item.weightKg;
+        if (loadedWeightKg + stackWeightKg > container.maxPayloadKg + EPS) break;
+
+        const stack: Placement[] = [];
+        let validStack = true;
+        for (let layer = 0; layer < layersHigh; layer += 1) {
           const candidate: Placement = {
             cargoId: item.id,
             x: cursorX,
@@ -164,19 +181,26 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
             weightKg: item.weightKg,
             rotated: orientation.rotated,
           };
-          if (!canPlaceByStackingRules(item, candidate, placements, cargoById)) { sliceBlocked = true; break; }
-          placements.push(candidate);
-          placed += 1;
-          slicePlaced += 1;
-          loadedWeightKg += item.weightKg;
-          usedVolumeM3 += cbm(item);
+          if (!canPlaceByStackingRules(item, candidate, [...placements, ...stack], cargoById)) {
+            validStack = false;
+            break;
+          }
+          stack.push(candidate);
         }
-        if (sliceBlocked || loadedWeightKg + EPS >= container.maxPayloadKg) break;
+        if (!validStack) continue;
+
+        placements.push(...stack);
+        placed += layersHigh;
+        stacksPlacedInSlice += 1;
+        loadedWeightKg += stackWeightKg;
+        usedVolumeM3 += cbm(item) * layersHigh;
       }
-      if (slicePlaced === 0) break;
+
+      if (stacksPlacedInSlice === 0) break;
       cursorX += orientation.length;
-      if (slicePlaced < boxesPerSlice || sliceBlocked) break;
+      if (stacksPlacedInSlice < columnsAcross) break;
     }
+
     if (placed < item.quantity) deferred.push({ item, quantity: item.quantity - placed });
   }
 
@@ -202,7 +226,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
         quantity: left,
         reason: nextBoxWouldExceedPayload
           ? '컨테이너 최대 적재 중량을 초과하므로 추가 적재하지 못함'
-          : '동일 품목 블록·중량 흐름·회전·경계·적층단·상부 허용중량 조건을 만족하는 안전한 잔여 위치를 찾지 못함',
+          : '동일 품목 완성 스택·CBM/중량 순서·회전·경계·적층단·상부 허용중량 조건을 만족하는 안전한 잔여 위치를 찾지 못함',
       });
     }
   }
