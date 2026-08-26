@@ -1,4 +1,5 @@
 import { loadContainer, type LoadingStrategy } from './loadingEngine';
+import { assessTruckAxleLoad } from './truckAxleLoad';
 import type { CargoItem, LoadingResult } from './types';
 import type { PhysicsTarget } from '../physicsTarget';
 import { createPhysicsTargetSignature } from '../inertiaCertification';
@@ -60,10 +61,12 @@ function longitudinalMoment(target: PhysicsTarget, result: LoadingResult) {
 
 function staticPenalty(target: PhysicsTarget, result: LoadingResult) {
   const truckLongitudinalPenalty = target.container.transportKind === 'truck' ? longitudinalMoment(target, result) * 5 : 0;
+  const axle = assessTruckAxleLoad(target.container, result);
   return maxTop(result) * 2.5
     + weightedCogHeight(result) * 4
     + lateralMoment(target, result) * 2
     + truckLongitudinalPenalty
+    + (axle?.penalty ?? 0)
     + result.validationIssues.length * 100;
 }
 
@@ -110,7 +113,7 @@ function addCandidate(
 
 export function buildDirectResultReoptimizationCandidates(
   current: PhysicsTarget,
-  limit = 6,
+  limit = Number.POSITIVE_INFINITY,
 ): DirectResultReoptimizationCandidate[] {
   if (current.mode !== 'boxes') return [];
   const seen = new Set<string>([createPhysicsTargetSignature(current)]);
@@ -128,5 +131,6 @@ export function buildDirectResultReoptimizationCandidates(
     }
   }
 
-  return candidates.sort((a, b) => a.staticPenalty - b.staticPenalty).slice(0, Math.max(1, limit));
+  const sorted = candidates.sort((a, b) => a.staticPenalty - b.staticPenalty);
+  return Number.isFinite(limit) ? sorted.slice(0, Math.max(1, limit)) : sorted;
 }
