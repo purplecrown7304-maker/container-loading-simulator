@@ -32,6 +32,28 @@ function samePosition(a: Placement, b: Placement) {
     Math.abs(a.length - b.length) <= EPS && Math.abs(a.width - b.width) <= EPS;
 }
 
+function sameStackFootprint(a: Placement, b: Placement) {
+  return a.cargoId === b.cargoId &&
+    Math.abs(a.x - b.x) <= EPS &&
+    Math.abs(a.y - b.y) <= EPS &&
+    Math.abs(a.length - b.length) <= EPS &&
+    Math.abs(a.width - b.width) <= EPS;
+}
+
+function isCompletedVerticalStackMember(index: number, placements: Placement[]) {
+  const current = placements[index];
+  const stack = placements
+    .filter((other) => sameStackFootprint(current, other))
+    .sort((a, b) => a.z - b.z);
+  if (stack.length < 2 || Math.abs(stack[0].z) > EPS) return false;
+
+  for (let layer = 1; layer < stack.length; layer += 1) {
+    const expectedZ = stack[layer - 1].z + stack[layer - 1].height;
+    if (Math.abs(stack[layer].z - expectedZ) > EPS) return false;
+  }
+  return true;
+}
+
 function safeTailStart(item: CargoItem, placements: Placement[], cargoById: Map<string, CargoItem>) {
   let sameCargoTail = 0;
   let heavierCargoTail = 0;
@@ -47,6 +69,7 @@ function safeTailStart(item: CargoItem, placements: Placement[], cargoById: Map<
 /**
  * 적재 완료 뒤 모양을 정돈한다.
  * - 위 박스를 받치지 않는 최상단 박스만 이동한다.
+ * - 일반 적재 단계에서 완성된 동일 SKU 세로 스택은 절대 해체하지 않는다.
  * - 기존 혼합 적재의 안전/적층 검사를 그대로 통과한 위치만 사용한다.
  * - 동일 SKU 블록과 무거움→가벼움 종방향 흐름을 깨지 않는 위치만 사용한다.
  * - 형상 패널티가 실제로 감소할 때만 이동을 확정한다.
@@ -64,6 +87,7 @@ export function optimizeLoadingShape(
   const maxMoves = 24;
   for (let index = placements.length - 1; index >= 0 && movedCount < maxMoves; index -= 1) {
     if (supportsAnother(index, placements)) continue;
+    if (isCompletedVerticalStackMember(index, placements)) continue;
 
     const original = placements[index];
     const item = cargoById.get(original.cargoId);
