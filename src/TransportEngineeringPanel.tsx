@@ -21,12 +21,12 @@ type AxleDraft = {
 };
 
 const emptyDraft: AxleDraft = {
-  frontSupportX: '', rearSupportX: '', frontMaxKg: '', rearMaxKg: '', tareFrontKg: '', tareRearKg: '',
+  frontSupportX: '', rearSupportX: '', frontMaxKg: '', rearMaxKg: '', tareFrontKg: '', rearMaxKg: '',
 };
 
 function draftFrom(container: ContainerSpec): AxleDraft {
   const model = container.truckAxles;
-  if (!model) return emptyDraft;
+  if (!model) return { frontSupportX: '', rearSupportX: '', frontMaxKg: '', rearMaxKg: '', tareFrontKg: '', tareRearKg: '' };
   return {
     frontSupportX: String(model.frontSupportX),
     rearSupportX: String(model.rearSupportX),
@@ -59,7 +59,7 @@ export default function TransportEngineeringPanel() {
     if (typeof window === 'undefined') return null;
     return (window as LoadingResultWindow).__containerLoadingLatestResult?.result ?? null;
   });
-  const [draft, setDraft] = useState<AxleDraft>(() => initial?.container ? draftFrom(initial.container) : emptyDraft);
+  const [draft, setDraft] = useState<AxleDraft>(() => initial?.container ? draftFrom(initial.container) : { frontSupportX: '', rearSupportX: '', frontMaxKg: '', rearMaxKg: '', tareFrontKg: '', tareRearKg: '' });
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -139,7 +139,7 @@ export default function TransportEngineeringPanel() {
   const clearAxles = () => {
     const { truckAxles: _removed, ...rest } = container;
     dispatch(rest);
-    setDraft(emptyDraft);
+    setDraft({ frontSupportX: '', rearSupportX: '', frontMaxKg: '', rearMaxKg: '', tareFrontKg: '', tareRearKg: '' });
     setMessage('축하중 모델을 해제했습니다. 앞뒤 무게중심 균형만 평가합니다.');
   };
 
@@ -163,6 +163,11 @@ export default function TransportEngineeringPanel() {
       <b>{container.sideWallModel === 'curtain' ? '커튼 측벽은 화물 지지벽으로 계산하지 않음' : '측벽 강체 접촉 사용'}</b>
       <span>{container.roofModel === 'rigid' ? '지붕 강체 접촉 사용' : '지붕을 구조 지지면으로 사용하지 않음'}</span>
     </div>
+
+    <label className="loadbar-anchor-toggle">
+      <input type="checkbox" checked={container.loadBarAnchors === true} onChange={event => dispatch({ ...container, loadBarAnchors: event.target.checked })} />
+      <span><b>정격 고정바 레일/앵커 있음</b><small>실제 차량에 고정바를 받을 수 있는 구조물이 확인된 경우에만 켜세요. 커튼 자체는 앵커로 인정하지 않습니다.</small></span>
+    </label>
 
     <div className="axle-config-head"><div><b>축/축군 반력 모델</b><span>적재함 안쪽 0m 기준 실제 지지축 중심 위치</span></div><strong className={`axle-severity ${assessment?.severity ?? 'unset'}`}>{severityLabel}</strong></div>
     <div className="axle-input-grid">
