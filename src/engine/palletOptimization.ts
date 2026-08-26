@@ -211,6 +211,54 @@ function consolidateUntilStable(
   return { result: rebuildMetrics(input, pallets, passes, container), passes };
 }
 
+function floorSlots(container: ContainerSpec, pallet: PalletSpec) {
+  const bands = Math.max(1, Math.floor((container.length + EPS) / pallet.length));
+  const lanes = Math.max(1, Math.floor((container.width + EPS) / pallet.width));
+  const groupWidth = lanes * pallet.width;
+  const yOffset = Math.max(0, (container.width - groupWidth) / 2);
+  const slots: Array<{ x: number; y: number }> = [];
+  for (let band = 0; band < bands; band += 1) {
+    for (let lane = 0; lane < lanes; lane += 1) {
+      slots.push({ x: band * pallet.length, y: yOffset + lane * pallet.width });
+    }
+  }
+  return slots;
+}
+
+function footprintsOverlap(a: { x: number; y: number }, b: PalletLoad, pallet: PalletSpec) {
+  return a.x < b.x + pallet.length - EPS && a.x + pallet.length > b.x + EPS
+    && a.y < b.y + pallet.width - EPS && a.y + pallet.width > b.y + EPS;
+}
+
+function spreadStacksToFreeFloor(
+  input: PalletPackingResult,
+  container: ContainerSpec,
+  pallet: PalletSpec,
+) {
+  if (!input.pallets.some((load) => load.stackLevel > 1)) return input;
+  const slots = floorSlots(container, pallet);
+  const pallets = input.pallets.map(cloneLoad);
+  const floorLoads = pallets.filter((load) => load.stackLevel === 1);
+  let nextColumn = pallets.reduce((max, load) => Math.max(max, load.stackColumn), 0) + 1;
+
+  const upperIndexes = pallets
+    .map((load, index) => ({ load, index }))
+    .filter(({ load }) => load.stackLevel > 1)
+    .sort((a, b) => a.load.stackLevel - b.load.stackLevel || b.load.totalWeightKg - a.load.totalWeightKg);
+
+  for (const { index } of upperIndexes) {
+    const slot = slots.find((candidate) => !floorLoads.some((floor) => footprintsOverlap(candidate, floor, pallet)));
+    if (!slot) break;
+    const moved = moveLoad(pallets[index], slot.x, slot.y, 0);
+    moved.stackLevel = 1;
+    moved.stackColumn = nextColumn++;
+    pallets[index] = moved;
+    floorLoads.push(moved);
+  }
+
+  return rebuildMetrics(input, pallets, 0, container);
+}
+
 function redistributeForLowUtilization(
   input: PalletPackingResult,
   container: ContainerSpec,
@@ -229,7 +277,6 @@ function redistributeForLowUtilization(
   const columns = [...byColumn.entries()].sort((a, b) => Math.min(...a[1].map((p) => p.x)) - Math.min(...b[1].map((p) => p.x)));
   const layout = centeredPalletLaneLayout(container, pallet, columns.length);
 
-  // 컨테이너의 물리적 팔레트 슬롯 수를 넘는 경우에는 기존 안전 배치를 유지한다.
   if (columns.length > layout.maxBands * layout.rowCapacity) return { result: input, redistributed: false };
 
   const moved: PalletLoad[] = [];
@@ -299,7 +346,8 @@ export function packOnPallets(
     if (betterCandidate(candidate.result, selected.result)) selected = candidate;
   }
 
-  const redistributed = redistributeForLowUtilization(selected.result, container, pallet);
+  const floorSpread = spreadStacksToFreeFloor(selected.result, container, pallet);
+  const redistributed = redistributeForLowUtilization(floorSpread, container, pallet);
   return {
     ...redistributed.result,
     optimization: {
