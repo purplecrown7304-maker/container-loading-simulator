@@ -1,5 +1,5 @@
 Vercel production deployment trigger
-2026-08-26T07:56+09:00
+2026-08-26T12:04+09:00
 Target: https://container-loading-simulator-1li2.vercel.app/
-Reason: retry production deployment after Vercel Hobby limit window
-Source main commit before trigger: 7c6ee494c369899d0f2cbeec028c71d927b8bd11
+Reason: deploy latest results-view auto-rearrangement and inertia revalidation flow
+Source main commit before trigger: 5de18e985192f4244f384a00a869a2476ed05c45
