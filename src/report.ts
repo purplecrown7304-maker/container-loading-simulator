@@ -1,6 +1,7 @@
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { confirmUnverifiedExport, hasCurrentPhysicsVerification } from './exportVerification';
 import { createPhysicsTargetSignature, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
+import { requestDirectWorkOrder } from './directWorkOrderEvents';
 import { buildProgressSvgs, buildSideViewSvg, buildTopViewSvg, buildWorkerStepGroups } from './workerReportGraphics';
 
 function escapeHtml(value: unknown): string {
@@ -85,7 +86,7 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
 export function openLoadingReport(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult): boolean {
   const inertiaCertification = matchingBoxCertification(container, cargo, result);
   if (!inertiaCertification) {
-    window.alert('작업지시서는 현재 적재안이 출발 가속·급정거·급회전 관성 시뮬레이션 3종을 모두 통과한 뒤 출력할 수 있습니다. 먼저 결과 보기를 실행해 최종 관성검증을 완료하세요.');
+    requestDirectWorkOrder(container, cargo, result);
     return true;
   }
   if (!confirmUnverifiedExport('작업지시서')) return true;
