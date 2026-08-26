@@ -32,10 +32,23 @@ function samePosition(a: Placement, b: Placement) {
     Math.abs(a.length - b.length) <= EPS && Math.abs(a.width - b.width) <= EPS;
 }
 
+function safeTailStart(item: CargoItem, placements: Placement[], cargoById: Map<string, CargoItem>) {
+  let sameCargoTail = 0;
+  let heavierCargoTail = 0;
+  for (const placement of placements) {
+    const tail = placement.x + placement.length;
+    if (placement.cargoId === item.id) sameCargoTail = Math.max(sameCargoTail, tail);
+    const other = cargoById.get(placement.cargoId);
+    if (other && other.weightKg > item.weightKg + EPS) heavierCargoTail = Math.max(heavierCargoTail, tail);
+  }
+  return Math.max(sameCargoTail, heavierCargoTail);
+}
+
 /**
  * 적재 완료 뒤 모양을 정돈한다.
  * - 위 박스를 받치지 않는 최상단 박스만 이동한다.
  * - 기존 혼합 적재의 안전/적층 검사를 그대로 통과한 위치만 사용한다.
+ * - 동일 SKU 블록과 무거움→가벼움 종방향 흐름을 깨지 않는 위치만 사용한다.
  * - 형상 패널티가 실제로 감소할 때만 이동을 확정한다.
  */
 export function optimizeLoadingShape(
@@ -48,7 +61,6 @@ export function optimizeLoadingShape(
   let currentPenalty = beforePenalty;
   let movedCount = 0;
 
-  // 후처리가 지나치게 비싸지지 않도록 한 번의 패스에서 최대 24개만 확정 이동한다.
   const maxMoves = 24;
   for (let index = placements.length - 1; index >= 0 && movedCount < maxMoves; index -= 1) {
     if (supportsAnother(index, placements)) continue;
@@ -58,7 +70,8 @@ export function optimizeLoadingShape(
     if (!item) continue;
 
     const without = placements.filter((_, j) => j !== index);
-    const candidate = findMixedPlacement(container, item, without, cargoById);
+    const minX = safeTailStart(item, without, cargoById);
+    const candidate = findMixedPlacement(container, item, without, cargoById, { minX });
     if (!candidate || samePosition(candidate, original)) continue;
 
     const trial = [...without, candidate];
@@ -68,7 +81,6 @@ export function optimizeLoadingShape(
     placements = trial;
     currentPenalty = trialPenalty;
     movedCount += 1;
-    // 배열 순서가 바뀌었으므로 다음 반복은 현재 길이 범위 안에서 계속한다.
     index = Math.min(index, placements.length - 1);
   }
 
