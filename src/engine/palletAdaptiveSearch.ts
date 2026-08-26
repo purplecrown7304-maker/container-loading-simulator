@@ -1,7 +1,13 @@
 import { centerPalletCargo, setNextPalletCenteredResultOverride } from './palletCentering';
 import { validatePlacements } from './constraints';
 import { packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './palletOptimization';
-import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
+import {
+  PALLET_PATTERNS,
+  PALLET_PATTERN_LABEL,
+  PALLET_PATTERN_STATIC_PENALTY,
+  applyPalletPatternVariant,
+} from './palletPatternVariants';
+import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 import {
   INERTIA_CERTIFICATION_EVENT,
   INERTIA_PASS_PALLET_CARGO_SLIP_M,
@@ -30,12 +36,6 @@ export type EvaluatedPalletCandidate = PalletAdaptiveCandidate & { certification
 type PalletWindow = Window & {
   __containerLoadingPalletSnapshot?: PalletSnapshot;
   __containerLoadingLatestCertification?: InertiaCertification;
-};
-
-type OrientationVariant = {
-  label: string;
-  cargo: CargoItem[];
-  forcedRotatedIds: Set<string>;
 };
 
 export function readPalletSnapshot(): PalletSnapshot | undefined {
@@ -168,39 +168,6 @@ function cappedCargo(cargo: CargoItem[], spec: PalletSpec, heightRatio: number) 
   });
 }
 
-function orientationVariants(cargo: CargoItem[]): OrientationVariant[] {
-  const rotatable = cargo.filter(item => item.allowRotation !== false && Math.abs(item.length - item.width) > EPS);
-  const rotatableIds = new Set(rotatable.map(item => item.id));
-  const alternatingIds = new Set(rotatable.filter((_, index) => index % 2 === 1).map(item => item.id));
-  const buildFixed = (forced: Set<string>) => cargo.map(item => {
-    const shouldRotate = forced.has(item.id);
-    if (!rotatableIds.has(item.id)) return { ...item, allowRotation: false };
-    return shouldRotate
-      ? { ...item, length: item.width, width: item.length, allowRotation: false }
-      : { ...item, allowRotation: false };
-  });
-
-  return [
-    { label: '자동 방향', cargo: cargo.map(item => ({ ...item })), forcedRotatedIds: new Set<string>() },
-    { label: '정방향 고정', cargo: buildFixed(new Set<string>()), forcedRotatedIds: new Set<string>() },
-    { label: '90도 회전 고정', cargo: buildFixed(rotatableIds), forcedRotatedIds: rotatableIds },
-    { label: 'SKU 교차 방향', cargo: buildFixed(alternatingIds), forcedRotatedIds: alternatingIds },
-  ];
-}
-
-function markRotation(placement: Placement, forcedRotatedIds: Set<string>): Placement {
-  return forcedRotatedIds.has(placement.cargoId) ? { ...placement, rotated: true } : placement;
-}
-
-function restoreRotationFlags(result: OptimizedPalletPackingResult, forcedRotatedIds: Set<string>) {
-  if (!forcedRotatedIds.size) return result;
-  const pallets = result.pallets.map(pallet => ({
-    ...pallet,
-    cargoPlacements: pallet.cargoPlacements.map(item => markRotation(item, forcedRotatedIds)),
-  }));
-  return { ...result, pallets, placements: pallets.flatMap(pallet => pallet.cargoPlacements) };
-}
-
 function addCandidate(
   list: PalletAdaptiveCandidate[],
   seen: Set<string>,
@@ -208,6 +175,7 @@ function addCandidate(
   spec: PalletSpec,
   result: OptimizedPalletPackingResult,
   label: string,
+  extraPenalty = 0,
 ) {
   if (!sameLoadedCargo(current.result, result)) return;
   const target = toTarget(current.container, current.cargo, result);
@@ -215,7 +183,7 @@ function addCandidate(
   const signature = createPhysicsTargetSignature(target);
   if (seen.has(signature)) return;
   seen.add(signature);
-  list.push({ label, spec, result, target, staticPenalty: staticPenalty(result) });
+  list.push({ label, spec, result, target, staticPenalty: staticPenalty(result) + extraPenalty });
 }
 
 export function buildPalletAdaptiveCandidates(current: PhysicsTarget, snapshot: PalletSnapshot): PalletAdaptiveCandidate[] {
@@ -226,16 +194,25 @@ export function buildPalletAdaptiveCandidates(current: PhysicsTarget, snapshot: 
   const levelOptions = Array.from({ length: maxLevels }, (_, index) => index + 1);
   const heightRatios = [0.6, 0.72, 0.84, 0.96, 1.05, 1.15];
 
-  for (const variant of orientationVariants(current.cargo)) {
-    for (const heightRatio of heightRatios) {
-      for (const maxStackLevels of levelOptions) {
-        const spec = { ...snapshot.spec, maxStackLevels };
-        const cargo = cappedCargo(variant.cargo, spec, heightRatio);
-        const packed = restoreRotationFlags(centerPalletCargo(packOnPallets(current.container, cargo, spec)), variant.forcedRotatedIds);
-        const baseLabel = `${variant.label} · 높이 ${Math.round(heightRatio * 100)}% · ${maxStackLevels}단 제한`;
-        addCandidate(list, seen, current, spec, packed, `팔레트 위 재배치 · ${baseLabel}`);
-        addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, false), `안쪽 밀착 2열 · ${baseLabel}`);
-        addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, true), `문쪽 밀착 2열 · ${baseLabel}`);
+  for (const heightRatio of heightRatios) {
+    for (const maxStackLevels of levelOptions) {
+      const spec = { ...snapshot.spec, maxStackLevels };
+      const cargo = cappedCargo(current.cargo, spec, heightRatio);
+      const packed = centerPalletCargo(packOnPallets(current.container, cargo, spec));
+      const baseLabel = `자동 배치 · 높이 ${Math.round(heightRatio * 100)}% · ${maxStackLevels}단 제한`;
+
+      addCandidate(list, seen, current, spec, packed, `팔레트 위 재배치 · ${baseLabel}`, 2);
+      addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, false), `안쪽 밀착 2열 · ${baseLabel}`, 2);
+      addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, true), `문쪽 밀착 2열 · ${baseLabel}`, 2);
+
+      for (const pattern of PALLET_PATTERNS) {
+        const patterned = applyPalletPatternVariant(packed, current.cargo, spec, current.container, pattern);
+        if (!patterned) continue;
+        const patternLabel = `${PALLET_PATTERN_LABEL[pattern]} · 높이 ${Math.round(heightRatio * 100)}% · ${maxStackLevels}단 제한`;
+        const penalty = PALLET_PATTERN_STATIC_PENALTY[pattern];
+        addCandidate(list, seen, current, spec, patterned, `팔레트 위 ${patternLabel}`, penalty);
+        addCandidate(list, seen, current, spec, compactResult(patterned, current.container, spec, false), `안쪽 2열 · ${patternLabel}`, penalty);
+        addCandidate(list, seen, current, spec, compactResult(patterned, current.container, spec, true), `문쪽 2열 · ${patternLabel}`, penalty);
       }
     }
   }
