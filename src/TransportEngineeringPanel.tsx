@@ -21,12 +21,12 @@ type AxleDraft = {
 };
 
 const emptyDraft: AxleDraft = {
-  frontSupportX: '', rearSupportX: '', frontMaxKg: '', rearMaxKg: '', tareFrontKg: '', rearMaxKg: '',
+  frontSupportX: '', rearSupportX: '', frontMaxKg: '', rearMaxKg: '', tareFrontKg: '', tareRearKg: '',
 };
 
 function draftFrom(container: ContainerSpec): AxleDraft {
   const model = container.truckAxles;
-  if (!model) return { frontSupportX: '', rearSupportX: '', frontMaxKg: '', rearMaxKg: '', tareFrontKg: '', tareRearKg: '' };
+  if (!model) return emptyDraft;
   return {
     frontSupportX: String(model.frontSupportX),
     rearSupportX: String(model.rearSupportX),
@@ -59,7 +59,7 @@ export default function TransportEngineeringPanel() {
     if (typeof window === 'undefined') return null;
     return (window as LoadingResultWindow).__containerLoadingLatestResult?.result ?? null;
   });
-  const [draft, setDraft] = useState<AxleDraft>(() => initial?.container ? draftFrom(initial.container) : { frontSupportX: '', rearSupportX: '', frontMaxKg: '', rearMaxKg: '', tareFrontKg: '', tareRearKg: '' });
+  const [draft, setDraft] = useState<AxleDraft>(() => initial?.container ? draftFrom(initial.container) : emptyDraft);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -139,7 +139,7 @@ export default function TransportEngineeringPanel() {
   const clearAxles = () => {
     const { truckAxles: _removed, ...rest } = container;
     dispatch(rest);
-    setDraft({ frontSupportX: '', rearSupportX: '', frontMaxKg: '', rearMaxKg: '', tareFrontKg: '', tareRearKg: '' });
+    setDraft(emptyDraft);
     setMessage('축하중 모델을 해제했습니다. 앞뒤 무게중심 균형만 평가합니다.');
   };
 
