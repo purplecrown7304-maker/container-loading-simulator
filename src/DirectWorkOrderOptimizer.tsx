@@ -15,6 +15,7 @@ import {
 import { publishPhysicsTarget, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { openLoadingReport } from './report';
 import { STORAGE_UPDATED_EVENT, type StoredState } from './storage';
+import { openTruckLoadingReport } from './transportWorkOrderReport';
 
 const EPS = 1e-9;
 
@@ -58,6 +59,12 @@ function axleGate(candidate: Candidate) {
     assessment,
     allowed: !assessment || (assessment.severity !== 'over' && assessment.severity !== 'invalid'),
   };
+}
+
+function openApprovedReport(candidate: Candidate) {
+  return candidate.target.container.transportKind === 'truck'
+    ? openTruckLoadingReport(candidate.target.container, candidate.target.cargo, candidate.target.result)
+    : openLoadingReport(candidate.target.container, candidate.target.cargo, candidate.target.result);
 }
 
 export default function DirectWorkOrderOptimizer() {
@@ -126,7 +133,7 @@ export default function DirectWorkOrderOptimizer() {
         setRunning(false);
         const axleText = gate.assessment?.severity === 'warning' ? ' · 축하중 주의 범위' : '';
         setMessage(`작업지시서 승인 · ${candidate.label}${axleText}`);
-        const opened = openLoadingReport(candidate.target.container, candidate.target.cargo, candidate.target.result);
+        const opened = openApprovedReport(candidate);
         if (opened) setOpen(false);
         else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
         return;
