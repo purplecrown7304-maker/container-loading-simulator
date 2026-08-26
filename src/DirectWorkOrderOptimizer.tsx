@@ -48,8 +48,6 @@ function applyCandidate(candidate: Candidate, certification: InertiaCertificatio
 }
 
 function requestTarget(detail: DirectWorkOrderRequest): PhysicsTarget {
-  const live = readPhysicsTarget();
-  if (live?.mode === 'boxes') return live;
   return { mode: 'boxes', container: detail.container, cargo: detail.cargo, result: detail.result };
 }
 
@@ -77,6 +75,7 @@ export default function DirectWorkOrderOptimizer() {
       return;
     }
 
+    publishPhysicsTarget(current);
     const initialSignature = createPhysicsTargetSignature(current);
     const baseline: Candidate = {
       label: '현재 적재안',
