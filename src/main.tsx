@@ -12,6 +12,7 @@ import CertificationInvalidationBridge from './CertificationInvalidationBridge';
 import CertificationResultSummaryBridge from './CertificationResultSummaryBridge';
 import FinalCertificationGate from './FinalCertificationGate';
 import FinalWorkOrderOptimizer from './FinalWorkOrderOptimizer';
+import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
 import PalletResultsOptimizer from './PalletResultsOptimizer';
 import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
 import WorkspaceTools from './WorkspaceTools';
@@ -62,6 +63,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <CertificationResultSummaryBridge />
       <FinalCertificationGate />
       <FinalWorkOrderOptimizer />
+      <DirectWorkOrderOptimizer />
       <PalletResultsOptimizer />
       <App />
       <SecuringMaterialSettingsPanel />
