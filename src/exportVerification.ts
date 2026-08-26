@@ -1,15 +1,25 @@
 import type { PhysicsValidationSuite } from './engine/physicsValidation';
+import { createPhysicsTargetSignature, readLatestInertiaCertification } from './inertiaCertification';
+import { readPhysicsTarget } from './physicsTarget';
 
 type PhysicsWindow = Window & { __containerLoadingLatestPhysics?: PhysicsValidationSuite };
 
+function hasCurrentInertiaVerification(): boolean {
+  if (typeof window === 'undefined') return false;
+  const target = readPhysicsTarget();
+  const certification = readLatestInertiaCertification();
+  if (!target || !certification || certification.status !== 'passed') return false;
+  return certification.targetSignature === createPhysicsTargetSignature(target);
+}
+
 export function hasCurrentPhysicsVerification(): boolean {
   if (typeof window === 'undefined') return false;
-  return Boolean((window as PhysicsWindow).__containerLoadingLatestPhysics);
+  return Boolean((window as PhysicsWindow).__containerLoadingLatestPhysics) || hasCurrentInertiaVerification();
 }
 
 /**
- * 분석보고서 권고에 따라 물리 미검증 결과를 무심코 외부 공유하지 않도록 한다.
- * 미검증 상태에서는 명시적인 사용자 확인 없이는 작업지시서/Excel을 내보내지 않는다.
+ * 현재 좌표와 정확히 일치하는 최종 관성 3종 PASS 또는 Rapier 물리검증이 있으면
+ * 작업지시서/Excel을 검증 완료 상태로 취급한다.
  */
 export function confirmUnverifiedExport(kind: string): boolean {
   if (hasCurrentPhysicsVerification()) return true;

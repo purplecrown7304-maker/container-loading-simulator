@@ -11,6 +11,7 @@ import AutoCertificationBridge from './AutoCertificationBridge';
 import CertificationInvalidationBridge from './CertificationInvalidationBridge';
 import CertificationResultSummaryBridge from './CertificationResultSummaryBridge';
 import FinalCertificationGate from './FinalCertificationGate';
+import FinalWorkOrderOptimizer from './FinalWorkOrderOptimizer';
 import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
 import WorkspaceTools from './WorkspaceTools';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
@@ -59,6 +60,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <CertificationInvalidationBridge />
       <CertificationResultSummaryBridge />
       <FinalCertificationGate />
+      <FinalWorkOrderOptimizer />
       <App />
       <SecuringMaterialSettingsPanel />
       <PalletFooterSummaryBridge />
