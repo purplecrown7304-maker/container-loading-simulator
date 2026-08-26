@@ -95,6 +95,20 @@ function strategyGeometry(strategy: LoadingStrategy, columnsAcross: number, laye
   return { columns: columnsAcross, layers: layersHigh, centered: false };
 }
 
+function mixedTailStart(item: CargoItem, placements: Placement[], cargoById: Map<string, CargoItem>) {
+  let sameCargoTail = 0;
+  let heavierCargoTail = 0;
+  for (const placement of placements) {
+    const tail = placement.x + placement.length;
+    if (placement.cargoId === item.id) sameCargoTail = Math.max(sameCargoTail, tail);
+    const placedCargo = cargoById.get(placement.cargoId);
+    if (placedCargo && placedCargo.weightKg > item.weightKg + EPS) {
+      heavierCargoTail = Math.max(heavierCargoTail, tail);
+    }
+  }
+  return Math.max(sameCargoTail, heavierCargoTail);
+}
+
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
   const shouldPublish = options.publish !== false;
@@ -128,16 +142,28 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     const yOffset = geometry.centered ? Math.max(0, (container.width - occupiedWidth) / 2) : 0;
     const boxesPerSlice = columnsAcross * layersHigh;
     let placed = 0;
+
+    // 같은 SKU는 완전한 슬라이스만 만들고 잔량을 뒤로 미루지 않는다.
+    // 마지막 슬라이스가 일부만 차더라도 현재 SKU 블록 안에서 먼저 채워
+    // 동일 품목이 여러 구역으로 갈라지는 것을 최소화한다.
     while (placed < item.quantity) {
-      const left = item.quantity - placed;
-      if (left < boxesPerSlice) break;
       if (cursorX + orientation.length > container.length + EPS) break;
       let slicePlaced = 0;
       let sliceBlocked = false;
       for (let layer = 0; layer < layersHigh && placed < item.quantity; layer += 1) {
         for (let col = 0; col < columnsAcross && placed < item.quantity; col += 1) {
           if (loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS) { sliceBlocked = true; break; }
-          const candidate: Placement = { cargoId: item.id, x: cursorX, y: yOffset + col * orientation.width, z: layer * item.height, length: orientation.length, width: orientation.width, height: item.height, weightKg: item.weightKg, rotated: orientation.rotated };
+          const candidate: Placement = {
+            cargoId: item.id,
+            x: cursorX,
+            y: yOffset + col * orientation.width,
+            z: layer * item.height,
+            length: orientation.length,
+            width: orientation.width,
+            height: item.height,
+            weightKg: item.weightKg,
+            rotated: orientation.rotated,
+          };
           if (!canPlaceByStackingRules(item, candidate, placements, cargoById)) { sliceBlocked = true; break; }
           placements.push(candidate);
           placed += 1;
@@ -154,11 +180,14 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     if (placed < item.quantity) deferred.push({ item, quantity: item.quantity - placed });
   }
 
+  // 혼합적재는 최후 잔량만 대상으로 한다. 더 무거운 화물의 뒤쪽에서만
+  // 이어 붙여 가벼움-무거움-가벼움 형태의 종방향 샌드위치를 만들지 않는다.
   for (const { item, quantity } of deferred) {
     let mixedPlaced = 0;
+    const minX = mixedTailStart(item, placements, cargoById);
     for (let i = 0; i < quantity; i += 1) {
       if (loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS) break;
-      const placement = findMixedPlacement(container, item, placements, cargoById);
+      const placement = findMixedPlacement(container, item, placements, cargoById, { minX });
       if (!placement) break;
       placements.push(placement);
       mixedPlaced += 1;
@@ -173,7 +202,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
         quantity: left,
         reason: nextBoxWouldExceedPayload
           ? '컨테이너 최대 적재 중량을 초과하므로 추가 적재하지 못함'
-          : '회전·경계·적층단·상부 허용중량 조건을 만족하는 배치 위치를 찾지 못함',
+          : '동일 품목 블록·중량 흐름·회전·경계·적층단·상부 허용중량 조건을 만족하는 안전한 잔여 위치를 찾지 못함',
       });
     }
   }
