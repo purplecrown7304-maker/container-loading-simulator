@@ -328,7 +328,7 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
   const [showLabels, setShowLabels] = useState(readBoxLabelPreference);
   const [certification, setCertification] = useState<InertiaCertification | null>(() => {
     const latest = readLatestInertiaCertification();
-    return latest?.mode === 'pallets' && latest.status === 'passed' ? latest : null;
+    return latest?.mode === 'pallets' ? latest : null;
   });
 
   useEffect(() => {
@@ -356,8 +356,8 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
 
   useEffect(() => {
     const onCertification = (event: Event) => {
-      const next = (event as CustomEvent<InertiaCertification>).detail;
-      setCertification(next?.mode === 'pallets' && next.status === 'passed' ? next : null);
+      const next = (event as CustomEvent<InertiaCertification | undefined>).detail;
+      setCertification(next?.mode === 'pallets' ? next : null);
     };
     window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
     return () => window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
