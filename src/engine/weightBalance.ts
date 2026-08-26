@@ -37,6 +37,8 @@ export function assessWeightBalance(container: ContainerSpec, result: LoadingRes
     };
   }
 
+  const truckMode = container.transportKind === 'truck';
+  const placementsLabel = truckMode ? '적재함' : '컨테이너';
   const cogX = weightedAverage(placements, (p) => p.x + p.length / 2);
   const cogY = weightedAverage(placements, (p) => p.y + p.width / 2);
   const cogZ = weightedAverage(placements, (p) => p.z + p.height / 2);
@@ -51,10 +53,15 @@ export function assessWeightBalance(container: ContainerSpec, result: LoadingRes
   const innerHalfWeight = placements.filter((p) => p.x + p.length / 2 <= container.length / 2).reduce((sum, p) => sum + p.weightKg, 0);
   const lowerHeavyRatio = totalWeight > 0 ? lowerHalfWeight / totalWeight : 0;
   const innerHeavyRatio = totalWeight > 0 ? innerHalfWeight / totalWeight : 0;
-  const balanceScore = clampScore(100 - longitudinalDeviationPct * 0.9 - lateralDeviationPct * 1.25);
+
+  // 컨테이너는 안쪽 중량 배치가 하역/문쪽 안정에 도움을 줄 수 있지만,
+  // 트럭은 특정 끝으로 무게를 몰아주는 보너스를 주지 않는다. 대신 앞뒤 COG를
+  // 중앙에 두는 것을 더 강하게 평가한다. 법적 축중 판정은 별도 차량 축 설정이 필요하다.
+  const longitudinalWeight = truckMode ? 1.25 : 0.9;
+  const balanceScore = clampScore(100 - longitudinalDeviationPct * longitudinalWeight - lateralDeviationPct * 1.25);
   const verticalPenalty = Math.max(0, verticalCenterPct - 35) * 1.35;
   const lowerBonus = Math.max(0, lowerHeavyRatio - 0.5) * 35;
-  const innerBonus = Math.max(0, innerHeavyRatio - 0.5) * 15;
+  const innerBonus = truckMode ? 0 : Math.max(0, innerHeavyRatio - 0.5) * 15;
   const stabilityScore = clampScore(88 - verticalPenalty + lowerBonus + innerBonus);
   const validationPenalty = result.validationIssues.length * 25;
   const shape = assessShapeQuality(container, placements);
@@ -63,9 +70,15 @@ export function assessWeightBalance(container: ContainerSpec, result: LoadingRes
 
   const messages: string[] = [];
   messages.push(lateralDeviationPct <= 10 ? '좌우 무게중심이 중앙에 가깝습니다.' : `좌우 무게중심 편차가 ${lateralDeviationPct.toFixed(1)}%입니다.`);
-  messages.push(longitudinalDeviationPct <= 15 ? '앞뒤 무게분포가 비교적 균형적입니다.' : `앞뒤 무게중심 편차가 ${longitudinalDeviationPct.toFixed(1)}%입니다.`);
-  messages.push(verticalCenterPct <= 40 ? '무게중심 높이가 낮아 안정적인 편입니다.' : `무게중심 높이가 컨테이너 높이의 ${verticalCenterPct.toFixed(1)}%로 높습니다.`);
-  messages.push(innerHeavyRatio >= 0.5 ? '전체 중량의 절반 이상이 컨테이너 안쪽 절반에 배치되었습니다.' : '무거운 화물을 더 안쪽으로 이동할 여지가 있습니다.');
+  messages.push(longitudinalDeviationPct <= (truckMode ? 10 : 15)
+    ? `앞뒤 무게분포가 ${truckMode ? '트럭 적재함 중앙에 가깝습니다.' : '비교적 균형적입니다.'}`
+    : `앞뒤 무게중심 편차가 ${longitudinalDeviationPct.toFixed(1)}%입니다.`);
+  messages.push(verticalCenterPct <= 40 ? '무게중심 높이가 낮아 안정적인 편입니다.' : `무게중심 높이가 ${placementsLabel} 높이의 ${verticalCenterPct.toFixed(1)}%로 높습니다.`);
+  if (truckMode) {
+    messages.push(`화물 무게중심은 적재함 길이의 ${(nx * 100).toFixed(1)}% 위치입니다. 축중 허용값은 실제 차량 축 위치/허용하중 설정 후 별도 판정해야 합니다.`);
+  } else {
+    messages.push(innerHeavyRatio >= 0.5 ? '전체 중량의 절반 이상이 컨테이너 안쪽 절반에 배치되었습니다.' : '무거운 화물을 더 안쪽으로 이동할 여지가 있습니다.');
+  }
   messages.push(...shape.messages);
 
   return { centerOfGravity: { x: cogX, y: cogY, z: cogZ }, normalized: { x: nx, y: ny, z: nz }, longitudinalDeviationPct, lateralDeviationPct, verticalCenterPct, lowerHeavyRatio, innerHeavyRatio, balanceScore, stabilityScore, loadingQualityScore, grade, messages };
