@@ -47,11 +47,11 @@ export function isValidTruckAxleModel(container: ContainerSpec, model: TruckAxle
  * 실제 축중/축군 하중은 차량 구조·킹핀·서스펜션·공차축중에 따라 달라지므로
  * 작업지시 전 실제 차량 계근/제원으로 확인해야 한다.
  */
-export function assessTruckAxleLoad(container: ContainerSpec, result: Pick<LoadingResult, 'placements'>): TruckAxleAssessment | undefined {
+export function assessTruckAxlePlacements(container: ContainerSpec, placements: Placement[]): TruckAxleAssessment | undefined {
   if (container.transportKind !== 'truck' || !container.truckAxles) return undefined;
   const model = container.truckAxles;
-  const cargoWeightKg = placementWeight(result.placements);
-  const cargoCogX = weightedCogX(result.placements);
+  const cargoWeightKg = placementWeight(placements);
+  const cargoCogX = weightedCogX(placements);
   const validGeometry = isValidTruckAxleModel(container, model);
 
   if (!validGeometry) {
@@ -111,4 +111,8 @@ export function assessTruckAxleLoad(container: ContainerSpec, result: Pick<Loadi
     penalty,
     messages,
   };
+}
+
+export function assessTruckAxleLoad(container: ContainerSpec, result: Pick<LoadingResult, 'placements'>): TruckAxleAssessment | undefined {
+  return assessTruckAxlePlacements(container, result.placements);
 }
