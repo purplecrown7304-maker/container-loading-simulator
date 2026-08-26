@@ -1,5 +1,6 @@
 import type { PhysicsScenario, PhysicsSupport } from './physicsValidation';
 import { horizontalRestraintForce, supportingIndexForPlacement, supportingIndexForSupport, type RestraintModel } from './restraintPhysics';
+import { buildTransportShell } from './transportShell';
 import type { ContainerSpec, Placement } from './types';
 
 const EPS = 1e-6;
@@ -20,7 +21,7 @@ export type InertiaSecuringProfile = {
   cargoRetentionRatio?: number;
   supportRetentionRatio?: number;
   cargoRestraint?: RestraintModel;
-  /** Container-level blocking/load-bar restraint; stacked upper pallets rely on friction/contact. */
+  /** Transport-body-level blocking/load-bar restraint; stacked upper pallets rely on friction/contact. */
   supportRestraint?: RestraintModel;
 };
 
@@ -41,7 +42,7 @@ export type InertiaAnimationResult = {
   maxHorizontalShiftM: number;
   maxTiltDeg: number;
   maxCargoRelativeSlipM?: number;
-  /** Floor pallets relative to container; upper pallets relative to the pallet directly below. */
+  /** Floor pallets relative to transport body; upper pallets relative to the pallet directly below. */
   maxSupportShiftM?: number;
   maxCargoRestraintForceN?: number;
   maxSupportRestraintForceN?: number;
@@ -163,12 +164,13 @@ export async function runInertiaAnimation(
   const halfL = container.length / 2;
   const halfW = container.width / 2;
   const wall = WALL_THICKNESS;
+  const shell = buildTransportShell(container);
   fixed(halfL + wall, wall, halfW + wall, 0, -wall, 0);
-  fixed(halfL + wall, wall, halfW + wall, 0, container.height + wall, 0);
-  fixed(wall, container.height / 2, halfW + wall, -halfL - wall, container.height / 2, 0);
-  fixed(wall, container.height / 2, halfW + wall, halfL + wall, container.height / 2, 0);
-  fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, -halfW - wall);
-  fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, halfW + wall);
+  if (shell.roof) fixed(halfL + wall, wall, halfW + wall, 0, container.height + wall, 0);
+  if (shell.frontWall) fixed(wall, container.height / 2, halfW + wall, -halfL - wall, container.height / 2, 0);
+  if (shell.rearWall) fixed(wall, container.height / 2, halfW + wall, halfL + wall, container.height / 2, 0);
+  if (shell.leftWall) fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, -halfW - wall);
+  if (shell.rightWall) fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, halfW + wall);
 
   const createBody = (
     item: Pick<Placement, 'x' | 'y' | 'z' | 'length' | 'width' | 'height'>,
