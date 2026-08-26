@@ -2,6 +2,21 @@ export type TransportKind = 'container' | 'truck';
 export type TransportWallModel = 'rigid' | 'curtain';
 export type TransportRoofModel = 'rigid' | 'soft' | 'open';
 
+export type TruckAxleModel = {
+  /** 적재공간 안쪽 기준 앞 지지축 위치(m). 실제 차량 축/축군 중심값을 입력한다. */
+  frontSupportX: number;
+  /** 적재공간 안쪽 기준 뒤 지지축 위치(m). frontSupportX보다 커야 한다. */
+  rearSupportX: number;
+  /** 앞축/앞축군 허용하중. 미입력 시 초과 판정 없이 반력만 계산한다. */
+  frontMaxKg?: number;
+  /** 뒤축/뒤축군 허용하중. 미입력 시 초과 판정 없이 반력만 계산한다. */
+  rearMaxKg?: number;
+  /** 공차 상태 앞축 하중. 실제 차량 계근값이 있을 때 입력한다. */
+  tareFrontKg?: number;
+  /** 공차 상태 뒤축 하중. 실제 차량 계근값이 있을 때 입력한다. */
+  tareRearKg?: number;
+};
+
 export type ContainerSpec = {
   length: number;
   width: number;
@@ -21,6 +36,8 @@ export type ContainerSpec = {
   roofModel?: TransportRoofModel;
   /** 냉동/보냉 장비 표시용 메타데이터. */
   temperatureControlled?: boolean;
+  /** 실제 차량 축 위치/허용하중을 아는 경우에만 사용하는 단순보 반력 모델. */
+  truckAxles?: TruckAxleModel;
 };
 
 export type CargoItem = {
