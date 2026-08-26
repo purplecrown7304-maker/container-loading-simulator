@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { REQUEST_DIRECT_WORK_ORDER_EVENT, type DirectWorkOrderRequest } from './directWorkOrderEvents';
 import { buildDirectResultReoptimizationCandidates, type DirectResultReoptimizationCandidate } from './engine/finalResultOptimization';
 import { writeManualOverride } from './engine/manualOverride';
+import { assessTruckAxleLoad } from './engine/truckAxleLoad';
 import {
   INERTIA_CERTIFICATION_EVENT,
   INERTIA_PASS_SHIFT_M,
@@ -51,6 +52,14 @@ function requestTarget(detail: DirectWorkOrderRequest): PhysicsTarget {
   return { mode: 'boxes', container: detail.container, cargo: detail.cargo, result: detail.result };
 }
 
+function axleGate(candidate: Candidate) {
+  const assessment = assessTruckAxleLoad(candidate.target.container, candidate.result);
+  return {
+    assessment,
+    allowed: !assessment || (assessment.severity !== 'over' && assessment.severity !== 'invalid'),
+  };
+}
+
 export default function DirectWorkOrderOptimizer() {
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
@@ -83,9 +92,10 @@ export default function DirectWorkOrderOptimizer() {
       target: current,
       staticPenalty: 0,
     };
-    const candidates = [baseline, ...buildDirectResultReoptimizationCandidates(current, 9999)];
+    const candidates = [baseline, ...buildDirectResultReoptimizationCandidates(current)];
     setAttempt({ index: 0, total: candidates.length, label: '' });
     let bestFailed: Evaluated | null = null;
+    let axleRejected = 0;
 
     for (let index = 0; index < candidates.length; index += 1) {
       if (runId.current !== id) return;
@@ -96,7 +106,14 @@ export default function DirectWorkOrderOptimizer() {
         return;
       }
       const candidate = candidates[index];
+      const gate = axleGate(candidate);
       setAttempt({ index: index + 1, total: candidates.length, label: candidate.label });
+      if (!gate.allowed) {
+        axleRejected += 1;
+        setMessage(`축하중 재배치 ${index + 1}/${candidates.length} · ${candidate.label} · 축 허용범위 초과 → 다음 후보`);
+        continue;
+      }
+
       setMessage(`상자 재배치 ${index + 1}/${candidates.length} · ${candidate.label}`);
       const certification = await runInertiaCertification(candidate.target, next => {
         if (runId.current === id) setProgress(next);
@@ -107,7 +124,8 @@ export default function DirectWorkOrderOptimizer() {
       if (certification.status === 'passed') {
         applyCandidate(candidate, certification);
         setRunning(false);
-        setMessage(`작업지시서 승인 · ${candidate.label}`);
+        const axleText = gate.assessment?.severity === 'warning' ? ' · 축하중 주의 범위' : '';
+        setMessage(`작업지시서 승인 · ${candidate.label}${axleText}`);
         const opened = openLoadingReport(candidate.target.container, candidate.target.cargo, candidate.target.result);
         if (opened) setOpen(false);
         else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
@@ -122,7 +140,9 @@ export default function DirectWorkOrderOptimizer() {
       applyCandidate(bestFailed, bestFailed.certification);
       setMessage(`유효 배치 전부 탐색 · 가장 안전한 실패안 적용 · ${bestFailed.label}`);
     }
-    setError('같은 화물 수량과 제약조건을 유지해 만들 수 있는 직접 적재 배치를 모두 시험했지만 관성 3종 PASS가 나오지 않았습니다. 이 경우에는 작업지시서를 억지로 만들지 않습니다.');
+    setError(axleRejected > 0
+      ? `유효 배치를 모두 시험했지만 관성 3종 PASS와 입력된 축하중 조건을 동시에 만족하지 못했습니다. 축하중 초과로 제외된 후보 ${axleRejected}개가 있습니다.`
+      : '같은 화물 수량과 제약조건을 유지해 만들 수 있는 직접 적재 배치를 모두 시험했지만 관성 3종 PASS가 나오지 않았습니다. 이 경우에는 작업지시서를 억지로 만들지 않습니다.');
   }, []);
 
   useEffect(() => {
@@ -144,7 +164,7 @@ export default function DirectWorkOrderOptimizer() {
         <div>
           <span>FINAL WORK ORDER OPTIMIZER · DIRECT BOX</span>
           <h2 id="direct-work-order-title">작업지시서 전 상자 재배치 반복</h2>
-          <p>같은 SKU 묶음과 무거운→가벼운 중량 흐름을 유지하면서 적재 높이와 전략을 계속 바꾸고, 관성 3종 PASS가 나오는 순간 작업지시서를 생성합니다.</p>
+          <p>같은 SKU 묶음과 무거운→가벼운 중량 흐름을 유지하면서 적재 높이와 전략을 계속 바꾸고, 관성 3종과 설정된 트럭 축하중 조건을 동시에 통과하면 작업지시서를 생성합니다.</p>
         </div>
         {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
       </header>
@@ -159,7 +179,7 @@ export default function DirectWorkOrderOptimizer() {
         <span>현재 보강 <b>{progress.levelLabel}</b></span>
         <span>관성 시나리오 <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
         <span>현재 계산 <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
-        <span>탐색 원칙 <b>SKU 묶음 → 중량 흐름 → 낮은 높이 → PASS</b></span>
+        <span>탐색 원칙 <b>SKU 묶음 → 중량 흐름 → 낮은 높이 → 관성+축하중 PASS</b></span>
       </div>}
 
       <article className="final-cert-materials">
@@ -169,8 +189,8 @@ export default function DirectWorkOrderOptimizer() {
           <div><span>적재 높이</span><b>단계적으로 하향</b><small>무게중심을 낮춰 재시험</small></div>
           <div><span>품목 순서</span><b>동일 SKU 우선</b><small>혼합은 마지막 잔여공간</small></div>
           <div><span>중량 흐름</span><b>무거운→가벼운</b><small>가벼움-무거움-가벼움 방지</small></div>
-          <div><span>보강재</span><b>자동 재산정</b><small>미끄럼방지·블로킹·고정바</small></div>
-          <div><span>승인</span><b>관성 3종 PASS</b><small>PASS 전 작업지시서 잠금</small></div>
+          <div><span>트럭 축하중</span><b>입력 시 하드 게이트</b><small>초과 후보는 관성시험 전 제외</small></div>
+          <div><span>승인</span><b>관성 3종 + 축하중</b><small>조건 충족 전 작업지시서 잠금</small></div>
         </div>
       </article>
 
