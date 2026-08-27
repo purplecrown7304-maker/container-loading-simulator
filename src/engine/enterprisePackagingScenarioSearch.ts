@@ -74,9 +74,14 @@ function dominates(a: EnterprisePackagingScenario, b: EnterprisePackagingScenari
 
 function recommendedSort(a: EnterprisePackagingScenario, b: EnterprisePackagingScenario) {
   if (a.feasible !== b.feasible) return a.feasible ? -1 : 1;
-  const aCost = scenarioCost(a);
-  const bCost = scenarioCost(b);
-  if (Number.isFinite(aCost) && Number.isFinite(bCost) && Math.abs(aCost - bCost) > EPS) return aCost - bCost;
+  // 비용이 완전한 시나리오끼리만 금액으로 직접 우열을 정한다. 단가가 비어 있는
+  // 시나리오는 0원으로 간주하지 않고 물류 지표 순으로 비교한다.
+  if (a.completeCost && b.completeCost) {
+    const diff = a.plan.cost.totalKnownCost - b.plan.cost.totalKnownCost;
+    if (Math.abs(diff) > EPS) return diff;
+  } else if (a.completeCost !== b.completeCost) {
+    return a.completeCost ? -1 : 1;
+  }
   if (a.plan.shipment.containersRequired !== b.plan.shipment.containersRequired) return a.plan.shipment.containersRequired - b.plan.shipment.containersRequired;
   if (a.plan.totalBoxes !== b.plan.totalBoxes) return a.plan.totalBoxes - b.plan.totalBoxes;
   if (familyTypes(a) !== familyTypes(b)) return familyTypes(a) - familyTypes(b);
@@ -85,14 +90,37 @@ function recommendedSort(a: EnterprisePackagingScenario, b: EnterprisePackagingS
   return a.id.localeCompare(b.id);
 }
 
+function resultSignature(scenario: EnterprisePackagingScenario) {
+  const assignments = scenario.plan.assignments
+    .map((item) => `${item.productId}:${item.boxId}:${item.unitsPerBox}:${item.boxesNeeded}`)
+    .sort().join('|');
+  const mixed = scenario.plan.mixedCartons
+    .map((item) => `${item.boxId}:${item.contents.map((content) => `${content.productId}:${content.quantity}`).sort().join(',')}`)
+    .sort().join('|');
+  return [
+    scenario.feasible ? 1 : 0,
+    scenario.plan.shipment.containersRequired,
+    scenario.plan.totalBoxes,
+    scenario.plan.family.selectedBoxTypes,
+    scenario.plan.cost.unpricedCartons,
+    scenario.plan.cost.totalKnownCost.toFixed(4),
+    assignments,
+    mixed,
+  ].join('::');
+}
+
 export function searchEnterprisePackagingScenarios(
   container: ContainerSpec,
   products: ProductItem[],
   catalog: BoxCatalogItem[],
   options: EnterpriseScenarioSearchOptions = defaultEnterpriseScenarioSearchOptions,
 ): EnterpriseScenarioSearchResult {
-  const minTarget = Math.max(1, Math.floor(options.minTargetBoxTypes));
-  const maxTarget = Math.max(minTarget, Math.min(12, Math.floor(options.maxTargetBoxTypes)));
+  const activeProductCount = Math.max(1, products.filter((product) => Number.isInteger(product.quantity) && product.quantity > 0).length);
+  const minTarget = Math.max(1, Math.min(activeProductCount, Math.floor(options.minTargetBoxTypes)));
+  // 제품 종류보다 많은 공용 박스 목표는 family optimizer에서 새로운 의미가 없으므로
+  // 반복 계산하지 않는다. 브라우저 폭주를 막기 위해 절대 상한도 12종으로 유지한다.
+  const effectiveMax = Math.min(12, activeProductCount, Math.floor(options.maxTargetBoxTypes));
+  const maxTarget = Math.max(minTarget, effectiveMax);
   const targets = Array.from({ length: maxTarget - minTarget + 1 }, (_, index) => minTarget + index);
   const customValues = options.compareCustomBoxDesign
     ? distinctValues([false, true, options.baseOptions.packaging.allowCustomBoxDesign])
@@ -101,7 +129,7 @@ export function searchEnterprisePackagingScenarios(
     ? distinctValues([false, true, options.baseOptions.allowMixedResidualCartons])
     : [options.baseOptions.allowMixedResidualCartons];
 
-  const scenarios: EnterprisePackagingScenario[] = [];
+  const rawScenarios: EnterprisePackagingScenario[] = [];
   for (const allowCustomBoxDesign of customValues) {
     for (const allowMixedResidualCartons of mixedValues) {
       for (const targetBoxTypes of targets) {
@@ -114,7 +142,7 @@ export function searchEnterprisePackagingScenarios(
         };
         const plan = optimizeEnterprisePackaging(container, products, catalog, scenarioOptions);
         const id = `custom-${allowCustomBoxDesign ? 1 : 0}-family-${targetBoxTypes}-mix-${allowMixedResidualCartons ? 1 : 0}`;
-        scenarios.push({
+        rawScenarios.push({
           id,
           label: `${allowCustomBoxDesign ? '신규규격 허용' : '보유박스 우선'} · 공용 ${targetBoxTypes}종 · ${allowMixedResidualCartons ? '잔량혼합' : '잔량분리'}`,
           allowCustomBoxDesign,
@@ -135,7 +163,7 @@ export function searchEnterprisePackagingScenarios(
     family: { ...options.baseOptions.family, enabled: false },
   };
   const baselinePlan = optimizeEnterprisePackaging(container, products, catalog, baselineOptions);
-  scenarios.push({
+  rawScenarios.push({
     id: 'baseline-individual',
     label: '제품별 개별 최적 기준안',
     allowCustomBoxDesign: baselineOptions.packaging.allowCustomBoxDesign,
@@ -146,6 +174,15 @@ export function searchEnterprisePackagingScenarios(
     feasible: feasible(baselinePlan),
     completeCost: baselinePlan.cost.unpricedCartons === 0,
   });
+
+  // 서로 다른 옵션이 실제로 완전히 같은 박스/수량 결과를 만든 경우 UI에는 한 번만
+  // 노출한다. 먼저 생성된 낮은 target 시나리오를 보존해 설명 가능성도 유지한다.
+  const uniqueResults = new Map<string, EnterprisePackagingScenario>();
+  for (const scenario of rawScenarios) {
+    const signature = resultSignature(scenario);
+    if (!uniqueResults.has(signature)) uniqueResults.set(signature, scenario);
+  }
+  const scenarios = [...uniqueResults.values()];
 
   const pareto = scenarios
     .filter((scenario) => scenario.feasible)
