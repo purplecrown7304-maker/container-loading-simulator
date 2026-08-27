@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { palletSnapshotMatchesCertification } from './certifiedExport';
+import { boxResultMatchesCertification, palletSnapshotMatchesCertification } from './certifiedExport';
 import { analyzeConstraints } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
@@ -8,7 +8,7 @@ import type { OptimizedPalletPackingResult, PalletSpec } from './engine/palletOp
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { buildWorkSequence } from './engine/workSequence';
 import { confirmUnverifiedExport, hasCurrentPhysicsVerification } from './exportVerification';
-import { createPhysicsTargetSignature, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
+import { readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
 import { buildPalletSecuringPlan } from './palletSecuringPlan';
 import { readPhysicsTarget } from './physicsTarget';
 import { defaultSecuringMaterialSettings } from './securingMaterialSettings';
@@ -19,10 +19,9 @@ type ExportWindow = Window & { __containerLoadingLatestResult?: Detail; __contai
 type CurrentTarget = NonNullable<ReturnType<typeof readPhysicsTarget>>;
 
 function matchingBoxCertification(detail: Detail): InertiaCertification | undefined {
+  const target = readPhysicsTarget();
   const certification = readLatestInertiaCertification();
-  if (!certification || certification.status !== 'passed' || certification.mode !== 'boxes') return undefined;
-  const signature = createPhysicsTargetSignature({ mode: 'boxes', container: detail.container, cargo: detail.cargo, result: detail.result });
-  return certification.targetSignature === signature ? certification : undefined;
+  return boxResultMatchesCertification(detail, target, certification) ? certification : undefined;
 }
 
 function matchingCurrentPalletCertification(snapshot: PalletSnapshot | undefined): InertiaCertification | undefined {
@@ -248,7 +247,7 @@ export default function ExcelExportActions() {
       if (!detail) return;
       const certification = matchingBoxCertification(detail);
       if (!certification) {
-        window.alert('Excel 결과는 현재 박스 적재안이 관성 시뮬레이션 3종을 모두 통과한 뒤 내보낼 수 있습니다.');
+        window.alert('Excel 결과는 현재 박스 적재안이 관성 시뮬레이션 3종을 모두 통과하고 현재 적재안과 출력 데이터가 일치한 뒤 내보낼 수 있습니다.');
         return;
       }
       if (!confirmUnverifiedExport('Excel 파일')) return;
