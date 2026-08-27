@@ -17,6 +17,7 @@ import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
 import PalletResultsOptimizer from './PalletResultsOptimizer';
 import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
 import EnterprisePackagingPlanner from './EnterprisePackagingPlanner';
+import EnterpriseScenarioExplorer from './EnterpriseScenarioExplorer';
 import ProductPackagingExcelActions from './ProductPackagingExcelActions';
 import WorkspaceTools from './WorkspaceTools';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
@@ -57,6 +58,7 @@ import './final-certification.css';
 import './securing-material-settings.css';
 import './product-packaging.css';
 import './enterprise-packaging.css';
+import './enterprise-scenario.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -73,6 +75,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <PalletResultsOptimizer />
       <App />
       <EnterprisePackagingPlanner />
+      <EnterpriseScenarioExplorer />
       <ProductPackagingExcelActions />
       <SecuringMaterialSettingsPanel />
       <PalletFooterSummaryBridge />
