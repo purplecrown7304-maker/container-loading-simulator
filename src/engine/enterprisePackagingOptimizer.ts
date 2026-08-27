@@ -56,6 +56,9 @@ export type MixedResidualCarton = {
   id: string;
   boxId: string;
   boxName: string;
+  innerLength: number;
+  innerWidth: number;
+  innerHeight: number;
   outerLength: number;
   outerWidth: number;
   outerHeight: number;
@@ -98,6 +101,7 @@ export type EnterprisePackagingPlan = CommonCartonFamilyPlan & {
 };
 
 type CandidateBox = BoxCatalogItem & { source: 'catalog' | 'generated' };
+type CartonDimensions = Pick<BoxCatalogItem, 'innerLength' | 'innerWidth' | 'innerHeight' | 'outerLength' | 'outerWidth' | 'outerHeight'>;
 
 function assignmentProduct(assignment: ProductPackagingAssignment, products: ProductItem[]) {
   return products.find((product) => product.id === assignment.productId);
@@ -105,6 +109,33 @@ function assignmentProduct(assignment: ProductPackagingAssignment, products: Pro
 
 function assignmentTare(assignment: ProductPackagingAssignment, product: ProductItem) {
   return Math.max(0, assignment.grossWeightKg - assignment.unitsPerBox * product.weightKg);
+}
+
+function physicalCartonKey(box: CartonDimensions) {
+  return [box.outerLength, box.outerWidth, box.outerHeight, box.innerLength, box.innerWidth, box.innerHeight]
+    .map((value) => value.toFixed(4)).join(':');
+}
+
+function assignmentDimensions(assignment: ProductPackagingAssignment): CartonDimensions {
+  return {
+    innerLength: assignment.innerLength,
+    innerWidth: assignment.innerWidth,
+    innerHeight: assignment.innerHeight,
+    outerLength: assignment.outerLength,
+    outerWidth: assignment.outerWidth,
+    outerHeight: assignment.outerHeight,
+  };
+}
+
+function reserveCargoId(preferred: string, reserved: Set<string>) {
+  let id = preferred;
+  let suffix = 2;
+  while (reserved.has(id)) {
+    id = `${preferred}-${suffix}`;
+    suffix += 1;
+  }
+  reserved.add(id);
+  return id;
 }
 
 function assignmentBox(
@@ -134,8 +165,7 @@ function assignmentBox(
 }
 
 function boxKey(box: BoxCatalogItem) {
-  return [box.outerLength, box.outerWidth, box.outerHeight, box.innerLength, box.innerWidth, box.innerHeight]
-    .map((value) => value.toFixed(4)).join(':');
+  return physicalCartonKey(box);
 }
 
 function mixedBoxCandidates(
@@ -175,10 +205,11 @@ function dedicatedPartialCargo(
   assignment: ProductPackagingAssignment,
   product: ProductItem,
   residual: number,
+  id: string,
 ): CargoItem {
   const tare = assignmentTare(assignment, product);
   return {
-    id: `PKG-${product.id}-PARTIAL`,
+    id,
     name: `${product.name} · ${assignment.boxName} · 잔량 ${residual}EA`,
     length: assignment.outerLength,
     width: assignment.outerWidth,
@@ -191,10 +222,10 @@ function dedicatedPartialCargo(
   };
 }
 
-function fullCartonCargo(assignment: ProductPackagingAssignment, fullCount: number): CargoItem | null {
+function fullCartonCargo(assignment: ProductPackagingAssignment, fullCount: number, id: string): CargoItem | null {
   if (fullCount <= 0) return null;
   return {
-    id: `PKG-${assignment.productId}`,
+    id,
     name: `${assignment.productName} · ${assignment.boxName}`,
     length: assignment.outerLength,
     width: assignment.outerWidth,
@@ -229,21 +260,41 @@ function buildAccurateCargo(
 ) {
   const cargo: CargoItem[] = [];
   const dedicatedPartialCartons: EnterprisePackagingPlan['dedicatedPartialCartons'] = [];
+  const productCargoIds = new Map<string, Set<string>>();
+  const reservedCargoIds = new Set<string>();
+  const fullCargoIdByProduct = new Map<string, string>();
   const unitsPerBox = new Map(familyPlan.assignments.map((assignment) => [assignment.productId, assignment.unitsPerBox]));
   const residual = residualUnitsForProducts(products, unitsPerBox);
+
+  // Full carton ID를 먼저 전부 예약해야 `A`의 partial이 `A-PARTIAL` 제품의 full ID와 충돌하지 않는다.
+  for (const assignment of familyPlan.assignments) {
+    fullCargoIdByProduct.set(assignment.productId, reserveCargoId(`PKG-${assignment.productId}`, reservedCargoIds));
+  }
+
+  const trackProductCargo = (productId: string, cargoId: string) => {
+    const ids = productCargoIds.get(productId) ?? new Set<string>();
+    ids.add(cargoId);
+    productCargoIds.set(productId, ids);
+  };
 
   for (const assignment of familyPlan.assignments) {
     const product = assignmentProduct(assignment, products);
     if (!product) continue;
     const fullCount = Math.floor(product.quantity / Math.max(1, assignment.unitsPerBox));
-    const full = fullCartonCargo(assignment, fullCount);
-    if (full) cargo.push(full);
+    const fullId = fullCargoIdByProduct.get(product.id) ?? reserveCargoId(`PKG-${product.id}`, reservedCargoIds);
+    const full = fullCartonCargo(assignment, fullCount, fullId);
+    if (full) {
+      cargo.push(full);
+      trackProductCargo(product.id, full.id);
+    }
     const remainder = product.quantity % Math.max(1, assignment.unitsPerBox);
     if (!remainder) continue;
     const mixable = options.allowMixedResidualCartons && !product.fragile && product.allowMixedCarton !== false;
     if (!mixable) {
-      const partial = dedicatedPartialCargo(assignment, product, remainder);
+      const partialId = reserveCargoId(`PKG-${product.id}-PARTIAL`, reservedCargoIds);
+      const partial = dedicatedPartialCargo(assignment, product, remainder, partialId);
       cargo.push(partial);
+      trackProductCargo(product.id, partial.id);
       dedicatedPartialCartons.push({ productId: product.id, quantity: remainder, grossWeightKg: partial.weightKg, cargoId: partial.id });
     }
   }
@@ -260,12 +311,15 @@ function buildAccurateCargo(
     const chosen = chooseMixedPacking(boxes, remainingUnits);
     if (!chosen) break;
     mixedIndex += 1;
-    const id = `PKG-MIX-${String(mixedIndex).padStart(3, '0')}`;
+    const id = reserveCargoId(`PKG-MIX-${String(mixedIndex).padStart(3, '0')}`, reservedCargoIds);
     const stack = maxStackForCarton(container, chosen.box, chosen.packing.grossWeightKg);
     mixedCartons.push({
       id,
       boxId: chosen.box.id,
       boxName: chosen.box.name,
+      innerLength: chosen.box.innerLength,
+      innerWidth: chosen.box.innerWidth,
+      innerHeight: chosen.box.innerHeight,
       outerLength: chosen.box.outerLength,
       outerWidth: chosen.box.outerWidth,
       outerHeight: chosen.box.outerHeight,
@@ -302,14 +356,16 @@ function buildAccurateCargo(
     const assignment = familyPlan.assignments.find((item) => item.productId === productId);
     const product = products.find((item) => item.id === productId);
     if (!assignment || !product || quantity <= 0) continue;
-    const partial = dedicatedPartialCargo(assignment, product, quantity);
-    if (!cargo.some((item) => item.id === partial.id)) {
-      cargo.push(partial);
-      dedicatedPartialCartons.push({ productId, quantity, grossWeightKg: partial.weightKg, cargoId: partial.id });
-    }
+    const existingPartial = dedicatedPartialCartons.find((item) => item.productId === productId);
+    if (existingPartial) continue;
+    const partialId = reserveCargoId(`PKG-${product.id}-PARTIAL`, reservedCargoIds);
+    const partial = dedicatedPartialCargo(assignment, product, quantity, partialId);
+    cargo.push(partial);
+    trackProductCargo(product.id, partial.id);
+    dedicatedPartialCartons.push({ productId, quantity, grossWeightKg: partial.weightKg, cargoId: partial.id });
   }
 
-  return { cargo, mixedCartons, dedicatedPartialCartons };
+  return { cargo, mixedCartons, dedicatedPartialCartons, productCargoIds };
 }
 
 export function estimateShipmentContainers(
@@ -342,29 +398,30 @@ export function estimateShipmentContainers(
   };
 }
 
-function actualCartonCountForProduct(accurateCargo: CargoItem[], productId: string) {
-  const fullId = `PKG-${productId}`;
-  const partialId = `PKG-${productId}-PARTIAL`;
-  return accurateCargo.reduce((sum, item) => item.id === fullId || item.id === partialId ? sum + item.quantity : sum, 0);
+function actualCartonCountForProduct(accurateCargo: CargoItem[], productCargoIds: Map<string, Set<string>>, productId: string) {
+  const ids = productCargoIds.get(productId);
+  if (!ids?.size) return 0;
+  return accurateCargo.reduce((sum, item) => ids.has(item.id) ? sum + item.quantity : sum, 0);
 }
 
 function costSummary(
   familyPlan: CommonCartonFamilyPlan,
   catalog: BoxCatalogItem[],
   accurateCargo: CargoItem[],
+  productCargoIds: Map<string, Set<string>>,
   mixedCartons: MixedResidualCarton[],
   shipment: ShipmentEstimate,
   options: EnterprisePackagingOptions,
 ): PackagingCostSummary {
   let knownCartonCost = 0;
   let unpricedCartons = 0;
-  const usedGenerated = new Set<string>();
+  const generatedSetupKeys = new Set<string>();
   const usedBoxKeys = new Set<string>();
 
   // 비용은 혼합 가능 여부가 아니라 최종 생성된 실제 화물행을 기준으로 계산한다.
   // 따라서 혼합에 실패해 전용 partial로 되돌아간 박스도 빠짐없이 집계된다.
   for (const assignment of familyPlan.assignments) {
-    const actualCount = actualCartonCountForProduct(accurateCargo, assignment.productId);
+    const actualCount = actualCartonCountForProduct(accurateCargo, productCargoIds, assignment.productId);
     if (actualCount <= 0) continue;
     const catalogBox = catalog.find((box) => box.id === assignment.boxId);
     const unitCost = catalogBox?.unitCost
@@ -372,20 +429,23 @@ function costSummary(
       ?? (assignment.source === 'generated' ? options.packaging.generatedBoxUnitCost : undefined);
     if (unitCost != null && Number.isFinite(unitCost) && unitCost >= 0) knownCartonCost += unitCost * actualCount;
     else unpricedCartons += actualCount;
-    if (assignment.source === 'generated') usedGenerated.add(assignment.boxId);
-    usedBoxKeys.add(`${assignment.outerLength.toFixed(4)}:${assignment.outerWidth.toFixed(4)}:${assignment.outerHeight.toFixed(4)}`);
+    const key = physicalCartonKey(assignmentDimensions(assignment));
+    if (assignment.source === 'generated') generatedSetupKeys.add(key);
+    usedBoxKeys.add(key);
   }
 
   for (const carton of mixedCartons) {
     if (carton.boxUnitCost != null && Number.isFinite(carton.boxUnitCost) && carton.boxUnitCost >= 0) knownCartonCost += carton.boxUnitCost;
     else unpricedCartons += 1;
-    if (carton.source === 'generated') usedGenerated.add(carton.boxId);
-    usedBoxKeys.add(`${carton.outerLength.toFixed(4)}:${carton.outerWidth.toFixed(4)}:${carton.outerHeight.toFixed(4)}`);
+    const key = physicalCartonKey(carton);
+    if (carton.source === 'generated') generatedSetupKeys.add(key);
+    usedBoxKeys.add(key);
   }
 
   const totalCartons = accurateCargo.reduce((sum, item) => sum + item.quantity, 0);
   const handlingCost = totalCartons * Math.max(0, options.cost.handlingCostPerCarton);
-  const setupCost = usedGenerated.size * Math.max(0, options.cost.newBoxSetupCost);
+  // 같은 물리 규격은 제품별 AUTO ID가 달라도 금형/샘플/셋업 1종으로 계산한다.
+  const setupCost = generatedSetupKeys.size * Math.max(0, options.cost.newBoxSetupCost);
   const cartonSkuCost = usedBoxKeys.size * Math.max(0, options.cost.cartonSkuCarryCost);
   const freightCost = shipment.containersRequired * Math.max(0, options.cost.containerFreightCost);
   return {
@@ -409,7 +469,7 @@ export function optimizeEnterprisePackaging(
   const familyPlan = optimizeCommonCartonFamily(container, products, catalog, options.packaging, options.family);
   const accurate = buildAccurateCargo(container, familyPlan, products, catalog, options);
   const shipment = estimateShipmentContainers(container, accurate.cargo, options.maxEstimatedContainers);
-  const cost = costSummary(familyPlan, catalog, accurate.cargo, accurate.mixedCartons, shipment, options);
+  const cost = costSummary(familyPlan, catalog, accurate.cargo, accurate.productCargoIds, accurate.mixedCartons, shipment, options);
   const totalBoxes = accurate.cargo.reduce((sum, item) => sum + item.quantity, 0);
   const accurateTotalCargoWeightKg = accurate.cargo.reduce((sum, item) => sum + item.weightKg * item.quantity, 0);
 
