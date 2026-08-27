@@ -93,13 +93,13 @@ export default function EnterpriseCartonApprovalCenter() {
 
     const success = `${result.box.id} 검증 박스를 회사 카탈로그에 등록했습니다. 실제 자중 반영 Full ${result.verifiedFullGrossWeightKg.toFixed(2)}kg · 검증값 기준 최대 ${result.verifiedStackLayers}단 후보입니다. 전체 포장 최적화를 다시 실행하세요.`;
     const next: EnterprisePackagingPlannerState = { ...stored, boxes: [...stored.boxes, result.box] };
-    // 먼저 이 컴포넌트의 로컬 상태를 정리한 뒤 공용 이벤트를 보낸다.
     setStored(null);
     setAssignments([]);
     setSelectedId('');
     setDraft(emptyVerification());
-    setMessage(success);
+    // 공용 이벤트는 동기적으로 발생하므로 성공 메시지는 이벤트 처리 뒤 마지막에 기록한다.
     writeEnterprisePackagingPlannerState(next, true);
+    setMessage(success);
   };
 
   return <section className="enterprise-approval-center" aria-label="자동설계 박스 제조 강도 승인">
