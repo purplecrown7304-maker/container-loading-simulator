@@ -1,5 +1,5 @@
 Vercel production deployment trigger
-2026-08-26T12:04+09:00
+2026-08-27T13:40+09:00
 Target: https://container-loading-simulator-1li2.vercel.app/
-Reason: deploy latest results-view auto-rearrangement and inertia revalidation flow
-Source main commit before trigger: 5de18e985192f4244f384a00a869a2476ed05c45
+Reason: final v2.6.0 release with certified-output hardening, stale certification invalidation, and top-load safety fixes
+Source main commit before trigger: c2650d03202883b112f7418380370fef08c75abe
