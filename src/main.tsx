@@ -18,6 +18,7 @@ import PalletResultsOptimizer from './PalletResultsOptimizer';
 import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
 import EnterprisePackagingPlanner from './EnterprisePackagingPlanner';
 import EnterpriseScenarioExplorer from './EnterpriseScenarioExplorer';
+import EnterprisePackagingReportActions from './EnterprisePackagingReportActions';
 import ProductPackagingExcelActions from './ProductPackagingExcelActions';
 import WorkspaceTools from './WorkspaceTools';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
@@ -76,6 +77,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <App />
       <EnterprisePackagingPlanner />
       <EnterpriseScenarioExplorer />
+      <EnterprisePackagingReportActions />
       <ProductPackagingExcelActions />
       <SecuringMaterialSettingsPanel />
       <PalletFooterSummaryBridge />
