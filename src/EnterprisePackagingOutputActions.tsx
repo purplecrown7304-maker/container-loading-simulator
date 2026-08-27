@@ -1,8 +1,5 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { defaultEnterprisePackagingOptions, optimizeEnterprisePackaging, type EnterprisePackagingPlan } from './engine/enterprisePackagingOptimizer';
-import type { BoxCatalogItem, ProductItem } from './engine/productPackagingOptimizer';
-import type { ContainerSpec } from './engine/types';
 import { downloadEnterprisePackagingWorkbook } from './enterprisePackagingExcelExport';
 import {
   clearEnterprisePackagingManifest,
@@ -11,69 +8,18 @@ import {
   readEnterprisePackagingManifest,
   writeEnterprisePackagingManifest,
 } from './enterprisePackagingManifest';
+import {
+  buildEnterprisePackagingPlanFromPlanner,
+  readEnterprisePackagingPlannerState,
+  type EnterprisePackagingPlannerState,
+} from './enterprisePackagingPlannerStore';
+import { openEnterprisePackagingWorkOrder } from './enterprisePackagingWorkOrder';
 import { readStoredState, STORAGE_UPDATED_EVENT, type StoredState } from './storage';
 
-const PLANNER_STORAGE_KEY = 'container-loading-product-packaging-v1';
-
-type PlannerSettings = {
-  allowCustom?: boolean;
-  maxGrossKg?: number;
-  generatedBoxUnitCost?: number;
-  familyEnabled?: boolean;
-  targetBoxTypes?: number;
-  maxScoreLossPct?: number;
-  allowMixedResidual?: boolean;
-  containerFreightCost?: number;
-  handlingCostPerCarton?: number;
-  newBoxSetupCost?: number;
-  cartonSkuCarryCost?: number;
-  currency?: string;
-};
-
-type StoredPlanner = {
-  products: ProductItem[];
-  boxes: BoxCatalogItem[];
-  container: ContainerSpec;
-  settings?: PlannerSettings;
-};
-
-function readPlanner(): StoredPlanner | null {
-  try {
-    const raw = window.localStorage.getItem(PLANNER_STORAGE_KEY);
-    return raw ? JSON.parse(raw) as StoredPlanner : null;
-  } catch {
-    return null;
-  }
-}
-
-function buildPlan(): { plan: EnterprisePackagingPlan; stored: StoredPlanner } | null {
-  const stored = readPlanner();
+function buildPlan(): { plan: ReturnType<typeof buildEnterprisePackagingPlanFromPlanner>; stored: EnterprisePackagingPlannerState } | null {
+  const stored = readEnterprisePackagingPlannerState();
   if (!stored?.products?.length) return null;
-  const settings = stored.settings ?? {};
-  const plan = optimizeEnterprisePackaging(stored.container, stored.products, stored.boxes ?? [], {
-    ...defaultEnterprisePackagingOptions,
-    packaging: {
-      ...defaultEnterprisePackagingOptions.packaging,
-      allowCustomBoxDesign: settings.allowCustom ?? true,
-      maxGeneratedGrossWeightKg: Math.max(1, settings.maxGrossKg ?? 22),
-      generatedBoxUnitCost: (settings.generatedBoxUnitCost ?? 0) > 0 ? settings.generatedBoxUnitCost : undefined,
-    },
-    family: {
-      ...defaultEnterprisePackagingOptions.family,
-      enabled: settings.familyEnabled ?? true,
-      targetMaxBoxTypes: Math.max(1, Math.floor(settings.targetBoxTypes ?? 4)),
-      maxAssignmentScoreLoss: Math.min(1, Math.max(0, (settings.maxScoreLossPct ?? 8) / 100)),
-    },
-    allowMixedResidualCartons: settings.allowMixedResidual ?? false,
-    cost: {
-      containerFreightCost: Math.max(0, settings.containerFreightCost ?? 0),
-      handlingCostPerCarton: Math.max(0, settings.handlingCostPerCarton ?? 0),
-      newBoxSetupCost: Math.max(0, settings.newBoxSetupCost ?? 0),
-      cartonSkuCarryCost: Math.max(0, settings.cartonSkuCarryCost ?? 0),
-      currency: settings.currency?.trim() || 'KRW',
-    },
-  });
-  return { plan, stored };
+  return { plan: buildEnterprisePackagingPlanFromPlanner(stored), stored };
 }
 
 function persistIfApplied(state?: StoredState | null) {
@@ -99,7 +45,10 @@ export default function EnterprisePackagingOutputActions() {
   const [target, setTarget] = useState<Element | null>(null);
 
   useEffect(() => {
-    const locate = () => setTarget(document.querySelector('.enterprise-packaging-result .result-head'));
+    const locate = () => {
+      const next = document.querySelector('.enterprise-packaging-result .result-head');
+      setTarget((current) => current === next ? current : next);
+    };
     locate();
     const observer = new MutationObserver(locate);
     observer.observe(document.body, { childList: true, subtree: true });
@@ -118,6 +67,16 @@ export default function EnterprisePackagingOutputActions() {
     downloadEnterprisePackagingWorkbook(rebuilt.plan, rebuilt.stored.container, rebuilt.stored.products, rebuilt.stored.boxes);
   };
 
+  const workOrder = () => {
+    const rebuilt = buildPlan();
+    if (!rebuilt) return window.alert('생성할 포장 작업지시서가 없습니다. 먼저 포장 최적화를 실행하세요.');
+    const opened = openEnterprisePackagingWorkOrder(rebuilt.plan, rebuilt.stored.container, rebuilt.stored.products, rebuilt.stored.boxes);
+    if (!opened) window.alert('팝업이 차단되어 포장 작업지시서를 열지 못했습니다.');
+  };
+
   if (!target) return null;
-  return createPortal(<button type="button" onClick={download}>포장계획 Excel</button>, target);
+  return createPortal(<>
+    <button type="button" onClick={workOrder}>포장 작업지시서</button>
+    <button type="button" onClick={download}>포장계획 Excel</button>
+  </>, target);
 }
