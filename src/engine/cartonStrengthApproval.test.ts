@@ -19,25 +19,28 @@ const assignment: ProductPackagingAssignment = {
 };
 
 describe('cartonStrengthApproval', () => {
-  it('requires independently verified gross and top-load strength', () => {
+  it('requires independently verified tare, gross and top-load strength', () => {
     const tooWeak = approveGeneratedCarton(assignment, product, {
-      catalogId: 'VER-P1', verifiedMaxTopLoadKg: 30, verifiedMaxGrossWeightKg: 8,
+      catalogId: 'VER-P1', verifiedTareWeightKg: 0.9, verifiedMaxTopLoadKg: 30, verifiedMaxGrossWeightKg: 8,
     });
     expect(tooWeak.ok).toBe(false);
 
     const approved = approveGeneratedCarton(assignment, product, {
-      catalogId: 'VER-P1', verifiedMaxTopLoadKg: 60, verifiedMaxGrossWeightKg: 10, unitCost: 1.2,
+      catalogId: 'VER-P1', verifiedTareWeightKg: 0.9, verifiedMaxTopLoadKg: 60, verifiedMaxGrossWeightKg: 10, unitCost: 1.2,
     });
     expect(approved.ok).toBe(true);
     if (!approved.ok) return;
+    expect(approved.box.tareWeightKg).toBe(0.9);
+    expect(approved.verifiedFullGrossWeightKg).toBeCloseTo(8.9, 8);
     expect(approved.box.maxTopLoadKg).toBe(60);
     expect(approved.box.maxGrossWeightKg).toBe(10);
     expect(approved.box.unitCost).toBe(1.2);
+    expect(approved.requiredTopLoadKg).toBeCloseTo(53.4, 8);
   });
 
   it('rounds manufacturing outer dimensions upward without shrinking the fit envelope', () => {
     const approved = approveGeneratedCarton(assignment, product, {
-      catalogId: 'VER-P1', verifiedMaxTopLoadKg: 60, verifiedMaxGrossWeightKg: 10, manufacturingStepMm: 5,
+      catalogId: 'VER-P1', verifiedTareWeightKg: 0.9, verifiedMaxTopLoadKg: 60, verifiedMaxGrossWeightKg: 10, manufacturingStepMm: 5,
     });
     expect(approved.ok).toBe(true);
     if (!approved.ok) return;
@@ -49,9 +52,9 @@ describe('cartonStrengthApproval', () => {
     expect(approved.box.outerHeight).toBeGreaterThanOrEqual(assignment.outerHeight);
   });
 
-  it('derives operational stack only from the verified top-load value', () => {
-    expect(verifiedStackLayers(assignment, 0)).toBe(1);
-    expect(verifiedStackLayers(assignment, 17.2)).toBe(3);
-    expect(verifiedStackLayers(assignment, 999)).toBe(7);
+  it('derives operational stack only from verified top-load and verified full gross weight', () => {
+    expect(verifiedStackLayers(assignment, 0, 8.9)).toBe(1);
+    expect(verifiedStackLayers(assignment, 17.8, 8.9)).toBe(3);
+    expect(verifiedStackLayers(assignment, 999, 8.9)).toBe(7);
   });
 });
