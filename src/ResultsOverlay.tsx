@@ -25,7 +25,7 @@ type AdvancedTab = 'optimize' | 'edit' | 'work';
 const PALLET_SPEC_FROM_RESULTS_EVENT = 'container-loading:pallet-spec-from-results';
 const PALLET_SNAPSHOT_UPDATED_EVENT = 'container-loading:pallet-snapshot-updated';
 
-function sanitizeSpec(spec: PalletSpec): PalletSpec {
+export function sanitizeResultsPalletSpec(spec: PalletSpec): PalletSpec {
   return {
     ...spec,
     length: Math.max(0.01, Number(spec.length) || 0.01),
@@ -33,7 +33,7 @@ function sanitizeSpec(spec: PalletSpec): PalletSpec {
     height: Math.max(0.01, Number(spec.height) || 0.01),
     tareWeightKg: Math.max(0, Number(spec.tareWeightKg) || 0),
     maxLoadKg: Math.max(0, Number(spec.maxLoadKg) || 0),
-    maxStackLevels: Math.max(1, Math.min(3, Math.floor(Number(spec.maxStackLevels) || 1))),
+    maxStackLevels: Math.max(1, Math.min(7, Math.floor(Number(spec.maxStackLevels) || 1))),
   };
 }
 
@@ -106,7 +106,7 @@ export default function ResultsOverlay() {
 
   const updatePalletSpec = (field: keyof PalletSpec, rawValue: string) => {
     if (!detail || !palletSnapshot) return;
-    const nextSpec = sanitizeSpec({ ...palletSnapshot.spec, [field]: Number(rawValue) });
+    const nextSpec = sanitizeResultsPalletSpec({ ...palletSnapshot.spec, [field]: Number(rawValue) });
     const nextResult = packOnPallets(detail.container, detail.cargo.filter(item => item.quantity > 0), nextSpec);
     const nextSnapshot: PalletSnapshot = { spec: nextSpec, result: nextResult };
     (window as PalletWindow).__containerLoadingPalletSnapshot = nextSnapshot;
@@ -142,7 +142,7 @@ export default function ResultsOverlay() {
             <label>높이(m)<input type="number" step=".01" value={palletSnapshot.spec.height} onChange={event => updatePalletSpec('height', event.target.value)} /></label>
             <label>팔레트 중량(kg)<input type="number" min="0" value={palletSnapshot.spec.tareWeightKg} onChange={event => updatePalletSpec('tareWeightKg', event.target.value)} /></label>
             <label>최대 적재중량(kg)<input type="number" min="0" value={palletSnapshot.spec.maxLoadKg} onChange={event => updatePalletSpec('maxLoadKg', event.target.value)} /></label>
-            <label>최대 적층단<input type="number" min="1" max="3" value={palletSnapshot.spec.maxStackLevels} onChange={event => updatePalletSpec('maxStackLevels', event.target.value)} /></label>
+            <label>최대 적층단<input type="number" min="1" max="7" value={palletSnapshot.spec.maxStackLevels} onChange={event => updatePalletSpec('maxStackLevels', event.target.value)} /></label>
           </div>
           <div className="results-pallet-optimization-strip">
             <span>사용 팔레트 <b>{palletSnapshot.result.palletCount}</b></span>
@@ -188,7 +188,7 @@ export default function ResultsOverlay() {
           <Suspense fallback={<div className="results-loading">고급 분석 모듈을 불러오는 중…</div>}>
             {advancedTab === 'optimize' && <><AutoCorrectionPanel /><StrategyComparisonPanel /><SpareCapacityPanel /></>}
             {advancedTab === 'edit' && <><ManualPlacementEditor /><GroupMoveSuggestionPanel /><GroupDragController /></>}
-            {advancedTab === 'work' && <><WorkSequencePanel /><ErgonomicRiskPanel /></>}
+            {advancedTab === 'work' && <><WorkSequencePanel /><EronomicRiskPanel /></>}
           </Suspense>
         </div>
       </section>}
