@@ -55,7 +55,6 @@ describe('DIRECT BOX block-first loading discipline', () => {
     const first = stackAt(result.placements, 'A', 0, 0);
     const second = stackAt(result.placements, 'A', 0.5, 0);
 
-    // 10kg boxes with 20kg allowed above a base safely form 3 layers.
     expect(first).toHaveLength(3);
     expect(second).toHaveLength(3);
     expect(first.map((placement) => placement.z)).toEqual([0, 0.5, 1]);
@@ -89,6 +88,35 @@ describe('DIRECT BOX block-first loading discipline', () => {
     expect(tail[1]?.y).toBeCloseTo(tail[0]!.y, 9);
     expect(tail[0]?.z).toBeCloseTo(0, 9);
     expect(tail[1]?.z).toBeCloseTo(0.3, 9);
+    expect(result.validationIssues).toEqual([]);
+  });
+
+  it('lets different deferred SKUs share the same mixed-zone x slice instead of making a long weight-separated tail', () => {
+    const container: ContainerSpec = {
+      length: 3,
+      width: 1,
+      height: 1.2,
+      maxPayloadKg: 10000,
+    };
+    const heavy = cargo({
+      id: 'HEAVY', name: 'HEAVY', length: 0.4, width: 0.4, height: 0.3,
+      weightKg: 20, quantity: 2, maxStackLayers: 3, maxTopLoadKg: 100,
+    });
+    const light = cargo({
+      id: 'LIGHT', name: 'LIGHT', length: 0.4, width: 0.4, height: 0.3,
+      weightKg: 5, quantity: 2, maxStackLayers: 3, maxTopLoadKg: 100,
+    });
+
+    const result = loadContainer(container, [heavy, light], { strategy: 'capacity', publish: false });
+    const heavyBoxes = result.placements.filter((placement) => placement.cargoId === 'HEAVY');
+    const lightBoxes = result.placements.filter((placement) => placement.cargoId === 'LIGHT');
+
+    expect(heavyBoxes).toHaveLength(2);
+    expect(lightBoxes).toHaveLength(2);
+    expect(Math.max(...heavyBoxes.map((placement) => placement.x))).toBeCloseTo(0, 9);
+    expect(Math.max(...lightBoxes.map((placement) => placement.x))).toBeCloseTo(0, 9);
+    expect(new Set(lightBoxes.map((placement) => placement.y)).size).toBe(1);
+    expect(lightBoxes[0]?.y).toBeGreaterThan(0);
     expect(result.validationIssues).toEqual([]);
   });
 
