@@ -20,7 +20,7 @@ npm run test:e2e
 - `inputPreflight.test.ts`: 0/음수/비정수 입력과 중복 SKU 병합·충돌 거절 확인
 - `directBoxInputPreflightRegression.test.ts`: DIRECT BOX 생산 경로에서 입력 사전검증이 실제 적용되는지 확인
 - `palletInputPreflightRegression.test.ts`: PALLET 생산 경로에서 입력 사전검증과 잘못된 팔레트 설정 fail-closed 확인
-- `excelImportSafety.test.ts`: Excel의 0kg 상부허용 보존·비정수 수량/적층단/하역순서 거절 확인
+- `excelImportSafety.test.ts`: Excel의 0kg 상부허용 보존·비정수 수량/적층단/하역순서·중복 SKU 처리 확인
 - `fortyFootTwentySkuRegression.test.ts`: 표준 40ft / 20 SKU 합성 현장형 데이터의 안전성과 입력순서 결정성 확인
 - `palletMixedPayloadRegression.test.ts`: 새 팔레트 자중 때문에 보류된 잔량의 최종 혼합 재사용과 포장재 중량 경계 확인
 - `palletBoxTopLoadRegression.test.ts`: 팔레트 내부 박스의 단일/누적 상부 허용중량 확인
@@ -29,8 +29,10 @@ npm run test:e2e
 - `palletLaneCenteringRegression.test.ts`: 표준 40ft 2열 중앙정렬과 중심선 중량 중립 처리 확인
 - `palletAdaptiveCenterlineRegression.test.ts`: 관성 재배치 후보에서도 중심선 팔레트 중량을 좌/우 어느 쪽에도 가산하지 않는지 확인
 - `palletCenteringBalanceRegression.test.ts`: 팔레트 위 화물 중앙정렬 뒤 COG와 좌우 편차가 같은 결과로 갱신되는지 확인
-- `certifiedExport.test.ts`: 인증된 PhysicsTarget과 실제 출력용 PalletSnapshot의 좌표 동일성 확인
+- `resultsPalletSpecRegression.test.ts`: 결과창에서도 4~7단 설정을 보존하고 다른 팔레트 필드 수정이 최대 적층단을 3단으로 낮추지 않는지 확인
+- `certifiedExport.test.ts`: 인증된 PhysicsTarget과 실제 출력용 PalletSnapshot의 좌표·팔레트 규격·최대 적층단 동일성 확인
 - `inertiaSignatureV4.test.ts`: 화물 수량·상부허용중량·미적재·회전 상태 변경 시 기존 관성 PASS 무효화 확인
+- `e2e/smoke.spec.ts`: 인증 전 Excel 차단, 팔레트 결과창 7단 범위, 결과창 팔레트 조건 수정 후 즉시 닫힘/재인증 요구 확인
 
 ## 2. 공통 입력 사전검증
 
@@ -41,6 +43,7 @@ npm run test:e2e
 - [ ] 상부 허용중량은 0 이상의 유한한 값만 허용하고 `0kg`을 `제한 없음`으로 변환하지 않는다.
 - [ ] 동일 SKU + 동일 물리조건의 여러 행은 수량을 합산한다.
 - [ ] 동일 SKU + 서로 다른 치수·중량·적층조건은 마지막 행으로 덮어쓰지 않고 해당 SKU 전체를 미적재 처리한다.
+- [ ] Excel 가져오기도 동일 SKU + 동일 조건은 수량 합산하고, 동일 SKU + 상충 조건은 활성 SKU 전체를 거절한다.
 - [ ] 컨테이너 규격/최대중량이 잘못되면 DIRECT BOX / PALLET 모두 좌표를 하나도 만들지 않는다.
 - [ ] 팔레트 규격·자중·최대하중·최대 적층단·포장재 수치가 잘못되면 PALLET은 fail-closed 처리한다.
 
@@ -68,7 +71,7 @@ npm run test:e2e
 - [ ] 정확히 컨테이너 중심선에 놓인 팔레트는 기본 최적화와 관성 재배치 모두 좌우 imbalance 어느 쪽에도 전량 가산하지 않는다.
 - [ ] 팔레트/화물 오버행이 없다.
 - [ ] 설정된 `maxStackLevels`를 넘지 않는다.
-- [ ] UI → 전역 최적화 → 관성 자동보정 → 기본 엔진이 동일한 최대 적층단 값을 사용하고 4~7단 설정을 임의로 3단으로 낮추지 않는다.
+- [ ] UI → 결과창 → 전역 최적화 → 관성 자동보정 → 기본 엔진이 동일한 최대 적층단 값을 사용하고 4~7단 설정을 임의로 3단으로 낮추지 않는다.
 - [ ] 실제 컨테이너 높이·상부 허용중량·팔레트 면적 지지 조건을 모두 통과한 경우에만 다단 적층한다.
 - [ ] 컨테이너 최대중량에는 팔레트 자중과 활성화 가능한 포장재 예약중량이 포함된다.
 
@@ -80,6 +83,9 @@ npm run test:e2e
 - [ ] 적재 좌표나 보조자재 설정 변경 시 이전 PASS가 무효화된다.
 - [ ] SKU명·규격·중량·요청수량·최대적층단·상부허용중량·회전정책·하역순서·미적재 수량이 바뀌면 이전 PASS가 무효화된다.
 - [ ] 팔레트 PhysicsTarget과 출력용 PalletSnapshot이 같은 인증 서명으로 재구성되지 않으면 PASS를 폐기한다.
+- [ ] PalletSnapshot의 표시 팔레트 길이·폭·높이·최대 적층단이 실제 인증 결과와 다르면 작업지시서/Excel 출력을 거절한다.
+- [ ] 팔레트 Excel 버튼 자체도 Target ↔ PASS ↔ PalletSnapshot을 재검증하고 불일치 시 fail-closed 한다.
+- [ ] 최종 결과창에서 팔레트 규격/중량/적층단을 수정하는 순간 기존 PASS를 즉시 폐기하고 결과창을 닫아 재인증을 요구한다.
 - [ ] 작업지시서와 Excel의 적재 좌표·수량·보조자재 수량이 현재 인증 결과와 일치한다.
 - [ ] `0kg 상부 허용중량`과 `상부 허용중량 제한 없음`은 서로 다른 인증 조건으로 취급한다.
 
@@ -88,7 +94,8 @@ npm run test:e2e
 - [ ] 1366px 이상 데스크톱에서 주요 패널과 3D가 겹치지 않는다.
 - [ ] 390×844 모바일에서 가로 스크롤이 발생하지 않는다.
 - [ ] 박스/팔레트 모드 전환 후 결과와 3D가 즉시 갱신된다.
-- [ ] 팔레트 최대 적층단 4~7 설정이 실행 후에도 3단으로 되돌아가지 않는다.
+- [ ] 팔레트 최대 적층단 4~7 설정이 실행 후와 결과창에서도 3단으로 되돌아가지 않는다.
+- [ ] 인증된 팔레트 결과창에서 조건을 바꾸면 미인증 새 결과를 계속 보여주지 않고 즉시 닫힌다.
 - [ ] 결과/관성/작업지시서 버튼이 모바일에서도 눌린다.
 
 ## 7. Production 승인 조건
@@ -99,6 +106,7 @@ npm run test:e2e
 - [ ] DIRECT BOX 회귀 시나리오 통과
 - [ ] PALLET 회귀 시나리오 통과
 - [ ] 인증 Target ↔ PalletSnapshot ↔ 작업지시서/Excel 정합성 회귀 통과
+- [ ] 인증 후 팔레트 규격 변경 → PASS 폐기 → 결과창 닫힘 → 재인증 흐름 E2E 통과
 - [ ] 40ft / 20 SKU 합성 스트레스 회귀 통과
 - [ ] 실제 현장 박스 데이터 20종 이상으로 최종 검토
 - [ ] 실제 40ft 적재 사례 3건 이상과 비교 검토
