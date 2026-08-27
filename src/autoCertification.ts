@@ -1,7 +1,15 @@
 import { requestCertifiedResults } from './inertiaCertification';
-import { publishPhysicsTarget, type PhysicsTarget } from './physicsTarget';
+import { publishPhysicsTarget, readPhysicsTarget, subscribePhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
-export const REQUEST_NEXT_PALLET_CERTIFICATION_EVENT = 'container-loading:request-next-pallet-inertia-certification';
+let pendingPalletCertification = false;
+
+subscribePhysicsTarget(() => {
+  if (!pendingPalletCertification) return;
+  const target = readPhysicsTarget();
+  if (!target || target.mode !== 'pallets' || !target.result.placements.length) return;
+  pendingPalletCertification = false;
+  requestCertifiedResults({ container: target.container, cargo: target.cargo, result: target.result });
+});
 
 export function requestExactCertification(target: PhysicsTarget) {
   if (typeof window === 'undefined') return;
@@ -10,6 +18,5 @@ export function requestExactCertification(target: PhysicsTarget) {
 }
 
 export function requestNextPalletCertification() {
-  if (typeof window === 'undefined') return;
-  window.dispatchEvent(new Event(REQUEST_NEXT_PALLET_CERTIFICATION_EVENT));
+  pendingPalletCertification = true;
 }
