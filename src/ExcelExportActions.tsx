@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
+import { palletSnapshotMatchesCertification } from './certifiedExport';
 import { analyzeConstraints } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
@@ -24,11 +25,10 @@ function matchingBoxCertification(detail: Detail): InertiaCertification | undefi
   return certification.targetSignature === signature ? certification : undefined;
 }
 
-function matchingCurrentPalletCertification(): InertiaCertification | undefined {
+function matchingCurrentPalletCertification(snapshot: PalletSnapshot | undefined): InertiaCertification | undefined {
   const target = readPhysicsTarget();
   const certification = readLatestInertiaCertification();
-  if (!target || target.mode !== 'pallets' || !certification || certification.status !== 'passed' || certification.mode !== 'pallets') return undefined;
-  return certification.targetSignature === createPhysicsTargetSignature(target) ? certification : undefined;
+  return palletSnapshotMatchesCertification(snapshot, target, certification) ? certification : undefined;
 }
 
 function materialRows(securing: SecuringUsage) {
@@ -235,10 +235,10 @@ export default function ExcelExportActions() {
     const click = () => {
       const target = readPhysicsTarget();
       if (target?.mode === 'pallets') {
-        const certification = matchingCurrentPalletCertification();
         const snapshot = (window as ExportWindow).__containerLoadingPalletSnapshot;
+        const certification = matchingCurrentPalletCertification(snapshot);
         if (!certification || !snapshot) {
-          window.alert('팔레트 Excel은 현재 팔레트 적재안이 관성 시뮬레이션 3종을 모두 통과한 뒤 내보낼 수 있습니다.');
+          window.alert('팔레트 Excel은 현재 팔레트 적재안이 관성 시뮬레이션 3종을 모두 통과하고 인증 좌표와 출력 좌표가 일치한 뒤 내보낼 수 있습니다.');
           return;
         }
         if (!confirmUnverifiedExport('팔레트 Excel 파일')) return;
