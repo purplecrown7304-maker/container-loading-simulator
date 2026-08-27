@@ -16,7 +16,7 @@ import FinalWorkOrderOptimizer from './FinalWorkOrderOptimizer';
 import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
 import PalletResultsOptimizer from './PalletResultsOptimizer';
 import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
-import ProductPackagingPlanner from './ProductPackagingPlanner';
+import EnterprisePackagingPlanner from './EnterprisePackagingPlanner';
 import ProductPackagingExcelActions from './ProductPackagingExcelActions';
 import WorkspaceTools from './WorkspaceTools';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
@@ -71,7 +71,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <DirectWorkOrderOptimizer />
       <PalletResultsOptimizer />
       <App />
-      <ProductPackagingPlanner />
+      <EnterprisePackagingPlanner />
       <ProductPackagingExcelActions />
       <SecuringMaterialSettingsPanel />
       <PalletFooterSummaryBridge />
