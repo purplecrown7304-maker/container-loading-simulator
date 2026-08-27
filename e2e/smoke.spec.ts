@@ -57,6 +57,32 @@ test('manual result view remains gated before a certified result exists', async 
   await expect(page.locator('.results-modal')).toHaveCount(0);
 });
 
+test('Excel export remains blocked until the current box plan has a matching inertia PASS', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    const detail = {
+      container: { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 },
+      cargo: [{ id: 'E2E-A', name: 'E2E A', length: 0.5, width: 0.4, height: 0.3, weightKg: 10, quantity: 1 }],
+      result: {
+        placements: [{ cargoId: 'E2E-A', x: 0, y: 0, z: 0, length: 0.5, width: 0.4, height: 0.3, weightKg: 10 }],
+        remaining: [],
+        loadedWeightKg: 10,
+        usedVolumeM3: 0.06,
+        validationIssues: [],
+      },
+    };
+    window.dispatchEvent(new CustomEvent('container-loading:result', { detail }));
+  });
+
+  const exportButton = page.getByRole('button', { name: /Excel 내보내기/ });
+  await expect(exportButton).toBeEnabled();
+  const dialogPromise = page.waitForEvent('dialog');
+  await exportButton.click();
+  const dialog = await dialogPromise;
+  expect(dialog.message()).toContain('관성 시뮬레이션 3종');
+  await dialog.accept();
+});
+
 test('pallet optimization automatically requests pallet inertia certification', async ({ page }) => {
   test.setTimeout(70_000);
   await page.goto('/');
@@ -87,6 +113,50 @@ test('result gate distinguishes direct-box and pallet certification modes', asyn
   await expect(page.locator('.pallet-preview canvas')).toBeVisible({ timeout: 20_000 });
   await page.locator('.viewer-bottom-actions .result-open-action').click();
   await expect(page.locator('.final-cert-modal')).toContainText('PALLET');
+});
+
+test('results pallet settings preserve 4 to 7 stack levels when another field changes', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    const spec = {
+      length: 1.1,
+      width: 1.1,
+      height: 0.15,
+      tareWeightKg: 25,
+      maxLoadKg: 1000,
+      maxStackLevels: 6,
+      maxSupportedTopWeightKg: 1000,
+      useCornerGuards: false,
+      cornerGuardWeightKg: 2,
+      cornerGuardExtraHeightM: 0.03,
+      useWrapping: false,
+      wrappingWeightKg: 1.5,
+      wrappingExtraHeightM: 0.01,
+      minimizePackaging: true,
+    };
+    const palletResult = {
+      pallets: [], placements: [], remaining: [], palletCount: 0,
+      loadedCargoWeightKg: 0, totalPackagingWeightKg: 0, avoidedPackagingWeightKg: 0,
+      packagedPalletCount: 0, totalPalletizedWeightKg: 0, consolidatedPallets: 0,
+      lateralImbalanceKg: 0, stackedPallets: 0, maxUsedStackLevel: 0,
+      optimization: { selectedStackTarget: 6, candidateCount: 1, floorPositions: 0, redistributedForLowUtilization: false, consolidationPasses: 0 },
+    };
+    (window as typeof window & { __containerLoadingPalletSnapshot?: unknown }).__containerLoadingPalletSnapshot = { spec, result: palletResult };
+    const detail = {
+      container: { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 },
+      cargo: [{ id: 'INACTIVE', name: 'Inactive', length: 0.5, width: 0.4, height: 0.3, weightKg: 10, quantity: 0 }],
+      result: { placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0, validationIssues: [] },
+    };
+    window.dispatchEvent(new CustomEvent('container-loading-open-results-modal', { detail }));
+  });
+
+  const modal = page.locator('.results-modal');
+  await expect(modal).toBeVisible();
+  const stackInput = modal.getByLabel('최대 적층단');
+  await expect(stackInput).toHaveValue('6');
+  await expect(stackInput).toHaveAttribute('max', '7');
+  await modal.getByLabel('길이(m)').fill('1.2');
+  await expect(stackInput).toHaveValue('6');
 });
 
 test('mobile dashboard remains usable without horizontal overflow', async ({ page }) => {
