@@ -20,6 +20,7 @@ import EnterprisePackagingPlanner from './EnterprisePackagingPlanner';
 import ProductPackagingExcelActions from './ProductPackagingExcelActions';
 import EnterprisePackagingOutputActions from './EnterprisePackagingOutputActions';
 import EnterprisePackagingStrategyExplorer from './EnterprisePackagingStrategyExplorer';
+import EnterpriseCartonApprovalCenter from './EnterpriseCartonApprovalCenter';
 import WorkspaceTools from './WorkspaceTools';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
 import PhysicsValidationTool from './PhysicsValidationTool';
@@ -60,6 +61,7 @@ import './securing-material-settings.css';
 import './product-packaging.css';
 import './enterprise-packaging.css';
 import './enterprise-strategy.css';
+import './enterprise-approval.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -79,6 +81,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ProductPackagingExcelActions />
       <EnterprisePackagingOutputActions />
       <EnterprisePackagingStrategyExplorer />
+      <EnterpriseCartonApprovalCenter />
       <SecuringMaterialSettingsPanel />
       <PalletFooterSummaryBridge />
       <WorkspaceTools />
