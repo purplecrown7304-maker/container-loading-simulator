@@ -1,5 +1,5 @@
 Vercel production deployment trigger
-Retry requested on 2026-08-27
+Retry requested on 2026-08-27T15:48+09:00
 Target: https://container-loading-simulator-1li2.vercel.app/
-Reason: retry production deployment of the latest enterprise packaging and manufacturing-grid build
-Source main commit before trigger: e1cbdf01cae926402db2ce22df68eaf379e8bbf0
+Reason: retry production deployment after Hobby build/API quota reset window; deploy latest enterprise packaging and manufacturing-grid build
+Source main commit before trigger: 54deb4915a343939f8ac042ae1e791483c631cd5
