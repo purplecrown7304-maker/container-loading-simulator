@@ -1,33 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { approveGeneratedCarton } from './engine/cartonStrengthApproval';
-import { defaultEnterprisePackagingOptions, optimizeEnterprisePackaging } from './engine/enterprisePackagingOptimizer';
-import type { BoxCatalogItem, ProductItem, ProductPackagingAssignment } from './engine/productPackagingOptimizer';
-import type { ContainerSpec } from './engine/types';
-
-const PLANNER_STORAGE_KEY = 'container-loading-product-packaging-v1';
-const APPROVAL_FLASH_KEY = 'container-loading-carton-approval-flash';
-
-type PlannerSettings = {
-  allowCustom?: boolean;
-  maxGrossKg?: number;
-  generatedBoxUnitCost?: number;
-  familyEnabled?: boolean;
-  targetBoxTypes?: number;
-  maxScoreLossPct?: number;
-  allowMixedResidual?: boolean;
-  containerFreightCost?: number;
-  handlingCostPerCarton?: number;
-  newBoxSetupCost?: number;
-  cartonSkuCarryCost?: number;
-  currency?: string;
-};
-
-type StoredPlanner = {
-  products: ProductItem[];
-  boxes: BoxCatalogItem[];
-  container: ContainerSpec;
-  settings?: PlannerSettings;
-};
+import type { ProductPackagingAssignment } from './engine/productPackagingOptimizer';
+import {
+  buildEnterprisePackagingPlanFromPlanner,
+  ENTERPRISE_PACKAGING_PLANNER_EVENT,
+  readEnterprisePackagingPlannerState,
+  writeEnterprisePackagingPlannerState,
+  type EnterprisePackagingPlannerState,
+} from './enterprisePackagingPlannerStore';
 
 type VerificationDraft = {
   catalogId: string;
@@ -37,53 +17,6 @@ type VerificationDraft = {
   unitCost: string;
   stepMm: number;
 };
-
-function readPlanner(): StoredPlanner | null {
-  try {
-    const raw = window.localStorage.getItem(PLANNER_STORAGE_KEY);
-    return raw ? JSON.parse(raw) as StoredPlanner : null;
-  } catch {
-    return null;
-  }
-}
-
-function initialMessage() {
-  try {
-    const flash = window.sessionStorage.getItem(APPROVAL_FLASH_KEY);
-    if (flash) {
-      window.sessionStorage.removeItem(APPROVAL_FLASH_KEY);
-      return flash;
-    }
-  } catch { /* session storage unavailable */ }
-  return '제조사 강도 검증이 끝난 자동설계 박스를 승인할 수 있습니다.';
-}
-
-function rebuild(stored: StoredPlanner) {
-  const settings = stored.settings ?? {};
-  return optimizeEnterprisePackaging(stored.container, stored.products, stored.boxes ?? [], {
-    ...defaultEnterprisePackagingOptions,
-    packaging: {
-      ...defaultEnterprisePackagingOptions.packaging,
-      allowCustomBoxDesign: settings.allowCustom ?? true,
-      maxGeneratedGrossWeightKg: Math.max(1, settings.maxGrossKg ?? 22),
-      generatedBoxUnitCost: (settings.generatedBoxUnitCost ?? 0) > 0 ? settings.generatedBoxUnitCost : undefined,
-    },
-    family: {
-      ...defaultEnterprisePackagingOptions.family,
-      enabled: settings.familyEnabled ?? true,
-      targetMaxBoxTypes: Math.max(1, Math.floor(settings.targetBoxTypes ?? 4)),
-      maxAssignmentScoreLoss: Math.min(1, Math.max(0, (settings.maxScoreLossPct ?? 8) / 100)),
-    },
-    allowMixedResidualCartons: settings.allowMixedResidual ?? false,
-    cost: {
-      containerFreightCost: Math.max(0, settings.containerFreightCost ?? 0),
-      handlingCostPerCarton: Math.max(0, settings.handlingCostPerCarton ?? 0),
-      newBoxSetupCost: Math.max(0, settings.newBoxSetupCost ?? 0),
-      cartonSkuCarryCost: Math.max(0, settings.cartonSkuCarryCost ?? 0),
-      currency: settings.currency?.trim() || 'KRW',
-    },
-  });
-}
 
 const mm = (value: number) => Math.round(value * 1000);
 const emptyVerification = (catalogId = '', stepMm = 5): VerificationDraft => ({
@@ -96,24 +29,36 @@ const emptyVerification = (catalogId = '', stepMm = 5): VerificationDraft => ({
 });
 
 export default function EnterpriseCartonApprovalCenter() {
-  const [stored, setStored] = useState<StoredPlanner | null>(null);
+  const [stored, setStored] = useState<EnterprisePackagingPlannerState | null>(null);
   const [assignments, setAssignments] = useState<ProductPackagingAssignment[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [draft, setDraft] = useState<VerificationDraft>(() => emptyVerification());
-  const [message, setMessage] = useState(initialMessage);
+  const [message, setMessage] = useState('제조사 강도 검증이 끝난 자동설계 박스를 승인할 수 있습니다.');
 
   const selected = useMemo(() => assignments.find((item) => item.productId === selectedId), [assignments, selectedId]);
   const product = useMemo(() => stored?.products.find((item) => item.id === selected?.productId), [stored, selected]);
 
+  useEffect(() => {
+    const invalidate = () => {
+      setStored(null);
+      setAssignments([]);
+      setSelectedId('');
+      setDraft(emptyVerification());
+      setMessage('기업 포장 입력이 변경되었습니다. 승인 대기 규격을 다시 불러오세요.');
+    };
+    window.addEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, invalidate);
+    return () => window.removeEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, invalidate);
+  }, []);
+
   const refresh = () => {
-    const current = readPlanner();
+    const current = readEnterprisePackagingPlannerState();
     if (!current?.products?.length) {
       setStored(null);
       setAssignments([]);
       setSelectedId('');
       return setMessage('먼저 기업 제품 목록을 등록하고 포장 최적화를 실행하세요.');
     }
-    const plan = rebuild(current);
+    const plan = buildEnterprisePackagingPlanFromPlanner(current);
     const pending = plan.assignments.filter((item) => item.strengthStatus === 'design-target');
     setStored(current);
     setAssignments(pending);
@@ -146,12 +91,15 @@ export default function EnterpriseCartonApprovalCenter() {
     if (!result.ok) return setMessage(result.reason);
     if (stored.boxes.some((box) => box.id === result.box.id)) return setMessage(`이미 존재하는 박스 코드입니다: ${result.box.id}`);
 
-    const next: StoredPlanner = { ...stored, boxes: [...stored.boxes, result.box] };
-    window.localStorage.setItem(PLANNER_STORAGE_KEY, JSON.stringify(next));
     const success = `${result.box.id} 검증 박스를 회사 카탈로그에 등록했습니다. 실제 자중 반영 Full ${result.verifiedFullGrossWeightKg.toFixed(2)}kg · 검증값 기준 최대 ${result.verifiedStackLayers}단 후보입니다. 전체 포장 최적화를 다시 실행하세요.`;
-    try { window.sessionStorage.setItem(APPROVAL_FLASH_KEY, success); } catch { /* ignore */ }
-    // EnterprisePackagingPlanner는 자체 React state를 보유하므로 카탈로그 승인 후 한 번 재로딩해 동일 저장상태로 동기화한다.
-    window.location.reload();
+    const next: EnterprisePackagingPlannerState = { ...stored, boxes: [...stored.boxes, result.box] };
+    // 먼저 이 컴포넌트의 로컬 상태를 정리한 뒤 공용 이벤트를 보낸다.
+    setStored(null);
+    setAssignments([]);
+    setSelectedId('');
+    setDraft(emptyVerification());
+    setMessage(success);
+    writeEnterprisePackagingPlannerState(next, true);
   };
 
   return <section className="enterprise-approval-center" aria-label="자동설계 박스 제조 강도 승인">
