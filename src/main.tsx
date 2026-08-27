@@ -9,6 +9,7 @@ import DashboardRuntimeEnhancer from './DashboardRuntimeEnhancer';
 import ResultsOverlay from './ResultsOverlay';
 import AutoCertificationBridge from './AutoCertificationBridge';
 import CertificationInvalidationBridge from './CertificationInvalidationBridge';
+import CertifiedExportConsistencyBridge from './CertifiedExportConsistencyBridge';
 import CertificationResultSummaryBridge from './CertificationResultSummaryBridge';
 import FinalCertificationGate from './FinalCertificationGate';
 import FinalWorkOrderOptimizer from './FinalWorkOrderOptimizer';
@@ -60,6 +61,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ResultsOverlay />
       <AutoCertificationBridge />
       <CertificationInvalidationBridge />
+      <CertifiedExportConsistencyBridge />
       <CertificationResultSummaryBridge />
       <FinalCertificationGate />
       <FinalWorkOrderOptimizer />
