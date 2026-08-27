@@ -93,6 +93,27 @@ describe('product packaging optimizer', () => {
     expect(assignment.innerLength * assignment.innerWidth * assignment.innerHeight).toBeGreaterThan(0);
   });
 
+  it('prefers a verified catalog carton when its logistics score is effectively equivalent to auto design', () => {
+    const auto = optimizeProductPackaging(container, [product], [], defaultProductPackagingOptions).assignments[0];
+    expect(auto.source).toBe('generated');
+    const verified: BoxCatalogItem = {
+      id: 'VERIFIED-AUTO',
+      name: '제조 검증 박스',
+      innerLength: auto.innerLength,
+      innerWidth: auto.innerWidth,
+      innerHeight: auto.innerHeight,
+      outerLength: auto.outerLength,
+      outerWidth: auto.outerWidth,
+      outerHeight: auto.outerHeight,
+      tareWeightKg: 0.6,
+      maxGrossWeightKg: 22,
+      maxTopLoadKg: Math.max(50, auto.requiredTopLoadKg),
+    };
+    const selected = optimizeProductPackaging(container, [product], [verified], defaultProductPackagingOptions).assignments[0];
+    expect(selected.boxId).toBe('VERIFIED-AUTO');
+    expect(selected.strengthStatus).toBe('catalog');
+  });
+
   it('rejects invalid products instead of sending them to the loading engine', () => {
     const plan = optimizeProductPackaging(container, [{ ...product, quantity: 1.5 }], catalog);
     expect(plan.assignments).toEqual([]);
