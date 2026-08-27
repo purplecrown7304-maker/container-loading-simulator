@@ -2,6 +2,7 @@ import { loadContainer } from './loadingEngine';
 import type { CargoItem, ContainerSpec } from './types';
 
 const EPS = 1e-9;
+const VERIFIED_CARTON_SCORE_TOLERANCE = 0.005;
 const volume = (l: number, w: number, h: number) => l * w * h;
 const roundUp = (value: number, step: number) => !Number.isFinite(step) || step <= 0 ? value : Math.ceil((value - EPS) / step) * step;
 
@@ -297,6 +298,17 @@ function generatedBoxes(container: ContainerSpec, product: ProductItem, options:
     .slice(0, 48);
 }
 
+function comparePackagingCandidates(a: ProductPackagingAssignment, b: ProductPackagingAssignment) {
+  const scoreDiff = b.score - a.score;
+  if (Math.abs(scoreDiff) > VERIFIED_CARTON_SCORE_TOLERANCE) return scoreDiff;
+  // 물류 성능이 사실상 같은 경우 제조강도가 검증된 보유박스를 우선한다.
+  if (a.strengthStatus !== b.strengthStatus) return a.strengthStatus === 'catalog' ? -1 : 1;
+  return scoreDiff
+    || a.boxesNeeded - b.boxesNeeded
+    || b.productFillRate - a.productFillRate
+    || a.boxId.localeCompare(b.boxId);
+}
+
 export function optimizeProductPackaging(
   container: ContainerSpec,
   products: ProductItem[],
@@ -317,7 +329,7 @@ export function optimizeProductPackaging(
       ...validCatalog.map(box => assignmentFromBox(container, product, box, 'catalog')).filter((item): item is ProductPackagingAssignment => Boolean(item)),
       ...generatedBoxes(container, product, options).map(box => assignmentFromBox(container, product, box, 'generated')).filter((item): item is ProductPackagingAssignment => Boolean(item)),
     ];
-    const best = candidates.sort((a, b) => b.score - a.score || a.boxesNeeded - b.boxesNeeded || b.productFillRate - a.productFillRate || a.boxId.localeCompare(b.boxId))[0];
+    const best = candidates.sort(comparePackagingCandidates)[0];
     if (!best) {
       rejected.push({ productId: product.id, reason: '등록 박스와 자동설계 후보 중 제품을 안전하게 담을 수 있는 규격이 없습니다.' });
       continue;
