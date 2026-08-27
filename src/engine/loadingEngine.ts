@@ -244,7 +244,10 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     const minX = Math.max(mixedZoneStartX, mixedTailStart(item, placements, cargoById));
     for (let i = 0; i < quantity; i += 1) {
       if (loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS) break;
-      const placement = findMixedPlacement(container, item, placements, cargoById, { minX });
+      const placement = findMixedPlacement(container, item, placements, cargoById, {
+        minX,
+        preferVerticalStack: true,
+      });
       if (!placement) break;
       placements.push(placement);
       mixedPlaced += 1;
