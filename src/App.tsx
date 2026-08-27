@@ -9,6 +9,7 @@ import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
 import { clearLatestInertiaCertification } from './inertiaCertification';
 import { openPalletLoadingReport } from './palletWorkerReport';
+import PalletFooterSummary from './PalletFooterSummary';
 import { clearPhysicsTarget } from './physicsTarget';
 import { openLoadingReport } from './report';
 import { openResultsModal } from './resultsModalEvents';
@@ -353,7 +354,11 @@ export default function App() {
               {mode === 'boxes' ? <BoxLoadingViewer result={result} container={container} /> : <section className="viewer pallet-viewer"><PalletModePanel container={container} cargo={cargo} runToken={palletRunToken} /></section>}
             </Suspense>
           </div>
-          <div className="viewer-bottom-actions"><button className="result-open-action" onClick={showResults}>결과 보기</button><span>{physicsScore !== null ? `Rapier ${physicsScore}점 · ${physicsStrategy ? strategyLabel(physicsStrategy) : ''}` : '자동 적재 실행 시 후보를 물리 검증해 최종안을 선택합니다.'}</span></div>
+          <div className={`viewer-bottom-actions ${mode === 'pallets' ? 'pallet-summary-active' : ''}`}>
+            <button className="result-open-action" onClick={showResults}>결과 보기</button>
+            <PalletFooterSummary active={mode === 'pallets'} />
+            <span>{physicsScore !== null ? `Rapier ${physicsScore}점 · ${physicsStrategy ? strategyLabel(physicsStrategy) : ''}` : '자동 적재 실행 시 후보를 물리 검증해 최종안을 선택합니다.'}</span>
+          </div>
         </section>
       </section>
 
