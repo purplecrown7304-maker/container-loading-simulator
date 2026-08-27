@@ -1,0 +1,10 @@
+:root{
+  --font-2xs:11px;
+  --font-xs:13px;
+  --font-sm:15px;
+  --font-base:16px;
+  --font-lg:18px;
+  --font-xl:20px;
+  --line-compact:1.35;
+  --line-readable:1.55;
+}
