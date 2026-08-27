@@ -1,5 +1,6 @@
 import type { CargoItem, ContainerSpec, Placement } from './types';
 import { hasAdequateSupport } from './support';
+import { canPlaceByStackingRules } from './stacking';
 
 export type PalletSpec = {
   length: number;
@@ -142,10 +143,14 @@ function orientations(item: CargoItem) {
   return base;
 }
 
-function slotFor(load: PalletLoad, item: CargoItem, pallet: PalletSpec, container: ContainerSpec): Placement | null {
+function slotFor(
+  load: PalletLoad,
+  item: CargoItem,
+  pallet: PalletSpec,
+  container: ContainerSpec,
+  cargoMap: Map<string, CargoItem>,
+): Placement | null {
   if (load.cargoWeightKg + item.weightKg > pallet.maxLoadKg + EPS) return null;
-  // 최소포장 모드에서도 활성화 가능한 각대/랩핑의 최악 추가 높이를 예약한다.
-  // 실제 포장을 덜 쓰면 여유가 남지만, 포장 적용 후 천장을 넘는 적재안은 생성하지 않는다.
   const reserveHeight =
     (pallet.useCornerGuards ? pallet.cornerGuardExtraHeightM : 0)
     + (pallet.useWrapping ? pallet.wrappingExtraHeightM : 0);
@@ -188,6 +193,7 @@ function slotFor(load: PalletLoad, item: CargoItem, pallet: PalletSpec, containe
           const collides = load.cargoPlacements.some((p) => candidate.x < p.x + p.length - EPS && candidate.x + candidate.length > p.x + EPS && candidate.y < p.y + p.width - EPS && candidate.y + candidate.width > p.y + EPS && candidate.z < p.z + p.height - EPS && candidate.z + candidate.height > p.z + EPS);
           if (collides || candidate.z + candidate.height > container.height + EPS) continue;
           if (!hasAdequateSupport(candidate, load.cargoPlacements, baseSurface)) continue;
+          if (!canPlaceByStackingRules(item, candidate, load.cargoPlacements, cargoMap)) continue;
           return candidate;
         }
       }
@@ -223,7 +229,7 @@ function tryConsolidate(pallets: PalletLoad[], cargoMap: Map<string, CargoItem>,
       if (!item) { success = false; break; }
       let moved = false;
       for (const target of targets) {
-        const candidate = slotFor(target, item, pallet, container);
+        const candidate = slotFor(target, item, pallet, container, cargoMap);
         if (!candidate) continue;
         target.cargoPlacements.push(candidate);
         target.cargoWeightKg += item.weightKg;
@@ -376,19 +382,19 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
     while (left > 0) {
       let target = pallets.find((load) => {
         if (!load.cargoPlacements.length || !load.cargoPlacements.every((placement) => placement.cargoId === item.id)) return false;
-        if (!slotFor(load, item, pallet, container)) return false;
+        if (!slotFor(load, item, pallet, container, cargoMap)) return false;
         return totalPalletizedWeight + item.weightKg <= container.maxPayloadKg + EPS;
       });
       if (!target) {
         const empty = makeLoad();
-        const candidate = slotFor(empty, item, pallet, container);
+        const candidate = slotFor(empty, item, pallet, container, cargoMap);
         if (!candidate) break;
         if (totalPalletizedWeight + pallet.tareWeightKg + packagingReserveWeight + item.weightKg > container.maxPayloadKg + EPS) break;
         pallets.push(empty);
         totalPalletizedWeight += pallet.tareWeightKg + packagingReserveWeight;
         target = empty;
       }
-      const placement = slotFor(target, item, pallet, container);
+      const placement = slotFor(target, item, pallet, container, cargoMap);
       if (!placement) break;
       target.cargoPlacements.push(placement);
       target.cargoWeightKg += item.weightKg;
@@ -399,13 +405,8 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
     }
   }
 
-  // 1차 적재에서는 동일 품목을 분리 유지하고, 모든 품목의 순수 적재가 끝난 뒤에만
-  // 팔레트 수를 줄일 수 있는 잔여 공간에 한해 혼합 병합한다.
   const consolidated = tryConsolidate(pallets, cargoMap, pallet, container);
 
-  // 순수 SKU용 새 팔레트의 자중 예약 때문에 남았던 화물은 여기서만 혼합 허용한다.
-  // 병합 후 실제로 남아 있는 팔레트 수를 기준으로 보수적인 포장재 중량을 다시 예약하고,
-  // 새 팔레트를 추가하지 않는 범위에서 기존 팔레트의 빈 슬롯을 저우선순위 쪽부터 채운다.
   let mixedReservedWeight = pallets.reduce(
     (sum, load) => sum + load.cargoWeightKg + pallet.tareWeightKg + packagingReserveWeight,
     0,
@@ -416,7 +417,7 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
       let target: PalletLoad | undefined;
       let placement: Placement | null = null;
       for (let index = pallets.length - 1; index >= 0; index -= 1) {
-        const candidate = slotFor(pallets[index], item, pallet, container);
+        const candidate = slotFor(pallets[index], item, pallet, container, cargoMap);
         if (!candidate) continue;
         target = pallets[index];
         placement = candidate;
