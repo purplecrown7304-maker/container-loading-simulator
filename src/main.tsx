@@ -19,6 +19,7 @@ import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
 import EnterprisePackagingPlanner from './EnterprisePackagingPlanner';
 import ProductPackagingExcelActions from './ProductPackagingExcelActions';
 import EnterprisePackagingOutputActions from './EnterprisePackagingOutputActions';
+import EnterprisePackagingStrategyExplorer from './EnterprisePackagingStrategyExplorer';
 import WorkspaceTools from './WorkspaceTools';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
 import PhysicsValidationTool from './PhysicsValidationTool';
@@ -76,6 +77,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <EnterprisePackagingPlanner />
       <ProductPackagingExcelActions />
       <EnterprisePackagingOutputActions />
+      <EnterprisePackagingStrategyExplorer />
       <SecuringMaterialSettingsPanel />
       <PalletFooterSummaryBridge />
       <WorkspaceTools />
