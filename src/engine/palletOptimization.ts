@@ -327,7 +327,9 @@ export function packOnPallets(
   cargo: CargoItem[],
   pallet: PalletSpec = defaultPalletSpec,
 ): OptimizedPalletPackingResult {
-  const maxTarget = Math.max(1, Math.min(3, Math.floor(pallet.maxStackLevels || 1)));
+  const configuredMax = Math.max(1, Math.floor(pallet.maxStackLevels || 1));
+  const physicalMax = Math.max(1, Math.floor((container.height + EPS) / Math.max(pallet.height, EPS)));
+  const maxTarget = Math.min(configuredMax, physicalMax);
   const candidates: Array<{ result: PalletPackingResult; target: number; passes: number }> = [];
 
   for (let target = 1; target <= maxTarget; target += 1) {
