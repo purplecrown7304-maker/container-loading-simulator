@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "npm run verify:predeploy",
+  "buildCommand": "npx vitest run src/engine/directBoxTailRegression.test.ts src/engine/palletMixedPayloadRegression.test.ts src/engine/palletBoxTopLoadRegression.test.ts src/engine/palletOptimizationStackDepthRegression.test.ts src/engine/palletAdaptiveStackDepthRegression.test.ts src/engine/palletLaneCenteringRegression.test.ts && npm run typecheck && npm run build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
