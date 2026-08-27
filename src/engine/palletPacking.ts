@@ -73,15 +73,26 @@ export const defaultPalletSpec: PalletSpec = {
 };
 
 const EPS = 1e-9;
+const CENTER_TOLERANCE = 1e-6;
 const FLAT_TOP_TOLERANCE = 0.03;
 const cargoVolume = (item: CargoItem) => item.length * item.width * item.height;
 const fitCount = (available: number, size: number) => size > 0 ? Math.floor((available + EPS) / size) : 0;
 
+function lateralSide(centerY: number, containerWidth: number) {
+  const delta = centerY - containerWidth / 2;
+  if (Math.abs(delta) <= CENTER_TOLERANCE) return 0;
+  return delta < 0 ? -1 : 1;
+}
+
 function palletPositions(container: ContainerSpec, pallet: PalletSpec) {
   const positions: Array<{ x: number; y: number }> = [];
+  const lanes = fitCount(container.width, pallet.width);
+  if (lanes < 1) return positions;
+  const occupiedWidth = lanes * pallet.width;
+  const yOffset = Math.max(0, (container.width - occupiedWidth) / 2);
+
   for (let x = 0; x + pallet.length <= container.length + EPS; x += pallet.length) {
-    const row: Array<{ x: number; y: number }> = [];
-    for (let y = 0; y + pallet.width <= container.width + EPS; y += pallet.width) row.push({ x, y });
+    const row = Array.from({ length: lanes }, (_, lane) => ({ x, y: yOffset + lane * pallet.width }));
     row.sort((a, b) => Math.abs((a.y + pallet.width / 2) - container.width / 2) - Math.abs((b.y + pallet.width / 2) - container.width / 2));
     positions.push(...row);
   }
@@ -327,13 +338,20 @@ function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number
     const used = new Set(columns.map((c) => c.positionIndex));
     let bestPosition = -1;
     let bestScore = Infinity;
-    const left = columns.filter((c) => positions[c.positionIndex].y + pallet.width / 2 < container.width / 2).reduce((s, c) => s + c.totalWeightKg, 0);
-    const right = columns.reduce((s, c) => s + c.totalWeightKg, 0) - left;
+    const left = columns
+      .filter((c) => lateralSide(positions[c.positionIndex].y + pallet.width / 2, container.width) < 0)
+      .reduce((sum, c) => sum + c.totalWeightKg, 0);
+    const right = columns
+      .filter((c) => lateralSide(positions[c.positionIndex].y + pallet.width / 2, container.width) > 0)
+      .reduce((sum, c) => sum + c.totalWeightKg, 0);
     for (let p = 0; p < positions.length; p += 1) {
       if (used.has(p)) continue;
       const pos = positions[p];
-      const goesLeft = pos.y + pallet.width / 2 < container.width / 2;
-      const balance = Math.abs((left + (goesLeft ? load.totalWeightKg : 0)) - (right + (!goesLeft ? load.totalWeightKg : 0)));
+      const side = lateralSide(pos.y + pallet.width / 2, container.width);
+      const balance = Math.abs(
+        (left + (side < 0 ? load.totalWeightKg : 0))
+        - (right + (side > 0 ? load.totalWeightKg : 0)),
+      );
       const depth = pos.x;
       const score = depth * 100 + balance * 0.01;
       if (score < bestScore) { bestPosition = p; bestScore = score; }
@@ -458,8 +476,12 @@ export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pall
   const remainingRows = [...remaining.entries()]
     .filter(([, quantity]) => quantity > 0)
     .map(([cargoId, quantity]) => ({ cargoId, quantity, reason: '팔레트 적재공간·중량·적층 제약으로 미적재' }));
-  const left = placedPallets.filter((p) => p.centerOfGravity.y < container.width / 2).reduce((sum, p) => sum + p.totalWeightKg, 0);
-  const right = placedPallets.reduce((sum, p) => sum + p.totalWeightKg, 0) - left;
+  const left = placedPallets
+    .filter((p) => lateralSide(p.centerOfGravity.y, container.width) < 0)
+    .reduce((sum, p) => sum + p.totalWeightKg, 0);
+  const right = placedPallets
+    .filter((p) => lateralSide(p.centerOfGravity.y, container.width) > 0)
+    .reduce((sum, p) => sum + p.totalWeightKg, 0);
 
   return {
     pallets: placedPallets,
