@@ -40,7 +40,7 @@ jobs:
       - name: Upload production build
         uses: actions/upload-artifact@v6
         with:
-          name: container-loading-simulator-v2.5.0-dist
+          name: container-loading-simulator-v2.6.0-dist
           path: dist
           if-no-files-found: error
           retention-days: 14
