@@ -7,7 +7,7 @@ import { readStoredState } from './storage';
 
 const PLANNER_STORAGE_KEY = 'container-loading-product-packaging-v1';
 const defaultContainer: ContainerSpec = { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500, floorLoadLimitKgPerM2: 1500, floorLoadWarningMultiplier: 3 };
-type StoredPlanner = { products: ProductItem[]; boxes: BoxCatalogItem[]; container: ContainerSpec };
+type StoredPlanner = { products: ProductItem[]; boxes: BoxCatalogItem[]; container: ContainerSpec; settings?: unknown };
 
 function readPlanner(): StoredPlanner | null {
   try {
@@ -43,6 +43,7 @@ export default function ProductPackagingExcelActions() {
         products: imported.products,
         boxes: imported.boxes.length ? imported.boxes : (current?.boxes ?? []),
         container: current?.container ?? readStoredState()?.container ?? defaultContainer,
+        settings: current?.settings,
       };
       localStorage.setItem(PLANNER_STORAGE_KEY, JSON.stringify(next));
       window.location.reload();
@@ -57,6 +58,6 @@ export default function ProductPackagingExcelActions() {
   return createPortal(<>
     <button type="button" onClick={downloadProductPackagingTemplate}>제품 Excel 양식</button>
     <button type="button" onClick={() => inputRef.current?.click()}>제품 Excel 업로드</button>
-    <input ref={inputRef} className="hidden-file-input" type="file" accept=".xlsx,.xls" onChange={event => void handleFile(event.target.files?.[0])} />
+    <input ref={inputRef} className="hidden-file-input" type="file" accept=".xlsx,.xls" onChange={(event) => void handleFile(event.target.files?.[0])} />
   </>, target);
 }
