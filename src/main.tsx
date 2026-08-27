@@ -20,7 +20,6 @@ import EnterprisePackagingOutputActions from './EnterprisePackagingOutputActions
 import EnterprisePackagingStrategyExplorer from './EnterprisePackagingStrategyExplorer';
 import EnterpriseCartonApprovalCenter from './EnterpriseCartonApprovalCenter';
 import EnterpriseManufacturingSettings from './EnterpriseManufacturingSettings';
-import WorkspaceTools from './WorkspaceTools';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
 import PhysicsValidationTool from './PhysicsValidationTool';
 import InertiaTestTool from './InertiaTestTool';
@@ -84,7 +83,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <EnterprisePackagingStrategyExplorer />
       <EnterpriseCartonApprovalCenter />
       <SecuringMaterialSettingsPanel />
-      <WorkspaceTools />
       <PhysicsValidationTool />
       <InertiaTestTool />
       <InertiaTestLauncher />
