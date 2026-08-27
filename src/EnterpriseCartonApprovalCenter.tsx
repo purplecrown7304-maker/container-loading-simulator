@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { approveGeneratedCarton } from './engine/cartonStrengthApproval';
-import type { ProductPackagingAssignment } from './engine/productPackagingOptimizer';
+import {
+  approveGeneratedCartonFamily,
+  groupCartonApprovalCandidates,
+  type CartonApprovalCandidateGroup,
+} from './engine/cartonStrengthApproval';
 import {
   buildEnterprisePackagingPlanFromPlanner,
   ENTERPRISE_PACKAGING_PLANNER_EVENT,
@@ -28,21 +31,25 @@ const emptyVerification = (catalogId = '', stepMm = 5): VerificationDraft => ({
   stepMm,
 });
 
+function suggestedCatalogId(group: CartonApprovalCandidateGroup | undefined) {
+  if (!group) return '';
+  return `VER-${mm(group.outerLength)}${mm(group.outerWidth)}${mm(group.outerHeight)}`;
+}
+
 export default function EnterpriseCartonApprovalCenter() {
   const [stored, setStored] = useState<EnterprisePackagingPlannerState | null>(null);
-  const [assignments, setAssignments] = useState<ProductPackagingAssignment[]>([]);
-  const [selectedId, setSelectedId] = useState('');
+  const [groups, setGroups] = useState<CartonApprovalCandidateGroup[]>([]);
+  const [selectedKey, setSelectedKey] = useState('');
   const [draft, setDraft] = useState<VerificationDraft>(() => emptyVerification());
   const [message, setMessage] = useState('제조사 강도 검증이 끝난 자동설계 박스를 승인할 수 있습니다.');
 
-  const selected = useMemo(() => assignments.find((item) => item.productId === selectedId), [assignments, selectedId]);
-  const product = useMemo(() => stored?.products.find((item) => item.id === selected?.productId), [stored, selected]);
+  const selected = useMemo(() => groups.find((item) => item.key === selectedKey), [groups, selectedKey]);
 
   useEffect(() => {
     const invalidate = () => {
       setStored(null);
-      setAssignments([]);
-      setSelectedId('');
+      setGroups([]);
+      setSelectedKey('');
       setDraft(emptyVerification());
       setMessage('기업 포장 입력이 변경되었습니다. 승인 대기 규격을 다시 불러오세요.');
     };
@@ -54,33 +61,36 @@ export default function EnterpriseCartonApprovalCenter() {
     const current = readEnterprisePackagingPlannerState();
     if (!current?.products?.length) {
       setStored(null);
-      setAssignments([]);
-      setSelectedId('');
+      setGroups([]);
+      setSelectedKey('');
       return setMessage('먼저 기업 제품 목록을 등록하고 포장 최적화를 실행하세요.');
     }
     const plan = buildEnterprisePackagingPlanFromPlanner(current);
-    const pending = plan.assignments.filter((item) => item.strengthStatus === 'design-target');
+    const pending = groupCartonApprovalCandidates(plan.assignments);
     setStored(current);
-    setAssignments(pending);
+    setGroups(pending);
     const first = pending[0];
-    setSelectedId(first?.productId ?? '');
-    setDraft(emptyVerification(first ? `VER-${first.boxId}` : ''));
-    setMessage(pending.length ? `강도 미검증 자동/공용 규격 ${pending.length}건을 찾았습니다.` : '현재 승인 대기 중인 자동설계 규격이 없습니다.');
+    setSelectedKey(first?.key ?? '');
+    setDraft(emptyVerification(suggestedCatalogId(first)));
+    const productCount = pending.reduce((sum, group) => sum + group.productIds.length, 0);
+    setMessage(pending.length
+      ? `강도 미검증 물리규격 ${pending.length}종 · 적용 제품 ${productCount}종을 찾았습니다.`
+      : '현재 승인 대기 중인 자동설계 규격이 없습니다.');
   };
 
-  const choose = (productId: string) => {
-    const assignment = assignments.find((item) => item.productId === productId);
-    setSelectedId(productId);
-    setDraft(emptyVerification(assignment ? `VER-${assignment.boxId}` : '', draft.stepMm));
+  const choose = (key: string) => {
+    const group = groups.find((item) => item.key === key);
+    setSelectedKey(key);
+    setDraft(emptyVerification(suggestedCatalogId(group), draft.stepMm));
   };
 
   const approve = () => {
-    if (!stored || !selected || !product) return setMessage('승인할 자동설계 규격을 선택하세요.');
+    if (!stored || !selected) return setMessage('승인할 자동설계 규격을 선택하세요.');
     const tareWeightKg = draft.tareWeightKg.trim() === '' ? Number.NaN : Number(draft.tareWeightKg);
     const maxTopLoadKg = draft.maxTopLoadKg.trim() === '' ? Number.NaN : Number(draft.maxTopLoadKg);
     const maxGrossWeightKg = draft.maxGrossWeightKg.trim() === '' ? Number.NaN : Number(draft.maxGrossWeightKg);
     const unitCost = draft.unitCost.trim() === '' ? undefined : Number(draft.unitCost);
-    const result = approveGeneratedCarton(selected, product, {
+    const result = approveGeneratedCartonFamily(selected, stored.products, {
       catalogId: draft.catalogId,
       verifiedTareWeightKg: tareWeightKg,
       verifiedMaxTopLoadKg: maxTopLoadKg,
@@ -91,27 +101,26 @@ export default function EnterpriseCartonApprovalCenter() {
     if (!result.ok) return setMessage(result.reason);
     if (stored.boxes.some((box) => box.id === result.box.id)) return setMessage(`이미 존재하는 박스 코드입니다: ${result.box.id}`);
 
-    const success = `${result.box.id} 검증 박스를 회사 카탈로그에 등록했습니다. 실제 자중 반영 Full ${result.verifiedFullGrossWeightKg.toFixed(2)}kg · 검증값 기준 최대 ${result.verifiedStackLayers}단 후보입니다. 전체 포장 최적화를 다시 실행하세요.`;
+    const success = `${result.box.id} 검증 박스를 회사 카탈로그에 등록했습니다. 제품 ${result.productCount}종 공용 · 가장 무거운 Full ${result.verifiedFullGrossWeightKg.toFixed(2)}kg · 보수적 최대 ${result.verifiedStackLayers}단 후보입니다. 전체 포장 최적화를 다시 실행하세요.`;
     const next: EnterprisePackagingPlannerState = { ...stored, boxes: [...stored.boxes, result.box] };
     setStored(null);
-    setAssignments([]);
-    setSelectedId('');
+    setGroups([]);
+    setSelectedKey('');
     setDraft(emptyVerification());
-    // 공용 이벤트는 동기적으로 발생하므로 성공 메시지는 이벤트 처리 뒤 마지막에 기록한다.
     writeEnterprisePackagingPlannerState(next, true);
     setMessage(success);
   };
 
   return <section className="enterprise-approval-center" aria-label="자동설계 박스 제조 강도 승인">
     <div className="approval-head">
-      <div><span>PACKAGING VERIFICATION</span><h3>자동설계 박스 제조 검증 승인</h3><p>자동 계산된 요구강도/임시자중이 아니라 제조사·포장시험에서 확인한 실제 값을 입력해야 보유박스로 승격됩니다.</p></div>
+      <div><span>PACKAGING VERIFICATION</span><h3>자동설계 박스 제조 검증 승인</h3><p>같은 물리 규격을 여러 제품이 공유하면 한 번만 승인합니다. 제조사·포장시험에서 확인한 실제 자중/강도 값을 입력해야 보유박스로 승격됩니다.</p></div>
       <button type="button" onClick={refresh}>승인 대기 규격 불러오기</button>
     </div>
 
-    {assignments.length > 0 && <div className="approval-grid">
-      <div className="approval-pending-list">{assignments.map((item) => <button type="button" key={item.productId} className={selectedId === item.productId ? 'active' : ''} onClick={() => choose(item.productId)}><b>{item.productId}</b><span>{item.boxName}</span><small>{mm(item.outerLength)}×{mm(item.outerWidth)}×{mm(item.outerHeight)}mm · 설계요구 {item.requiredTopLoadKg.toFixed(0)}kg</small></button>)}</div>
-      {selected && product && <div className="approval-form">
-        <div className="approval-design-summary"><b>{selected.productName}</b><span>자동설계 임시 Full {selected.grossWeightKg.toFixed(2)}kg · 설계목표 {selected.recommendedStackLayers}단</span><span>자동계산 요구 상부하중 {selected.requiredTopLoadKg.toFixed(1)}kg · 승인값 아님</span></div>
+    {groups.length > 0 && <div className="approval-grid">
+      <div className="approval-pending-list">{groups.map((group) => <button type="button" key={group.key} className={selectedKey === group.key ? 'active' : ''} onClick={() => choose(group.key)}><b>{mm(group.outerLength)}×{mm(group.outerWidth)}×{mm(group.outerHeight)}mm</b><span>적용 제품 {group.productIds.length}종 · {group.productIds.join(', ')}</span><small>자동계산 최대 요구 {group.provisionalRequiredTopLoadKg.toFixed(0)}kg · 승인값 아님</small></button>)}</div>
+      {selected && <div className="approval-form">
+        <div className="approval-design-summary"><b>{mm(selected.outerLength)}×{mm(selected.outerWidth)}×{mm(selected.outerHeight)}mm 공용규격</b><span>적용 제품: {selected.productIds.join(', ')}</span><span>제품별 실제 Full 중량은 입력한 실제 박스 자중으로 재계산됩니다.</span></div>
         <label>승인 박스 코드<input value={draft.catalogId} onChange={(event) => setDraft((value) => ({ ...value, catalogId: event.target.value }))} /></label>
         <label>완성 박스 실제 자중(kg)<input type="number" min="0" step="0.01" placeholder="필수 입력" value={draft.tareWeightKg} onChange={(event) => setDraft((value) => ({ ...value, tareWeightKg: event.target.value }))} /></label>
         <label>제조사 검증 최대총중량(kg)<input type="number" min="0.01" step="0.1" placeholder="필수 입력" value={draft.maxGrossWeightKg} onChange={(event) => setDraft((value) => ({ ...value, maxGrossWeightKg: event.target.value }))} /></label>
@@ -119,7 +128,7 @@ export default function EnterpriseCartonApprovalCenter() {
         <label>실제 박스 단가<input type="number" min="0" step="0.01" placeholder="선택" value={draft.unitCost} onChange={(event) => setDraft((value) => ({ ...value, unitCost: event.target.value }))} /></label>
         <label>제조 치수 단위<select value={draft.stepMm} onChange={(event) => setDraft((value) => ({ ...value, stepMm: Number(event.target.value) }))}><option value={1}>1mm</option><option value={5}>5mm</option><option value={10}>10mm</option><option value={20}>20mm</option></select></label>
         <button type="button" className="primary" onClick={approve}>검증 박스로 승인 등록</button>
-        <small>승인 후 외경은 선택한 제조 단위로 바깥쪽 올림됩니다. 제품 수용공간은 줄이지 않으며, 실제 자중으로 총중량과 적층 가능단을 다시 계산합니다.</small>
+        <small>승인 시 이 규격을 쓰는 모든 제품의 실제 Full 중량을 다시 계산하며, 가장 무거운 제품이 최대총중량을 넘으면 승인하지 않습니다. 외경은 선택한 제조 단위로 바깥쪽 올림됩니다.</small>
       </div>}
     </div>}
     <p className="approval-message" aria-live="polite">{message}</p>
