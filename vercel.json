@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "npm run typecheck && npm run build",
+  "buildCommand": "npx tsc --noEmit -p tsconfig.production.json && npm run build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
