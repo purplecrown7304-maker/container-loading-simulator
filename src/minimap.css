@@ -1,8 +1,9 @@
 .topdown-minimap { position:absolute; top:58px; right:14px; z-index:7; width:min(280px, calc(100% - 28px)); padding:9px 10px 10px; border:1px solid rgba(227,231,238,.95); border-radius:12px; background:rgba(255,255,255,.94); box-shadow:0 10px 28px rgba(23,32,51,.12); backdrop-filter:blur(10px); color:#172033; }
-.topdown-minimap-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; font-size:10px; }
-.topdown-minimap-head b { font-size:11px; }
+.topdown-minimap-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; font-size:var(--font-2xs); line-height:var(--line-compact); }
+.topdown-minimap-head b { font-size:var(--font-xs); }
 .topdown-minimap-head span { color:#7a8495; }
 .topdown-minimap svg { display:block; width:100%; height:auto; overflow:visible; }
+.topdown-minimap svg text { font-size:var(--font-2xs); }
 .topdown-minimap svg rect { transition:opacity .12s ease, stroke-width .12s ease; }
 .topdown-minimap svg rect:hover { fill-opacity:.95; }
 @media (max-width:900px) {
