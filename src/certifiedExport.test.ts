@@ -72,4 +72,26 @@ describe('certified pallet export identity', () => {
 
     expect(palletSnapshotMatchesCertification(staleSnapshot, target, cert)).toBe(false);
   });
+
+  it('rejects a snapshot whose displayed pallet dimensions differ from the certified result', () => {
+    const certifiedSnapshot: CertifiedPalletSnapshot = { spec: defaultPalletSpec, result: result() };
+    const target = physicsTargetFromPalletSnapshot(container, cargo, certifiedSnapshot);
+    const cert = certification(createPhysicsTargetSignature(target));
+    const staleSpecSnapshot: CertifiedPalletSnapshot = {
+      spec: { ...defaultPalletSpec, length: 1.2 },
+      result: result(),
+    };
+    expect(palletSnapshotMatchesCertification(staleSpecSnapshot, target, cert)).toBe(false);
+  });
+
+  it('rejects a snapshot whose configured stack limit is below the exported stack level', () => {
+    const stackedResult = result();
+    stackedResult.pallets[0] = { ...stackedResult.pallets[0], stackLevel: 4 };
+    stackedResult.maxUsedStackLevel = 4;
+    const certifiedSnapshot: CertifiedPalletSnapshot = { spec: { ...defaultPalletSpec, maxStackLevels: 4 }, result: stackedResult };
+    const target = physicsTargetFromPalletSnapshot(container, cargo, certifiedSnapshot);
+    const cert = certification(createPhysicsTargetSignature(target));
+    const staleSpecSnapshot: CertifiedPalletSnapshot = { spec: { ...defaultPalletSpec, maxStackLevels: 3 }, result: stackedResult };
+    expect(palletSnapshotMatchesCertification(staleSpecSnapshot, target, cert)).toBe(false);
+  });
 });
