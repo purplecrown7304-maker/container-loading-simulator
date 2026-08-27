@@ -2,6 +2,8 @@ import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import type { ContainerSpec, Placement } from './engine/types';
 
+export const CARTON_VISUAL_SCALE = 0.998;
+
 function makeInfoTexture(sample: Placement, displayName?: string) {
   const canvas = document.createElement('canvas');
   canvas.width = 768;
@@ -51,12 +53,13 @@ function LabelMaterial({ texture }: { texture: THREE.Texture }) {
       map={texture}
       toneMapped={false}
       transparent={false}
-      side={THREE.DoubleSide}
+      opacity={1}
+      side={THREE.FrontSide}
       depthTest
       depthWrite
       polygonOffset
-      polygonOffsetFactor={-10}
-      polygonOffsetUnits={-10}
+      polygonOffsetFactor={-2}
+      polygonOffsetUnits={-2}
     />
   );
 }
@@ -67,12 +70,14 @@ export function CargoFaceInfoLabels({
   scale,
   displayName,
   verticalOffset = 0,
+  bodyScale = CARTON_VISUAL_SCALE,
 }: {
   placements: Placement[];
   container: ContainerSpec;
   scale: number;
   displayName?: string;
   verticalOffset?: number;
+  bodyScale?: number;
 }) {
   const sample = placements[0];
   const texture = useMemo(
@@ -89,17 +94,17 @@ export function CargoFaceInfoLabels({
         const cx = (box.x + box.length / 2) * scale - container.length * scale / 2;
         const cy = (box.z + box.height / 2) * scale + verticalOffset;
         const cz = (box.y + box.width / 2) * scale - container.width * scale / 2;
-        const length = box.length * scale;
-        const width = box.width * scale;
-        const height = box.height * scale;
 
+        // The label must use the exact same visual envelope as the carton body.
+        // Previously the body was shrunk but labels were positioned on the full
+        // physical envelope, which left a visible air gap at oblique angles.
+        const length = box.length * scale * bodyScale;
+        const width = box.width * scale * bodyScale;
+        const height = box.height * scale * bodyScale;
         const faceHeight = height * 0.68;
         const longFaceWidth = length * 0.82;
         const shortFaceWidth = width * 0.82;
-
-        // Large enough to eliminate z-fighting at oblique camera angles while
-        // remaining visually flush with the carton surface.
-        const surfaceOffset = Math.max(0.0008, scale * 0.0022);
+        const surfaceOffset = Math.max(0.00025, scale * 0.00045);
 
         return [
           <mesh
