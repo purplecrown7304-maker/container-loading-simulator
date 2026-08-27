@@ -188,7 +188,7 @@ export default function ResultsOverlay() {
           <Suspense fallback={<div className="results-loading">고급 분석 모듈을 불러오는 중…</div>}>
             {advancedTab === 'optimize' && <><AutoCorrectionPanel /><StrategyComparisonPanel /><SpareCapacityPanel /></>}
             {advancedTab === 'edit' && <><ManualPlacementEditor /><GroupMoveSuggestionPanel /><GroupDragController /></>}
-            {advancedTab === 'work' && <><WorkSequencePanel /><EronomicRiskPanel /></>}
+            {advancedTab === 'work' && <><WorkSequencePanel /><ErgonomicRiskPanel /></>}
           </Suspense>
         </div>
       </section>}
