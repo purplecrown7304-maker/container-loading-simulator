@@ -16,6 +16,7 @@ import FinalWorkOrderOptimizer from './FinalWorkOrderOptimizer';
 import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
 import PalletResultsOptimizer from './PalletResultsOptimizer';
 import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
+import ProductPackagingPlanner from './ProductPackagingPlanner';
 import WorkspaceTools from './WorkspaceTools';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
 import PhysicsValidationTool from './PhysicsValidationTool';
@@ -53,6 +54,7 @@ import './inertia-launcher.css';
 import './pallet-footer-summary.css';
 import './final-certification.css';
 import './securing-material-settings.css';
+import './product-packaging.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -68,6 +70,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <DirectWorkOrderOptimizer />
       <PalletResultsOptimizer />
       <App />
+      <ProductPackagingPlanner />
       <SecuringMaterialSettingsPanel />
       <PalletFooterSummaryBridge />
       <WorkspaceTools />
