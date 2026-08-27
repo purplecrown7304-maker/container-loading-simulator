@@ -14,6 +14,7 @@ const removedFiles = [
   'src/PalletFooterSummaryBridge.tsx',
   'src/CertificationResultSummaryBridge.tsx',
   'src/AutoCertificationBridge.tsx',
+  'src/CertifiedExportConsistencyBridge.tsx',
   'src/DashboardRuntimeEnhancer.tsx',
   'src/dashboard-runtime.css',
 ];
