@@ -88,6 +88,8 @@ export default function GeneratedCartonApprovalPanel() {
   }, [plan]);
   const [selectedId, setSelectedId] = useState(generated[0]?.boxId ?? '');
   const selected = generated.find((item) => item.boxId === selectedId) ?? generated[0];
+  const selectedProduct = selected ? products.find((item) => item.id === selected.productId) : undefined;
+  const selectedPayloadKg = selected && selectedProduct ? selected.unitsPerBox * selectedProduct.weightKg : 0;
   const [drafts, setDrafts] = useState<Record<string, ApprovalDraft>>(() => Object.fromEntries(generated.map((item) => [item.boxId, initialDraft(item)])));
   const [message, setMessage] = useState(generated.length ? '제조사 시험/사양서에서 받은 실제 강도값을 직접 입력한 뒤 검증 박스로 등록하세요.' : '현재 최적안에는 제조 강도 승인이 필요한 자동설계 박스가 없습니다.');
 
@@ -99,7 +101,7 @@ export default function GeneratedCartonApprovalPanel() {
   };
 
   const approve = () => {
-    if (!selected || !draft) return;
+    if (!selected || !selectedProduct || !draft) return setMessage('승인 대상 제품 정보를 찾지 못했습니다. 포장설계를 다시 실행하세요.');
     if (draft.tareWeightKg === '' || draft.maxGrossWeightKg === '' || draft.verifiedTopLoadKg === '') {
       return setMessage('자중·최대 총중량·상부 허용중량은 자동 추정하지 않습니다. 제조사 검증값을 모두 입력하세요.');
     }
@@ -107,6 +109,7 @@ export default function GeneratedCartonApprovalPanel() {
       catalogId: draft.catalogId,
       catalogName: draft.catalogName,
       tareWeightKg: draft.tareWeightKg,
+      packedProductWeightKg: selected.unitsPerBox * selectedProduct.weightKg,
       maxGrossWeightKg: draft.maxGrossWeightKg,
       verifiedTopLoadKg: draft.verifiedTopLoadKg,
       unitCost: draft.unitCost === '' ? undefined : draft.unitCost,
@@ -115,9 +118,11 @@ export default function GeneratedCartonApprovalPanel() {
     const latest = readPlanner();
     const currentBoxes = latest?.boxes ?? boxes;
     if (currentBoxes.some((box) => box.id === approved.box!.id)) return setMessage(`이미 존재하는 박스 코드입니다: ${approved.box.id}`);
+    const requiredTopLoad = approved.recalculatedRequiredTopLoadKg ?? selected.requiredTopLoadKg;
+    const gross = approved.verifiedGrossWeightKg ?? selected.grossWeightKg;
     const strengthText = approved.meetsDesignTarget
-      ? '설계 목표 상부하중 이상을 확인했습니다.'
-      : `검증 상부하중이 설계 목표 ${selected.requiredTopLoadKg.toFixed(1)}kg보다 낮습니다. 실제 적층단은 입력 강도 기준으로 자동 축소됩니다.`;
+      ? `실제 총중량 ${gross.toFixed(2)}kg 기준 설계 목표 상부하중 ${requiredTopLoad.toFixed(1)}kg 이상을 확인했습니다.`
+      : `검증 상부하중이 실제 자중을 반영한 설계 목표 ${requiredTopLoad.toFixed(1)}kg보다 낮습니다. 실제 적층단은 입력 강도 기준으로 자동 축소됩니다.`;
     if (!window.confirm(`${approved.box.id}를 검증된 보유 박스로 등록할까요?\n${strengthText}\n등록 후 포장 최적화를 다시 계산합니다.`)) return;
     const next: StoredPlanner = {
       products: latest?.products ?? products,
@@ -142,7 +147,7 @@ export default function GeneratedCartonApprovalPanel() {
         <label>실제 단가<input type="number" min="0" step="0.01" placeholder="선택 입력" value={draft.unitCost} onChange={(e) => updateDraft({ unitCost: numericOrEmpty(e.target.value) })} /></label>
       </>}
     </div>
-    {selected && <div className="approval-target"><b>설계 요구치 · 자동 입력 아님</b><span>외경 {mm(selected.outerLength)}×{mm(selected.outerWidth)}×{mm(selected.outerHeight)}mm</span><span>현재 설계 총중량 {selected.grossWeightKg.toFixed(2)}kg</span><span>치수상 추천 {selected.recommendedStackLayers}단</span><span>목표 상부하중 {selected.requiredTopLoadKg.toFixed(1)}kg</span></div>}
+    {selected && <div className="approval-target"><b>설계 요구치 · 자동 입력 아님</b><span>외경 {mm(selected.outerLength)}×{mm(selected.outerWidth)}×{mm(selected.outerHeight)}mm</span><span>제품 payload {selectedPayloadKg.toFixed(2)}kg</span><span>치수상 추천 {selected.recommendedStackLayers}단</span><span>기존 가정 목표 {selected.requiredTopLoadKg.toFixed(1)}kg</span></div>}
     <div className="approval-actions"><button className="primary" onClick={approve}>검증값으로 보유박스 등록</button><small>등록 후 현재 자동설계 결과는 폐기하고 새 카탈로그 조건으로 다시 최적화합니다.</small></div>
     <p className="approval-message" role="status">{message}</p>
   </section>;
