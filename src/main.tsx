@@ -17,6 +17,7 @@ import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
 import PalletResultsOptimizer from './PalletResultsOptimizer';
 import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
 import ProductPackagingPlanner from './ProductPackagingPlanner';
+import ProductPackagingExcelActions from './ProductPackagingExcelActions';
 import WorkspaceTools from './WorkspaceTools';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
 import PhysicsValidationTool from './PhysicsValidationTool';
@@ -71,6 +72,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <PalletResultsOptimizer />
       <App />
       <ProductPackagingPlanner />
+      <ProductPackagingExcelActions />
       <SecuringMaterialSettingsPanel />
       <PalletFooterSummaryBridge />
       <WorkspaceTools />
