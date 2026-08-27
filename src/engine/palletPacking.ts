@@ -402,6 +402,35 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
   // 1차 적재에서는 동일 품목을 분리 유지하고, 모든 품목의 순수 적재가 끝난 뒤에만
   // 팔레트 수를 줄일 수 있는 잔여 공간에 한해 혼합 병합한다.
   const consolidated = tryConsolidate(pallets, cargoMap, pallet, container);
+
+  // 순수 SKU용 새 팔레트의 자중 예약 때문에 남았던 화물은 여기서만 혼합 허용한다.
+  // 병합 후 실제로 남아 있는 팔레트 수를 기준으로 보수적인 포장재 중량을 다시 예약하고,
+  // 새 팔레트를 추가하지 않는 범위에서 기존 팔레트의 빈 슬롯을 저우선순위 쪽부터 채운다.
+  let mixedReservedWeight = pallets.reduce(
+    (sum, load) => sum + load.cargoWeightKg + pallet.tareWeightKg + packagingReserveWeight,
+    0,
+  );
+  for (const item of active) {
+    let left = remaining.get(item.id) ?? 0;
+    while (left > 0 && mixedReservedWeight + item.weightKg <= container.maxPayloadKg + EPS) {
+      let target: PalletLoad | undefined;
+      let placement: Placement | null = null;
+      for (let index = pallets.length - 1; index >= 0; index -= 1) {
+        const candidate = slotFor(pallets[index], item, pallet, container);
+        if (!candidate) continue;
+        target = pallets[index];
+        placement = candidate;
+        break;
+      }
+      if (!target || !placement) break;
+      target.cargoPlacements.push(placement);
+      target.cargoWeightKg += item.weightKg;
+      mixedReservedWeight += item.weightKg;
+      left -= 1;
+      remaining.set(item.id, left);
+    }
+  }
+
   pallets.forEach((load) => centerCargoOnPallet(load, pallet));
   applyMinimumPackaging(pallets, pallet);
   pallets.forEach((load) => { load.centerOfGravity = palletCog(load, pallet); });
