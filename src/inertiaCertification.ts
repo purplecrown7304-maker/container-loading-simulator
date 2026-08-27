@@ -136,12 +136,32 @@ function supportLoadHeight(target: PhysicsTarget, support: PhysicsSupport) {
 }
 
 export function createPhysicsTargetSignature(target: PhysicsTarget) {
+  const cargo = [...target.cargo]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map(item => [
+      item.id,
+      item.name,
+      item.length,
+      item.width,
+      item.height,
+      item.weightKg,
+      item.quantity,
+      item.maxStackLayers ?? null,
+      item.maxTopLoadKg ?? null,
+      item.allowRotation !== false,
+      item.unloadPriority ?? null,
+    ]);
+  const remaining = [...target.result.remaining]
+    .sort((a, b) => a.cargoId.localeCompare(b.cargoId) || a.quantity - b.quantity || a.reason.localeCompare(b.reason))
+    .map(item => [item.cargoId, item.quantity, item.reason]);
   return JSON.stringify({
-    physicsModel: 'restraint-v3-material-derived',
+    physicsModel: 'restraint-v4-certified-export',
     mode: target.mode,
     container: target.container,
-    placements: target.result.placements.map(item => [item.cargoId, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg]),
-    supports: (target.supports ?? []).map(item => [item.id, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg]),
+    cargo,
+    placements: target.result.placements.map(item => [item.cargoId, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg, item.rotated === true]),
+    remaining,
+    supports: (target.supports ?? []).map(item => [item.id, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg, item.dynamic !== false]),
     materialUnitWeights: readSecuringMaterialSettings(),
   });
 }
