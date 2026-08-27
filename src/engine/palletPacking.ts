@@ -154,7 +154,17 @@ function slotFor(load: PalletLoad, item: CargoItem, pallet: PalletSpec, containe
   if (maxLayers < 1) return null;
 
   const options = orientations(item)
-    .map((o) => ({ ...o, colsX: fitCount(pallet.length, o.length), colsY: fitCount(pallet.width, o.width) }))
+    .map((o) => {
+      const colsX = fitCount(pallet.length, o.length);
+      const colsY = fitCount(pallet.width, o.width);
+      return {
+        ...o,
+        colsX,
+        colsY,
+        offsetX: Math.max(0, (pallet.length - colsX * o.length) / 2),
+        offsetY: Math.max(0, (pallet.width - colsY * o.width) / 2),
+      };
+    })
     .filter((o) => o.colsX > 0 && o.colsY > 0)
     .sort((a, b) => (b.colsX * b.colsY) - (a.colsX * a.colsY) || Number(a.rotated) - Number(b.rotated));
 
@@ -166,8 +176,8 @@ function slotFor(load: PalletLoad, item: CargoItem, pallet: PalletSpec, containe
         for (let col = 0; col < option.colsY; col += 1) {
           const candidate: Placement = {
             cargoId: item.id,
-            x: load.x + row * option.length,
-            y: load.y + col * option.width,
+            x: load.x + option.offsetX + row * option.length,
+            y: load.y + option.offsetY + col * option.width,
             z: load.z + pallet.height + layer * item.height,
             length: option.length,
             width: option.width,
@@ -184,6 +194,22 @@ function slotFor(load: PalletLoad, item: CargoItem, pallet: PalletSpec, containe
     }
   }
   return null;
+}
+
+function centerCargoOnPallet(load: PalletLoad, pallet: PalletSpec) {
+  if (!load.cargoPlacements.length) return;
+  const minX = Math.min(...load.cargoPlacements.map((p) => p.x));
+  const maxX = Math.max(...load.cargoPlacements.map((p) => p.x + p.length));
+  const minY = Math.min(...load.cargoPlacements.map((p) => p.y));
+  const maxY = Math.max(...load.cargoPlacements.map((p) => p.y + p.width));
+  const usedLength = maxX - minX;
+  const usedWidth = maxY - minY;
+  const targetMinX = load.x + Math.max(0, (pallet.length - usedLength) / 2);
+  const targetMinY = load.y + Math.max(0, (pallet.width - usedWidth) / 2);
+  const dx = targetMinX - minX;
+  const dy = targetMinY - minY;
+  if (Math.abs(dx) <= EPS && Math.abs(dy) <= EPS) return;
+  load.cargoPlacements = load.cargoPlacements.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));
 }
 
 function tryConsolidate(pallets: PalletLoad[], cargoMap: Map<string, CargoItem>, pallet: PalletSpec, container: ContainerSpec) {
@@ -270,7 +296,7 @@ function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number
   pallets.sort((a, b) => b.totalWeightKg - a.totalWeightKg);
   const columns: Array<{ positionIndex: number; loads: PalletLoad[]; totalWeightKg: number }> = [];
   const unplaced: PalletLoad[] = [];
-  const maxLevels = Math.max(1, Math.min(3, Math.floor(pallet.maxStackLevels || 1)));
+  const maxLevels = Math.max(1, Math.floor(pallet.maxStackLevels || 1));
   for (const load of pallets) {
     let best: { column: number; level: number; z: number; score: number } | null = null;
     for (let c = 0; c < columns.length; c += 1) {
@@ -323,7 +349,11 @@ function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number
 function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: ContainerSpec) {
   const active = cargo
     .filter((item) => item.quantity > 0)
-    .sort((a, b) => b.weightKg - a.weightKg || cargoVolume(b) - cargoVolume(a) || a.id.localeCompare(b.id));
+    .sort((a, b) =>
+      (b.weightKg * b.quantity) - (a.weightKg * a.quantity)
+      || (cargoVolume(b) * b.quantity) - (cargoVolume(a) * a.quantity)
+      || b.weightKg - a.weightKg
+      || a.id.localeCompare(b.id));
   const cargoMap = new Map(active.map((item) => [item.id, item]));
   const remaining = new Map(active.map((item) => [item.id, item.quantity]));
   const pallets: PalletLoad[] = [];
@@ -372,6 +402,7 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
   // 1차 적재에서는 동일 품목을 분리 유지하고, 모든 품목의 순수 적재가 끝난 뒤에만
   // 팔레트 수를 줄일 수 있는 잔여 공간에 한해 혼합 병합한다.
   const consolidated = tryConsolidate(pallets, cargoMap, pallet, container);
+  pallets.forEach((load) => centerCargoOnPallet(load, pallet));
   applyMinimumPackaging(pallets, pallet);
   pallets.forEach((load) => { load.centerOfGravity = palletCog(load, pallet); });
   return { pallets, remaining, consolidated, cargoMap };
