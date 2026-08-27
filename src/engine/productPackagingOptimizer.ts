@@ -165,6 +165,39 @@ function maxInternalLayers(product: ProductItem) {
   return product.fragile ? 1 : Number.POSITIVE_INFINITY;
 }
 
+/**
+ * 높이를 유지한 동일 직사각형 제품의 한 층 입수량을 계산한다.
+ * 전부 같은 방향인 격자뿐 아니라, 박스를 길이/폭 방향의 두 직사각형 영역으로
+ * 나눠 한 영역은 원방향, 다른 영역은 90도 회전으로 채우는 구성 가능한 패턴을 모두 열거한다.
+ */
+export function bestBaseRotationLayerCapacity(binLength: number, binWidth: number, itemLength: number, itemWidth: number) {
+  if (![binLength, binWidth, itemLength, itemWidth].every(finitePositive)) return 0;
+  const fit = (available: number, size: number) => Math.max(0, Math.floor((available + EPS) / size));
+  let best = Math.max(
+    fit(binLength, itemLength) * fit(binWidth, itemWidth),
+    fit(binLength, itemWidth) * fit(binWidth, itemLength),
+  );
+
+  // 폭을 두 strip으로 분할: 위/아래 영역이 서로 다른 회전 방향을 사용한다.
+  const normalRows = fit(binWidth, itemWidth);
+  for (let rows = 0; rows <= normalRows; rows += 1) {
+    const usedWidth = rows * itemWidth;
+    const count = rows * fit(binLength, itemLength)
+      + fit(binWidth - usedWidth, itemLength) * fit(binLength, itemWidth);
+    best = Math.max(best, count);
+  }
+
+  // 길이를 두 strip으로 분할: 앞/뒤 영역이 서로 다른 회전 방향을 사용한다.
+  const normalColumns = fit(binLength, itemLength);
+  for (let columns = 0; columns <= normalColumns; columns += 1) {
+    const usedLength = columns * itemLength;
+    const count = columns * fit(binWidth, itemWidth)
+      + fit(binLength - usedLength, itemWidth) * fit(binWidth, itemLength);
+    best = Math.max(best, count);
+  }
+  return best;
+}
+
 function tileEfficiency(container: ContainerSpec, l: number, w: number, h: number) {
   const count = (a: number, b: number, c: number) => Math.floor(container.length / a) * Math.floor(container.width / b) * Math.floor(container.height / c);
   const bestCount = Math.max(count(l, w, h), count(w, l, h));
@@ -175,14 +208,23 @@ function tileEfficiency(container: ContainerSpec, l: number, w: number, h: numbe
 function assignmentFromBox(container: ContainerSpec, product: ProductItem, box: BoxCatalogItem, source: 'catalog' | 'generated'): ProductPackagingAssignment | null {
   let bestUnits = 0;
   const layerLimit = maxInternalLayers(product);
-  for (const [pl, pw, ph] of orientations(product)) {
-    const nx = Math.floor((box.innerLength + EPS) / pl);
-    const ny = Math.floor((box.innerWidth + EPS) / pw);
-    const nz = Math.min(layerLimit, Math.floor((box.innerHeight + EPS) / ph));
-    const geometric = nx * ny * nz;
-    const byWeight = Math.floor((box.maxGrossWeightKg - box.tareWeightKg + EPS) / product.weightKg);
-    const perBoxLimit = product.maxUnitsPerBox ?? Number.POSITIVE_INFINITY;
-    bestUnits = Math.max(bestUnits, Math.min(geometric, byWeight, perBoxLimit));
+  const policy = orientationPolicy(product);
+  const [effectiveLength, effectiveWidth, effectiveHeight] = effectiveDimensions(product);
+  const byWeight = Math.floor((box.maxGrossWeightKg - box.tareWeightKg + EPS) / product.weightKg);
+  const perBoxLimit = product.maxUnitsPerBox ?? Number.POSITIVE_INFINITY;
+
+  if (policy === 'base-rotation') {
+    const layerCapacity = bestBaseRotationLayerCapacity(box.innerLength, box.innerWidth, effectiveLength, effectiveWidth);
+    const layers = Math.min(layerLimit, Math.floor((box.innerHeight + EPS) / effectiveHeight));
+    bestUnits = Math.min(layerCapacity * layers, byWeight, perBoxLimit);
+  } else {
+    for (const [pl, pw, ph] of orientations(product)) {
+      const nx = Math.floor((box.innerLength + EPS) / pl);
+      const ny = Math.floor((box.innerWidth + EPS) / pw);
+      const nz = Math.min(layerLimit, Math.floor((box.innerHeight + EPS) / ph));
+      const geometric = nx * ny * nz;
+      bestUnits = Math.max(bestUnits, Math.min(geometric, byWeight, perBoxLimit));
+    }
   }
   if (bestUnits < 1) return null;
 
