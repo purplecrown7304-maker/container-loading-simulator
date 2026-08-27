@@ -10,6 +10,12 @@ export type CertifiedPalletSnapshot = {
   result: OptimizedPalletPackingResult;
 };
 
+export type CertifiedBoxResult = {
+  container: ContainerSpec;
+  cargo: CargoItem[];
+  result: LoadingResult;
+};
+
 export function physicsTargetFromPalletSnapshot(
   container: ContainerSpec,
   cargo: CargoItem[],
@@ -46,6 +52,26 @@ export function certificationMatchesTarget(
   if (!target || !certification || certification.status !== 'passed') return false;
   if (target.mode !== certification.mode) return false;
   return certification.targetSignature === createPhysicsTargetSignature(target);
+}
+
+/**
+ * DIRECT BOX final outputs must match both the PASS and the currently displayed physics target.
+ * This prevents a stale result detail from being exported during an event/update race.
+ */
+export function boxResultMatchesCertification(
+  detail: CertifiedBoxResult | undefined,
+  target: PhysicsTarget | undefined,
+  certification: InertiaCertification | undefined,
+): certification is InertiaCertification {
+  if (!detail || !target || target.mode !== 'boxes') return false;
+  if (!certificationMatchesTarget(target, certification) || certification.mode !== 'boxes') return false;
+  const detailTarget: PhysicsTarget = {
+    mode: 'boxes',
+    container: detail.container,
+    cargo: detail.cargo,
+    result: detail.result,
+  };
+  return createPhysicsTargetSignature(detailTarget) === certification.targetSignature;
 }
 
 function palletSnapshotSpecMatchesResult(snapshot: CertifiedPalletSnapshot) {
