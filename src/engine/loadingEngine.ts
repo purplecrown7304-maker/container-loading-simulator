@@ -4,6 +4,7 @@ import { validatePlacements } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
 import { optimizeLoadingShape } from './shapeOptimizer';
 import { readManualOverride } from './manualOverride';
+import { containerInputError, preflightCargoInput } from './inputPreflight';
 
 const EPS = 1e-9;
 const cbm = (item: CargoItem) => item.length * item.width * item.height;
@@ -136,23 +137,46 @@ function mixedTailStart(item: CargoItem, placements: Placement[], cargoById: Map
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
   const shouldPublish = options.publish !== false;
-  if (shouldPublish && options.strategy === undefined) {
-    const manual = readManualOverride(container,cargo);
+  const preflight = preflightCargoInput(cargo);
+  const normalizedCargo = preflight.cargo;
+  const invalidContainer = containerInputError(container);
+
+  if (invalidContainer) {
+    const result: LoadingResult = {
+      placements: [],
+      remaining: [
+        ...preflight.rejected,
+        ...normalizedCargo.map((item) => ({ cargoId: item.id, quantity: item.quantity, reason: invalidContainer })),
+      ],
+      loadedWeightKg: 0,
+      usedVolumeM3: 0,
+      validationIssues: [],
+      autoCorrections: [],
+    };
+    if (shouldPublish) {
+      publishCorrections([]);
+      publishLoadingResult(container, normalizedCargo, result);
+    }
+    return result;
+  }
+
+  if (preflight.rejected.length === 0 && shouldPublish && options.strategy === undefined) {
+    const manual = readManualOverride(container, normalizedCargo);
     if (manual) {
       publishCorrections(manual.autoCorrections ?? []);
-      publishLoadingResult(container,cargo,manual);
+      publishLoadingResult(container, normalizedCargo, manual);
       return manual;
     }
   }
 
   let placements: Placement[] = [];
   const deferred: Array<{ item: CargoItem; quantity: number }> = [];
-  const remaining: LoadingResult['remaining'] = [];
+  const remaining: LoadingResult['remaining'] = [...preflight.rejected];
   const autoCorrections: AutoCorrectionRecord[] = [];
   let loadedWeightKg = 0;
   let usedVolumeM3 = 0;
-  const cargoById = new Map(cargo.map((item) => [item.id, item]));
-  const prioritized = prioritizedCargo(cargo, strategy);
+  const cargoById = new Map(normalizedCargo.map((item) => [item.id, item]));
+  const prioritized = prioritizedCargo(normalizedCargo, strategy);
 
   let cursorX = 0;
   for (const item of prioritized) {
@@ -261,7 +285,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   const result: LoadingResult = { placements, remaining, loadedWeightKg, usedVolumeM3, validationIssues: validatePlacements(container, placements), autoCorrections };
   if (shouldPublish) {
     publishCorrections(autoCorrections);
-    publishLoadingResult(container, cargo, result);
+    publishLoadingResult(container, normalizedCargo, result);
   }
   return result;
 }
