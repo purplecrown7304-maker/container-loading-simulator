@@ -4,7 +4,6 @@ import App from './App';
 import ErrorBoundary from './ErrorBoundary';
 import ExcelImportActions from './ExcelImportActions';
 import ExcelExportActions from './ExcelExportActions';
-import LocationSelectionBridge from './LocationSelectionBridge';
 import DashboardRuntimeEnhancer from './DashboardRuntimeEnhancer';
 import ResultsOverlay from './ResultsOverlay';
 import AutoCertificationBridge from './AutoCertificationBridge';
@@ -93,7 +92,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <InertiaTestLauncher />
       <ExcelImportActions />
       <ExcelExportActions />
-      <LocationSelectionBridge />
       <DashboardRuntimeEnhancer />
     </ErrorBoundary>
   </React.StrictMode>,
