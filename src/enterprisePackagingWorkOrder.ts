@@ -31,7 +31,7 @@ export function buildEnterprisePackagingWorkOrderHtml(
   plan: EnterprisePackagingPlan,
   container: ContainerSpec,
   products: ProductItem[],
-  boxes: BoxCatalogItem[],
+  _boxes: BoxCatalogItem[],
 ) {
   const productsById = new Map(products.map((item) => [item.id, item]));
   const partialByProduct = new Map(plan.dedicatedPartialCartons.map((item) => [item.productId, item]));
@@ -86,8 +86,11 @@ export function openEnterprisePackagingWorkOrder(
   boxes: BoxCatalogItem[],
 ) {
   if (typeof window === 'undefined') return false;
-  const popup = window.open('', '_blank', 'noopener,noreferrer');
+  // 일부 브라우저는 features에 noopener를 직접 주면 WindowProxy를 null로 반환한다.
+  // 먼저 핸들을 확보한 뒤 opener 참조를 끊어 팝업 차단과 보안 처리를 구분한다.
+  const popup = window.open('', '_blank');
   if (!popup) return false;
+  try { popup.opener = null; } catch { /* cross-window restriction */ }
   popup.document.open();
   popup.document.write(buildEnterprisePackagingWorkOrderHtml(plan, container, products, boxes));
   popup.document.close();
