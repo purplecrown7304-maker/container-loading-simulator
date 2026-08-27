@@ -27,6 +27,8 @@ npm run test:e2e
 - `palletOptimizationStackDepthRegression.test.ts`: 4단 이상 팔레트 적층 후보 선택 확인
 - `palletAdaptiveStackDepthRegression.test.ts`: 관성 자동보정에서도 4단 이상 후보 유지 확인
 - `palletLaneCenteringRegression.test.ts`: 표준 40ft 2열 중앙정렬과 중심선 중량 중립 처리 확인
+- `palletAdaptiveCenterlineRegression.test.ts`: 관성 재배치 후보에서도 중심선 팔레트 중량을 좌/우 어느 쪽에도 가산하지 않는지 확인
+- `palletCenteringBalanceRegression.test.ts`: 팔레트 위 화물 중앙정렬 뒤 COG와 좌우 편차가 같은 결과로 갱신되는지 확인
 - `certifiedExport.test.ts`: 인증된 PhysicsTarget과 실제 출력용 PalletSnapshot의 좌표 동일성 확인
 - `inertiaSignatureV4.test.ts`: 화물 수량·상부허용중량·미적재·회전 상태 변경 시 기존 관성 PASS 무효화 확인
 
@@ -61,8 +63,9 @@ npm run test:e2e
 - [ ] 위 최종 혼합 재사용 후에도 팔레트 자중과 활성화 가능한 포장재 예약중량을 포함한 컨테이너 최대중량을 넘지 않는다.
 - [ ] 팔레트 내부 박스 적층도 `maxTopLoadKg` 단일/누적 상부하중 제한을 지킨다.
 - [ ] 팔레트 위 화물 점유영역의 중심이 팔레트 중심과 일치한다.
+- [ ] 팔레트 위 화물 중앙정렬 후 `lateralImbalanceKg`가 이전 값으로 남지 않고 현재 COG 기준으로 다시 계산된다.
 - [ ] 표준 40ft 폭에서 1.1m 팔레트 2열은 남는 폭을 좌우 동일하게 분배한다.
-- [ ] 정확히 컨테이너 중심선에 놓인 팔레트는 좌우 imbalance 어느 쪽에도 전량 가산하지 않는다.
+- [ ] 정확히 컨테이너 중심선에 놓인 팔레트는 기본 최적화와 관성 재배치 모두 좌우 imbalance 어느 쪽에도 전량 가산하지 않는다.
 - [ ] 팔레트/화물 오버행이 없다.
 - [ ] 설정된 `maxStackLevels`를 넘지 않는다.
 - [ ] UI → 전역 최적화 → 관성 자동보정 → 기본 엔진이 동일한 최대 적층단 값을 사용하고 4~7단 설정을 임의로 3단으로 낮추지 않는다.
