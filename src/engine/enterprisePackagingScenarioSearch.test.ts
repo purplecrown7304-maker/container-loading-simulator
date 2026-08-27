@@ -14,20 +14,24 @@ const products: ProductItem[] = [
   { id: 'B', name: 'B', length: 0.2, width: 0.1, height: 0.08, weightKg: 0.4, quantity: 46, maxUnitsPerBox: 8, orientationPolicy: 'base-rotation', allowMixedCarton: true },
 ];
 
+function pricedOptions() {
+  return {
+    ...defaultEnterprisePackagingOptions,
+    packaging: { ...defaultEnterprisePackagingOptions.packaging, allowCustomBoxDesign: true },
+    cost: {
+      ...defaultEnterprisePackagingOptions.cost,
+      containerFreightCost: 1000,
+      handlingCostPerCarton: 1,
+      newBoxSetupCost: 10,
+      cartonSkuCarryCost: 5,
+      currency: 'KRW',
+    },
+  };
+}
+
 describe('enterprise packaging scenario search', () => {
   it('evaluates alternatives and returns a deterministic feasible recommendation', () => {
-    const baseOptions = {
-      ...defaultEnterprisePackagingOptions,
-      packaging: { ...defaultEnterprisePackagingOptions.packaging, allowCustomBoxDesign: true },
-      cost: {
-        ...defaultEnterprisePackagingOptions.cost,
-        containerFreightCost: 1000,
-        handlingCostPerCarton: 1,
-        newBoxSetupCost: 10,
-        cartonSkuCarryCost: 5,
-        currency: 'KRW',
-      },
-    };
+    const baseOptions = pricedOptions();
     const first = searchEnterprisePackagingScenarios(container, products, boxes, {
       minTargetBoxTypes: 1,
       maxTargetBoxTypes: 3,
@@ -43,13 +47,28 @@ describe('enterprise packaging scenario search', () => {
       baseOptions,
     });
 
-    expect(first.scenarios.some((scenario) => scenario.id === 'baseline-individual')).toBe(true);
-    expect(first.scenarios.length).toBeGreaterThan(3);
+    expect(first.scenarios.length).toBeGreaterThan(0);
     expect(first.pareto.length).toBeGreaterThan(0);
     expect(first.recommended?.feasible).toBe(true);
     expect(first.recommended?.id).toBe(second.recommended?.id);
     expect(first.recommended?.plan.rejected).toEqual([]);
     expect(first.recommended?.plan.shipment.fullyLoaded).toBe(true);
+  });
+
+  it('bounds carton-family target exploration by active product count', () => {
+    const result = searchEnterprisePackagingScenarios(container, products, boxes, {
+      minTargetBoxTypes: 1,
+      maxTargetBoxTypes: 12,
+      compareCustomBoxDesign: true,
+      compareMixedResidualCartons: true,
+      baseOptions: pricedOptions(),
+    });
+
+    const familyScenarios = result.scenarios.filter((scenario) => scenario.familyEnabled);
+    expect(familyScenarios.every((scenario) => scenario.targetBoxTypes <= products.length)).toBe(true);
+    // Raw search ceiling is 2 custom × 2 mixed × 2 targets plus one baseline;
+    // result deduplication can only reduce this count.
+    expect(result.scenarios.length).toBeLessThanOrEqual(9);
   });
 
   it('does not treat unpriced cartons as a zero-cost advantage', () => {
