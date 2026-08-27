@@ -27,6 +27,7 @@ import PhysicsValidationTool from './PhysicsValidationTool';
 import InertiaTestTool from './InertiaTestTool';
 import InertiaTestLauncher from './InertiaTestLauncher';
 import PalletFooterSummaryBridge from './PalletFooterSummaryBridge';
+import './tokens.css';
 import './styles.css';
 import './mode.css';
 import './error.css';
