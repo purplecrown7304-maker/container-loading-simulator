@@ -55,15 +55,19 @@ function isCompletedVerticalStackMember(index: number, placements: Placement[]) 
 }
 
 function safeTailStart(item: CargoItem, placements: Placement[], cargoById: Map<string, CargoItem>) {
+  let globalTail = 0;
   let sameCargoTail = 0;
   let heavierCargoTail = 0;
   for (const placement of placements) {
     const tail = placement.x + placement.length;
+    globalTail = Math.max(globalTail, tail);
     if (placement.cargoId === item.id) sameCargoTail = Math.max(sameCargoTail, tail);
     const other = cargoById.get(placement.cargoId);
     if (other && other.weightKg > item.weightKg + EPS) heavierCargoTail = Math.max(heavierCargoTail, tail);
   }
-  return Math.max(sameCargoTail, heavierCargoTail);
+  // 후처리 때문에 박스가 다시 컨테이너 안쪽으로 침투하지 않도록 항상
+  // 현재 적재의 가장 문쪽 끝 이후에서만 새 위치를 찾는다.
+  return Math.max(globalTail, sameCargoTail, heavierCargoTail);
 }
 
 /**
@@ -72,6 +76,7 @@ function safeTailStart(item: CargoItem, placements: Placement[], cargoById: Map<
  * - 일반 적재 단계에서 완성된 동일 SKU 세로 스택은 절대 해체하지 않는다.
  * - 기존 혼합 적재의 안전/적층 검사를 그대로 통과한 위치만 사용한다.
  * - 동일 SKU 블록과 무거움→가벼움 종방향 흐름을 깨지 않는 위치만 사용한다.
+ * - 문쪽 최종 구역보다 안쪽으로 박스를 되돌리지 않는다.
  * - 형상 패널티가 실제로 감소할 때만 이동을 확정한다.
  */
 export function optimizeLoadingShape(
