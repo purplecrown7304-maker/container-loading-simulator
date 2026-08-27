@@ -28,6 +28,38 @@ describe('Excel cargo import safety', () => {
     expect(parsed.items[0]?.quantity).toBe(0);
   });
 
+  it('merges duplicate SKU rows when engine safety fields match', async () => {
+    const parsed = await parseCargoWorkbook(workbookFile([
+      { ...base, 수량: 2 },
+      { ...base, 이름: 'Alpha repeated row', 수량: 3 },
+    ]));
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.items).toHaveLength(1);
+    expect(parsed.items[0]?.quantity).toBe(5);
+  });
+
+  it('rejects the whole active SKU when duplicate physical constraints conflict', async () => {
+    const parsed = await parseCargoWorkbook(workbookFile([
+      { ...base, 수량: 2 },
+      { ...base, '폭(m)': 0.45, 수량: 3 },
+    ]));
+    expect(parsed.items).toEqual([]);
+    expect(parsed.issues).toHaveLength(1);
+    expect(parsed.issues[0]?.code).toBe('A');
+    expect(parsed.issues[0]?.message).toContain('서로 다른');
+  });
+
+  it('does not let an inactive zero-quantity duplicate conflict with the active SKU', async () => {
+    const parsed = await parseCargoWorkbook(workbookFile([
+      { ...base, 수량: 4 },
+      { ...base, '폭(m)': 0.9, 수량: 0 },
+    ]));
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.items).toHaveLength(1);
+    expect(parsed.items[0]?.quantity).toBe(4);
+    expect(parsed.items[0]?.width).toBe(0.4);
+  });
+
   it('rejects fractional quantity instead of silently flooring it', async () => {
     const parsed = await parseCargoWorkbook(workbookFile([{ ...base, 수량: 1.5 }]));
     expect(parsed.items).toEqual([]);
