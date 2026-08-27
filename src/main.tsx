@@ -16,7 +16,7 @@ import FinalWorkOrderOptimizer from './FinalWorkOrderOptimizer';
 import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
 import PalletResultsOptimizer from './PalletResultsOptimizer';
 import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
-import EnterprisePackagingPlanner from './EnterprisePackagingPlanner';
+import EnterprisePackagingPlannerHost from './EnterprisePackagingPlannerHost';
 import ProductPackagingExcelActions from './ProductPackagingExcelActions';
 import EnterprisePackagingOutputActions from './EnterprisePackagingOutputActions';
 import EnterprisePackagingStrategyExplorer from './EnterprisePackagingStrategyExplorer';
@@ -77,7 +77,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <DirectWorkOrderOptimizer />
       <PalletResultsOptimizer />
       <App />
-      <EnterprisePackagingPlanner />
+      <EnterprisePackagingPlannerHost />
       <ProductPackagingExcelActions />
       <EnterprisePackagingOutputActions />
       <EnterprisePackagingStrategyExplorer />
