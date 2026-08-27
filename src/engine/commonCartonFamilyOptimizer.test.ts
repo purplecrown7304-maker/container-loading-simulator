@@ -51,12 +51,42 @@ describe('optimizeCommonCartonFamily', () => {
     expect(first.family.selectedBoxTypes).toBe(1);
     expect(first.family.targetExceeded).toBe(false);
     expect(new Set(first.assignments.map((item) => item.boxId)).size).toBe(1);
+    expect(first.family.selectedBoxes).toHaveLength(1);
+    expect(first.family.selectedBoxes[0].assignedProducts).toEqual(['A', 'B', 'C']);
     expect(first.cargo.reduce((sum, item) => sum + item.quantity, 0)).toBe(first.totalBoxes);
 
     const signature = (plan: typeof first) => [...plan.assignments]
       .sort((a, b) => a.productId.localeCompare(b.productId))
       .map((item) => `${item.productId}:${item.boxId}:${item.unitsPerBox}:${item.boxesNeeded}`);
     expect(signature(first)).toEqual(signature(second));
+  });
+
+  it('counts duplicate catalog codes with identical dimensions as one physical carton specification', () => {
+    const sameA: BoxCatalogItem = {
+      id: 'SAME-A', name: '같은규격 A', innerLength: 0.49, innerWidth: 0.29, innerHeight: 0.29,
+      outerLength: 0.5, outerWidth: 0.3, outerHeight: 0.3, tareWeightKg: 0.6, maxGrossWeightKg: 20, maxTopLoadKg: 80,
+    };
+    const sameB: BoxCatalogItem = { ...sameA, id: 'SAME-B', name: '같은규격 B' };
+    const compatibleProducts: ProductItem[] = [
+      { id: 'P1', name: 'P1', length: 0.2, width: 0.1, height: 0.08, weightKg: 0.4, quantity: 30, maxUnitsPerBox: 6 },
+      { id: 'P2', name: 'P2', length: 0.19, width: 0.1, height: 0.08, weightKg: 0.4, quantity: 30, maxUnitsPerBox: 6 },
+    ];
+    const plan = optimizeCommonCartonFamily(container, compatibleProducts, [sameA, sameB], {
+      ...defaultProductPackagingOptions,
+      allowCustomBoxDesign: false,
+    }, {
+      enabled: false,
+      targetMaxBoxTypes: 1,
+      maxAssignmentScoreLoss: 0,
+      dimensionRoundingM: 0.01,
+      preferCatalog: true,
+    });
+
+    expect(plan.assignments).toHaveLength(2);
+    expect(plan.family.baselineBoxTypes).toBe(1);
+    expect(plan.family.selectedBoxTypes).toBe(1);
+    expect(plan.family.selectedBoxes).toHaveLength(1);
+    expect(plan.family.selectedBoxes[0].assignedProducts).toEqual(['P1', 'P2']);
   });
 
   it('exceeds the target instead of forcing an unsafe or poor-fit carton', () => {
