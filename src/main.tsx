@@ -19,6 +19,7 @@ import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
 import EnterprisePackagingPlanner from './EnterprisePackagingPlanner';
 import EnterpriseScenarioExplorer from './EnterpriseScenarioExplorer';
 import EnterprisePackagingReportActions from './EnterprisePackagingReportActions';
+import GeneratedCartonApprovalPanel from './GeneratedCartonApprovalPanel';
 import ProductPackagingExcelActions from './ProductPackagingExcelActions';
 import WorkspaceTools from './WorkspaceTools';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
@@ -78,6 +79,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <EnterprisePackagingPlanner />
       <EnterpriseScenarioExplorer />
       <EnterprisePackagingReportActions />
+      <GeneratedCartonApprovalPanel />
       <ProductPackagingExcelActions />
       <SecuringMaterialSettingsPanel />
       <PalletFooterSummaryBridge />
