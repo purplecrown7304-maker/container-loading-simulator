@@ -18,9 +18,9 @@ type StoredPlanner = { products?: ProductItem[]; boxes?: BoxCatalogItem[]; conta
 type ApprovalDraft = {
   catalogId: string;
   catalogName: string;
-  tareWeightKg: number;
-  maxGrossWeightKg: number;
-  verifiedTopLoadKg: number;
+  tareWeightKg: number | '';
+  maxGrossWeightKg: number | '';
+  verifiedTopLoadKg: number | '';
   unitCost: number | '';
 };
 
@@ -63,14 +63,15 @@ function initialDraft(item: ProductPackagingAssignment): ApprovalDraft {
   return {
     catalogId: `VER-${item.boxId}`,
     catalogName: `검증 ${item.boxName}`,
-    tareWeightKg: Math.max(0.1, Math.round((item.grossWeightKg * 0.04) * 100) / 100),
-    maxGrossWeightKg: Math.ceil(item.grossWeightKg),
-    verifiedTopLoadKg: Math.ceil(item.requiredTopLoadKg),
-    unitCost: item.boxUnitCost ?? '',
+    tareWeightKg: '',
+    maxGrossWeightKg: '',
+    verifiedTopLoadKg: '',
+    unitCost: '',
   };
 }
 
 const mm = (value: number) => Math.round(value * 1000);
+const numericOrEmpty = (value: string): number | '' => value.trim() === '' ? '' : Number(value);
 
 export default function GeneratedCartonApprovalPanel() {
   const stored = useMemo(() => typeof window === 'undefined' ? null : readPlanner(), []);
@@ -88,7 +89,7 @@ export default function GeneratedCartonApprovalPanel() {
   const [selectedId, setSelectedId] = useState(generated[0]?.boxId ?? '');
   const selected = generated.find((item) => item.boxId === selectedId) ?? generated[0];
   const [drafts, setDrafts] = useState<Record<string, ApprovalDraft>>(() => Object.fromEntries(generated.map((item) => [item.boxId, initialDraft(item)])));
-  const [message, setMessage] = useState(generated.length ? '제조사 시험/사양서에서 받은 실제 강도값을 입력한 뒤 검증 박스로 등록하세요.' : '현재 최적안에는 제조 강도 승인이 필요한 자동설계 박스가 없습니다.');
+  const [message, setMessage] = useState(generated.length ? '제조사 시험/사양서에서 받은 실제 강도값을 직접 입력한 뒤 검증 박스로 등록하세요.' : '현재 최적안에는 제조 강도 승인이 필요한 자동설계 박스가 없습니다.');
 
   if (!generated.length) return null;
   const draft = selected ? (drafts[selected.boxId] ?? initialDraft(selected)) : undefined;
@@ -99,6 +100,9 @@ export default function GeneratedCartonApprovalPanel() {
 
   const approve = () => {
     if (!selected || !draft) return;
+    if (draft.tareWeightKg === '' || draft.maxGrossWeightKg === '' || draft.verifiedTopLoadKg === '') {
+      return setMessage('자중·최대 총중량·상부 허용중량은 자동 추정하지 않습니다. 제조사 검증값을 모두 입력하세요.');
+    }
     const approved = approveGeneratedCarton(selected, {
       catalogId: draft.catalogId,
       catalogName: draft.catalogName,
@@ -132,13 +136,13 @@ export default function GeneratedCartonApprovalPanel() {
       {selected && draft && <>
         <label>검증 박스 코드<input value={draft.catalogId} onChange={(e) => updateDraft({ catalogId: e.target.value })} /></label>
         <label>검증 박스 이름<input value={draft.catalogName} onChange={(e) => updateDraft({ catalogName: e.target.value })} /></label>
-        <label>실제 자중(kg)<input type="number" min="0" step="0.01" value={draft.tareWeightKg} onChange={(e) => updateDraft({ tareWeightKg: Number(e.target.value) })} /></label>
-        <label>검증 최대총중량(kg)<input type="number" min="0.01" step="0.1" value={draft.maxGrossWeightKg} onChange={(e) => updateDraft({ maxGrossWeightKg: Number(e.target.value) })} /></label>
-        <label>검증 상부허용중량(kg)<input type="number" min="0" step="0.1" value={draft.verifiedTopLoadKg} onChange={(e) => updateDraft({ verifiedTopLoadKg: Number(e.target.value) })} /></label>
-        <label>실제 단가<input type="number" min="0" step="0.01" value={draft.unitCost} onChange={(e) => updateDraft({ unitCost: e.target.value === '' ? '' : Number(e.target.value) })} /></label>
+        <label>실제 자중(kg)<input type="number" min="0" step="0.01" placeholder="제조사 검증값" value={draft.tareWeightKg} onChange={(e) => updateDraft({ tareWeightKg: numericOrEmpty(e.target.value) })} /></label>
+        <label>검증 최대총중량(kg)<input type="number" min="0.01" step="0.1" placeholder="제조사 검증값" value={draft.maxGrossWeightKg} onChange={(e) => updateDraft({ maxGrossWeightKg: numericOrEmpty(e.target.value) })} /></label>
+        <label>검증 상부허용중량(kg)<input type="number" min="0" step="0.1" placeholder="제조사 검증값" value={draft.verifiedTopLoadKg} onChange={(e) => updateDraft({ verifiedTopLoadKg: numericOrEmpty(e.target.value) })} /></label>
+        <label>실제 단가<input type="number" min="0" step="0.01" placeholder="선택 입력" value={draft.unitCost} onChange={(e) => updateDraft({ unitCost: numericOrEmpty(e.target.value) })} /></label>
       </>}
     </div>
-    {selected && <div className="approval-target"><b>설계 요구치</b><span>외경 {mm(selected.outerLength)}×{mm(selected.outerWidth)}×{mm(selected.outerHeight)}mm</span><span>현재 설계 총중량 {selected.grossWeightKg.toFixed(2)}kg</span><span>치수상 추천 {selected.recommendedStackLayers}단</span><span>목표 상부하중 {selected.requiredTopLoadKg.toFixed(1)}kg</span></div>}
+    {selected && <div className="approval-target"><b>설계 요구치 · 자동 입력 아님</b><span>외경 {mm(selected.outerLength)}×{mm(selected.outerWidth)}×{mm(selected.outerHeight)}mm</span><span>현재 설계 총중량 {selected.grossWeightKg.toFixed(2)}kg</span><span>치수상 추천 {selected.recommendedStackLayers}단</span><span>목표 상부하중 {selected.requiredTopLoadKg.toFixed(1)}kg</span></div>}
     <div className="approval-actions"><button className="primary" onClick={approve}>검증값으로 보유박스 등록</button><small>등록 후 현재 자동설계 결과는 폐기하고 새 카탈로그 조건으로 다시 최적화합니다.</small></div>
     <p className="approval-message" role="status">{message}</p>
   </section>;
