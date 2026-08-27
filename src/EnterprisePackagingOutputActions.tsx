@@ -2,9 +2,15 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { defaultEnterprisePackagingOptions, optimizeEnterprisePackaging, type EnterprisePackagingPlan } from './engine/enterprisePackagingOptimizer';
 import type { BoxCatalogItem, ProductItem } from './engine/productPackagingOptimizer';
-import type { CargoItem, ContainerSpec } from './engine/types';
+import type { ContainerSpec } from './engine/types';
 import { downloadEnterprisePackagingWorkbook } from './enterprisePackagingExcelExport';
-import { createEnterprisePackagingManifest, writeEnterprisePackagingManifest } from './enterprisePackagingManifest';
+import {
+  clearEnterprisePackagingManifest,
+  createEnterprisePackagingManifest,
+  enterprisePackagingManifestMatchesState,
+  readEnterprisePackagingManifest,
+  writeEnterprisePackagingManifest,
+} from './enterprisePackagingManifest';
 import { readStoredState, STORAGE_UPDATED_EVENT, type StoredState } from './storage';
 
 const PLANNER_STORAGE_KEY = 'container-loading-product-packaging-v1';
@@ -70,31 +76,23 @@ function buildPlan(): { plan: EnterprisePackagingPlan; stored: StoredPlanner } |
   return { plan, stored };
 }
 
-function cargoSignature(cargo: CargoItem[]) {
-  return [...cargo]
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .map((item) => [
-      item.id,
-      item.name,
-      item.length.toFixed(6),
-      item.width.toFixed(6),
-      item.height.toFixed(6),
-      item.weightKg.toFixed(6),
-      item.quantity,
-      item.maxStackLayers ?? null,
-      item.maxTopLoadKg ?? null,
-      item.allowRotation !== false,
-    ].join('|'))
-    .join('\n');
-}
-
 function persistIfApplied(state?: StoredState | null) {
   const current = state ?? readStoredState();
-  if (!current?.cargo?.length || !current.cargo.some((item) => item.id.startsWith('PKG-'))) return;
+  if (!current?.cargo?.length || !current.cargo.some((item) => item.id.startsWith('PKG-'))) {
+    if (readEnterprisePackagingManifest()) clearEnterprisePackagingManifest();
+    return;
+  }
   const rebuilt = buildPlan();
-  if (!rebuilt) return;
-  if (cargoSignature(current.cargo) !== cargoSignature(rebuilt.plan.cargo)) return;
-  writeEnterprisePackagingManifest(createEnterprisePackagingManifest(rebuilt.plan, rebuilt.stored.container, rebuilt.stored.products, rebuilt.stored.boxes));
+  if (!rebuilt) {
+    if (readEnterprisePackagingManifest()) clearEnterprisePackagingManifest();
+    return;
+  }
+  const nextManifest = createEnterprisePackagingManifest(rebuilt.plan, rebuilt.stored.container, rebuilt.stored.products, rebuilt.stored.boxes);
+  if (!enterprisePackagingManifestMatchesState(nextManifest, current.container, current.cargo)) {
+    if (readEnterprisePackagingManifest()) clearEnterprisePackagingManifest();
+    return;
+  }
+  writeEnterprisePackagingManifest(nextManifest);
 }
 
 export default function EnterprisePackagingOutputActions() {
