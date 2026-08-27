@@ -7,7 +7,9 @@ import { loadContainer, type LoadingStrategy } from './engine/loadingEngine';
 import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
+import { clearLatestInertiaCertification } from './inertiaCertification';
 import { openPalletLoadingReport } from './palletWorkerReport';
+import { clearPhysicsTarget } from './physicsTarget';
 import { openLoadingReport } from './report';
 import { openResultsModal } from './resultsModalEvents';
 import { createRandomSampleCargo } from './sampleCargo';
@@ -77,6 +79,8 @@ export default function App() {
     setPhysicsScore(null);
     setPhysicsStrategy(null);
     setOptimizationMessage('');
+    clearLatestInertiaCertification();
+    clearPhysicsTarget();
     if (typeof window !== 'undefined') (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = undefined;
   };
   const switchMode = (next: LoadingMode) => {
@@ -116,6 +120,10 @@ export default function App() {
     setContainer(current => ({ ...current, [field]: Number(value) }));
   };
   const updateDraft = (field: keyof CargoDraft, value: string | boolean) => {
+    if (field === 'maxTopLoadKg' && typeof value === 'string' && value.trim() === '') {
+      setDraft(current => ({ ...current, maxTopLoadKg: undefined }));
+      return;
+    }
     const numeric: Array<keyof CargoDraft> = ['length', 'width', 'height', 'weightKg', 'quantity', 'maxStackLayers', 'maxTopLoadKg'];
     setDraft(current => ({ ...current, [field]: numeric.includes(field) ? Number(value) : value }));
   };
@@ -146,7 +154,7 @@ export default function App() {
   };
   const editCargo = (item: CargoItem) => {
     setEditingId(item.id);
-    setDraft({ ...item, maxStackLayers: item.maxStackLayers ?? 7, maxTopLoadKg: item.maxTopLoadKg ?? 0, allowRotation: item.allowRotation !== false });
+    setDraft({ ...item, maxStackLayers: item.maxStackLayers ?? 7, maxTopLoadKg: item.maxTopLoadKg, allowRotation: item.allowRotation !== false });
   };
   const deleteCargo = (id: string) => {
     invalidatePhysics();
@@ -297,7 +305,7 @@ export default function App() {
           {cargo.length === 0 ? <div className="empty-cargo"><b>등록된 화물이 없습니다.</b><span>새 화물을 추가하거나 랜덤 샘플로 시작하세요.</span><button onClick={loadSampleData}>샘플 복원</button></div> : <div className="cargo-scroll">
             {cargo.map(item => <article className="cargo-list-item" key={item.id} style={{ borderLeft: `3px solid ${cargoColor(item.id)}`, paddingLeft: 8 }}>
               <div className="cargo-icon" style={{ background: cargoTint(item.id), color: cargoColor(item.id), border: `1px solid ${cargoColor(item.id)}55` }}>■</div>
-              <div><b>{item.id} {item.name}</b><span>{Math.round(item.length * 1000)} × {Math.round(item.width * 1000)} × {Math.round(item.height * 1000)} mm</span><small>{item.weightKg} kg · 상부허용 {item.maxTopLoadKg ?? '제한없음'} kg</small></div>
+              <div><b>{item.id} {item.name}</b><span>{Math.round(item.length * 1000)} × {Math.round(item.width * 1000)} × {Math.round(item.height * 1000)} mm</span><small>{item.weightKg} kg · {item.maxTopLoadKg == null ? '상부허용 제한없음' : `상부허용 ${item.maxTopLoadKg} kg`}</small></div>
               <strong>{item.quantity}</strong>
               <div className="cargo-inline-actions">
                 <button aria-label={`${item.id} 수량 1 감소`} onClick={() => changeQuantity(item.id, -1)}>−</button>
@@ -317,7 +325,7 @@ export default function App() {
               <label>중량(kg)<input type="number" min="0.01" step="0.01" value={draft.weightKg} onChange={e => updateDraft('weightKg', e.target.value)} /></label>
               <label>수량<input type="number" min="1" step="1" value={draft.quantity} onChange={e => updateDraft('quantity', e.target.value)} /></label>
               <label>최대 적층단<input type="number" min="1" step="1" value={draft.maxStackLayers ?? 1} onChange={e => updateDraft('maxStackLayers', e.target.value)} /></label>
-              <label>상부 허용중량(kg)<input type="number" min="0" step="0.1" value={draft.maxTopLoadKg ?? 0} onChange={e => updateDraft('maxTopLoadKg', e.target.value)} /></label>
+              <label>상부 허용중량(kg)<input type="number" min="0" step="0.1" value={draft.maxTopLoadKg ?? ''} placeholder="제한 없음" onChange={e => updateDraft('maxTopLoadKg', e.target.value)} /></label>
               <label><input type="checkbox" checked={draft.allowRotation !== false} onChange={e => updateDraft('allowRotation', e.target.checked)} /> 회전 허용</label>
             </div>
             <button onClick={saveCargo}>{editingId ? '수정 저장' : '박스 추가'}</button>
