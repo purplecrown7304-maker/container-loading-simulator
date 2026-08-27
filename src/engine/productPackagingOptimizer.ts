@@ -3,6 +3,7 @@ import type { CargoItem, ContainerSpec } from './types';
 
 const EPS = 1e-9;
 const volume = (l: number, w: number, h: number) => l * w * h;
+const roundUp = (value: number, step: number) => !Number.isFinite(step) || step <= 0 ? value : Math.ceil((value - EPS) / step) * step;
 
 export type ProductOrientationPolicy = 'upright' | 'base-rotation' | 'any';
 export type PackagingStrengthStatus = 'catalog' | 'design-target';
@@ -53,6 +54,8 @@ export type ProductPackagingOptions = {
   clearanceM: number;
   wallThicknessM: number;
   maxGeneratedUnitsPerBox: number;
+  /** 자동설계 박스 외경/내경을 올림하는 제조 치수 단위. 기본 5mm. */
+  generatedDimensionStepM?: number;
   /** 자동설계 박스 예상 단가. 0이면 비용점수에 반영하지 않는다. */
   generatedBoxUnitCost?: number;
 };
@@ -102,6 +105,7 @@ export const defaultProductPackagingOptions: ProductPackagingOptions = {
   clearanceM: 0.01,
   wallThicknessM: 0.004,
   maxGeneratedUnitsPerBox: 24,
+  generatedDimensionStepM: 0.005,
   generatedBoxUnitCost: 0,
 };
 
@@ -251,19 +255,26 @@ function generatedBoxes(container: ContainerSpec, product: ProductItem, options:
   const maxUnits = Math.min(product.maxUnitsPerBox ?? options.maxGeneratedUnitsPerBox, options.maxGeneratedUnitsPerBox);
   let index = 0;
   const layerLimit = maxInternalLayers(product);
+  const dimensionStep = Number.isFinite(options.generatedDimensionStepM) && (options.generatedDimensionStepM ?? 0) > 0
+    ? options.generatedDimensionStepM as number
+    : 0.005;
 
   for (const [pl, pw, ph] of orientations(product)) {
     for (let nx = 1; nx <= 4; nx += 1) for (let ny = 1; ny <= 4; ny += 1) for (let nz = 1; nz <= Math.min(6, layerLimit); nz += 1) {
       const units = nx * ny * nz;
       if (units > maxUnits || units * product.weightKg + options.generatedBoxTareKg > options.maxGeneratedGrossWeightKg + EPS) continue;
-      const innerLength = pl * nx + options.clearanceM * 2;
-      const innerWidth = pw * ny + options.clearanceM * 2;
-      const innerHeight = ph * nz + options.clearanceM * 2;
-      const outerLength = innerLength + options.wallThicknessM * 2;
-      const outerWidth = innerWidth + options.wallThicknessM * 2;
-      const outerHeight = innerHeight + options.wallThicknessM * 2;
+      const requiredInnerLength = pl * nx + options.clearanceM * 2;
+      const requiredInnerWidth = pw * ny + options.clearanceM * 2;
+      const requiredInnerHeight = ph * nz + options.clearanceM * 2;
+      // 제조 단위로 항상 바깥쪽 올림한다. 제품 수용공간을 줄이는 반올림은 금지한다.
+      const innerLength = roundUp(requiredInnerLength, dimensionStep);
+      const innerWidth = roundUp(requiredInnerWidth, dimensionStep);
+      const innerHeight = roundUp(requiredInnerHeight, dimensionStep);
+      const outerLength = roundUp(innerLength + options.wallThicknessM * 2, dimensionStep);
+      const outerWidth = roundUp(innerWidth + options.wallThicknessM * 2, dimensionStep);
+      const outerHeight = roundUp(innerHeight + options.wallThicknessM * 2, dimensionStep);
       if (outerLength > container.length + EPS || outerWidth > container.width + EPS || outerHeight > container.height + EPS) continue;
-      const key = [outerLength, outerWidth, outerHeight].map(v => v.toFixed(3)).join(':');
+      const key = [innerLength, innerWidth, innerHeight, outerLength, outerWidth, outerHeight].map(v => v.toFixed(4)).join(':');
       if (seen.has(key)) continue;
       seen.add(key);
       index += 1;
