@@ -109,6 +109,10 @@ function strategyGeometry(strategy: LoadingStrategy, columnsAcross: number, laye
   return { columns: columnsAcross, layers: layersHigh, centered: false };
 }
 
+function furthestTail(placements: Placement[]) {
+  return placements.reduce((tail, placement) => Math.max(tail, placement.x + placement.length), 0);
+}
+
 function mixedTailStart(item: CargoItem, placements: Placement[], cargoById: Map<string, CargoItem>) {
   let sameCargoTail = 0;
   let heavierCargoTail = 0;
@@ -204,11 +208,16 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     if (placed < item.quantity) deferred.push({ item, quantity: item.quantity - placed });
   }
 
+  // 순수 SKU 블록이 끝난 지점을 혼합적재 구역의 시작점으로 고정한다.
+  // 이 경계보다 안쪽으로 잔량을 되돌려 넣지 않으므로 컨테이너 중간에 혼합 박스가
+  // 끼어드는 현상을 막고, 문쪽 마지막 영역에서만 잔량을 정리한다.
+  const mixedZoneStartX = furthestTail(placements);
+
   // 혼합적재는 최후 잔량만 대상으로 한다. 더 무거운 화물의 뒤쪽에서만
   // 이어 붙여 가벼움-무거움-가벼움 형태의 종방향 샌드위치를 만들지 않는다.
   for (const { item, quantity } of deferred) {
     let mixedPlaced = 0;
-    const minX = mixedTailStart(item, placements, cargoById);
+    const minX = Math.max(mixedZoneStartX, mixedTailStart(item, placements, cargoById));
     for (let i = 0; i < quantity; i += 1) {
       if (loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS) break;
       const placement = findMixedPlacement(container, item, placements, cargoById, { minX });
@@ -226,7 +235,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
         quantity: left,
         reason: nextBoxWouldExceedPayload
           ? '컨테이너 최대 적재 중량을 초과하므로 추가 적재하지 못함'
-          : '동일 품목 완성 스택·CBM/중량 순서·회전·경계·적층단·상부 허용중량 조건을 만족하는 안전한 잔여 위치를 찾지 못함',
+          : '문쪽 혼합적재 구역에서 동일 품목 완성 스택·CBM/중량 순서·회전·경계·적층단·상부 허용중량 조건을 만족하는 안전한 위치를 찾지 못함',
       });
     }
   }
