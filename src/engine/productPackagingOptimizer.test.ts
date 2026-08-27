@@ -70,6 +70,29 @@ describe('product packaging optimizer', () => {
     expect(plan.cargo[0].maxTopLoadKg).toBe(0);
   });
 
+  it('rounds generated inner and outer dimensions upward to the manufacturing grid', () => {
+    const awkward: ProductItem = {
+      ...product,
+      id: 'ODD',
+      length: 0.203,
+      width: 0.117,
+      height: 0.061,
+      quantity: 20,
+      maxUnitsPerBox: 4,
+      cushioningM: 0.003,
+    };
+    const plan = optimizeProductPackaging(container, [awkward], [], {
+      ...defaultProductPackagingOptions,
+      generatedDimensionStepM: 0.005,
+    });
+    const assignment = plan.assignments[0];
+    expect(assignment.source).toBe('generated');
+    for (const size of [assignment.innerLength, assignment.innerWidth, assignment.innerHeight, assignment.outerLength, assignment.outerWidth, assignment.outerHeight]) {
+      expect(Math.round(size * 1000) % 5).toBe(0);
+    }
+    expect(assignment.innerLength * assignment.innerWidth * assignment.innerHeight).toBeGreaterThan(0);
+  });
+
   it('rejects invalid products instead of sending them to the loading engine', () => {
     const plan = optimizeProductPackaging(container, [{ ...product, quantity: 1.5 }], catalog);
     expect(plan.assignments).toEqual([]);
