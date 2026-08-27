@@ -112,6 +112,10 @@ export default function ResultsOverlay() {
     (window as PalletWindow).__containerLoadingPalletSnapshot = nextSnapshot;
     setPalletSnapshot(nextSnapshot);
     window.dispatchEvent(new CustomEvent<PalletSpec>(PALLET_SPEC_FROM_RESULTS_EVENT, { detail: nextSpec }));
+    // 이 창은 관성 PASS 결과만 보여주는 최종 결과창이다.
+    // 팔레트 조건이 바뀌면 새 배치는 아직 인증되지 않았으므로 즉시 닫고
+    // 사용자가 결과 보기를 다시 실행해 재검증하도록 fail-closed 처리한다.
+    setOpen(false);
   };
 
   if (!open || !detail || !floor || !effectiveResult) return null;
@@ -135,7 +139,7 @@ export default function ResultsOverlay() {
           <span><i className="empty" />여유 공간</span>
         </div>
         {palletSnapshot && <div className="results-pallet-settings">
-          <div className="results-pallet-settings-head"><div><b>팔레트 적재 설정</b><span>값을 바꾸면 메인 3D 팔레트 배치가 즉시 다시 계산됩니다.</span></div></div>
+          <div className="results-pallet-settings-head"><div><b>팔레트 적재 설정</b><span>값을 바꾸면 새 배치가 만들어지고 이 결과창은 닫힙니다. 다시 결과 보기를 실행해 관성 검증을 통과해야 합니다.</span></div></div>
           <div className="results-pallet-spec-grid">
             <label>길이(m)<input type="number" step=".01" value={palletSnapshot.spec.length} onChange={event => updatePalletSpec('length', event.target.value)} /></label>
             <label>폭(m)<input type="number" step=".01" value={palletSnapshot.spec.width} onChange={event => updatePalletSpec('width', event.target.value)} /></label>
