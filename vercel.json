@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "npm run verify:predeploy",
+  "buildCommand": "npm run test -- src/engine/directBoxBlockDisciplineRegression.test.ts src/engine/directBoxMixedStackLimitsRegression.test.ts && npm run typecheck && npm run check:architecture && npm run build && npm run check:bundle",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
