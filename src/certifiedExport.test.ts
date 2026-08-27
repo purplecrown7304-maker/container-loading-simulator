@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { defaultPalletSpec, type OptimizedPalletPackingResult } from './engine/palletOptimization';
-import type { CargoItem, ContainerSpec } from './engine/types';
+import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { createPhysicsTargetSignature, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
+import type { PhysicsTarget } from './physicsTarget';
 import {
+  boxResultMatchesCertification,
   palletSnapshotMatchesCertification,
   physicsTargetFromPalletSnapshot,
   type CertifiedPalletSnapshot,
@@ -32,6 +34,16 @@ function result(): OptimizedPalletPackingResult {
   };
 }
 
+function boxResult(x = 0): LoadingResult {
+  return {
+    placements: [{ cargoId: 'A', x, y: 0, z: 0, length: 0.5, width: 0.4, height: 0.3, weightKg: 10 }],
+    remaining: [],
+    loadedWeightKg: 10,
+    usedVolumeM3: 0.06,
+    validationIssues: [],
+  };
+}
+
 const securing: SecuringUsage = {
   level: 1, levelLabel: 'test', palletCount: 1, palletWeightKg: 25,
   bandingStraps: 2, bandingLengthM: 4, cornerGuards: 4, cornerGuardLengthM: 1.2,
@@ -39,14 +51,37 @@ const securing: SecuringUsage = {
   estimatedAddedWeightKg: 1, estimatedNonCargoWeightKg: 26,
 };
 
-function certification(signature: string): InertiaCertification {
+function certification(signature: string, mode: PhysicsTarget['mode'] = 'pallets'): InertiaCertification {
   return {
-    status: 'passed', mode: 'pallets', targetSignature: signature, testedAt: '2026-08-27T00:00:00.000Z',
+    status: 'passed', mode, targetSignature: signature, testedAt: '2026-08-27T00:00:00.000Z',
     securing, testedScenarios: 3, passedScenarios: 3, failedScenarios: [],
     maxHorizontalShiftM: 0.001, maxTiltDeg: 0.1, maxCargoRelativeSlipM: 0.001,
     maxSupportShiftM: 0.001, results: {}, payloadWithinLimit: true,
   };
 }
+
+describe('certified direct output identity', () => {
+  it('accepts only a direct result that is also the current live certified target', () => {
+    const directResult = boxResult();
+    const target: PhysicsTarget = { mode: 'boxes', container, cargo, result: directResult };
+    const cert = certification(createPhysicsTargetSignature(target), 'boxes');
+    expect(boxResultMatchesCertification({ container, cargo, result: directResult }, target, cert)).toBe(true);
+  });
+
+  it('rejects a stale direct detail even when the live target still has a valid PASS', () => {
+    const liveResult = boxResult();
+    const target: PhysicsTarget = { mode: 'boxes', container, cargo, result: liveResult };
+    const cert = certification(createPhysicsTargetSignature(target), 'boxes');
+    expect(boxResultMatchesCertification({ container, cargo, result: boxResult(0.5) }, target, cert)).toBe(false);
+  });
+
+  it('rejects an old PASS after the live direct target changes', () => {
+    const certifiedTarget: PhysicsTarget = { mode: 'boxes', container, cargo, result: boxResult() };
+    const cert = certification(createPhysicsTargetSignature(certifiedTarget), 'boxes');
+    const changedTarget: PhysicsTarget = { mode: 'boxes', container, cargo, result: boxResult(0.5) };
+    expect(boxResultMatchesCertification({ container, cargo, result: boxResult() }, changedTarget, cert)).toBe(false);
+  });
+});
 
 describe('certified pallet export identity', () => {
   it('accepts only the pallet snapshot that reconstructs the certified target', () => {
