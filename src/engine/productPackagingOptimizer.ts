@@ -12,6 +12,7 @@ export type ProductItem = {
   height: number;
   weightKg: number;
   quantity: number;
+  /** 바닥면 기준 90도 회전 허용. 높이축은 유지한다. */
   allowRotation?: boolean;
   maxUnitsPerBox?: number;
 };
@@ -105,16 +106,8 @@ function boxError(box: BoxCatalogItem): string | null {
 
 function orientations(product: ProductItem): Array<[number, number, number]> {
   const { length: l, width: w, height: h } = product;
-  const source: Array<[number, number, number]> = product.allowRotation === false
-    ? [[l, w, h]]
-    : [[l, w, h], [w, l, h], [l, h, w], [h, l, w], [w, h, l], [h, w, l]];
-  const seen = new Set<string>();
-  return source.filter(([a, b, c]) => {
-    const key = `${a.toFixed(6)}:${b.toFixed(6)}:${c.toFixed(6)}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  if (product.allowRotation === false || Math.abs(l - w) < EPS) return [[l, w, h]];
+  return [[l, w, h], [w, l, h]];
 }
 
 function tileEfficiency(container: ContainerSpec, l: number, w: number, h: number) {
@@ -140,7 +133,6 @@ function assignmentFromBox(container: ContainerSpec, product: ProductItem, box: 
   const unitsPerBox = Math.max(1, Math.floor(bestUnits));
   const boxesNeeded = Math.ceil(product.quantity / unitsPerBox);
   const grossWeightKg = box.tareWeightKg + unitsPerBox * product.weightKg;
-  const boxVolume = volume(box.outerLength, box.outerWidth, box.outerHeight);
   const productFillRate = Math.min(1, unitsPerBox * volume(product.length, product.width, product.height) / Math.max(EPS, volume(box.innerLength, box.innerWidth, box.innerHeight)));
   const containerTileEfficiency = tileEfficiency(container, box.outerLength, box.outerWidth, box.outerHeight);
   const geometryStack = Math.max(1, Math.min(7, Math.floor((container.height + EPS) / box.outerHeight)));
@@ -205,8 +197,10 @@ function generatedBoxes(container: ContainerSpec, product: ProductItem, options:
       const outerLength = innerLength + options.wallThicknessM * 2;
       const outerWidth = innerWidth + options.wallThicknessM * 2;
       const outerHeight = innerHeight + options.wallThicknessM * 2;
-      if (outerLength > container.length + EPS || outerWidth > container.width + EPS || outerHeight > container.height + EPS) continue;
-      const key = [outerLength, outerWidth, outerHeight].map(v => v.toFixed(3)).join(':');
+      const baseFits = outerLength <= container.length + EPS && outerWidth <= container.width + EPS;
+      const rotatedFits = outerWidth <= container.length + EPS && outerLength <= container.width + EPS;
+      if ((!baseFits && !rotatedFits) || outerHeight > container.height + EPS) continue;
+      const key = [Math.min(outerLength, outerWidth), Math.max(outerLength, outerWidth), outerHeight].map(v => v.toFixed(3)).join(':');
       if (seen.has(key)) continue;
       seen.add(key);
       index += 1;
