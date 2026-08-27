@@ -76,19 +76,23 @@ export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
       issues.push({ row: excelRow, code: id, message: '치수·중량·수량 중 숫자가 아닌 값이 있습니다.' });
       return;
     }
-    if (length <= 0 || width <= 0 || height <= 0 || weightKg < 0 || quantity < 0) {
-      issues.push({ row: excelRow, code: id, message: '치수는 0보다 커야 하며 중량·수량은 음수일 수 없습니다.' });
+    if (length <= 0 || width <= 0 || height <= 0 || weightKg <= 0) {
+      issues.push({ row: excelRow, code: id, message: '치수와 박스 중량은 0보다 커야 합니다.' });
       return;
     }
-    if (Number.isFinite(maxStackLayers) && maxStackLayers <= 0) {
-      issues.push({ row: excelRow, code: id, message: '최대 적층단은 1 이상이어야 합니다.' });
+    if (!Number.isInteger(quantity) || quantity < 0) {
+      issues.push({ row: excelRow, code: id, message: '수량은 0 이상의 정수여야 합니다. 0은 비활성 SKU로 유지됩니다.' });
+      return;
+    }
+    if (Number.isFinite(maxStackLayers) && (!Number.isInteger(maxStackLayers) || maxStackLayers < 1)) {
+      issues.push({ row: excelRow, code: id, message: '최대 적층단은 비워두거나 1 이상의 정수여야 합니다.' });
       return;
     }
     if (Number.isFinite(maxTopLoadKg) && maxTopLoadKg < 0) {
-      issues.push({ row: excelRow, code: id, message: '상부 허용중량은 음수일 수 없습니다.' });
+      issues.push({ row: excelRow, code: id, message: '상부 허용중량은 비워두거나 0 이상의 값이어야 합니다.' });
       return;
     }
-    if (Number.isFinite(unloadPriority) && unloadPriority < 1) {
+    if (Number.isFinite(unloadPriority) && (!Number.isInteger(unloadPriority) || unloadPriority < 1)) {
       issues.push({ row: excelRow, code: id, message: '하역순서는 비워두거나 1 이상의 정수여야 합니다.' });
       return;
     }
@@ -105,11 +109,11 @@ export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
       width,
       height,
       weightKg,
-      quantity: Math.floor(quantity),
-      maxStackLayers: Number.isFinite(maxStackLayers) && maxStackLayers > 0 ? Math.floor(maxStackLayers) : undefined,
-      maxTopLoadKg: Number.isFinite(maxTopLoadKg) && maxTopLoadKg > 0 ? maxTopLoadKg : undefined,
+      quantity,
+      maxStackLayers: Number.isFinite(maxStackLayers) ? maxStackLayers : undefined,
+      maxTopLoadKg: Number.isFinite(maxTopLoadKg) ? maxTopLoadKg : undefined,
       allowRotation: rotation.value,
-      unloadPriority: Number.isFinite(unloadPriority) && unloadPriority >= 1 ? Math.floor(unloadPriority) : undefined,
+      unloadPriority: Number.isFinite(unloadPriority) ? unloadPriority : undefined,
     });
   });
 
