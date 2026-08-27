@@ -63,14 +63,20 @@ function prioritizedCargo(cargo: CargoItem[], strategy: LoadingStrategy): CargoI
     if (strategy === 'stability') {
       const footprintDiff = b.length * b.width - a.length * a.width;
       if (Math.abs(footprintDiff) > EPS) return footprintDiff;
-      return capacityScore(b) - capacityScore(a);
+      const capacityDiff = capacityScore(b) - capacityScore(a);
+      if (Math.abs(capacityDiff) > EPS) return capacityDiff;
+      return a.id.localeCompare(b.id);
     }
     if (strategy === 'unloading') {
       const unloadDiff = (b.unloadPriority ?? 0) - (a.unloadPriority ?? 0);
       if (unloadDiff !== 0) return unloadDiff;
-      return capacityScore(b) - capacityScore(a);
+      const capacityDiff = capacityScore(b) - capacityScore(a);
+      if (Math.abs(capacityDiff) > EPS) return capacityDiff;
+      return a.id.localeCompare(b.id);
     }
-    return capacityScore(b) - capacityScore(a);
+    const capacityDiff = capacityScore(b) - capacityScore(a);
+    if (Math.abs(capacityDiff) > EPS) return capacityDiff;
+    return a.id.localeCompare(b.id);
   });
 }
 
