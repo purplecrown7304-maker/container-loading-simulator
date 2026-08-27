@@ -24,7 +24,7 @@ function rowError(item: CargoItem) {
     return '박스 길이·폭·높이는 0보다 큰 유한한 값이어야 함';
   }
   if (!finitePositive(item.weightKg)) return '박스 중량은 0보다 큰 유한한 값이어야 함';
-  if (!Number.isInteger(item.quantity) || item.quantity <= 0) return '수량은 1 이상의 정수여야 함';
+  if (!Number.isInteger(item.quantity) || item.quantity < 0) return '수량은 0 이상의 정수여야 함';
   if (item.maxStackLayers != null && (!Number.isInteger(item.maxStackLayers) || item.maxStackLayers < 1)) {
     return '최대 적층단은 1 이상의 정수여야 함';
   }
@@ -59,6 +59,7 @@ export function preflightCargoInput(rows: CargoItem[]): CargoPreflightResult {
       rejected.push({ cargoId: normalized.id || '(빈 SKU)', quantity: safeRejectedQuantity(normalized), reason: error });
       continue;
     }
+    if (normalized.quantity === 0) continue;
     valid.push(normalized);
   }
 
