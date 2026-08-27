@@ -9,6 +9,7 @@ const fail = (message) => {
 const removedFiles = [
   'src/engine/rowOptimizer.ts',
   'src/engine/zoneHeightOptimizer.ts',
+  'src/engine/shapeOptimizer.ts',
   'src/LocationSelectionBridge.tsx',
   'src/PalletFooterSummaryBridge.tsx',
   'src/CertificationResultSummaryBridge.tsx',
@@ -18,7 +19,7 @@ const removedFiles = [
 ];
 
 for (const path of removedFiles) {
-  if (existsSync(path)) fail(`${path} must not be restored. Use React state/components or the domain store instead.`);
+  if (existsSync(path)) fail(`${path} must not be restored. Use block-first generation, React state/components, or the domain store instead.`);
 }
 
 if (!existsSync('src/tokens.css')) fail('src/tokens.css is required for the shared typography scale.');
