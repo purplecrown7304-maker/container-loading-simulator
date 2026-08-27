@@ -128,6 +128,36 @@ function mixedTailStart(item: CargoItem, placements: Placement[], cargoById: Map
   return Math.max(sameCargoTail, heavierCargoTail);
 }
 
+function buildCompleteSlice(
+  item: CargoItem,
+  x: number,
+  columnsAcross: number,
+  layersHigh: number,
+  orientation: { length: number; width: number; rotated: boolean },
+  placements: Placement[],
+  cargoById: Map<string, CargoItem>,
+) {
+  const slice: Placement[] = [];
+  for (let col = 0; col < columnsAcross; col += 1) {
+    for (let layer = 0; layer < layersHigh; layer += 1) {
+      const candidate: Placement = {
+        cargoId: item.id,
+        x,
+        y: col * orientation.width,
+        z: layer * item.height,
+        length: orientation.length,
+        width: orientation.width,
+        height: item.height,
+        weightKg: item.weightKg,
+        rotated: orientation.rotated,
+      };
+      if (!canPlaceByStackingRules(item, candidate, [...placements, ...slice], cargoById)) return null;
+      slice.push(candidate);
+    }
+  }
+  return slice;
+}
+
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
   const shouldPublish = options.publish !== false;
@@ -178,63 +208,48 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     if (
       orientation.columnsAcross < 1 ||
       orientation.layersHigh < 1 ||
+      orientation.sliceCapacity < 1 ||
       fitCount(container.length, orientation.length) < 1
     ) {
       deferred.push({ item, quantity: item.quantity });
       continue;
     }
 
-    // 모든 전략은 같은 물리/제품 제약에서 허용되는 최대 완성 스택을 사용한다.
-    // 안정성 후보라는 이유로 일부러 72%, 하역 후보라는 이유로 86% 높이만 쌓지 않는다.
     const columnsAcross = orientation.columnsAcross;
     const layersHigh = orientation.layersHigh;
+    const sliceCapacity = orientation.sliceCapacity;
+    const sliceWeightKg = sliceCapacity * item.weightKg;
     let placed = 0;
 
-    while (placed + layersHigh <= item.quantity) {
+    // 순수 SKU 영역에는 가로 전체 × 안전 최대 높이의 완전한 직사각 슬라이스만 넣는다.
+    // 마지막에 폭 일부만 채운 좁은 탑을 남기지 않고, 완전 슬라이스를 못 만드는 수량은
+    // 전부 문쪽 최종 혼합구역으로 보내 다른 잔량과 함께 압축한다.
+    while (placed + sliceCapacity <= item.quantity) {
       if (cursorX + orientation.length > container.length + EPS) break;
-      let stacksPlacedInSlice = 0;
+      if (loadedWeightKg + sliceWeightKg > container.maxPayloadKg + EPS) break;
 
-      for (let col = 0; col < columnsAcross && placed + layersHigh <= item.quantity; col += 1) {
-        const stackWeightKg = layersHigh * item.weightKg;
-        if (loadedWeightKg + stackWeightKg > container.maxPayloadKg + EPS) break;
+      const slice = buildCompleteSlice(
+        item,
+        cursorX,
+        columnsAcross,
+        layersHigh,
+        orientation,
+        placements,
+        cargoById,
+      );
+      if (!slice || slice.length !== sliceCapacity) break;
 
-        const stack: Placement[] = [];
-        let validStack = true;
-        for (let layer = 0; layer < layersHigh; layer += 1) {
-          const candidate: Placement = {
-            cargoId: item.id,
-            x: cursorX,
-            y: col * orientation.width,
-            z: layer * item.height,
-            length: orientation.length,
-            width: orientation.width,
-            height: item.height,
-            weightKg: item.weightKg,
-            rotated: orientation.rotated,
-          };
-          if (!canPlaceByStackingRules(item, candidate, [...placements, ...stack], cargoById)) {
-            validStack = false;
-            break;
-          }
-          stack.push(candidate);
-        }
-        if (!validStack) continue;
-
-        placements.push(...stack);
-        placed += layersHigh;
-        stacksPlacedInSlice += 1;
-        loadedWeightKg += stackWeightKg;
-        usedVolumeM3 += cbm(item) * layersHigh;
-      }
-
-      if (stacksPlacedInSlice === 0) break;
+      placements.push(...slice);
+      placed += sliceCapacity;
+      loadedWeightKg += sliceWeightKg;
+      usedVolumeM3 += cbm(item) * sliceCapacity;
       cursorX += orientation.length;
-      if (stacksPlacedInSlice < columnsAcross) break;
     }
 
     if (placed < item.quantity) deferred.push({ item, quantity: item.quantity - placed });
   }
 
+  // 순수 블록은 여기까지 연속된 직사각형 구역이다. 잔량은 이 x보다 안쪽으로 돌아가지 않는다.
   const mixedZoneStartX = furthestTail(placements);
 
   for (const { item, quantity } of deferred) {
@@ -265,6 +280,8 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     }
   }
 
+  // 생성 후 개별 박스를 더 문쪽으로 밀어내는 shape 후처리는 사용하지 않는다.
+  // 블록성과 압축은 생성 단계에서 결정해 고립 박스/계단형 적재를 만들지 않는다.
   const result: LoadingResult = {
     placements,
     remaining,
