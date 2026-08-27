@@ -7,6 +7,7 @@ import { buildPlacementAddresses } from './engine/locationGrid';
 import { packOnPallets, type OptimizedPalletPackingResult, type PalletSpec } from './engine/palletOptimization';
 import type { LoadingResult } from './engine/types';
 import { cargoColor } from './cargoColors';
+import { clearLatestInertiaCertification } from './inertiaCertification';
 import { OPEN_RESULTS_MODAL_EVENT, type ResultsModalDetail } from './resultsModalEvents';
 
 const StrategyComparisonPanel = lazy(() => import('./StrategyComparisonPanel'));
@@ -109,6 +110,9 @@ export default function ResultsOverlay() {
     const nextSpec = sanitizeResultsPalletSpec({ ...palletSnapshot.spec, [field]: Number(rawValue) });
     const nextResult = packOnPallets(detail.container, detail.cargo.filter(item => item.quantity > 0), nextSpec);
     const nextSnapshot: PalletSnapshot = { spec: nextSpec, result: nextResult };
+    // 팔레트 조건이 달라지는 순간 이전 PASS는 더 이상 현재 배치를 인증하지 않는다.
+    // PalletModePanel의 후속 effect를 기다리지 않고 즉시 폐기해 출력 race를 막는다.
+    clearLatestInertiaCertification();
     (window as PalletWindow).__containerLoadingPalletSnapshot = nextSnapshot;
     setPalletSnapshot(nextSnapshot);
     window.dispatchEvent(new CustomEvent<PalletSpec>(PALLET_SPEC_FROM_RESULTS_EVENT, { detail: nextSpec }));
