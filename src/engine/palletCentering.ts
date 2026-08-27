@@ -1,6 +1,7 @@
 import type { OptimizedPalletPackingResult, PalletLoad } from './palletOptimization';
 
 const EPS = 1e-9;
+const CENTERLINE_EPS = 1e-6;
 let nextOverride: OptimizedPalletPackingResult | null = null;
 
 /**
@@ -57,9 +58,32 @@ function centerLoadCargo(load: PalletLoad): PalletLoad {
   };
 }
 
+function layoutCenterY(pallets: PalletLoad[]) {
+  if (!pallets.length) return 0;
+  const minY = Math.min(...pallets.map((pallet) => pallet.y));
+  const maxY = Math.max(...pallets.map((pallet) => pallet.y + pallet.width));
+  return (minY + maxY) / 2;
+}
+
+function recalcLateralImbalance(pallets: PalletLoad[]) {
+  if (!pallets.length) return 0;
+  const centerY = layoutCenterY(pallets);
+  let left = 0;
+  let right = 0;
+  for (const pallet of pallets) {
+    const delta = pallet.centerOfGravity.y - centerY;
+    if (Math.abs(delta) < CENTERLINE_EPS) continue;
+    if (delta < 0) left += pallet.totalWeightKg;
+    else right += pallet.totalWeightKg;
+  }
+  return Math.abs(left - right);
+}
+
 /**
  * Centers the complete cargo footprint on every pallet without changing
  * relative box-to-box support, layer heights, or pallet positions.
+ * Recomputes the lateral imbalance from the centered pallet COGs so the
+ * displayed/optimized balance metric cannot remain stale after centering.
  */
 export function centerPalletCargo(result: OptimizedPalletPackingResult): OptimizedPalletPackingResult {
   if (nextOverride) {
@@ -72,5 +96,6 @@ export function centerPalletCargo(result: OptimizedPalletPackingResult): Optimiz
     ...result,
     pallets,
     placements: pallets.flatMap((pallet) => pallet.cargoPlacements),
+    lateralImbalanceKg: recalcLateralImbalance(pallets),
   };
 }
