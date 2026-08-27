@@ -1,6 +1,6 @@
 import type { EnterprisePackagingPlan } from './engine/enterprisePackagingOptimizer';
 import type { BoxCatalogItem, ProductItem } from './engine/productPackagingOptimizer';
-import type { ContainerSpec } from './engine/types';
+import type { CargoItem, ContainerSpec } from './engine/types';
 
 export const ENTERPRISE_PACKAGING_MANIFEST_KEY = 'container-loading-enterprise-packaging-manifest-v1';
 export const ENTERPRISE_PACKAGING_MANIFEST_EVENT = 'container-loading:enterprise-packaging-manifest';
@@ -23,6 +23,35 @@ export type EnterprisePackagingManifest = {
   mixedCartonSavings: number;
   accurateTotalCargoWeightKg: number;
 };
+
+function cargoSignature(cargo: CargoItem[]) {
+  return [...cargo]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((item) => [
+      item.id.trim(), item.name.trim(),
+      item.length.toFixed(6), item.width.toFixed(6), item.height.toFixed(6), item.weightKg.toFixed(6),
+      item.quantity, item.maxStackLayers ?? null, item.maxTopLoadKg ?? null,
+      item.allowRotation !== false, item.unloadPriority ?? null,
+    ].join('|'))
+    .join('\n');
+}
+
+function containerSignature(container: ContainerSpec) {
+  return [
+    container.length.toFixed(6), container.width.toFixed(6), container.height.toFixed(6), container.maxPayloadKg.toFixed(3),
+    container.floorLoadLimitKgPerM2 ?? null, container.floorLoadWarningMultiplier ?? null,
+  ].join('|');
+}
+
+export function enterprisePackagingManifestMatchesState(
+  manifest: EnterprisePackagingManifest | null | undefined,
+  container: ContainerSpec | null | undefined,
+  cargo: CargoItem[] | null | undefined,
+) {
+  if (!manifest || !container || !cargo) return false;
+  return containerSignature(manifest.container) === containerSignature(container)
+    && cargoSignature(manifest.cargo) === cargoSignature(cargo);
+}
 
 export function createEnterprisePackagingManifest(
   plan: EnterprisePackagingPlan,
