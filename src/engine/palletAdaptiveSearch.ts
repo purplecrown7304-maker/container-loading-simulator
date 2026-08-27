@@ -222,7 +222,9 @@ export function buildPalletAdaptiveCandidates(current: PhysicsTarget, snapshot: 
   if (current.mode !== 'pallets') return [];
   const seen = new Set<string>([createPhysicsTargetSignature(current)]);
   const list: PalletAdaptiveCandidate[] = [];
-  const maxLevels = Math.max(1, Math.min(3, Math.floor(snapshot.spec.maxStackLevels || 1)));
+  const configuredMax = Math.max(1, Math.floor(snapshot.spec.maxStackLevels || 1));
+  const physicalMax = Math.max(1, Math.floor((current.container.height + EPS) / Math.max(snapshot.spec.height, EPS)));
+  const maxLevels = Math.min(configuredMax, physicalMax);
   const levelOptions = Array.from({ length: maxLevels }, (_, index) => index + 1);
   const heightRatios = [0.6, 0.72, 0.84, 0.96, 1.05, 1.15];
 
