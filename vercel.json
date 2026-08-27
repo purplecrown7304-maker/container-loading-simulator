@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "npx tsc --noEmit --target ES2022 --lib ES2022,DOM,DOM.Iterable --module ESNext --moduleResolution Bundler --strict --skipLibCheck --esModuleInterop --allowSyntheticDefaultImports --jsx react-jsx src/engine/palletPacking.ts src/engine/palletOptimization.ts src/engine/palletAdaptiveSearch.ts src/PalletModePanel.tsx && npm run build",
+  "buildCommand": "npx tsc --noEmit --target ES2022 --lib ES2022,DOM,DOM.Iterable --module ESNext --moduleResolution Bundler --strict --skipLibCheck --esModuleInterop --allowSyntheticDefaultImports src/engine/palletPacking.ts src/engine/palletOptimization.ts src/engine/palletAdaptiveSearch.ts && npm run build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
