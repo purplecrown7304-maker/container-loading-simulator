@@ -14,6 +14,7 @@ import {
 import { publishPhysicsTarget, readPhysicsTarget, type PhysicsTarget } from '../physicsTarget';
 
 const EPS = 1e-9;
+const CENTERLINE_EPS = 1e-6;
 const PALLET_SPEC_FROM_RESULTS_EVENT = 'container-loading:pallet-spec-from-results';
 const PALLET_SNAPSHOT_UPDATED_EVENT = 'container-loading:pallet-snapshot-updated';
 
@@ -91,13 +92,18 @@ function moveLoad(load: PalletLoad, x: number, y: number): PalletLoad {
   };
 }
 
-function lateralImbalance(pallets: PalletLoad[], container: ContainerSpec) {
+export function calculateAdaptiveLateralImbalanceKg(
+  pallets: Array<Pick<PalletLoad, 'centerOfGravity' | 'totalWeightKg'>>,
+  container: ContainerSpec,
+) {
   let left = 0;
   let right = 0;
-  pallets.forEach(pallet => {
-    if (pallet.centerOfGravity.y < container.width / 2) left += pallet.totalWeightKg;
+  for (const pallet of pallets) {
+    const delta = pallet.centerOfGravity.y - container.width / 2;
+    if (Math.abs(delta) < CENTERLINE_EPS) continue;
+    if (delta < 0) left += pallet.totalWeightKg;
     else right += pallet.totalWeightKg;
-  });
+  }
   return Math.abs(left - right);
 }
 
@@ -135,7 +141,7 @@ function compactResult(input: OptimizedPalletPackingResult, container: Container
     ...input,
     pallets: moved,
     placements: moved.flatMap(item => item.cargoPlacements),
-    lateralImbalanceKg: lateralImbalance(moved, container),
+    lateralImbalanceKg: calculateAdaptiveLateralImbalanceKg(moved, container),
     optimization: {
       ...input.optimization,
       floorPositions: columns.length,
