@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { approveGeneratedCarton, verifiedStackLayers } from './cartonStrengthApproval';
+import {
+  approveGeneratedCarton,
+  approveGeneratedCartonFamily,
+  groupCartonApprovalCandidates,
+  verifiedStackLayers,
+} from './cartonStrengthApproval';
 import type { ProductItem, ProductPackagingAssignment } from './productPackagingOptimizer';
 
 const product: ProductItem = {
@@ -36,6 +41,7 @@ describe('cartonStrengthApproval', () => {
     expect(approved.box.maxGrossWeightKg).toBe(10);
     expect(approved.box.unitCost).toBe(1.2);
     expect(approved.requiredTopLoadKg).toBeCloseTo(53.4, 8);
+    expect(approved.productCount).toBe(1);
   });
 
   it('rounds manufacturing outer dimensions upward without shrinking the fit envelope', () => {
@@ -50,6 +56,33 @@ describe('cartonStrengthApproval', () => {
     expect(approved.box.outerLength).toBeGreaterThanOrEqual(assignment.outerLength);
     expect(approved.box.outerWidth).toBeGreaterThanOrEqual(assignment.outerWidth);
     expect(approved.box.outerHeight).toBeGreaterThanOrEqual(assignment.outerHeight);
+  });
+
+  it('groups the same physical auto carton across products and validates the heaviest full carton once', () => {
+    const product2: ProductItem = { ...product, id: 'P2', name: '무거운 제품', weightKg: 1.2 };
+    const assignment2: ProductPackagingAssignment = {
+      ...assignment,
+      productId: 'P2', productName: '무거운 제품', boxId: 'AUTO-P2-9',
+      grossWeightKg: 10.2, requiredTopLoadKg: 61.2,
+    };
+    const groups = groupCartonApprovalCandidates([assignment, assignment2]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].productIds).toEqual(['P1', 'P2']);
+
+    const weak = approveGeneratedCartonFamily(groups[0], [product, product2], {
+      catalogId: 'VER-SHARED', verifiedTareWeightKg: 0.9, verifiedMaxTopLoadKg: 80, verifiedMaxGrossWeightKg: 10,
+    });
+    expect(weak.ok).toBe(false);
+    if (!weak.ok) expect(weak.reason).toContain('가장 무거운');
+
+    const approved = approveGeneratedCartonFamily(groups[0], [product, product2], {
+      catalogId: 'VER-SHARED', verifiedTareWeightKg: 0.9, verifiedMaxTopLoadKg: 80, verifiedMaxGrossWeightKg: 11,
+    });
+    expect(approved.ok).toBe(true);
+    if (!approved.ok) return;
+    expect(approved.productCount).toBe(2);
+    expect(approved.verifiedFullGrossWeightKg).toBeCloseTo(10.5, 8);
+    expect(approved.requiredTopLoadKg).toBeCloseTo(63, 8);
   });
 
   it('derives operational stack only from verified top-load and verified full gross weight', () => {
