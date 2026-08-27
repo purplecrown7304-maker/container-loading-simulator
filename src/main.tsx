@@ -26,7 +26,6 @@ import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
 import PhysicsValidationTool from './PhysicsValidationTool';
 import InertiaTestTool from './InertiaTestTool';
 import InertiaTestLauncher from './InertiaTestLauncher';
-import PalletFooterSummaryBridge from './PalletFooterSummaryBridge';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -86,7 +85,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <EnterprisePackagingStrategyExplorer />
       <EnterpriseCartonApprovalCenter />
       <SecuringMaterialSettingsPanel />
-      <PalletFooterSummaryBridge />
       <WorkspaceTools />
       <PhysicsValidationTool />
       <InertiaTestTool />
