@@ -2,7 +2,6 @@ import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult, Pla
 import { findMixedPlacement } from './mixedPacking';
 import { validatePlacements } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
-import { optimizeLoadingShape } from './shapeOptimizer';
 import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
 
@@ -93,27 +92,15 @@ function bestBlockOrientation(container: ContainerSpec, item: CargoItem) {
       const columnsAcross = fitCount(container.width, option.width);
       const layersHigh = Math.min(item.maxStackLayers ?? Number.POSITIVE_INFINITY, fitCount(container.height, item.height));
       const slicesDeep = fitCount(container.length, option.length);
-      return { ...option, columnsAcross, layersHigh, capacity: Math.max(0, columnsAcross) * Math.max(0, layersHigh) * Math.max(0, slicesDeep), sliceCapacity: Math.max(0, columnsAcross) * Math.max(0, layersHigh) };
+      return {
+        ...option,
+        columnsAcross,
+        layersHigh,
+        capacity: Math.max(0, columnsAcross) * Math.max(0, layersHigh) * Math.max(0, slicesDeep),
+        sliceCapacity: Math.max(0, columnsAcross) * Math.max(0, layersHigh),
+      };
     })
     .sort((a, b) => b.capacity - a.capacity || b.sliceCapacity - a.sliceCapacity || a.length - b.length)[0];
-}
-
-function strategyGeometry(strategy: LoadingStrategy, columnsAcross: number, layersHigh: number) {
-  if (strategy === 'stability') {
-    return {
-      columns: columnsAcross > 2 ? columnsAcross - 1 : columnsAcross,
-      layers: Math.max(1, Math.ceil(layersHigh * 0.72)),
-      centered: true,
-    };
-  }
-  if (strategy === 'unloading') {
-    return {
-      columns: columnsAcross,
-      layers: Math.max(1, Math.ceil(layersHigh * 0.86)),
-      centered: false,
-    };
-  }
-  return { columns: columnsAcross, layers: layersHigh, centered: false };
 }
 
 function furthestTail(placements: Placement[]) {
@@ -189,18 +176,17 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
       deferred.push({ item, quantity: item.quantity });
       continue;
     }
-    const rawColumns = orientation.columnsAcross;
-    const rawLayers = orientation.layersHigh;
-    const geometry = strategyGeometry(strategy, rawColumns, rawLayers);
-    const columnsAcross = Math.max(1, geometry.columns);
-    const layersHigh = Math.max(1, geometry.layers);
-    const occupiedWidth = columnsAcross * orientation.width;
-    const yOffset = geometry.centered ? Math.max(0, (container.width - occupiedWidth) / 2) : 0;
+
+    // DIRECT BOX의 순수 SKU 블록은 전략에 따라 일부러 낮게 만들지 않는다.
+    // 안정성/하역 전략도 항상 컨테이너 높이, 최대 적층단, 상부허용중량이 허용하는
+    // '완성 세로 스택'을 먼저 만든다. 전략 차이는 SKU 우선순위와 물리검증에서만 둔다.
+    const columnsAcross = orientation.columnsAcross;
+    const layersHigh = orientation.layersHigh;
     let placed = 0;
 
-    // 일반 적재 구역에서는 세로 스택을 끝까지 완성할 수 있을 때만 배치한다.
-    // 한 SKU의 마지막 수량이 천장(또는 허용 적층단)까지 못 올라가면 여기서 억지로
-    // 낮은 산 모양을 만들지 않고 전량을 후순위 혼합적재로 넘긴다.
+    // 일반 적재 구역에서는 같은 SKU를 안쪽부터 세로 스택으로 끝까지 완성한 뒤
+    // 옆 열로 이동한다. 마지막 수량이 완성 스택을 만들지 못하면 순수 블록에
+    // 낮게 남기지 않고 최종 혼합구역으로 넘긴다.
     while (placed + layersHigh <= item.quantity) {
       if (cursorX + orientation.length > container.length + EPS) break;
       let stacksPlacedInSlice = 0;
@@ -215,7 +201,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
           const candidate: Placement = {
             cargoId: item.id,
             x: cursorX,
-            y: yOffset + col * orientation.width,
+            y: col * orientation.width,
             z: layer * item.height,
             length: orientation.length,
             width: orientation.width,
@@ -251,8 +237,8 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   // 끼어드는 현상을 막고, 문쪽 마지막 영역에서만 잔량을 정리한다.
   const mixedZoneStartX = furthestTail(placements);
 
-  // 혼합적재는 최후 잔량만 대상으로 한다. 더 무거운 화물의 뒤쪽에서만
-  // 이어 붙여 가벼움-무거움-가벼움 형태의 종방향 샌드위치를 만들지 않는다.
+  // 혼합적재는 최후 잔량만 대상으로 한다. findMixedPlacement는 같은 x/y의
+  // 세로 스택 완성을 새 바닥 칸보다 먼저 선택하도록 하여 계단형/낱개형 잔량을 줄인다.
   for (const { item, quantity } of deferred) {
     let mixedPlaced = 0;
     const minX = Math.max(mixedZoneStartX, mixedTailStart(item, placements, cargoById));
@@ -278,11 +264,17 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     }
   }
 
-  const shapeResult = optimizeLoadingShape(container, placements, cargoById);
-  placements = shapeResult.placements;
-  if (shapeResult.movedCount > 0) autoCorrections.push({ kind: 'SHAPE', label: '품목 묶음 정리', description: `같은 품목의 과도한 분산을 줄이기 위해 최상단 박스 ${shapeResult.movedCount}개를 재배치`, beforeScore: shapeResult.beforePenalty, afterScore: shapeResult.afterPenalty });
-
-  const result: LoadingResult = { placements, remaining, loadedWeightKg, usedVolumeM3, validationIssues: validatePlacements(container, placements), autoCorrections };
+  // DIRECT BOX에서는 적재 완료 후 개별 박스를 다시 문쪽으로 이동시키는 shape 후처리를
+  // 사용하지 않는다. 순수 블록과 최종 혼합구역의 경계를 생성 단계에서 확정해
+  // 고립 박스가 더 바깥으로 밀려나는 현상을 원천 차단한다.
+  const result: LoadingResult = {
+    placements,
+    remaining,
+    loadedWeightKg,
+    usedVolumeM3,
+    validationIssues: validatePlacements(container, placements),
+    autoCorrections,
+  };
   if (shouldPublish) {
     publishCorrections(autoCorrections);
     publishLoadingResult(container, normalizedCargo, result);
