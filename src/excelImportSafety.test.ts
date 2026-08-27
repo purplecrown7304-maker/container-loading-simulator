@@ -5,8 +5,8 @@ import { parseCargoWorkbook } from './excel';
 function workbookFile(rows: Array<Record<string, unknown>>) {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Cargo');
-  const bytes = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
-  return new File([bytes], 'cargo.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const bytes = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+  return { arrayBuffer: async () => bytes } as File;
 }
 
 const base = {
