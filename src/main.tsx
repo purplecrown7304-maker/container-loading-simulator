@@ -5,7 +5,6 @@ import ErrorBoundary from './ErrorBoundary';
 import ExcelImportActions from './ExcelImportActions';
 import ExcelExportActions from './ExcelExportActions';
 import ResultsOverlay from './ResultsOverlay';
-import AutoCertificationBridge from './AutoCertificationBridge';
 import CertificationInvalidationBridge from './CertificationInvalidationBridge';
 import CertifiedExportConsistencyBridge from './CertifiedExportConsistencyBridge';
 import FinalCertificationGate from './FinalCertificationGate';
@@ -65,7 +64,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <ReferenceWorkspaceBar />
       <ResultsOverlay />
-      <AutoCertificationBridge />
       <CertificationInvalidationBridge />
       <CertifiedExportConsistencyBridge />
       <FinalCertificationGate />
