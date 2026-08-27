@@ -5,10 +5,10 @@ import { analyzeFloorLoad } from './engine/floorLoad';
 import { validatePlacements } from './engine/constraints';
 import { assessWeightBalance } from './engine/weightBalance';
 import { buildPlacementAddresses } from './engine/locationGrid';
-import { packOnPallets, type OptimizedPalletPackingResult, type PalletSpec } from './engine/palletOptimization';
+import { packOnPallets, type PalletSpec } from './engine/palletOptimization';
 import type { LoadingResult } from './engine/types';
 import { cargoColor } from './cargoColors';
-import { clearLatestInertiaCertification } from './inertiaCertification';
+import { publishPalletSnapshot, type PalletSnapshot, usePalletSnapshot } from './palletSnapshotStore';
 import { OPEN_RESULTS_MODAL_EVENT, type ResultsModalDetail } from './resultsModalEvents';
 
 const StrategyComparisonPanel = lazy(() => import('./StrategyComparisonPanel'));
@@ -20,12 +20,9 @@ const WorkSequencePanel = lazy(() => import('./WorkSequencePanel'));
 const ErgonomicRiskPanel = lazy(() => import('./ErgonomicRiskPanel'));
 const AutoCorrectionPanel = lazy(() => import('./AutoCorrectionPanel'));
 
-type PalletSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult };
-type PalletWindow = Window & { __containerLoadingPalletSnapshot?: PalletSnapshot };
 type AdvancedTab = 'optimize' | 'edit' | 'work';
 
 const PALLET_SPEC_FROM_RESULTS_EVENT = 'container-loading:pallet-spec-from-results';
-const PALLET_SNAPSHOT_UPDATED_EVENT = 'container-loading:pallet-snapshot-updated';
 
 export function sanitizeResultsPalletSpec(spec: PalletSpec): PalletSpec {
   return {
@@ -56,29 +53,19 @@ export default function ResultsOverlay() {
   const [detail, setDetail] = useState<ResultsModalDetail | null>(null);
   const [advanced, setAdvanced] = useState(false);
   const [advancedTab, setAdvancedTab] = useState<AdvancedTab>('optimize');
-  const [palletSnapshot, setPalletSnapshot] = useState<PalletSnapshot | null>(null);
+  const palletSnapshot = usePalletSnapshot() ?? null;
 
   useEffect(() => {
     const onOpen = (event: Event) => {
       const next = (event as CustomEvent<ResultsModalDetail>).detail;
       if (!next) return;
       setDetail(next);
-      setPalletSnapshot((window as PalletWindow).__containerLoadingPalletSnapshot ?? null);
       setAdvanced(false);
       setAdvancedTab('optimize');
       setOpen(true);
     };
     window.addEventListener(OPEN_RESULTS_MODAL_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_RESULTS_MODAL_EVENT, onOpen);
-  }, []);
-
-  useEffect(() => {
-    const onPalletSnapshot = (event: Event) => {
-      const next = (event as CustomEvent<PalletSnapshot>).detail;
-      if (next) setPalletSnapshot(next);
-    };
-    window.addEventListener(PALLET_SNAPSHOT_UPDATED_EVENT, onPalletSnapshot);
-    return () => window.removeEventListener(PALLET_SNAPSHOT_UPDATED_EVENT, onPalletSnapshot);
   }, []);
 
   useEffect(() => {
@@ -111,9 +98,7 @@ export default function ResultsOverlay() {
     const nextSpec = sanitizeResultsPalletSpec({ ...palletSnapshot.spec, [field]: Number(rawValue) });
     const nextResult = packOnPallets(detail.container, detail.cargo.filter(item => item.quantity > 0), nextSpec);
     const nextSnapshot: PalletSnapshot = { spec: nextSpec, result: nextResult };
-    clearLatestInertiaCertification();
-    (window as PalletWindow).__containerLoadingPalletSnapshot = nextSnapshot;
-    setPalletSnapshot(nextSnapshot);
+    publishPalletSnapshot(nextSnapshot);
     window.dispatchEvent(new CustomEvent<PalletSpec>(PALLET_SPEC_FROM_RESULTS_EVENT, { detail: nextSpec }));
     setOpen(false);
   };
