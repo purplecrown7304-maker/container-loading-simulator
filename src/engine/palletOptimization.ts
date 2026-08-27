@@ -6,6 +6,7 @@ import {
   type PalletSpec,
 } from './palletPacking';
 import { centeredPalletLaneLayout } from './palletLaneLayout';
+import { containerInputError, preflightCargoInput, type RejectedCargoRow } from './inputPreflight';
 import type { CargoItem, ContainerSpec } from './types';
 
 export { defaultPalletSpec };
@@ -27,6 +28,46 @@ export type PalletOptimizationMeta = {
 export type OptimizedPalletPackingResult = PalletPackingResult & {
   optimization: PalletOptimizationMeta;
 };
+
+function palletInputError(pallet: PalletSpec) {
+  const positive = (value: number) => Number.isFinite(value) && value > 0;
+  const nonNegative = (value: number) => Number.isFinite(value) && value >= 0;
+  if (!positive(pallet.length) || !positive(pallet.width) || !positive(pallet.height)) {
+    return '팔레트 길이·폭·높이는 0보다 큰 유한한 값이어야 함';
+  }
+  if (!nonNegative(pallet.tareWeightKg)) return '팔레트 자중은 0 이상의 유한한 값이어야 함';
+  if (!positive(pallet.maxLoadKg)) return '팔레트 최대 적재중량은 0보다 큰 유한한 값이어야 함';
+  if (!Number.isInteger(pallet.maxStackLevels) || pallet.maxStackLevels < 1) return '팔레트 최대 적층단은 1 이상의 정수여야 함';
+  if (!nonNegative(pallet.maxSupportedTopWeightKg)) return '팔레트 상부 허용중량은 0 이상의 유한한 값이어야 함';
+  if (!nonNegative(pallet.cornerGuardWeightKg) || !nonNegative(pallet.cornerGuardExtraHeightM)) return '각대 중량·추가 높이는 0 이상의 유한한 값이어야 함';
+  if (!nonNegative(pallet.wrappingWeightKg) || !nonNegative(pallet.wrappingExtraHeightM)) return '랩핑 중량·추가 높이는 0 이상의 유한한 값이어야 함';
+  return null;
+}
+
+function emptyOptimizedResult(remaining: RejectedCargoRow[]): OptimizedPalletPackingResult {
+  return {
+    pallets: [],
+    placements: [],
+    remaining,
+    palletCount: 0,
+    loadedCargoWeightKg: 0,
+    totalPackagingWeightKg: 0,
+    avoidedPackagingWeightKg: 0,
+    packagedPalletCount: 0,
+    totalPalletizedWeightKg: 0,
+    consolidatedPallets: 0,
+    lateralImbalanceKg: 0,
+    stackedPallets: 0,
+    maxUsedStackLevel: 0,
+    optimization: {
+      selectedStackTarget: 0,
+      candidateCount: 0,
+      floorPositions: 0,
+      redistributedForLowUtilization: false,
+      consolidationPasses: 0,
+    },
+  };
+}
 
 function cloneLoad(load: PalletLoad): PalletLoad {
   return {
@@ -327,20 +368,30 @@ export function packOnPallets(
   cargo: CargoItem[],
   pallet: PalletSpec = defaultPalletSpec,
 ): OptimizedPalletPackingResult {
+  const preflight = preflightCargoInput(cargo);
+  const normalizedCargo = preflight.cargo;
+  const configurationError = containerInputError(container) ?? palletInputError(pallet);
+  if (configurationError) {
+    return emptyOptimizedResult([
+      ...preflight.rejected,
+      ...normalizedCargo.map((item) => ({ cargoId: item.id, quantity: item.quantity, reason: configurationError })),
+    ]);
+  }
+
   const configuredMax = Math.max(1, Math.floor(pallet.maxStackLevels || 1));
   const physicalMax = Math.max(1, Math.floor((container.height + EPS) / Math.max(pallet.height, EPS)));
   const maxTarget = Math.min(configuredMax, physicalMax);
   const candidates: Array<{ result: PalletPackingResult; target: number; passes: number }> = [];
 
   for (let target = 1; target <= maxTarget; target += 1) {
-    const candidateCargo = cargoForStackTarget(container, cargo, pallet, target);
+    const candidateCargo = cargoForStackTarget(container, normalizedCargo, pallet, target);
     const packed = packOnPalletsBase(container, candidateCargo, { ...pallet, maxStackLevels: target });
     const consolidated = consolidateUntilStable(packed, container, candidateCargo, pallet);
     candidates.push({ result: consolidated.result, target, passes: consolidated.passes });
   }
 
   let selected = candidates[0] ?? {
-    result: packOnPalletsBase(container, cargo, pallet),
+    result: packOnPalletsBase(container, normalizedCargo, pallet),
     target: 1,
     passes: 0,
   };
@@ -352,6 +403,7 @@ export function packOnPallets(
   const redistributed = redistributeForLowUtilization(floorSpread, container, pallet);
   return {
     ...redistributed.result,
+    remaining: [...preflight.rejected, ...redistributed.result.remaining],
     optimization: {
       selectedStackTarget: selected.target,
       candidateCount: candidates.length,
