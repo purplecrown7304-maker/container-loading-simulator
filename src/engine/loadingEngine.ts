@@ -99,9 +99,9 @@ function safeIdenticalStackLayers(item: CargoItem) {
   return Math.max(1, Math.min(stackLimit, byTopLoad));
 }
 
-function bestStackOrientation(container: ContainerSpec, item: CargoItem): StackOrientation | undefined {
+function stackOrientations(container: ContainerSpec, item: CargoItem): StackOrientation[] {
   const layersHigh = Math.min(safeIdenticalStackLayers(item), fitCount(container.height, item.height));
-  if (layersHigh < 1) return undefined;
+  if (layersHigh < 1) return [];
   const options = [
     { length: item.length, width: item.width, rotated: false },
     ...(item.allowRotation === false || Math.abs(item.length - item.width) < EPS
@@ -115,7 +115,7 @@ function bestStackOrientation(container: ContainerSpec, item: CargoItem): StackO
       layersHigh,
       capacity: fitCount(container.length, option.length) * fitCount(container.width, option.width) * layersHigh,
     }))
-    .sort((a, b) => b.capacity - a.capacity || a.length - b.length || a.width - b.width)[0];
+    .sort((a, b) => b.capacity - a.capacity || a.width - b.width || a.length - b.length);
 }
 
 function buildVerticalStack(
@@ -153,6 +153,18 @@ function shelfCanFit(container: ContainerSpec, shelf: PureShelf, orientation: St
   const nextDepth = Math.max(shelf.depth, orientation.length);
   return shelf.usedY + orientation.width <= container.width + EPS
     && shelf.x + nextDepth <= container.length + EPS;
+}
+
+function chooseShelfOrientation(container: ContainerSpec, shelf: PureShelf, options: StackOrientation[]) {
+  return options
+    .filter((orientation) => shelfCanFit(container, shelf, orientation))
+    .sort((a, b) => {
+      const remainingA = container.width - (shelf.usedY + a.width);
+      const remainingB = container.width - (shelf.usedY + b.width);
+      // 이미 열린 선반에서는 남은 폭을 가장 적게 만드는 방향을 우선한다.
+      if (shelf.usedY > EPS && Math.abs(remainingA - remainingB) > EPS) return remainingA - remainingB;
+      return b.capacity - a.capacity || a.length - b.length;
+    })[0];
 }
 
 function furthestTail(placements: Placement[]) {
@@ -205,17 +217,16 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   let shelf: PureShelf = { x: 0, usedY: 0, depth: 0 };
 
   // 1차 순수 구역: SKU별 완성 세로 스택만 만든다.
-  // 한 SKU의 완성 스택을 모두 배치한 뒤 다음 SKU로 넘어가며, 현재 x 선반의
-  // 남은 폭은 다음 SKU의 완성 스택이 이어서 사용한다. 그래서 낮은 계단은 없고
-  // 서로 다른 SKU 때문에 폭 방향 빈칸이 통째로 버려지는 현상도 줄어든다.
+  // 열린 x 선반의 남은 폭은 다음 완성 스택이 사용할 수 있고, 회전 허용 품목은
+  // 남은 폭을 더 잘 채우는 90° 방향을 스택별로 선택한다.
   for (const item of prioritized) {
-    const orientation = bestStackOrientation(container, item);
-    if (!orientation) {
+    const orientations = stackOrientations(container, item);
+    if (!orientations.length) {
       deferred.push({ item, quantity: item.quantity });
       continue;
     }
 
-    const stackSize = orientation.layersHigh;
+    const stackSize = orientations[0].layersHigh;
     const stackWeightKg = stackSize * item.weightKg;
     const completeStackCount = Math.floor(item.quantity / stackSize);
     let placed = 0;
@@ -223,11 +234,13 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     for (let stackIndex = 0; stackIndex < completeStackCount; stackIndex += 1) {
       if (loadedWeightKg + stackWeightKg > container.maxPayloadKg + EPS) break;
 
-      if (!shelfCanFit(container, shelf, orientation)) {
+      let orientation = chooseShelfOrientation(container, shelf, orientations);
+      if (!orientation) {
         if (shelf.depth <= EPS) break;
         shelf = nextShelf(shelf);
+        orientation = chooseShelfOrientation(container, shelf, orientations);
       }
-      if (!shelfCanFit(container, shelf, orientation)) break;
+      if (!orientation) break;
 
       const stack = buildVerticalStack(
         item,
@@ -253,8 +266,6 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   }
 
   // 2차 최종 혼합구역: 순수 스택의 가장 문쪽 끝 이후에서만 시작한다.
-  // 모든 잔량 SKU가 동일한 시작 x를 공유하고, 각 SKU는 같은 x/y에서 위로 먼저
-  // 채운 뒤 옆 자리로 이동한다. 품목별로 새 종방향 구역을 만들지 않는다.
   const mixedZoneStartX = furthestTail(placements);
 
   for (const { item, quantity } of deferred) {
