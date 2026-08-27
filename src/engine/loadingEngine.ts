@@ -157,8 +157,16 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   let cursorX = 0;
   for (const item of prioritized) {
     const orientation = bestBlockOrientation(container, item);
-    const rawColumns = Math.max(1, orientation.columnsAcross);
-    const rawLayers = Math.max(1, orientation.layersHigh);
+    if (
+      orientation.columnsAcross < 1 ||
+      orientation.layersHigh < 1 ||
+      fitCount(container.length, orientation.length) < 1
+    ) {
+      deferred.push({ item, quantity: item.quantity });
+      continue;
+    }
+    const rawColumns = orientation.columnsAcross;
+    const rawLayers = orientation.layersHigh;
     const geometry = strategyGeometry(strategy, rawColumns, rawLayers);
     const columnsAcross = Math.max(1, geometry.columns);
     const layersHigh = Math.max(1, geometry.layers);
