@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { requestExactCertification, requestNextPalletCertification } from './autoCertification';
 import { cargoColor, cargoTint } from './cargoColors';
+import { analyzeConstraints } from './engine/constraintAnalysis';
+import { analyzeFloorLoad } from './engine/floorLoad';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import { containerInputError, preflightCargoInput } from './engine/inputPreflight';
 import { loadContainer, type LoadingStrategy } from './engine/loadingEngine';
@@ -72,6 +74,10 @@ export default function App() {
   const weightRate = container.maxPayloadKg > 0 ? result.loadedWeightKg / container.maxPayloadKg * 100 : 0;
   const waitingCount = useMemo(() => cargo.reduce((sum, item) => sum + item.quantity, 0), [cargo]);
   const quality = useMemo(() => assessWeightBalance(container, result), [container, result]);
+  const floorLoad = useMemo(() => analyzeFloorLoad(container, result, 12, 4), [container, result]);
+  const constraintChecks = useMemo(() => analyzeConstraints(container, cargo, result, floorLoad), [container, cargo, result, floorLoad]);
+  const hasConstraintFailure = constraintChecks.some(check => check.status === 'fail');
+  const hasConstraintWarning = constraintChecks.some(check => check.status === 'warn');
   const addresses = useMemo(() => buildPlacementAddresses(result.placements, container.length), [result.placements, container.length]);
   const maxLayer = useMemo(() => addresses.reduce((max, item) => Math.max(max, item?.layer ?? 0), 0), [addresses]);
 
@@ -368,10 +374,10 @@ export default function App() {
           <div><span>총 중량</span><b>{result.loadedWeightKg.toLocaleString()} / {container.maxPayloadKg.toLocaleString()} kg</b><small>{weightRate.toFixed(1)}%</small></div>
           <div><span>사용 박스 수</span><b>{result.placements.length} EA</b></div>
           <div><span>물리 안정성</span><b>{physicsScore !== null ? `${physicsScore} 점` : '검증 전'}</b><small>{physicsStrategy ? strategyLabel(physicsStrategy) : `${maxLayer} 층`}</small></div>
-        </div><button className="constraint-ok" onClick={showResults}>{physicsScore !== null ? '물리 최적안 선택 완료' : '결과 상세 보기'}</button></section>
+        </div><button className={`constraint-ok ${hasConstraintFailure ? 'failure' : hasConstraintWarning ? 'warning' : ''}`} onClick={showResults}>{hasConstraintFailure ? '제약 조건 실패 항목 있음' : hasConstraintWarning ? '현장 확인 항목 있음' : physicsScore !== null ? '물리 최적안 선택 완료' : '제약 조건 모두 만족'}</button></section>
 
         <section className="dashboard-card constraint-card"><h2>5. 제약 조건 체크</h2><div className="constraint-list">
-          <span><span>중량 제한</span><b>필수</b></span><span><span>경계 / 겹침</span><b>필수</b></span><span><span>최대 적층단</span><b>필수</b></span><span><span>상부 허용중량</span><b>입력 시</b></span><span><span>무게중심</span><b>{quality.balanceScore.toFixed(0)}점</b></span><span><span>운송 물리 안정성</span><b>{physicsScore !== null ? `${physicsScore}점` : '자동 적재 후 계산'}</b></span>
+          {constraintChecks.map(check => <span key={check.id} className={check.status === 'pass' ? 'constraint-pass' : check.status === 'warn' ? 'constraint-warn' : 'constraint-fail'} title={check.detail}><span>{check.label}</span><b>{check.status === 'pass' ? '통과' : check.status === 'warn' ? '확인' : '실패'}</b></span>)}
         </div></section>
 
         <section className="dashboard-card quick-card"><h2>6. 빠른 작업</h2>
