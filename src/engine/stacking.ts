@@ -52,6 +52,30 @@ export function countStackLayersBelow(
   return depth;
 }
 
+function supportingAncestorsWithDepth(candidate: Placement, placements: Placement[]) {
+  const depthByPlacement = new Map<Placement, number>();
+  let frontier = placements
+    .filter((placement) => directlySupportedBy(candidate, placement))
+    .map((placement) => ({ placement, depth: 2 }));
+
+  while (frontier.length > 0) {
+    const next: Array<{ placement: Placement; depth: number }> = [];
+    for (const current of frontier) {
+      const previous = depthByPlacement.get(current.placement) ?? 0;
+      if (previous >= current.depth) continue;
+      depthByPlacement.set(current.placement, current.depth);
+      for (const possibleLower of placements) {
+        if (directlySupportedBy(current.placement, possibleLower)) {
+          next.push({ placement: possibleLower, depth: current.depth + 1 });
+        }
+      }
+    }
+    frontier = next;
+  }
+
+  return depthByPlacement;
+}
+
 export function projectedTopLoadKg(
   base: Placement,
   candidate: Placement,
@@ -89,6 +113,13 @@ export function canPlaceByStackingRules(
   if (item.maxStackLayers !== undefined) {
     const resultingLayer = countStackLayersBelow(candidate, placements);
     if (resultingLayer > item.maxStackLayers) return false;
+  }
+
+  // 혼합 SKU 적재에서도 아래 박스의 최대 적층단을 존중한다.
+  // 예: 바닥 박스가 최대 2단이면, 다른 SKU를 위에 얹어 3단 체인을 만드는 것도 금지한다.
+  for (const [base, resultingDepth] of supportingAncestorsWithDepth(candidate, placements)) {
+    const baseItem = cargoById.get(base.cargoId);
+    if (baseItem?.maxStackLayers !== undefined && resultingDepth > baseItem.maxStackLayers) return false;
   }
 
   for (const base of placements) {
