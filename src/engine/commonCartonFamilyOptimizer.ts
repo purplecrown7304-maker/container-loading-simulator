@@ -230,6 +230,34 @@ function cargoFromAssignments(assignments: ProductPackagingAssignment[]): CargoI
   }));
 }
 
+function familySummaryBoxes(
+  assignments: ProductPackagingAssignment[],
+  selected: CandidateEvaluation[],
+): CommonCartonFamilySummary['selectedBoxes'] {
+  const groups = new Map<string, CommonCartonFamilySummary['selectedBoxes'][number]>();
+  for (const assignment of assignments) {
+    const key = assignmentKey(assignment);
+    const candidate = selected.find((item) => boxKey(item.box) === key);
+    const current = groups.get(key);
+    if (current) {
+      current.assignedProducts.push(assignment.productId);
+      continue;
+    }
+    groups.set(key, {
+      id: candidate?.box.id ?? assignment.boxId,
+      name: candidate?.box.name ?? assignment.boxName,
+      source: candidate?.box.familySource ?? (assignment.source === 'catalog' ? 'catalog' : 'generated'),
+      outerLength: assignment.outerLength,
+      outerWidth: assignment.outerWidth,
+      outerHeight: assignment.outerHeight,
+      assignedProducts: [assignment.productId],
+    });
+  }
+  return [...groups.values()]
+    .map((item) => ({ ...item, assignedProducts: [...new Set(item.assignedProducts)].sort() }))
+    .sort((a, b) => a.outerLength * a.outerWidth * a.outerHeight - b.outerLength * b.outerWidth * b.outerHeight || a.id.localeCompare(b.id));
+}
+
 export function optimizeCommonCartonFamily(
   container: ContainerSpec,
   products: ProductItem[],
@@ -241,6 +269,7 @@ export function optimizeCommonCartonFamily(
   const target = Math.max(1, Math.floor(family.targetMaxBoxTypes));
   if (!family.enabled || baseline.assignments.length <= 1) {
     const baselineTypes = new Set(baseline.assignments.map(assignmentKey)).size;
+    const selectedBoxes = familySummaryBoxes(baseline.assignments, []);
     return {
       ...baseline,
       family: {
@@ -250,15 +279,7 @@ export function optimizeCommonCartonFamily(
         targetMaxBoxTypes: target,
         targetExceeded: baselineTypes > target,
         averageScoreLoss: 0,
-        selectedBoxes: baseline.assignments.map((item) => ({
-          id: item.boxId,
-          name: item.boxName,
-          source: item.source === 'catalog' ? 'catalog' : 'generated',
-          outerLength: item.outerLength,
-          outerWidth: item.outerWidth,
-          outerHeight: item.outerHeight,
-          assignedProducts: [item.productId],
-        })),
+        selectedBoxes,
       },
     };
   }
@@ -332,16 +353,9 @@ export function optimizeCommonCartonFamily(
     totalLoss += Math.max(0, baselineAssignment.score - chosen.score);
   }
 
-  const usedIds = new Set(assignments.map((item) => item.boxId));
-  const selectedUsed = selected.filter((candidate) => usedIds.has(candidate.box.id));
   const baselineTypes = new Set(baseline.assignments.map(assignmentKey)).size;
-  const selectedTypes = usedIds.size;
-  const assignedByBox = new Map<string, string[]>();
-  for (const item of assignments) {
-    const list = assignedByBox.get(item.boxId) ?? [];
-    list.push(item.productId);
-    assignedByBox.set(item.boxId, list);
-  }
+  const selectedTypes = new Set(assignments.map(assignmentKey)).size;
+  const selectedBoxes = familySummaryBoxes(assignments, selected);
 
   return {
     assignments,
@@ -349,7 +363,7 @@ export function optimizeCommonCartonFamily(
     rejected: baseline.rejected,
     totalBoxes: assignments.reduce((sum, item) => sum + item.boxesNeeded, 0),
     totalPackedProducts: baseline.totalPackedProducts,
-    generatedBoxCount: new Set(assignments.filter((item) => item.source === 'generated').map((item) => item.boxId)).size,
+    generatedBoxCount: new Set(assignments.filter((item) => item.source === 'generated').map(assignmentKey)).size,
     family: {
       baselineBoxTypes: baselineTypes,
       selectedBoxTypes: selectedTypes,
@@ -357,15 +371,7 @@ export function optimizeCommonCartonFamily(
       targetMaxBoxTypes: target,
       targetExceeded: selectedTypes > target,
       averageScoreLoss: assignments.length ? totalLoss / assignments.length : 0,
-      selectedBoxes: selectedUsed.map((candidate) => ({
-        id: candidate.box.id,
-        name: candidate.box.name,
-        source: candidate.box.familySource,
-        outerLength: candidate.box.outerLength,
-        outerWidth: candidate.box.outerWidth,
-        outerHeight: candidate.box.outerHeight,
-        assignedProducts: [...(assignedByBox.get(candidate.box.id) ?? [])].sort(),
-      })),
+      selectedBoxes,
     },
   };
 }
