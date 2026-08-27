@@ -126,9 +126,10 @@ function assignmentBox(
     outerHeight: assignment.outerHeight,
     tareWeightKg: assignmentTare(assignment, product),
     maxGrossWeightKg: Math.max(packaging.maxGeneratedGrossWeightKg, assignment.grossWeightKg),
-    maxTopLoadKg: assignment.maxTopLoadKg,
+    // 자동설계/공용규격은 강도 미검증 상태라 0kg 상부하중을 유지한다.
+    maxTopLoadKg: assignment.source === 'generated' ? 0 : assignment.maxTopLoadKg,
     unitCost: assignment.boxUnitCost ?? (packaging.generatedBoxUnitCost && packaging.generatedBoxUnitCost > 0 ? packaging.generatedBoxUnitCost : undefined),
-    source: 'generated',
+    source: assignment.source === 'catalog' ? 'catalog' : 'generated',
   };
 }
 
@@ -230,7 +231,6 @@ function buildAccurateCargo(
   const dedicatedPartialCartons: EnterprisePackagingPlan['dedicatedPartialCartons'] = [];
   const unitsPerBox = new Map(familyPlan.assignments.map((assignment) => [assignment.productId, assignment.unitsPerBox]));
   const residual = residualUnitsForProducts(products, unitsPerBox);
-  const residualKeySet = new Set(residual.mixable.map((unit) => unit.key));
 
   for (const assignment of familyPlan.assignments) {
     const product = assignmentProduct(assignment, products);
@@ -303,14 +303,13 @@ function buildAccurateCargo(
     const product = products.find((item) => item.id === productId);
     if (!assignment || !product || quantity <= 0) continue;
     const partial = dedicatedPartialCargo(assignment, product, quantity);
-    // 이미 비혼합 경로에서 같은 partial이 생성된 제품은 residualKeySet에 포함되지 않는다.
     if (!cargo.some((item) => item.id === partial.id)) {
       cargo.push(partial);
       dedicatedPartialCartons.push({ productId, quantity, grossWeightKg: partial.weightKg, cargoId: partial.id });
     }
   }
 
-  return { cargo, mixedCartons, dedicatedPartialCartons, residualKeySet };
+  return { cargo, mixedCartons, dedicatedPartialCartons };
 }
 
 export function estimateShipmentContainers(
@@ -343,9 +342,14 @@ export function estimateShipmentContainers(
   };
 }
 
+function actualCartonCountForProduct(accurateCargo: CargoItem[], productId: string) {
+  const fullId = `PKG-${productId}`;
+  const partialId = `PKG-${productId}-PARTIAL`;
+  return accurateCargo.reduce((sum, item) => item.id === fullId || item.id === partialId ? sum + item.quantity : sum, 0);
+}
+
 function costSummary(
   familyPlan: CommonCartonFamilyPlan,
-  products: ProductItem[],
   catalog: BoxCatalogItem[],
   accurateCargo: CargoItem[],
   mixedCartons: MixedResidualCarton[],
@@ -356,21 +360,20 @@ function costSummary(
   let unpricedCartons = 0;
   const usedGenerated = new Set<string>();
   const usedBoxKeys = new Set<string>();
-  const mixedIds = new Set(mixedCartons.map((item) => item.id));
 
+  // 비용은 혼합 가능 여부가 아니라 최종 생성된 실제 화물행을 기준으로 계산한다.
+  // 따라서 혼합에 실패해 전용 partial로 되돌아간 박스도 빠짐없이 집계된다.
   for (const assignment of familyPlan.assignments) {
-    const product = assignmentProduct(assignment, products);
-    if (!product) continue;
-    const fullCount = Math.floor(product.quantity / Math.max(1, assignment.unitsPerBox));
-    const remainder = product.quantity % Math.max(1, assignment.unitsPerBox);
-    const residualMixed = options.allowMixedResidualCartons && !product.fragile && product.allowMixedCarton !== false && remainder > 0;
-    const dedicatedCount = fullCount + (remainder > 0 && !residualMixed ? 1 : 0);
+    const actualCount = actualCartonCountForProduct(accurateCargo, assignment.productId);
+    if (actualCount <= 0) continue;
     const catalogBox = catalog.find((box) => box.id === assignment.boxId);
-    const unitCost = catalogBox?.unitCost ?? assignment.boxUnitCost ?? (assignment.source === 'generated' ? options.packaging.generatedBoxUnitCost : undefined);
-    if (unitCost != null && Number.isFinite(unitCost) && unitCost >= 0) knownCartonCost += unitCost * dedicatedCount;
-    else unpricedCartons += dedicatedCount;
-    if (assignment.source === 'generated' && dedicatedCount > 0) usedGenerated.add(assignment.boxId);
-    if (dedicatedCount > 0) usedBoxKeys.add(`${assignment.outerLength.toFixed(4)}:${assignment.outerWidth.toFixed(4)}:${assignment.outerHeight.toFixed(4)}`);
+    const unitCost = catalogBox?.unitCost
+      ?? assignment.boxUnitCost
+      ?? (assignment.source === 'generated' ? options.packaging.generatedBoxUnitCost : undefined);
+    if (unitCost != null && Number.isFinite(unitCost) && unitCost >= 0) knownCartonCost += unitCost * actualCount;
+    else unpricedCartons += actualCount;
+    if (assignment.source === 'generated') usedGenerated.add(assignment.boxId);
+    usedBoxKeys.add(`${assignment.outerLength.toFixed(4)}:${assignment.outerWidth.toFixed(4)}:${assignment.outerHeight.toFixed(4)}`);
   }
 
   for (const carton of mixedCartons) {
@@ -406,7 +409,7 @@ export function optimizeEnterprisePackaging(
   const familyPlan = optimizeCommonCartonFamily(container, products, catalog, options.packaging, options.family);
   const accurate = buildAccurateCargo(container, familyPlan, products, catalog, options);
   const shipment = estimateShipmentContainers(container, accurate.cargo, options.maxEstimatedContainers);
-  const cost = costSummary(familyPlan, products, catalog, accurate.cargo, accurate.mixedCartons, shipment, options);
+  const cost = costSummary(familyPlan, catalog, accurate.cargo, accurate.mixedCartons, shipment, options);
   const totalBoxes = accurate.cargo.reduce((sum, item) => sum + item.quantity, 0);
   const accurateTotalCargoWeightKg = accurate.cargo.reduce((sum, item) => sum + item.weightKg * item.quantity, 0);
 
