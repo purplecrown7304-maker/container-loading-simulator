@@ -6,6 +6,8 @@ import { hasAdequateSupport } from './support';
 const EPS = 1e-9;
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
 
+type Orientation = { length: number; width: number; rotated: boolean };
+
 export type MixedPlacementOptions = {
   minX?: number;
   maxX?: number;
@@ -14,31 +16,52 @@ export type MixedPlacementOptions = {
   preferVerticalStack?: boolean;
 };
 
-function candidateAxes(container: ContainerSpec, placements: Placement[], options: MixedPlacementOptions = {}) {
-  const xs = new Set<number>([0, options.minX ?? 0]);
-  const ys = new Set<number>([0]);
-  const zs = new Set<number>([0]);
-  for (const placement of placements) {
-    xs.add(round3(placement.x + placement.length));
-    ys.add(round3(placement.y + placement.width));
-    zs.add(round3(placement.z + placement.height));
-  }
-  const minX = Math.max(0, options.minX ?? 0);
-  const maxX = Math.min(container.length, options.maxX ?? container.length);
-  const filteredX = [...xs]
-    .filter((value) => value + EPS >= minX && value <= maxX + EPS)
-    .sort((a, b) => options.preferDoorSide ? b - a : a - b);
-  return {
-    xs: filteredX,
-    ys: [...ys].filter((value) => value <= container.width + EPS).sort((a, b) => a - b),
-    zs: [...zs].filter((value) => value <= container.height + EPS).sort((a, b) => a - b),
-  };
-}
-
-function orientations(item: CargoItem) {
+function orientations(item: CargoItem): Orientation[] {
   const normal = { length: item.length, width: item.width, rotated: false };
   if (item.allowRotation === false || Math.abs(item.length - item.width) < EPS) return [normal];
   return [normal, { length: item.width, width: item.length, rotated: true }];
+}
+
+function xCandidates(
+  container: ContainerSpec,
+  placements: Placement[],
+  orientation: Orientation,
+  options: MixedPlacementOptions,
+) {
+  const minX = Math.max(0, options.minX ?? 0);
+  const maxX = Math.min(container.length, options.maxX ?? container.length);
+  const values = new Set<number>([round3(minX), round3(Math.max(minX, maxX - orientation.length))]);
+  for (const placement of placements) {
+    values.add(round3(placement.x));
+    values.add(round3(placement.x + placement.length));
+    values.add(round3(placement.x - orientation.length));
+  }
+  return [...values]
+    .filter((x) => x + EPS >= minX && x >= -EPS && x + orientation.length <= maxX + EPS)
+    .sort((a, b) => options.preferDoorSide ? b - a : a - b);
+}
+
+function yCandidates(container: ContainerSpec, placements: Placement[], orientation: Orientation) {
+  const values = new Set<number>([0, round3(Math.max(0, container.width - orientation.width))]);
+  for (const placement of placements) {
+    values.add(round3(placement.y));
+    values.add(round3(placement.y + placement.width));
+    values.add(round3(placement.y - orientation.width));
+  }
+  return [...values]
+    .filter((y) => y >= -EPS && y + orientation.width <= container.width + EPS)
+    .sort((a, b) => a - b);
+}
+
+function zCandidates(container: ContainerSpec, item: CargoItem, placements: Placement[]) {
+  const values = new Set<number>([0]);
+  for (const placement of placements) {
+    values.add(round3(placement.z));
+    values.add(round3(placement.z + placement.height));
+  }
+  return [...values]
+    .filter((z) => z >= -EPS && z + item.height <= container.height + EPS)
+    .sort((a, b) => a - b);
 }
 
 function sideContact(a: Placement, b: Placement) {
@@ -53,19 +76,17 @@ function sideContact(a: Placement, b: Placement) {
 function sameStackContinuation(candidate: Placement, placements: Placement[]) {
   if (candidate.z <= EPS) return false;
   return placements.some((other) =>
-    other.cargoId === candidate.cargoId &&
-    Math.abs(other.x - candidate.x) <= 0.001 &&
-    Math.abs(other.y - candidate.y) <= 0.001 &&
-    Math.abs(other.length - candidate.length) <= 0.001 &&
-    Math.abs(other.width - candidate.width) <= 0.001 &&
-    Math.abs(other.z + other.height - candidate.z) <= 0.001,
+    other.cargoId === candidate.cargoId
+    && Math.abs(other.x - candidate.x) <= 0.001
+    && Math.abs(other.y - candidate.y) <= 0.001
+    && Math.abs(other.length - candidate.length) <= 0.001
+    && Math.abs(other.width - candidate.width) <= 0.001
+    && Math.abs(other.z + other.height - candidate.z) <= 0.001,
   );
 }
 
 /** 운영 효율 점수: 동일 품목 묶음과 빈틈 감소만 본다. 물리 안정성 벌점은 주지 않는다. */
 function compactnessScore(candidate: Placement, placements: Placement[], container: ContainerSpec, preferVerticalStack: boolean) {
-  // x는 가장 강한 압축 기준이다. 같은 혼합구역 안에서는 문쪽으로 불필요하게
-  // 길어지는 배치보다 이미 사용 중인 안쪽 x를 우선한다.
   let score = candidate.x * 4 + candidate.y;
   if (candidate.y <= EPS || candidate.y + candidate.width >= container.width - EPS) score -= 0.25;
   let contacts = 0;
@@ -89,7 +110,7 @@ function validCandidate(
   x: number,
   y: number,
   z: number,
-  orientation: { length: number; width: number; rotated: boolean },
+  orientation: Orientation,
 ) {
   const candidate: Placement = {
     cargoId: item.id,
@@ -117,19 +138,22 @@ export function findMixedPlacement(
   cargoById: Map<string, CargoItem>,
   options: MixedPlacementOptions = {},
 ): Placement | null {
-  const axes = candidateAxes(container, placements, options);
   const itemOrientations = orientations(item);
+  const zs = zCandidates(container, item, placements);
   const preferVerticalStack = options.preferVerticalStack === true;
+  const allXs = [...new Set(itemOrientations.flatMap((orientation) => xCandidates(container, placements, orientation, options)))]
+    .sort((a, b) => options.preferDoorSide ? b - a : a - b);
 
-  // DIRECT BOX 잔량은 x/y를 먼저 고정하고 z를 올려 같은 스택을 끝까지 채운다.
-  // 기존 호출은 x/z/y 순서를 유지해 다른 최적화 경로의 동작을 바꾸지 않는다.
   if (preferVerticalStack) {
-    for (const x of axes.xs) {
+    // 가장 안쪽의 가능한 x를 먼저 고정한다. 그 x 안에서는 동일 SKU의 기존 기둥을
+    // 위로 완성하는 후보를 강하게 우선하고, 안 되면 양쪽 박스 경계/벽에 맞춰 빈 폭을 채운다.
+    for (const x of allXs) {
       let bestAtX: Placement | null = null;
       let bestScore = Number.POSITIVE_INFINITY;
-      for (const y of axes.ys) {
-        for (const z of axes.zs) {
-          for (const orientation of itemOrientations) {
+      for (const orientation of itemOrientations) {
+        if (!xCandidates(container, placements, orientation, options).some((value) => Math.abs(value - x) <= EPS)) continue;
+        for (const y of yCandidates(container, placements, orientation)) {
+          for (const z of zs) {
             const candidate = validCandidate(container, item, placements, cargoById, options, x, y, z, orientation);
             if (!candidate) continue;
             const score = compactnessScore(candidate, placements, container, true);
@@ -145,12 +169,13 @@ export function findMixedPlacement(
     return null;
   }
 
-  for (const x of axes.xs) {
-    for (const z of axes.zs) {
+  for (const x of allXs) {
+    for (const z of zs) {
       let best: Placement | null = null;
       let bestScore = Number.POSITIVE_INFINITY;
-      for (const y of axes.ys) {
-        for (const orientation of itemOrientations) {
+      for (const orientation of itemOrientations) {
+        if (!xCandidates(container, placements, orientation, options).some((value) => Math.abs(value - x) <= EPS)) continue;
+        for (const y of yCandidates(container, placements, orientation)) {
           const candidate = validCandidate(container, item, placements, cargoById, options, x, y, z, orientation);
           if (!candidate) continue;
           const score = compactnessScore(candidate, placements, container, false);
