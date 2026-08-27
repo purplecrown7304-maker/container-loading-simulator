@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "npx tsc --ignoreConfig --noEmit --target ES2022 --lib ES2022,DOM,DOM.Iterable --module ESNext --moduleResolution Bundler --strict --skipLibCheck --esModuleInterop --allowSyntheticDefaultImports src/engine/palletPacking.ts && npm run build",
+  "buildCommand": "npm run verify:predeploy",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
