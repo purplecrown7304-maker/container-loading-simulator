@@ -115,7 +115,7 @@ test('result gate distinguishes direct-box and pallet certification modes', asyn
   await expect(page.locator('.final-cert-modal')).toContainText('PALLET');
 });
 
-test('results pallet settings preserve 4 to 7 stack levels when another field changes', async ({ page }) => {
+test('results pallet settings keep the seven-level range and close certified results after edits', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {
     const spec = {
@@ -156,7 +156,7 @@ test('results pallet settings preserve 4 to 7 stack levels when another field ch
   await expect(stackInput).toHaveValue('6');
   await expect(stackInput).toHaveAttribute('max', '7');
   await modal.getByLabel('길이(m)').fill('1.2');
-  await expect(stackInput).toHaveValue('6');
+  await expect(page.locator('.results-modal')).toHaveCount(0);
 });
 
 test('mobile dashboard remains usable without horizontal overflow', async ({ page }) => {
