@@ -6,7 +6,7 @@ import ExcelImportActions from './ExcelImportActions';
 import ExcelExportActions from './ExcelExportActions';
 import ResultsOverlay from './ResultsOverlay';
 import CertificationInvalidationBridge from './CertificationInvalidationBridge';
-import CertifiedExportConsistencyBridge from './CertifiedExportConsistencyBridge';
+import './certifiedExportConsistency';
 import FinalCertificationGate from './FinalCertificationGate';
 import FinalWorkOrderOptimizer from './FinalWorkOrderOptimizer';
 import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
@@ -65,7 +65,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ReferenceWorkspaceBar />
       <ResultsOverlay />
       <CertificationInvalidationBridge />
-      <CertifiedExportConsistencyBridge />
       <FinalCertificationGate />
       <FinalWorkOrderOptimizer />
       <DirectWorkOrderOptimizer />
