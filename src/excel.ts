@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { preflightCargoInput } from './engine/inputPreflight';
 import type { CargoItem } from './engine/types';
 
 export type ImportIssue = { row: number; code?: string; message: string };
@@ -38,6 +39,41 @@ function toRotationPolicy(value: unknown): { value: boolean; valid: boolean } {
   return { value: true, valid: false };
 }
 
+function mergeWorkbookDuplicates(items: CargoItem[], firstRowById: Map<string, number>, issues: ImportIssue[]) {
+  const grouped = new Map<string, CargoItem[]>();
+  for (const item of items) {
+    const group = grouped.get(item.id) ?? [];
+    group.push(item);
+    grouped.set(item.id, group);
+  }
+
+  const merged: CargoItem[] = [];
+  for (const [id, group] of grouped) {
+    const active = group.filter((item) => item.quantity > 0);
+    if (!active.length) {
+      // Zero quantity is a valid inactive SKU. Keep one row visible in the imported list.
+      merged.push(group[0]);
+      continue;
+    }
+
+    const preflight = preflightCargoInput(group);
+    if (preflight.rejected.length) {
+      for (const rejected of preflight.rejected) {
+        issues.push({
+          row: firstRowById.get(id) ?? 2,
+          code: rejected.cargoId,
+          message: rejected.reason,
+        });
+      }
+      continue;
+    }
+
+    const normalized = preflight.cargo[0];
+    if (normalized) merged.push(normalized);
+  }
+  return merged;
+}
+
 export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
@@ -46,9 +82,9 @@ export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
 
   const sheet = workbook.Sheets[firstSheetName];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
-  const items: CargoItem[] = [];
+  const rawItems: CargoItem[] = [];
   const issues: ImportIssue[] = [];
-  const seen = new Set<string>();
+  const firstRowById = new Map<string, number>();
 
   rows.forEach((row, index) => {
     const excelRow = index + 2;
@@ -66,10 +102,6 @@ export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
 
     if (!id || !name) {
       issues.push({ row: excelRow, code: id || undefined, message: '코드 또는 이름이 비어 있습니다.' });
-      return;
-    }
-    if (seen.has(id)) {
-      issues.push({ row: excelRow, code: id, message: `파일 안에서 코드 ${id}가 중복되었습니다.` });
       return;
     }
     if (![length, width, height, weightKg, quantity].every(Number.isFinite)) {
@@ -101,8 +133,8 @@ export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
       return;
     }
 
-    seen.add(id);
-    items.push({
+    if (!firstRowById.has(id)) firstRowById.set(id, excelRow);
+    rawItems.push({
       id,
       name,
       length,
@@ -117,7 +149,11 @@ export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
     });
   });
 
-  return { items, issues, totalRows: rows.length };
+  return {
+    items: mergeWorkbookDuplicates(rawItems, firstRowById, issues),
+    issues,
+    totalRows: rows.length,
+  };
 }
 
 export function downloadCargoTemplate() {
