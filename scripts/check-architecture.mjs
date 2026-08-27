@@ -12,7 +12,9 @@ const removedFiles = [
   'src/LocationSelectionBridge.tsx',
   'src/PalletFooterSummaryBridge.tsx',
   'src/CertificationResultSummaryBridge.tsx',
+  'src/AutoCertificationBridge.tsx',
   'src/DashboardRuntimeEnhancer.tsx',
+  'src/dashboard-runtime.css',
 ];
 
 for (const path of removedFiles) {
@@ -21,6 +23,7 @@ for (const path of removedFiles) {
 
 if (!existsSync('src/tokens.css')) fail('src/tokens.css is required for the shared typography scale.');
 if (!existsSync('src/store/externalStore.ts')) fail('src/store/externalStore.ts is required for domain state migration.');
+if (!existsSync('src/palletSnapshotStore.ts')) fail('src/palletSnapshotStore.ts is required for pallet domain state.');
 
 const bridgeFiles = readdirSync('src')
   .filter((name) => name.endsWith('Bridge.tsx'))
