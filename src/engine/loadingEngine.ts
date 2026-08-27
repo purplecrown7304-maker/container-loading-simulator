@@ -19,6 +19,20 @@ type CorrectionWindow = Window & {
   __containerLoadingLatestResult?: { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 };
 
+type StackOrientation = {
+  length: number;
+  width: number;
+  rotated: boolean;
+  layersHigh: number;
+  capacity: number;
+};
+
+type PureShelf = {
+  x: number;
+  usedY: number;
+  depth: number;
+};
+
 function browserStrategy(): LoadingStrategy {
   if (typeof window === 'undefined') return 'capacity';
   const value = window.localStorage?.getItem(LOADING_STRATEGY_STORAGE_KEY);
@@ -81,67 +95,68 @@ function prioritizedCargo(cargo: CargoItem[], strategy: LoadingStrategy): CargoI
 function safeIdenticalStackLayers(item: CargoItem) {
   const stackLimit = item.maxStackLayers ?? Number.POSITIVE_INFINITY;
   if (item.maxTopLoadKg === undefined) return stackLimit;
-  const topLoadLimit = Math.max(0, item.maxTopLoadKg);
-  const byTopLoad = 1 + Math.floor((topLoadLimit + EPS) / Math.max(item.weightKg, EPS));
+  const byTopLoad = 1 + Math.floor((Math.max(0, item.maxTopLoadKg) + EPS) / Math.max(item.weightKg, EPS));
   return Math.max(1, Math.min(stackLimit, byTopLoad));
 }
 
-function bestBlockOrientation(container: ContainerSpec, item: CargoItem) {
+function bestStackOrientation(container: ContainerSpec, item: CargoItem): StackOrientation | undefined {
+  const layersHigh = Math.min(safeIdenticalStackLayers(item), fitCount(container.height, item.height));
+  if (layersHigh < 1) return undefined;
   const options = [
     { length: item.length, width: item.width, rotated: false },
     ...(item.allowRotation === false || Math.abs(item.length - item.width) < EPS
       ? []
       : [{ length: item.width, width: item.length, rotated: true }]),
   ];
-  const safeStackLayers = safeIdenticalStackLayers(item);
   return options
-    .map((option) => {
-      const columnsAcross = fitCount(container.width, option.width);
-      const layersHigh = Math.min(safeStackLayers, fitCount(container.height, item.height));
-      const slicesDeep = fitCount(container.length, option.length);
-      return {
-        ...option,
-        columnsAcross,
-        layersHigh,
-        capacity: Math.max(0, columnsAcross) * Math.max(0, layersHigh) * Math.max(0, slicesDeep),
-        sliceCapacity: Math.max(0, columnsAcross) * Math.max(0, layersHigh),
-      };
-    })
-    .sort((a, b) => b.capacity - a.capacity || b.sliceCapacity - a.sliceCapacity || a.length - b.length)[0];
+    .filter((option) => option.length <= container.length + EPS && option.width <= container.width + EPS)
+    .map((option) => ({
+      ...option,
+      layersHigh,
+      capacity: fitCount(container.length, option.length) * fitCount(container.width, option.width) * layersHigh,
+    }))
+    .sort((a, b) => b.capacity - a.capacity || a.length - b.length || a.width - b.width)[0];
+}
+
+function buildVerticalStack(
+  item: CargoItem,
+  x: number,
+  y: number,
+  orientation: StackOrientation,
+  placements: Placement[],
+  cargoById: Map<string, CargoItem>,
+) {
+  const stack: Placement[] = [];
+  for (let layer = 0; layer < orientation.layersHigh; layer += 1) {
+    const candidate: Placement = {
+      cargoId: item.id,
+      x,
+      y,
+      z: layer * item.height,
+      length: orientation.length,
+      width: orientation.width,
+      height: item.height,
+      weightKg: item.weightKg,
+      rotated: orientation.rotated,
+    };
+    if (!canPlaceByStackingRules(item, candidate, [...placements, ...stack], cargoById)) return null;
+    stack.push(candidate);
+  }
+  return stack;
+}
+
+function nextShelf(shelf: PureShelf): PureShelf {
+  return { x: shelf.x + shelf.depth, usedY: 0, depth: 0 };
+}
+
+function shelfCanFit(container: ContainerSpec, shelf: PureShelf, orientation: StackOrientation) {
+  const nextDepth = Math.max(shelf.depth, orientation.length);
+  return shelf.usedY + orientation.width <= container.width + EPS
+    && shelf.x + nextDepth <= container.length + EPS;
 }
 
 function furthestTail(placements: Placement[]) {
   return placements.reduce((tail, placement) => Math.max(tail, placement.x + placement.length), 0);
-}
-
-function buildCompleteSlice(
-  item: CargoItem,
-  x: number,
-  columnsAcross: number,
-  layersHigh: number,
-  orientation: { length: number; width: number; rotated: boolean },
-  placements: Placement[],
-  cargoById: Map<string, CargoItem>,
-) {
-  const slice: Placement[] = [];
-  for (let col = 0; col < columnsAcross; col += 1) {
-    for (let layer = 0; layer < layersHigh; layer += 1) {
-      const candidate: Placement = {
-        cargoId: item.id,
-        x,
-        y: col * orientation.width,
-        z: layer * item.height,
-        length: orientation.length,
-        width: orientation.width,
-        height: item.height,
-        weightKg: item.weightKg,
-        rotated: orientation.rotated,
-      };
-      if (!canPlaceByStackingRules(item, candidate, [...placements, ...slice], cargoById)) return null;
-      slice.push(candidate);
-    }
-  }
-  return slice;
 }
 
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
@@ -187,55 +202,59 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   let usedVolumeM3 = 0;
   const cargoById = new Map(normalizedCargo.map((item) => [item.id, item]));
   const prioritized = prioritizedCargo(normalizedCargo, strategy);
+  let shelf: PureShelf = { x: 0, usedY: 0, depth: 0 };
 
-  let cursorX = 0;
+  // 1차 순수 구역: SKU별 완성 세로 스택만 만든다.
+  // 한 SKU의 완성 스택을 모두 배치한 뒤 다음 SKU로 넘어가며, 현재 x 선반의
+  // 남은 폭은 다음 SKU의 완성 스택이 이어서 사용한다. 그래서 낮은 계단은 없고
+  // 서로 다른 SKU 때문에 폭 방향 빈칸이 통째로 버려지는 현상도 줄어든다.
   for (const item of prioritized) {
-    const orientation = bestBlockOrientation(container, item);
-    if (
-      orientation.columnsAcross < 1 ||
-      orientation.layersHigh < 1 ||
-      orientation.sliceCapacity < 1 ||
-      fitCount(container.length, orientation.length) < 1
-    ) {
+    const orientation = bestStackOrientation(container, item);
+    if (!orientation) {
       deferred.push({ item, quantity: item.quantity });
       continue;
     }
 
-    const columnsAcross = orientation.columnsAcross;
-    const layersHigh = orientation.layersHigh;
-    const sliceCapacity = orientation.sliceCapacity;
-    const sliceWeightKg = sliceCapacity * item.weightKg;
+    const stackSize = orientation.layersHigh;
+    const stackWeightKg = stackSize * item.weightKg;
+    const completeStackCount = Math.floor(item.quantity / stackSize);
     let placed = 0;
 
-    // 순수 SKU 구역은 가로 전체 × 안전 최대 높이의 완전한 직사각 슬라이스만 사용한다.
-    while (placed + sliceCapacity <= item.quantity) {
-      if (cursorX + orientation.length > container.length + EPS) break;
-      if (loadedWeightKg + sliceWeightKg > container.maxPayloadKg + EPS) break;
+    for (let stackIndex = 0; stackIndex < completeStackCount; stackIndex += 1) {
+      if (loadedWeightKg + stackWeightKg > container.maxPayloadKg + EPS) break;
 
-      const slice = buildCompleteSlice(
+      if (!shelfCanFit(container, shelf, orientation)) {
+        if (shelf.depth <= EPS) break;
+        shelf = nextShelf(shelf);
+      }
+      if (!shelfCanFit(container, shelf, orientation)) break;
+
+      const stack = buildVerticalStack(
         item,
-        cursorX,
-        columnsAcross,
-        layersHigh,
+        shelf.x,
+        shelf.usedY,
         orientation,
         placements,
         cargoById,
       );
-      if (!slice || slice.length !== sliceCapacity) break;
+      if (!stack || stack.length !== stackSize) break;
 
-      placements.push(...slice);
-      placed += sliceCapacity;
-      loadedWeightKg += sliceWeightKg;
-      usedVolumeM3 += cbm(item) * sliceCapacity;
-      cursorX += orientation.length;
+      placements.push(...stack);
+      placed += stackSize;
+      loadedWeightKg += stackWeightKg;
+      usedVolumeM3 += cbm(item) * stackSize;
+      shelf.usedY += orientation.width;
+      shelf.depth = Math.max(shelf.depth, orientation.length);
+
+      if (shelf.usedY >= container.width - EPS) shelf = nextShelf(shelf);
     }
 
     if (placed < item.quantity) deferred.push({ item, quantity: item.quantity - placed });
   }
 
-  // 순수 블록 끝 뒤의 단 하나의 혼합구역. 모든 후순위 잔량이 같은 시작 x를 공유한다.
-  // 무거운 잔량이 먼저 처리되므로 바닥/안쪽을 먼저 차지하지만, 그 옆 폭이 비어 있으면
-  // 다음 SKU가 같은 x 구간을 함께 사용한다. 품목마다 새 종방향 구간을 만들지 않는다.
+  // 2차 최종 혼합구역: 순수 스택의 가장 문쪽 끝 이후에서만 시작한다.
+  // 모든 잔량 SKU가 동일한 시작 x를 공유하고, 각 SKU는 같은 x/y에서 위로 먼저
+  // 채운 뒤 옆 자리로 이동한다. 품목별로 새 종방향 구역을 만들지 않는다.
   const mixedZoneStartX = furthestTail(placements);
 
   for (const { item, quantity } of deferred) {
