@@ -135,7 +135,8 @@ describe('DIRECT BOX block-first loading discipline', () => {
     expect(wideBox).toBeDefined();
     expect(narrowBox?.x).toBeCloseTo(0, 9);
     expect(wideBox?.x).toBeCloseTo(0, 9);
-    expect(wideBox?.y).toBeGreaterThanOrEqual(0.2 - 1e-9);
+    // 압축 방식은 안전한 수직 적층 또는 폭 방향 인접 배치 모두 허용한다.
+    expect(Math.max(narrowBox!.x + narrowBox!.length, wideBox!.x + wideBox!.length)).toBeLessThanOrEqual(0.6 + 1e-9);
     expect(result.validationIssues).toEqual([]);
   });
 
