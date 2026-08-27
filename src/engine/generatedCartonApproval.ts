@@ -28,10 +28,9 @@ export function approveGeneratedCarton(
   if (!Number.isFinite(approval.maxGrossWeightKg) || approval.maxGrossWeightKg <= 0) return { error: '검증 최대 총중량은 0보다 커야 합니다.', meetsDesignTarget: false };
   if (!Number.isFinite(approval.verifiedTopLoadKg) || approval.verifiedTopLoadKg < 0) return { error: '검증 상부 허용중량은 0 이상이어야 합니다.', meetsDesignTarget: false };
   if (approval.unitCost != null && (!Number.isFinite(approval.unitCost) || approval.unitCost < 0)) return { error: '박스 단가는 비우거나 0 이상이어야 합니다.', meetsDesignTarget: false };
-  if (approval.maxGrossWeightKg + 1e-9 < assignment.grossWeightKg - assignment.boxUnitCost! * 0) {
-    // assignment.grossWeightKg는 원 자동설계 자중을 포함하므로 새 자중이 달라질 수 있다.
-    // 정확한 제품 payload는 이 helper에 제품중량이 없어 역산할 수 없으므로 아래에서는
-    // 최소한 승인 총중량이 현재 계획 총중량보다 작지 않은지만 보수적으로 확인한다.
+  // 승인 규격이 현재 자동설계의 계획 총중량조차 못 버티면 카탈로그 승격을 막는다.
+  // 자중 변경으로 실제 payload 여유가 달라질 수 있으므로 승인 후 기업 최적화를 다시 실행한다.
+  if (approval.maxGrossWeightKg + 1e-9 < assignment.grossWeightKg) {
     return { error: `검증 최대 총중량은 현재 설계 총중량 ${assignment.grossWeightKg.toFixed(2)}kg 이상으로 입력하세요.`, meetsDesignTarget: false };
   }
 
