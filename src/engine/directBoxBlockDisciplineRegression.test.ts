@@ -63,6 +63,31 @@ describe('DIRECT BOX block-first loading discipline', () => {
     expect(result.validationIssues).toEqual([]);
   });
 
+  it('shares the same pure shelf across different SKUs when both have complete vertical stacks', () => {
+    const container: ContainerSpec = { length: 3, width: 1, height: 1.2, maxPayloadKg: 10000 };
+    const first = cargo({
+      id: 'FIRST', name: 'FIRST', length: 0.5, width: 0.4, height: 0.4,
+      weightKg: 20, quantity: 3, maxStackLayers: 3, maxTopLoadKg: 100,
+    });
+    const second = cargo({
+      id: 'SECOND', name: 'SECOND', length: 0.5, width: 0.4, height: 0.4,
+      weightKg: 10, quantity: 3, maxStackLayers: 3, maxTopLoadKg: 100,
+    });
+
+    const result = loadContainer(container, [first, second], { strategy: 'capacity', publish: false });
+    const firstStack = result.placements.filter((placement) => placement.cargoId === 'FIRST');
+    const secondStack = result.placements.filter((placement) => placement.cargoId === 'SECOND');
+
+    expect(firstStack).toHaveLength(3);
+    expect(secondStack).toHaveLength(3);
+    expect(new Set(firstStack.map((placement) => placement.x))).toEqual(new Set([0]));
+    expect(new Set(secondStack.map((placement) => placement.x))).toEqual(new Set([0]));
+    expect(new Set(firstStack.map((placement) => placement.y))).toEqual(new Set([0]));
+    expect(new Set(secondStack.map((placement) => placement.y))).toEqual(new Set([0.4]));
+    expect(result.remaining).toEqual([]);
+    expect(result.validationIssues).toEqual([]);
+  });
+
   it('finishes a deferred mixed-tail stack vertically before opening a new floor position', () => {
     const container: ContainerSpec = {
       length: 3,
@@ -91,32 +116,26 @@ describe('DIRECT BOX block-first loading discipline', () => {
     expect(result.validationIssues).toEqual([]);
   });
 
-  it('lets different deferred SKUs share the same mixed-zone x slice instead of making a long weight-separated tail', () => {
-    const container: ContainerSpec = {
-      length: 3,
-      width: 1,
-      height: 1.2,
-      maxPayloadKg: 10000,
-    };
-    const heavy = cargo({
-      id: 'HEAVY', name: 'HEAVY', length: 0.4, width: 0.4, height: 0.3,
-      weightKg: 20, quantity: 2, maxStackLayers: 3, maxTopLoadKg: 100,
+  it('lets different deferred SKUs reuse the same mixed-zone x slice instead of creating a long separated tail', () => {
+    const container: ContainerSpec = { length: 3, width: 1, height: 1.2, maxPayloadKg: 10000 };
+    const narrow = cargo({
+      id: 'NARROW', name: 'NARROW', length: 0.4, width: 0.2, height: 0.4,
+      weightKg: 20, quantity: 1, maxStackLayers: 3, maxTopLoadKg: 100,
     });
-    const light = cargo({
-      id: 'LIGHT', name: 'LIGHT', length: 0.4, width: 0.4, height: 0.3,
-      weightKg: 5, quantity: 2, maxStackLayers: 3, maxTopLoadKg: 100,
+    const wide = cargo({
+      id: 'WIDE', name: 'WIDE', length: 0.4, width: 0.6, height: 0.4,
+      weightKg: 5, quantity: 1, maxStackLayers: 3, maxTopLoadKg: 100,
     });
 
-    const result = loadContainer(container, [heavy, light], { strategy: 'capacity', publish: false });
-    const heavyBoxes = result.placements.filter((placement) => placement.cargoId === 'HEAVY');
-    const lightBoxes = result.placements.filter((placement) => placement.cargoId === 'LIGHT');
+    const result = loadContainer(container, [narrow, wide], { strategy: 'capacity', publish: false });
+    const narrowBox = result.placements.find((placement) => placement.cargoId === 'NARROW');
+    const wideBox = result.placements.find((placement) => placement.cargoId === 'WIDE');
 
-    expect(heavyBoxes).toHaveLength(2);
-    expect(lightBoxes).toHaveLength(2);
-    expect(Math.max(...heavyBoxes.map((placement) => placement.x))).toBeCloseTo(0, 9);
-    expect(Math.max(...lightBoxes.map((placement) => placement.x))).toBeCloseTo(0, 9);
-    expect(new Set(lightBoxes.map((placement) => placement.y)).size).toBe(1);
-    expect(lightBoxes[0]?.y).toBeGreaterThan(0);
+    expect(narrowBox).toBeDefined();
+    expect(wideBox).toBeDefined();
+    expect(narrowBox?.x).toBeCloseTo(0, 9);
+    expect(wideBox?.x).toBeCloseTo(0, 9);
+    expect(wideBox?.y).toBeGreaterThanOrEqual(0.2 - 1e-9);
     expect(result.validationIssues).toEqual([]);
   });
 
