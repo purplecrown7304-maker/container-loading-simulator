@@ -5,6 +5,7 @@ const EPS = 1e-9;
 const volume = (l: number, w: number, h: number) => l * w * h;
 
 export type ProductOrientationPolicy = 'upright' | 'base-rotation' | 'any';
+export type PackagingStrengthStatus = 'catalog' | 'design-target';
 
 export type ProductItem = {
   id: string;
@@ -74,9 +75,13 @@ export type ProductPackagingAssignment = {
   productFillRate: number;
   containerTileEfficiency: number;
   simulatedLoadedBoxes: number;
+  /** 실제 적재에 즉시 적용 가능한 적층단. 자동설계 미검증 박스는 1단이다. */
   maxStackLayers: number;
+  /** 치수상 가능한 목표 적층단. 제조 강도 검증 전에는 작업지시용 값이 아니다. */
+  recommendedStackLayers: number;
   maxTopLoadKg?: number;
   requiredTopLoadKg: number;
+  strengthStatus: PackagingStrengthStatus;
   score: number;
   boxUnitCost?: number;
 };
@@ -187,9 +192,14 @@ function assignmentFromBox(container: ContainerSpec, product: ProductItem, box: 
   const productFillRate = Math.min(1, unitsPerBox * volume(product.length, product.width, product.height) / Math.max(EPS, volume(box.innerLength, box.innerWidth, box.innerHeight)));
   const containerTileEfficiency = tileEfficiency(container, box.outerLength, box.outerWidth, box.outerHeight);
   const geometryStack = Math.max(1, Math.min(7, Math.floor((container.height + EPS) / box.outerHeight)));
-  const topLoadStack = box.maxTopLoadKg == null ? geometryStack : Math.max(1, Math.min(geometryStack, 1 + Math.floor((box.maxTopLoadKg + EPS) / grossWeightKg)));
+  const declaredStack = box.maxTopLoadKg == null ? geometryStack : Math.max(1, Math.min(geometryStack, 1 + Math.floor((box.maxTopLoadKg + EPS) / grossWeightKg)));
   const requiredTopLoadKg = Math.max(0, grossWeightKg * (geometryStack - 1));
-  const cargo: CargoItem = {
+  const operationalStack = source === 'generated' ? 1 : declaredStack;
+  const operationalTopLoad = source === 'generated' ? 0 : box.maxTopLoadKg;
+
+  // 자동설계 규격의 강도는 아직 검증되지 않았으므로 후보 비교만 목표 강도를 가정해 수행한다.
+  // 실제 메인 적재로 넘기는 assignment는 1단/0kg로 fail-closed 된다.
+  const simulationCargo: CargoItem = {
     id: `PKG-${product.id}`,
     name: `${product.name} · ${box.name}`,
     length: box.outerLength,
@@ -197,11 +207,11 @@ function assignmentFromBox(container: ContainerSpec, product: ProductItem, box: 
     height: box.outerHeight,
     weightKg: grossWeightKg,
     quantity: boxesNeeded,
-    maxStackLayers: topLoadStack,
-    maxTopLoadKg: box.maxTopLoadKg,
+    maxStackLayers: source === 'generated' ? geometryStack : operationalStack,
+    maxTopLoadKg: source === 'generated' ? requiredTopLoadKg : operationalTopLoad,
     allowRotation: true,
   };
-  const simulation = loadContainer(container, [cargo], { strategy: 'capacity', publish: false });
+  const simulation = loadContainer(container, [simulationCargo], { strategy: 'capacity', publish: false });
   const simulatedLoadedBoxes = simulation.placements.length;
   const loadedRatio = boxesNeeded > 0 ? simulatedLoadedBoxes / boxesNeeded : 0;
   const score = loadedRatio * 0.55 + containerTileEfficiency * 0.25 + productFillRate * 0.20 - Math.max(0, boxesNeeded - simulatedLoadedBoxes) * 0.001;
@@ -224,9 +234,11 @@ function assignmentFromBox(container: ContainerSpec, product: ProductItem, box: 
     productFillRate,
     containerTileEfficiency,
     simulatedLoadedBoxes,
-    maxStackLayers: topLoadStack,
-    maxTopLoadKg: box.maxTopLoadKg,
+    maxStackLayers: operationalStack,
+    recommendedStackLayers: geometryStack,
+    maxTopLoadKg: operationalTopLoad,
     requiredTopLoadKg,
+    strengthStatus: source === 'generated' ? 'design-target' : 'catalog',
     score,
     boxUnitCost: box.unitCost,
   };
@@ -255,8 +267,6 @@ function generatedBoxes(container: ContainerSpec, product: ProductItem, options:
       if (seen.has(key)) continue;
       seen.add(key);
       index += 1;
-      const geometryStack = Math.max(1, Math.min(7, Math.floor((container.height + EPS) / outerHeight)));
-      const gross = options.generatedBoxTareKg + units * product.weightKg;
       result.push({
         id: `AUTO-${product.id}-${index}`,
         name: `자동설계 ${Math.round(outerLength * 1000)}×${Math.round(outerWidth * 1000)}×${Math.round(outerHeight * 1000)}mm`,
@@ -264,7 +274,8 @@ function generatedBoxes(container: ContainerSpec, product: ProductItem, options:
         outerLength, outerWidth, outerHeight,
         tareWeightKg: options.generatedBoxTareKg,
         maxGrossWeightKg: options.maxGeneratedGrossWeightKg,
-        maxTopLoadKg: Math.max(0, gross * (geometryStack - 1)),
+        // 자동설계 단계에서는 실제 압축강도가 검증되지 않았다.
+        maxTopLoadKg: undefined,
         unitCost: options.generatedBoxUnitCost && options.generatedBoxUnitCost > 0 ? options.generatedBoxUnitCost : undefined,
       });
     }
