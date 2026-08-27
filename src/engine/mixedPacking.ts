@@ -10,6 +10,8 @@ export type MixedPlacementOptions = {
   minX?: number;
   maxX?: number;
   preferDoorSide?: boolean;
+  /** DIRECT BOX 잔량에서 같은 x/y 스택을 새 바닥 칸보다 먼저 완성한다. */
+  preferVerticalStack?: boolean;
 };
 
 function candidateAxes(container: ContainerSpec, placements: Placement[], options: MixedPlacementOptions = {}) {
@@ -48,9 +50,23 @@ function sideContact(a: Placement, b: Placement) {
   return (xTouch && yOverlap && zOverlap) || (yTouch && xOverlap && zOverlap);
 }
 
+function sameStackContinuation(candidate: Placement, placements: Placement[]) {
+  if (candidate.z <= EPS) return false;
+  return placements.some((other) =>
+    other.cargoId === candidate.cargoId &&
+    Math.abs(other.x - candidate.x) <= 0.001 &&
+    Math.abs(other.y - candidate.y) <= 0.001 &&
+    Math.abs(other.length - candidate.length) <= 0.001 &&
+    Math.abs(other.width - candidate.width) <= 0.001 &&
+    Math.abs(other.z + other.height - candidate.z) <= 0.001,
+  );
+}
+
 /** 운영 효율 점수: 동일 품목 묶음과 빈틈 감소만 본다. 물리 안정성 벌점은 주지 않는다. */
-function compactnessScore(candidate: Placement, placements: Placement[], container: ContainerSpec) {
-  let score = candidate.y;
+function compactnessScore(candidate: Placement, placements: Placement[], container: ContainerSpec, preferVerticalStack: boolean) {
+  // x는 가장 강한 압축 기준이다. 같은 혼합구역 안에서는 문쪽으로 불필요하게
+  // 길어지는 배치보다 이미 사용 중인 안쪽 x를 우선한다.
+  let score = candidate.x * 4 + candidate.y;
   if (candidate.y <= EPS || candidate.y + candidate.width >= container.width - EPS) score -= 0.25;
   let contacts = 0;
   let sameCargoContacts = 0;
@@ -60,7 +76,38 @@ function compactnessScore(candidate: Placement, placements: Placement[], contain
     if (other.cargoId === candidate.cargoId) sameCargoContacts += 1;
   }
   score -= contacts * 0.08 + sameCargoContacts * 0.45;
+  if (preferVerticalStack && sameStackContinuation(candidate, placements)) score -= 4;
   return score;
+}
+
+function validCandidate(
+  container: ContainerSpec,
+  item: CargoItem,
+  placements: Placement[],
+  cargoById: Map<string, CargoItem>,
+  options: MixedPlacementOptions,
+  x: number,
+  y: number,
+  z: number,
+  orientation: { length: number; width: number; rotated: boolean },
+) {
+  const candidate: Placement = {
+    cargoId: item.id,
+    x,
+    y,
+    z,
+    length: orientation.length,
+    width: orientation.width,
+    height: item.height,
+    weightKg: item.weightKg,
+    rotated: orientation.rotated,
+  };
+  if (candidate.x + candidate.length > (options.maxX ?? container.length) + EPS) return null;
+  if (!isInsideContainer(container, candidate)) return null;
+  if (placements.some((placement) => overlaps(candidate, placement))) return null;
+  if (!hasAdequateSupport(candidate, placements)) return null;
+  if (!canPlaceByStackingRules(item, candidate, placements, cargoById)) return null;
+  return candidate;
 }
 
 export function findMixedPlacement(
@@ -72,6 +119,31 @@ export function findMixedPlacement(
 ): Placement | null {
   const axes = candidateAxes(container, placements, options);
   const itemOrientations = orientations(item);
+  const preferVerticalStack = options.preferVerticalStack === true;
+
+  // DIRECT BOX 잔량은 x/y를 먼저 고정하고 z를 올려 같은 스택을 끝까지 채운다.
+  // 기존 호출은 x/z/y 순서를 유지해 다른 최적화 경로의 동작을 바꾸지 않는다.
+  if (preferVerticalStack) {
+    for (const x of axes.xs) {
+      let bestAtX: Placement | null = null;
+      let bestScore = Number.POSITIVE_INFINITY;
+      for (const y of axes.ys) {
+        for (const z of axes.zs) {
+          for (const orientation of itemOrientations) {
+            const candidate = validCandidate(container, item, placements, cargoById, options, x, y, z, orientation);
+            if (!candidate) continue;
+            const score = compactnessScore(candidate, placements, container, true);
+            if (score < bestScore) {
+              bestAtX = candidate;
+              bestScore = score;
+            }
+          }
+        }
+      }
+      if (bestAtX) return bestAtX;
+    }
+    return null;
+  }
 
   for (const x of axes.xs) {
     for (const z of axes.zs) {
@@ -79,14 +151,13 @@ export function findMixedPlacement(
       let bestScore = Number.POSITIVE_INFINITY;
       for (const y of axes.ys) {
         for (const orientation of itemOrientations) {
-          const candidate: Placement = { cargoId: item.id, x, y, z, length: orientation.length, width: orientation.width, height: item.height, weightKg: item.weightKg, rotated: orientation.rotated };
-          if (candidate.x + candidate.length > (options.maxX ?? container.length) + EPS) continue;
-          if (!isInsideContainer(container, candidate)) continue;
-          if (placements.some((placement) => overlaps(candidate, placement))) continue;
-          if (!hasAdequateSupport(candidate, placements)) continue;
-          if (!canPlaceByStackingRules(item, candidate, placements, cargoById)) continue;
-          const score = compactnessScore(candidate, placements, container);
-          if (score < bestScore) { best = candidate; bestScore = score; }
+          const candidate = validCandidate(container, item, placements, cargoById, options, x, y, z, orientation);
+          if (!candidate) continue;
+          const score = compactnessScore(candidate, placements, container, false);
+          if (score < bestScore) {
+            best = candidate;
+            bestScore = score;
+          }
         }
       }
       if (best) return best;
