@@ -35,7 +35,7 @@ const catalog: BoxCatalogItem[] = [{
 }];
 
 describe('product packaging optimizer', () => {
-  it('selects a usable carton and converts products into container cargo', () => {
+  it('selects a usable verified catalog carton and converts products into container cargo', () => {
     const plan = optimizeProductPackaging(container, [product], catalog, {
       ...defaultProductPackagingOptions,
       allowCustomBoxDesign: false,
@@ -43,13 +43,14 @@ describe('product packaging optimizer', () => {
     expect(plan.rejected).toEqual([]);
     expect(plan.assignments).toHaveLength(1);
     expect(plan.assignments[0].source).toBe('catalog');
+    expect(plan.assignments[0].strengthStatus).toBe('catalog');
     expect(plan.assignments[0].unitsPerBox).toBeGreaterThan(0);
     expect(plan.assignments[0].boxesNeeded).toBeGreaterThan(0);
     expect(plan.cargo[0].quantity).toBe(plan.assignments[0].boxesNeeded);
     expect(plan.cargo[0].id).toBe('PKG-P-01');
   });
 
-  it('can design a new carton when the registered catalog cannot fit the product', () => {
+  it('can design a new carton but keeps it at one layer until physical strength is verified', () => {
     const tinyCatalog: BoxCatalogItem[] = [{
       id: 'TINY', name: '너무 작은 박스',
       innerLength: 0.1, innerWidth: 0.08, innerHeight: 0.04,
@@ -61,6 +62,12 @@ describe('product packaging optimizer', () => {
     expect(plan.assignments[0].source).toBe('generated');
     expect(plan.assignments[0].simulatedLoadedBoxes).toBeGreaterThan(0);
     expect(plan.assignments[0].requiredTopLoadKg).toBeGreaterThanOrEqual(0);
+    expect(plan.assignments[0].strengthStatus).toBe('design-target');
+    expect(plan.assignments[0].recommendedStackLayers).toBeGreaterThanOrEqual(1);
+    expect(plan.assignments[0].maxStackLayers).toBe(1);
+    expect(plan.assignments[0].maxTopLoadKg).toBe(0);
+    expect(plan.cargo[0].maxStackLayers).toBe(1);
+    expect(plan.cargo[0].maxTopLoadKg).toBe(0);
   });
 
   it('rejects invalid products instead of sending them to the loading engine', () => {
