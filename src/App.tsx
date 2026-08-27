@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { requestExactCertification, requestNextPalletCertification } from './autoCertification';
 import { cargoColor, cargoTint } from './cargoColors';
 import { buildPlacementAddresses } from './engine/locationGrid';
+import { containerInputError, preflightCargoInput } from './engine/inputPreflight';
 import { loadContainer, type LoadingStrategy } from './engine/loadingEngine';
 import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
@@ -41,8 +42,7 @@ function LoadingFallback() {
 }
 
 function isValidContainer(container: ContainerSpec): boolean {
-  return [container.length, container.width, container.height].every(value => Number.isFinite(value) && value > 0)
-    && Number.isFinite(container.maxPayloadKg) && container.maxPayloadKg >= 0;
+  return containerInputError(container) === null;
 }
 
 export default function App() {
@@ -123,15 +123,20 @@ export default function App() {
   const saveCargo = () => {
     const id = draft.id.trim();
     const name = draft.name.trim();
-    const valid = id && name && draft.length > 0 && draft.width > 0 && draft.height > 0 && draft.weightKg >= 0 && draft.quantity >= 0
-      && Number.isFinite(draft.length) && Number.isFinite(draft.width) && Number.isFinite(draft.height)
-      && Number.isFinite(draft.weightKg) && Number.isFinite(draft.quantity);
-    if (!valid) return announce('error', '박스 코드·이름·치수·중량·수량을 확인하세요. 치수는 0보다 커야 합니다.');
+    const valid = Boolean(id && name)
+      && [draft.length, draft.width, draft.height, draft.weightKg].every(value => Number.isFinite(value) && value > 0)
+      && Number.isInteger(draft.quantity) && draft.quantity >= 1
+      && (draft.maxStackLayers == null || (Number.isInteger(draft.maxStackLayers) && draft.maxStackLayers >= 1))
+      && (draft.maxTopLoadKg == null || (Number.isFinite(draft.maxTopLoadKg) && draft.maxTopLoadKg >= 0));
+    if (!valid) return announce('error', '박스 코드·이름·치수·중량·수량·적층조건을 확인하세요. 수량은 1 이상의 정수이고 상부 허용중량은 0 이상이어야 합니다.');
     if (!editingId && cargo.some(item => item.id === id)) return announce('error', `이미 등록된 박스 코드입니다: ${id}`);
     const next: CargoItem = {
-      ...draft, id, name, quantity: Math.floor(draft.quantity),
-      maxStackLayers: draft.maxStackLayers ? Math.max(1, Math.floor(draft.maxStackLayers)) : undefined,
-      maxTopLoadKg: draft.maxTopLoadKg || undefined,
+      ...draft,
+      id,
+      name,
+      quantity: draft.quantity,
+      maxStackLayers: draft.maxStackLayers,
+      maxTopLoadKg: draft.maxTopLoadKg,
       allowRotation: draft.allowRotation !== false,
     };
     invalidatePhysics();
@@ -155,8 +160,15 @@ export default function App() {
 
   const runLoading = async () => {
     if (isRunning) return;
-    if (!isValidContainer(container)) return announce('error', '컨테이너 길이·폭·높이는 0보다 커야 하고 최대중량은 0 이상이어야 합니다.');
-    if (!cargo.some(item => item.quantity > 0)) return announce('warning', '적재할 화물이 없습니다. 화물을 등록하거나 샘플 복원을 사용하세요.');
+    const invalidContainer = containerInputError(container);
+    if (invalidContainer) return announce('error', invalidContainer);
+    const preflight = preflightCargoInput(cargo);
+    if (preflight.rejected.length > 0) {
+      const first = preflight.rejected[0];
+      return announce('error', `${first.cargoId}: ${first.reason}${preflight.rejected.length > 1 ? ` 외 ${preflight.rejected.length - 1}건` : ''}`);
+    }
+    const activeCargo = preflight.cargo;
+    if (!activeCargo.length) return announce('warning', '적재할 화물이 없습니다. 화물을 등록하거나 샘플 복원을 사용하세요.');
     if (mode === 'pallets') {
       invalidatePhysics();
       requestNextPalletCertification();
@@ -164,7 +176,6 @@ export default function App() {
       announce('info', '팔레트 최적 적재 계산 후 관성 3종을 자동 검증합니다. PASS한 적재안만 최종 결과로 엽니다.');
       return;
     }
-    const activeCargo = cargo.filter(item => item.quantity > 0);
     setIsRunning(true);
     setPhysicsScore(null);
     setPhysicsStrategy(null);
@@ -268,12 +279,12 @@ export default function App() {
             <span>바닥 경고기준 <b>{(container.floorLoadLimitKgPerM2 ?? 1500).toLocaleString()} kg/m²</b></span>
           </div>
           <details><summary>상세 규격 / 직접 수정</summary><div className="form-grid compact-form">
-            <label>길이(m)<input type="number" value={container.length} onChange={e => updateContainer('length', e.target.value)} /></label>
-            <label>폭(m)<input type="number" value={container.width} onChange={e => updateContainer('width', e.target.value)} /></label>
-            <label>높이(m)<input type="number" value={container.height} onChange={e => updateContainer('height', e.target.value)} /></label>
-            <label>최대중량<input type="number" value={container.maxPayloadKg} onChange={e => updateContainer('maxPayloadKg', e.target.value)} /></label>
+            <label>길이(m)<input type="number" min="0.01" step="0.01" value={container.length} onChange={e => updateContainer('length', e.target.value)} /></label>
+            <label>폭(m)<input type="number" min="0.01" step="0.01" value={container.width} onChange={e => updateContainer('width', e.target.value)} /></label>
+            <label>높이(m)<input type="number" min="0.01" step="0.01" value={container.height} onChange={e => updateContainer('height', e.target.value)} /></label>
+            <label>최대중량<input type="number" min="1" value={container.maxPayloadKg} onChange={e => updateContainer('maxPayloadKg', e.target.value)} /></label>
             <label>바닥 허용하중(kg/m²)<input type="number" min="1" value={container.floorLoadLimitKgPerM2 ?? 1500} onChange={e => updateContainer('floorLoadLimitKgPerM2', e.target.value)} /></label>
-            <label>국부하중 경고배수<input type="number" min="1" step=".1" value={container.floorLoadWarningMultiplier ?? 3} onChange={e => updateContainer('floorLoadWarningMultiplier', e.target.value)} /></label>
+            <label>국부하중 경고배수<input type="number" min="0.1" step=".1" value={container.floorLoadWarningMultiplier ?? 3} onChange={e => updateContainer('floorLoadWarningMultiplier', e.target.value)} /></label>
           </div></details>
         </section>
 
@@ -286,7 +297,7 @@ export default function App() {
           {cargo.length === 0 ? <div className="empty-cargo"><b>등록된 화물이 없습니다.</b><span>새 화물을 추가하거나 랜덤 샘플로 시작하세요.</span><button onClick={loadSampleData}>샘플 복원</button></div> : <div className="cargo-scroll">
             {cargo.map(item => <article className="cargo-list-item" key={item.id} style={{ borderLeft: `3px solid ${cargoColor(item.id)}`, paddingLeft: 8 }}>
               <div className="cargo-icon" style={{ background: cargoTint(item.id), color: cargoColor(item.id), border: `1px solid ${cargoColor(item.id)}55` }}>■</div>
-              <div><b>{item.id} {item.name}</b><span>{Math.round(item.length * 1000)} × {Math.round(item.width * 1000)} × {Math.round(item.height * 1000)} mm</span><small>{item.weightKg} kg</small></div>
+              <div><b>{item.id} {item.name}</b><span>{Math.round(item.length * 1000)} × {Math.round(item.width * 1000)} × {Math.round(item.height * 1000)} mm</span><small>{item.weightKg} kg · 상부허용 {item.maxTopLoadKg ?? '제한없음'} kg</small></div>
               <strong>{item.quantity}</strong>
               <div className="cargo-inline-actions">
                 <button aria-label={`${item.id} 수량 1 감소`} onClick={() => changeQuantity(item.id, -1)}>−</button>
@@ -300,12 +311,14 @@ export default function App() {
             <label>코드<input value={draft.id} onChange={e => updateDraft('id', e.target.value)} disabled={Boolean(editingId)} /></label>
             <label>이름<input value={draft.name} onChange={e => updateDraft('name', e.target.value)} /></label>
             <div className="form-grid">
-              <label>길이(m)<input type="number" value={draft.length} onChange={e => updateDraft('length', e.target.value)} /></label>
-              <label>폭(m)<input type="number" value={draft.width} onChange={e => updateDraft('width', e.target.value)} /></label>
-              <label>높이(m)<input type="number" value={draft.height} onChange={e => updateDraft('height', e.target.value)} /></label>
-              <label>중량(kg)<input type="number" value={draft.weightKg} onChange={e => updateDraft('weightKg', e.target.value)} /></label>
-              <label>수량<input type="number" value={draft.quantity} onChange={e => updateDraft('quantity', e.target.value)} /></label>
-              <label>최대 적층단<input type="number" value={draft.maxStackLayers ?? 1} onChange={e => updateDraft('maxStackLayers', e.target.value)} /></label>
+              <label>길이(m)<input type="number" min="0.01" step="0.01" value={draft.length} onChange={e => updateDraft('length', e.target.value)} /></label>
+              <label>폭(m)<input type="number" min="0.01" step="0.01" value={draft.width} onChange={e => updateDraft('width', e.target.value)} /></label>
+              <label>높이(m)<input type="number" min="0.01" step="0.01" value={draft.height} onChange={e => updateDraft('height', e.target.value)} /></label>
+              <label>중량(kg)<input type="number" min="0.01" step="0.01" value={draft.weightKg} onChange={e => updateDraft('weightKg', e.target.value)} /></label>
+              <label>수량<input type="number" min="1" step="1" value={draft.quantity} onChange={e => updateDraft('quantity', e.target.value)} /></label>
+              <label>최대 적층단<input type="number" min="1" step="1" value={draft.maxStackLayers ?? 1} onChange={e => updateDraft('maxStackLayers', e.target.value)} /></label>
+              <label>상부 허용중량(kg)<input type="number" min="0" step="0.1" value={draft.maxTopLoadKg ?? 0} onChange={e => updateDraft('maxTopLoadKg', e.target.value)} /></label>
+              <label><input type="checkbox" checked={draft.allowRotation !== false} onChange={e => updateDraft('allowRotation', e.target.checked)} /> 회전 허용</label>
             </div>
             <button onClick={saveCargo}>{editingId ? '수정 저장' : '박스 추가'}</button>
           </div></details>
@@ -357,6 +370,6 @@ export default function App() {
         </section>
       </aside>
     </section>
-    <footer className="dashboard-footer">© Container Loading Simulator · v2.4.0 · 운영형 적재 설계 도구</footer>
+    <footer className="dashboard-footer">© Container Loading Simulator · v2.6.0 · 운영형 적재 설계 도구</footer>
   </main>;
 }
