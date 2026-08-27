@@ -80,6 +80,41 @@ describe('optimizeEnterprisePackaging', () => {
     expect(plan.shipment.fullyLoaded).toBe(true);
   });
 
+  it('prices a residual carton that was eligible for mixing but fell back to dedicated packing', () => {
+    const product: ProductItem = {
+      id: 'FALLBACK', name: 'Fallback', length: 0.1, width: 0.1, height: 0.1,
+      weightKg: 0.5, quantity: 5, maxUnitsPerBox: 4, orientationPolicy: 'upright', allowMixedCarton: true,
+    };
+    const noMixedCapacity = { ...options(true), maxMixedResidualUnits: 0 };
+    const plan = optimizeEnterprisePackaging(container, [product], [commonBox], noMixedCapacity);
+
+    expect(plan.cargo.find((item) => item.id === 'PKG-FALLBACK-PARTIAL')).toBeDefined();
+    expect(plan.totalBoxes).toBe(2);
+    expect(plan.cost.knownCartonCost).toBeCloseTo(4, 8);
+    expect(plan.cost.unpricedCartons).toBe(0);
+  });
+
+  it('keeps unverified generated cartons at one operational layer with zero top-load', () => {
+    const product: ProductItem = {
+      id: 'AUTO', name: 'Auto', length: 0.18, width: 0.12, height: 0.08,
+      weightKg: 0.5, quantity: 32, maxUnitsPerBox: 8, orientationPolicy: 'base-rotation',
+    };
+    const autoOptions = options(false);
+    autoOptions.packaging.allowCustomBoxDesign = true;
+    autoOptions.family.enabled = false;
+    const plan = optimizeEnterprisePackaging(container, [product], [], autoOptions);
+    const assignment = plan.assignments[0];
+    const cargo = plan.cargo.find((item) => item.id === 'PKG-AUTO');
+
+    expect(assignment.source).toBe('generated');
+    expect(assignment.strengthStatus).toBe('design-target');
+    expect(assignment.recommendedStackLayers).toBeGreaterThanOrEqual(1);
+    expect(assignment.maxStackLayers).toBe(1);
+    expect(assignment.maxTopLoadKg).toBe(0);
+    expect(cargo?.maxStackLayers).toBe(1);
+    expect(cargo?.maxTopLoadKg).toBe(0);
+  });
+
   it('estimates multiple containers by repeatedly consuming loaded quantities', () => {
     const tiny: ContainerSpec = { length: 1, width: 1, height: 1, maxPayloadKg: 1000 };
     const cargo: CargoItem[] = [{ id: 'X', name: 'X', length: 1, width: 1, height: 1, weightKg: 10, quantity: 3, maxStackLayers: 1, allowRotation: false }];
