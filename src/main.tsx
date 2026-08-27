@@ -59,6 +59,7 @@ import './final-certification.css';
 import './securing-material-settings.css';
 import './product-packaging.css';
 import './enterprise-packaging.css';
+import './enterprise-strategy.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
