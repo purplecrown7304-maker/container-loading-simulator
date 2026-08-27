@@ -115,6 +115,54 @@ describe('optimizeEnterprisePackaging', () => {
     expect(cargo?.maxTopLoadKg).toBe(0);
   });
 
+  it('keeps system-generated full and partial cargo ids unique for arbitrary product codes', () => {
+    const products: ProductItem[] = [
+      { id: 'A', name: 'A', length: 0.1, width: 0.1, height: 0.1, weightKg: 0.4, quantity: 5, maxUnitsPerBox: 4, allowMixedCarton: false },
+      { id: 'A-PARTIAL', name: '실제 제품', length: 0.1, width: 0.1, height: 0.1, weightKg: 0.4, quantity: 4, maxUnitsPerBox: 4, allowMixedCarton: false },
+    ];
+    const plan = optimizeEnterprisePackaging(container, products, [commonBox], options(false));
+    const ids = plan.cargo.map((item) => item.id);
+
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain('PKG-A-PARTIAL');
+    expect(ids.some((id) => id.startsWith('PKG-A-PARTIAL-'))).toBe(true);
+    expect(plan.shipment.fullyLoaded).toBe(true);
+  });
+
+  it('does not let a mixed-carton system id collide with a real product cargo id', () => {
+    const products: ProductItem[] = [
+      { id: 'MIX-001', name: '실제 MIX 제품', length: 0.1, width: 0.1, height: 0.1, weightKg: 0.4, quantity: 5, maxUnitsPerBox: 4, allowMixedCarton: true },
+      { id: 'B', name: 'B', length: 0.12, width: 0.08, height: 0.1, weightKg: 0.3, quantity: 7, maxUnitsPerBox: 6, allowMixedCarton: true },
+    ];
+    const plan = optimizeEnterprisePackaging(container, products, [commonBox], options(true));
+    const ids = plan.cargo.map((item) => item.id);
+
+    expect(ids).toContain('PKG-MIX-001');
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(plan.mixedCartons.every((carton) => carton.id !== 'PKG-MIX-001')).toBe(true);
+  });
+
+  it('charges generated setup cost once for the same physical carton even when AUTO ids differ', () => {
+    const products: ProductItem[] = [
+      { id: 'G1', name: 'G1', length: 0.18, width: 0.12, height: 0.08, weightKg: 0.5, quantity: 32, maxUnitsPerBox: 8 },
+      { id: 'G2', name: 'G2', length: 0.18, width: 0.12, height: 0.08, weightKg: 0.5, quantity: 32, maxUnitsPerBox: 8 },
+    ];
+    const generated = options(false);
+    generated.packaging.allowCustomBoxDesign = true;
+    generated.family.enabled = false;
+    generated.cost.containerFreightCost = 0;
+    generated.cost.handlingCostPerCarton = 0;
+    generated.cost.cartonSkuCarryCost = 0;
+    const plan = optimizeEnterprisePackaging(container, products, [], generated);
+
+    expect(plan.assignments).toHaveLength(2);
+    expect(plan.assignments[0].boxId).not.toBe(plan.assignments[1].boxId);
+    expect(plan.assignments[0].outerLength).toBeCloseTo(plan.assignments[1].outerLength, 8);
+    expect(plan.assignments[0].outerWidth).toBeCloseTo(plan.assignments[1].outerWidth, 8);
+    expect(plan.assignments[0].outerHeight).toBeCloseTo(plan.assignments[1].outerHeight, 8);
+    expect(plan.cost.setupCost).toBe(10);
+  });
+
   it('estimates multiple containers by repeatedly consuming loaded quantities', () => {
     const tiny: ContainerSpec = { length: 1, width: 1, height: 1, maxPayloadKg: 1000 };
     const cargo: CargoItem[] = [{ id: 'X', name: 'X', length: 1, width: 1, height: 1, weightKg: 10, quantity: 3, maxStackLayers: 1, allowRotation: false }];
