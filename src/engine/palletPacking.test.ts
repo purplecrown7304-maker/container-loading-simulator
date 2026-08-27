@@ -109,6 +109,22 @@ describe('packOnPallets', () => {
     expect(result.consolidatedPallets).toBeGreaterThan(0);
   });
 
+  it('reuses an existing pallet for final mixed fallback when a new pure pallet would exceed payload', () => {
+    const result = packOnPallets(
+      { length: 2.0, width: 1.0, height: 1.2, maxPayloadKg: 80 },
+      [
+        box({ id: 'A', name: 'A', length: 0.5, width: 1.0, height: 0.4, quantity: 1, weightKg: 30, maxStackLayers: 1, allowRotation: false }),
+        box({ id: 'B', name: 'B', length: 0.5, width: 1.0, height: 0.4, quantity: 1, weightKg: 20, maxStackLayers: 1, allowRotation: false }),
+      ],
+      { ...defaultPalletSpec, length: 1.0, width: 1.0, height: 0.15, tareWeightKg: 25, maxStackLevels: 1 },
+    );
+    expect(result.palletCount).toBe(1);
+    expect(result.placements).toHaveLength(2);
+    expect(result.remaining).toHaveLength(0);
+    expect(result.totalPalletizedWeightKg).toBeLessThanOrEqual(80 + 1e-9);
+    expect(new Set(result.pallets[0].cargoPlacements.map((placement) => placement.cargoId))).toEqual(new Set(['A', 'B']));
+  });
+
   it('centers the occupied cargo footprint on each pallet', () => {
     const result = packOnPallets(
       { length: 1.1, width: 1.1, height: 1.2, maxPayloadKg: 5000 },
