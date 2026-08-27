@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import type { ContainerSpec, Placement } from './engine/types';
 
-export const CARTON_VISUAL_SCALE = 0.998;
+export const CARTON_VISUAL_SCALE = 0.985;
 
 function makeInfoTexture(sample: Placement, displayName?: string) {
   const canvas = document.createElement('canvas');
@@ -95,9 +95,10 @@ export function CargoFaceInfoLabels({
         const cy = (box.z + box.height / 2) * scale + verticalOffset;
         const cz = (box.y + box.width / 2) * scale - container.width * scale / 2;
 
-        // The label must use the exact same visual envelope as the carton body.
-        // Previously the body was shrunk but labels were positioned on the full
-        // physical envelope, which left a visible air gap at oblique angles.
+        // Keep every label on the exact visual carton envelope. The 3D carton
+        // body is intentionally rendered at 98.5% of its physical dimensions
+        // to preserve separation between adjacent boxes, so labels must use
+        // the same envelope instead of the full physical size.
         const length = box.length * scale * bodyScale;
         const width = box.width * scale * bodyScale;
         const height = box.height * scale * bodyScale;
