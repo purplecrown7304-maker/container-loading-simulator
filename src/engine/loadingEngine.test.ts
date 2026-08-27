@@ -118,6 +118,23 @@ describe('loadContainer', () => {
     expect(result.validationIssues).toEqual([]);
   });
 
+  it('keeps deferred mixed cargo at or behind the final pure-SKU block boundary', () => {
+    const result = loadContainer(
+      { length: 3, width: 1, height: 1, maxPayloadKg: 5000 },
+      [
+        cargo({ id: 'PRIMARY', name: 'PRIMARY', length: 0.5, width: 0.5, height: 0.5, weightKg: 30, quantity: 4, maxStackLayers: 2, allowRotation: false }),
+        cargo({ id: 'TAIL', name: 'TAIL', length: 0.5, width: 0.5, height: 0.5, weightKg: 5, quantity: 1, maxStackLayers: 2, allowRotation: false }),
+      ],
+    );
+    const primary = result.placements.filter((p) => p.cargoId === 'PRIMARY');
+    const tail = result.placements.filter((p) => p.cargoId === 'TAIL');
+    const pureBoundary = Math.max(...primary.map((p) => p.x + p.length));
+    expect(primary).toHaveLength(4);
+    expect(tail).toHaveLength(1);
+    expect(tail.every((p) => p.x + 1e-9 >= pureBoundary)).toBe(true);
+    expect(result.validationIssues).toEqual([]);
+  });
+
   // 대량 혼합 적재는 GitHub hosted runner 편차가 커 기본 5초 제한과 분리한다.
   // correctness는 동일하게 검증하고, 10초 안에 끝나지 못하면 성능 회귀로 실패시킨다.
   it('stays collision-free under a mixed multi-SKU stress case', () => {
