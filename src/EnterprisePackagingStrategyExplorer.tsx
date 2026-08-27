@@ -1,39 +1,18 @@
-import { useState } from 'react';
-import { defaultEnterprisePackagingOptions } from './engine/enterprisePackagingOptimizer';
+import { useEffect, useState } from 'react';
 import {
   optimizeEnterprisePackagingPortfolio,
   type EnterpriseOptimizationObjective,
   type EnterprisePackagingPortfolio,
 } from './engine/enterprisePackagingPortfolio';
-import type { BoxCatalogItem, ProductItem } from './engine/productPackagingOptimizer';
-import type { ContainerSpec } from './engine/types';
 import { downloadEnterprisePackagingWorkbook } from './enterprisePackagingExcelExport';
 import { createEnterprisePackagingManifest, writeEnterprisePackagingManifest } from './enterprisePackagingManifest';
+import {
+  enterprisePackagingOptionsFromPlanner,
+  ENTERPRISE_PACKAGING_PLANNER_EVENT,
+  readEnterprisePackagingPlannerState,
+  type EnterprisePackagingPlannerState,
+} from './enterprisePackagingPlannerStore';
 import { writeStoredState } from './storage';
-
-const PLANNER_STORAGE_KEY = 'container-loading-product-packaging-v1';
-
-type PlannerSettings = {
-  allowCustom?: boolean;
-  maxGrossKg?: number;
-  generatedBoxUnitCost?: number;
-  familyEnabled?: boolean;
-  targetBoxTypes?: number;
-  maxScoreLossPct?: number;
-  allowMixedResidual?: boolean;
-  containerFreightCost?: number;
-  handlingCostPerCarton?: number;
-  newBoxSetupCost?: number;
-  cartonSkuCarryCost?: number;
-  currency?: string;
-};
-
-type StoredPlanner = {
-  products: ProductItem[];
-  boxes: BoxCatalogItem[];
-  container: ContainerSpec;
-  settings?: PlannerSettings;
-};
 
 const objectiveLabel: Record<EnterpriseOptimizationObjective, string> = {
   balanced: '균형 최적화',
@@ -42,50 +21,51 @@ const objectiveLabel: Record<EnterpriseOptimizationObjective, string> = {
   cost: '총비용 최소',
 };
 
-function readPlanner(): StoredPlanner | null {
-  try {
-    const raw = window.localStorage.getItem(PLANNER_STORAGE_KEY);
-    return raw ? JSON.parse(raw) as StoredPlanner : null;
-  } catch {
-    return null;
-  }
-}
-
-function portfolioFromStored(stored: StoredPlanner, objective: EnterpriseOptimizationObjective) {
-  const settings = stored.settings ?? {};
-  return optimizeEnterprisePackagingPortfolio(stored.container, stored.products, stored.boxes ?? [], {
-    ...defaultEnterprisePackagingOptions,
-    packaging: {
-      ...defaultEnterprisePackagingOptions.packaging,
-      allowCustomBoxDesign: settings.allowCustom ?? true,
-      maxGeneratedGrossWeightKg: Math.max(1, settings.maxGrossKg ?? 22),
-      generatedBoxUnitCost: (settings.generatedBoxUnitCost ?? 0) > 0 ? settings.generatedBoxUnitCost : undefined,
-    },
-    family: {
-      ...defaultEnterprisePackagingOptions.family,
-      enabled: settings.familyEnabled ?? true,
-      targetMaxBoxTypes: Math.max(1, Math.floor(settings.targetBoxTypes ?? 4)),
-      maxAssignmentScoreLoss: Math.min(1, Math.max(0, (settings.maxScoreLossPct ?? 8) / 100)),
-    },
-    allowMixedResidualCartons: settings.allowMixedResidual ?? false,
-    cost: {
-      containerFreightCost: Math.max(0, settings.containerFreightCost ?? 0),
-      handlingCostPerCarton: Math.max(0, settings.handlingCostPerCarton ?? 0),
-      newBoxSetupCost: Math.max(0, settings.newBoxSetupCost ?? 0),
-      cartonSkuCarryCost: Math.max(0, settings.cartonSkuCarryCost ?? 0),
-      currency: settings.currency?.trim() || 'KRW',
-    },
-  }, objective, Math.min(8, Math.max(1, stored.products.length)));
+function portfolioFromStored(stored: EnterprisePackagingPlannerState, objective: EnterpriseOptimizationObjective) {
+  return optimizeEnterprisePackagingPortfolio(
+    stored.container,
+    stored.products,
+    stored.boxes ?? [],
+    enterprisePackagingOptionsFromPlanner(stored),
+    objective,
+    Math.min(8, Math.max(1, stored.products.length)),
+  );
 }
 
 export default function EnterprisePackagingStrategyExplorer() {
   const [objective, setObjective] = useState<EnterpriseOptimizationObjective>('balanced');
   const [portfolio, setPortfolio] = useState<EnterprisePackagingPortfolio | null>(null);
-  const [stored, setStored] = useState<StoredPlanner | null>(null);
+  const [stored, setStored] = useState<EnterprisePackagingPlannerState | null>(null);
   const [message, setMessage] = useState('');
 
+  useEffect(() => {
+    const invalidate = () => {
+      setPortfolio(null);
+      setStored(null);
+      setMessage('기업 포장 입력이 변경되었습니다. 전략 자동비교를 다시 실행하세요.');
+    };
+    const onPlannerInput = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('#product-packaging-planner')) invalidate();
+    };
+    const onPlannerClick = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('#product-packaging-planner button')) invalidate();
+    };
+    window.addEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, invalidate);
+    document.addEventListener('input', onPlannerInput, true);
+    document.addEventListener('change', onPlannerInput, true);
+    document.addEventListener('click', onPlannerClick, true);
+    return () => {
+      window.removeEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, invalidate);
+      document.removeEventListener('input', onPlannerInput, true);
+      document.removeEventListener('change', onPlannerInput, true);
+      document.removeEventListener('click', onPlannerClick, true);
+    };
+  }, []);
+
   const compare = () => {
-    const current = readPlanner();
+    const current = readEnterprisePackagingPlannerState();
     if (!current?.products?.length) return setMessage('제품 목록을 먼저 등록하거나 Excel로 불러오세요.');
     const next = portfolioFromStored(current, objective);
     setStored(current);
@@ -114,7 +94,7 @@ export default function EnterprisePackagingStrategyExplorer() {
     <div className="strategy-explorer-head">
       <div><span>STRATEGY SWEEP</span><h3>포장 전략 자동 비교</h3><p>같은 제품을 여러 박스 패밀리/잔량 방식으로 다시 계산해 목적에 맞는 추천안을 선택합니다.</p></div>
       <div className="strategy-explorer-controls">
-        <label>최적화 기준<select value={objective} onChange={(event) => { setObjective(event.target.value as EnterpriseOptimizationObjective); setPortfolio(null); }}><option value="balanced">균형</option><option value="freight">컨테이너 대수 최소</option><option value="carton-sku">박스 SKU 최소</option><option value="cost">총비용 최소</option></select></label>
+        <label>최적화 기준<select value={objective} onChange={(event) => { setObjective(event.target.value as EnterpriseOptimizationObjective); setPortfolio(null); setStored(null); }}><option value="balanced">균형</option><option value="freight">컨테이너 대수 최소</option><option value="carton-sku">박스 SKU 최소</option><option value="cost">총비용 최소</option></select></label>
         <button type="button" onClick={compare}>전략 자동비교</button>
       </div>
     </div>
