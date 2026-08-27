@@ -1,34 +1,7 @@
-import { useEffect, useState } from 'react';
-import type { OptimizedPalletPackingResult } from './engine/palletOptimization';
-
-type PalletSnapshot = { result: OptimizedPalletPackingResult };
-type PalletWindow = Window & { __containerLoadingPalletSnapshot?: PalletSnapshot };
-
-const PALLET_SNAPSHOT_UPDATED_EVENT = 'container-loading:pallet-snapshot-updated';
-
-function readSnapshot() {
-  if (typeof window === 'undefined') return null;
-  return (window as PalletWindow).__containerLoadingPalletSnapshot ?? null;
-}
+import { usePalletSnapshot } from './palletSnapshotStore';
 
 export default function PalletFooterSummary({ active }: { active: boolean }) {
-  const [snapshot, setSnapshot] = useState<PalletSnapshot | null>(() => active ? readSnapshot() : null);
-
-  useEffect(() => {
-    if (!active) {
-      setSnapshot(null);
-      return;
-    }
-
-    setSnapshot(readSnapshot());
-    const onSnapshot = (event: Event) => {
-      const next = (event as CustomEvent<PalletSnapshot>).detail;
-      setSnapshot(next ?? readSnapshot());
-    };
-    window.addEventListener(PALLET_SNAPSHOT_UPDATED_EVENT, onSnapshot);
-    return () => window.removeEventListener(PALLET_SNAPSHOT_UPDATED_EVENT, onSnapshot);
-  }, [active]);
-
+  const snapshot = usePalletSnapshot();
   if (!active || !snapshot) return null;
   const { result } = snapshot;
   return (
