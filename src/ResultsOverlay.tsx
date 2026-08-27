@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import CertificationResultSummary from './CertificationResultSummary';
 import { analyzeConstraints } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
 import { validatePlacements } from './engine/constraints';
@@ -110,15 +111,10 @@ export default function ResultsOverlay() {
     const nextSpec = sanitizeResultsPalletSpec({ ...palletSnapshot.spec, [field]: Number(rawValue) });
     const nextResult = packOnPallets(detail.container, detail.cargo.filter(item => item.quantity > 0), nextSpec);
     const nextSnapshot: PalletSnapshot = { spec: nextSpec, result: nextResult };
-    // 팔레트 조건이 달라지는 순간 이전 PASS는 더 이상 현재 배치를 인증하지 않는다.
-    // PalletModePanel의 후속 effect를 기다리지 않고 즉시 폐기해 출력 race를 막는다.
     clearLatestInertiaCertification();
     (window as PalletWindow).__containerLoadingPalletSnapshot = nextSnapshot;
     setPalletSnapshot(nextSnapshot);
     window.dispatchEvent(new CustomEvent<PalletSpec>(PALLET_SPEC_FROM_RESULTS_EVENT, { detail: nextSpec }));
-    // 이 창은 관성 PASS 결과만 보여주는 최종 결과창이다.
-    // 팔레트 조건이 바뀌면 새 배치는 아직 인증되지 않았으므로 즉시 닫고
-    // 사용자가 결과 보기를 다시 실행해 재검증하도록 fail-closed 처리한다.
     setOpen(false);
   };
 
@@ -168,6 +164,8 @@ export default function ResultsOverlay() {
         <article><span>최대 층수</span><b>{maxLayer} 층</b><small>균형 {quality?.grade ?? '-'}</small></article>
         <article className={failed ? 'bad' : warned ? 'warn' : 'good'}><span>제약조건</span><b>{failed ? `실패 ${failed}` : warned ? `확인 ${warned}` : '모두 통과'}</b><small>{checks.length}개 항목 검사</small></article>
       </div>
+
+      <CertificationResultSummary detail={detail} />
 
       <div className="results-main-grid">
         <article className="results-panel">
