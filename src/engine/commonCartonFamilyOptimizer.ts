@@ -78,7 +78,7 @@ function assignmentKey(item: ProductPackagingAssignment) {
     .join(':');
 }
 
-function baselineAssignmentBox(
+function generatedAssignmentBox(
   item: ProductPackagingAssignment,
   packaging: ProductPackagingOptions,
 ): FamilyBox {
@@ -91,10 +91,11 @@ function baselineAssignmentBox(
     outerLength: item.outerLength,
     outerWidth: item.outerWidth,
     outerHeight: item.outerHeight,
-    tareWeightKg: item.source === 'generated' ? packaging.generatedBoxTareKg : Math.max(0, item.grossWeightKg - item.unitsPerBox * 0),
+    tareWeightKg: packaging.generatedBoxTareKg,
     maxGrossWeightKg: Math.max(packaging.maxGeneratedGrossWeightKg, item.grossWeightKg),
-    maxTopLoadKg: item.source === 'generated' ? undefined : item.maxTopLoadKg,
-    familySource: item.source === 'catalog' ? 'catalog' : 'generated',
+    maxTopLoadKg: undefined,
+    unitCost: item.boxUnitCost ?? (packaging.generatedBoxUnitCost && packaging.generatedBoxUnitCost > 0 ? packaging.generatedBoxUnitCost : undefined),
+    familySource: 'generated',
   };
 }
 
@@ -139,6 +140,7 @@ function standardizedEnvelope(
     tareWeightKg: packaging.generatedBoxTareKg,
     maxGrossWeightKg: packaging.maxGeneratedGrossWeightKg,
     maxTopLoadKg: undefined,
+    unitCost: packaging.generatedBoxUnitCost && packaging.generatedBoxUnitCost > 0 ? packaging.generatedBoxUnitCost : undefined,
     familySource: 'standardized',
   };
 }
@@ -151,7 +153,9 @@ function candidatePool(
   packaging: ProductPackagingOptions,
 ) {
   const pool: FamilyBox[] = sanitizedCatalog(catalog, container);
-  for (const assignment of baseline.assignments) pool.push(baselineAssignmentBox(assignment, packaging));
+  for (const assignment of baseline.assignments) {
+    if (assignment.source === 'generated') pool.push(generatedAssignmentBox(assignment, packaging));
+  }
 
   let pairIndex = 0;
   for (let i = 0; i < baseline.assignments.length; i += 1) {
@@ -196,12 +200,16 @@ function evaluateCandidate(
     });
     const assignment = plan.assignments[0];
     if (!assignment || assignment.simulatedLoadedBoxes < 1) continue;
+    const generated = box.familySource !== 'catalog';
     byProduct.set(product.id, {
       ...assignment,
       boxId: box.id,
       boxName: box.name,
-      source: box.familySource === 'catalog' ? 'catalog' : 'generated',
-      maxTopLoadKg: box.maxTopLoadKg,
+      source: generated ? 'generated' : 'catalog',
+      maxStackLayers: generated ? 1 : assignment.maxStackLayers,
+      maxTopLoadKg: generated ? 0 : box.maxTopLoadKg,
+      strengthStatus: generated ? 'design-target' : 'catalog',
+      boxUnitCost: box.unitCost,
     });
   }
   return { box, byProduct };
@@ -230,6 +238,7 @@ export function optimizeCommonCartonFamily(
   family: CommonCartonFamilyOptions = defaultCommonCartonFamilyOptions,
 ): CommonCartonFamilyPlan {
   const baseline = optimizeProductPackaging(container, products, catalog, packaging);
+  const target = Math.max(1, Math.floor(family.targetMaxBoxTypes));
   if (!family.enabled || baseline.assignments.length <= 1) {
     const baselineTypes = new Set(baseline.assignments.map(assignmentKey)).size;
     return {
@@ -238,8 +247,8 @@ export function optimizeCommonCartonFamily(
         baselineBoxTypes: baselineTypes,
         selectedBoxTypes: baselineTypes,
         boxTypeSavings: 0,
-        targetMaxBoxTypes: Math.max(1, Math.floor(family.targetMaxBoxTypes)),
-        targetExceeded: false,
+        targetMaxBoxTypes: target,
+        targetExceeded: baselineTypes > target,
         averageScoreLoss: 0,
         selectedBoxes: baseline.assignments.map((item) => ({
           id: item.boxId,
@@ -259,7 +268,6 @@ export function optimizeCommonCartonFamily(
   const pool = candidatePool(container, baseline, catalog, family, packaging);
   const evaluations = pool.map((box) => evaluateCandidate(container, activeProducts, box, packaging));
   const lossLimit = Math.min(1, Math.max(0, family.maxAssignmentScoreLoss));
-  const target = Math.max(1, Math.floor(family.targetMaxBoxTypes));
   const uncovered = new Set(activeProducts.map((product) => product.id));
   const selected: CandidateEvaluation[] = [];
 
@@ -296,7 +304,7 @@ export function optimizeCommonCartonFamily(
     }
   }
 
-  // 안전한 포장을 우선한다. 목표 박스 수로 모든 제품을 커버하지 못하면 필요한 규격을 추가한다.
+  // 목표 규격 수로 모든 제품을 커버하지 못하면 안전성을 우선해 필요한 규격을 추가한다.
   for (const productId of [...uncovered]) {
     const baselineAssignment = baselineByProduct.get(productId);
     if (!baselineAssignment) continue;
