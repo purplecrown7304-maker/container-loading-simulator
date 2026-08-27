@@ -114,20 +114,6 @@ function furthestTail(placements: Placement[]) {
   return placements.reduce((tail, placement) => Math.max(tail, placement.x + placement.length), 0);
 }
 
-function mixedTailStart(item: CargoItem, placements: Placement[], cargoById: Map<string, CargoItem>) {
-  let sameCargoTail = 0;
-  let heavierCargoTail = 0;
-  for (const placement of placements) {
-    const tail = placement.x + placement.length;
-    if (placement.cargoId === item.id) sameCargoTail = Math.max(sameCargoTail, tail);
-    const placedCargo = cargoById.get(placement.cargoId);
-    if (placedCargo && placedCargo.weightKg > item.weightKg + EPS) {
-      heavierCargoTail = Math.max(heavierCargoTail, tail);
-    }
-  }
-  return Math.max(sameCargoTail, heavierCargoTail);
-}
-
 function buildCompleteSlice(
   item: CargoItem,
   x: number,
@@ -221,9 +207,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     const sliceWeightKg = sliceCapacity * item.weightKg;
     let placed = 0;
 
-    // 순수 SKU 영역에는 가로 전체 × 안전 최대 높이의 완전한 직사각 슬라이스만 넣는다.
-    // 마지막에 폭 일부만 채운 좁은 탑을 남기지 않고, 완전 슬라이스를 못 만드는 수량은
-    // 전부 문쪽 최종 혼합구역으로 보내 다른 잔량과 함께 압축한다.
+    // 순수 SKU 구역은 가로 전체 × 안전 최대 높이의 완전한 직사각 슬라이스만 사용한다.
     while (placed + sliceCapacity <= item.quantity) {
       if (cursorX + orientation.length > container.length + EPS) break;
       if (loadedWeightKg + sliceWeightKg > container.maxPayloadKg + EPS) break;
@@ -249,16 +233,17 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     if (placed < item.quantity) deferred.push({ item, quantity: item.quantity - placed });
   }
 
-  // 순수 블록은 여기까지 연속된 직사각형 구역이다. 잔량은 이 x보다 안쪽으로 돌아가지 않는다.
+  // 순수 블록 끝 뒤의 단 하나의 혼합구역. 모든 후순위 잔량이 같은 시작 x를 공유한다.
+  // 무거운 잔량이 먼저 처리되므로 바닥/안쪽을 먼저 차지하지만, 그 옆 폭이 비어 있으면
+  // 다음 SKU가 같은 x 구간을 함께 사용한다. 품목마다 새 종방향 구간을 만들지 않는다.
   const mixedZoneStartX = furthestTail(placements);
 
   for (const { item, quantity } of deferred) {
     let mixedPlaced = 0;
-    const minX = Math.max(mixedZoneStartX, mixedTailStart(item, placements, cargoById));
     for (let i = 0; i < quantity; i += 1) {
       if (loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS) break;
       const placement = findMixedPlacement(container, item, placements, cargoById, {
-        minX,
+        minX: mixedZoneStartX,
         preferVerticalStack: true,
       });
       if (!placement) break;
@@ -275,13 +260,11 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
         quantity: left,
         reason: nextBoxWouldExceedPayload
           ? '컨테이너 최대 적재 중량을 초과하므로 추가 적재하지 못함'
-          : '문쪽 혼합적재 구역에서 동일 품목 완성 스택·CBM/중량 순서·회전·경계·적층단·상부 허용중량 조건을 만족하는 안전한 위치를 찾지 못함',
+          : '문쪽 최종 혼합구역에서 회전·경계·지지·적층단·상부 허용중량 조건을 만족하는 안전한 위치를 찾지 못함',
       });
     }
   }
 
-  // 생성 후 개별 박스를 더 문쪽으로 밀어내는 shape 후처리는 사용하지 않는다.
-  // 블록성과 압축은 생성 단계에서 결정해 고립 박스/계단형 적재를 만들지 않는다.
   const result: LoadingResult = {
     placements,
     remaining,
