@@ -22,6 +22,12 @@ describe('input preflight', () => {
     expect(result.cargo[0].quantity).toBe(5);
   });
 
+  it('ignores a zero-quantity SKU as an inactive row without reporting an error', () => {
+    const result = preflightCargoInput([box({ quantity: 0 })]);
+    expect(result.cargo).toEqual([]);
+    expect(result.rejected).toEqual([]);
+  });
+
   it('rejects all rows for a duplicate SKU when dimensions conflict', () => {
     const result = preflightCargoInput([box({ quantity: 2 }), box({ width: 0.45, quantity: 3 })]);
     expect(result.cargo).toEqual([]);
@@ -34,6 +40,7 @@ describe('input preflight', () => {
     ['zero length', box({ length: 0 })],
     ['negative width', box({ width: -1 })],
     ['zero weight', box({ weightKg: 0 })],
+    ['negative quantity', box({ quantity: -1 })],
     ['fractional quantity', box({ quantity: 1.5 })],
     ['zero max stack', box({ maxStackLayers: 0 })],
     ['negative top load', box({ maxTopLoadKg: -1 })],
