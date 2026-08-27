@@ -29,7 +29,7 @@ function sanitizeSpec(spec: PalletSpec): PalletSpec {
     height: Math.max(0.01, Number(spec.height) || 0.01),
     tareWeightKg: Math.max(0, Number(spec.tareWeightKg) || 0),
     maxLoadKg: Math.max(0, Number(spec.maxLoadKg) || 0),
-    maxStackLevels: Math.max(1, Math.min(3, Math.floor(Number(spec.maxStackLevels) || 1))),
+    maxStackLevels: Math.max(1, Math.min(7, Math.floor(Number(spec.maxStackLevels) || 1))),
   };
 }
 
