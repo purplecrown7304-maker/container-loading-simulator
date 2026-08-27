@@ -56,6 +56,7 @@ import './pallet-footer-summary.css';
 import './final-certification.css';
 import './securing-material-settings.css';
 import './product-packaging.css';
+import './enterprise-packaging.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
