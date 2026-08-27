@@ -17,6 +17,7 @@ import { openLoadingReport } from './report';
 import { openResultsModal } from './resultsModalEvents';
 import { createRandomSampleCargo } from './sampleCargo';
 import { normalizeCargo, readStoredState, STORAGE_KEY, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
+import WorkspaceTools from './WorkspaceTools';
 
 const BoxLoadingViewer = lazy(() => import('./BoxLoadingViewer'));
 const PalletModePanel = lazy(() => import('./PalletModePanel'));
@@ -268,6 +269,7 @@ export default function App() {
         <button className={`nav-item ${navSection === 'viewer' ? 'active' : ''}`} onClick={scrollToViewer}>3D 보기</button>
         <button className="nav-item" onClick={showResults}>결과 보기</button>
       </nav>
+      <WorkspaceTools />
       <div className="top-actions compact">
         <button className="secondary" onClick={loadLocal}>불러오기</button>
         <button className="secondary" onClick={saveLocal}>저장</button>
