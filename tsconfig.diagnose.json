@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "src/engine/directBoxBlockDisciplineRegression.test.ts",
+    "src/engine/directBoxMixedStackLimitsRegression.test.ts"
+  ]
+}
