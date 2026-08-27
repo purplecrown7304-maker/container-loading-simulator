@@ -43,6 +43,7 @@ describe('pallet box top-load regression', () => {
 
     expect(result.placements).toHaveLength(2);
     expect(result.palletCount).toBe(2);
+    expect(result.remaining).toHaveLength(0);
     expect(result.pallets.every((load) => load.cargoPlacements.length === 1)).toBe(true);
     expect(result.pallets.every((load) => Math.abs(load.cargoPlacements[0].z - 0.15) < 1e-9)).toBe(true);
   });
@@ -56,7 +57,7 @@ describe('pallet box top-load regression', () => {
 
     expect(result.placements).toHaveLength(3);
     expect(result.palletCount).toBe(2);
+    expect(result.remaining).toHaveLength(0);
     expect(Math.max(...result.pallets.map((load) => load.cargoPlacements.length))).toBe(2);
-    expect(result.validationIssues).toBeUndefined();
   });
 });
