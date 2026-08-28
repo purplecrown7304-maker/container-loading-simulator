@@ -1,7 +1,7 @@
 Vercel production deployment trigger
-Manual redeploy requested on 2026-08-28T00:17+09:00
+Manual redeploy requested on 2026-08-28T09:13+09:00
 Target: https://container-loading-simulator-1li2.vercel.app/
-Reason: deploy DIRECT BOX block-first shelf packing, compact mixed tail, mixed-SKU stack-limit safety, and box rendering fixes
-Source main commit before trigger: b62049c3ffb3d680ec1fd3cc56c57fa128e95db2
-Trigger sequence: 5
+Reason: deploy latest main with block-first DIRECT BOX shelf packing, compact mixed tail, stack-limit safety, rendering fixes, and domain consistency cleanup
+Source main commit before trigger: 6eab7fd05a55f4018899b0a570c93ba10a84d762
+Trigger sequence: 6
 Policy: do not create any new Vercel project for deployment
