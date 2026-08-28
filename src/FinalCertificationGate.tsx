@@ -102,7 +102,7 @@ export default function FinalCertificationGate() {
   const [usage, setUsage] = useState<SecuringUsage | null>(null);
   const [certification, setCertification] = useState<InertiaCertification | null>(null);
   const [error, setError] = useState('');
-  const [repositionAttempt, setRepositionAttempt] = useState({ index: 0, total: 0, label: '' });
+  const [repositionAttempt, setRepositionAttempt] = useState({ index: 0, label: '' });
   const runId = useRef(0);
   const cache = useRef<CachedCertification | null>(null);
 
@@ -116,7 +116,7 @@ export default function FinalCertificationGate() {
     setCertification(null);
     setLatestResult(null);
     setError('');
-    setRepositionAttempt({ index: 0, total: 0, label: '' });
+    setRepositionAttempt({ index: 0, label: '' });
     setProgress({ level: 1, levelLabel: buildSecuringUsage(nextTarget, 1).levelLabel, scenario: 'acceleration', scenarioIndex: 1, scenarioCount: 3, physicsProgress: 0 });
     setUsage(buildSecuringUsage(nextTarget, 1));
 
@@ -169,21 +169,21 @@ export default function FinalCertificationGate() {
         return;
       }
 
-      const candidates = buildDirectResultReoptimizationCandidates(nextTarget, 6);
+      const candidates = buildDirectResultReoptimizationCandidates(nextTarget, Number.POSITIVE_INFINITY);
       if (!candidates.length) {
         setRunning(false);
-        setError('보강재만으로 통과하지 못했고, 같은 화물 수량을 유지하면서 만들 수 있는 추가 안전 재배치 후보가 없습니다. 적재량 또는 화물 조건을 조정해야 합니다.');
+        setError('보강재만으로 통과하지 못했고, 같은 화물 수량을 유지하면서 만들 수 있는 추가 고유 재배치안이 없습니다. 적재량 또는 화물 조건을 조정해야 합니다.');
         return;
       }
 
-      let bestPassed: EvaluatedDirectCandidate | null = null;
       let bestFailed: EvaluatedDirectCandidate | null = null;
+      let attempted = 0;
 
-      for (let index = 0; index < candidates.length; index += 1) {
+      for (const candidate of candidates) {
         if (runId.current !== id) return;
-        const candidate = candidates[index];
+        attempted += 1;
         setTarget(candidate.target);
-        setRepositionAttempt({ index: index + 1, total: candidates.length, label: candidate.label });
+        setRepositionAttempt({ index: attempted, label: candidate.label });
         setUsage(buildSecuringUsage(candidate.target, 1));
         setLatestResult(null);
 
@@ -209,23 +209,20 @@ export default function FinalCertificationGate() {
           certification: candidateCertification,
           risk: certificationRisk(candidateCertification),
         };
-        if (candidateCertification.status === 'passed') {
-          if (!bestPassed || betterCandidate(evaluated, bestPassed)) bestPassed = evaluated;
-        } else if (!bestFailed || betterCandidate(evaluated, bestFailed)) {
-          bestFailed = evaluated;
-        }
-      }
 
-      if (bestPassed) {
-        applyDirectCandidate(bestPassed);
-        cache.current = { signature: bestPassed.certification.targetSignature, certification: bestPassed.certification };
-        setTarget(bestPassed.target);
-        setCertification(bestPassed.certification);
-        setUsage(bestPassed.certification.securing);
-        setRunning(false);
-        setOpen(false);
-        openResultsModal({ ...resultDetailFromTarget(bestPassed.target), certification: bestPassed.certification });
-        return;
+        if (candidateCertification.status === 'passed') {
+          applyDirectCandidate(evaluated);
+          cache.current = { signature: evaluated.certification.targetSignature, certification: evaluated.certification };
+          setTarget(evaluated.target);
+          setCertification(evaluated.certification);
+          setUsage(evaluated.certification.securing);
+          setRunning(false);
+          setOpen(false);
+          openResultsModal({ ...resultDetailFromTarget(evaluated.target), certification: evaluated.certification });
+          return;
+        }
+
+        if (!bestFailed || betterCandidate(evaluated, bestFailed)) bestFailed = evaluated;
       }
 
       if (bestFailed) {
@@ -234,7 +231,7 @@ export default function FinalCertificationGate() {
         setCertification(bestFailed.certification);
         setUsage(bestFailed.certification.securing);
         setRunning(false);
-        setError(`자동 재배치 ${candidates.length}개를 모두 시험했지만 관성 3종 PASS에는 도달하지 못했습니다. 그중 가장 안전한 재배치안을 시뮬레이터에 적용했습니다. 이동·기울기 또는 적재량을 더 낮춰야 합니다.`);
+        setError(`관성 3종 PASS가 나올 때까지 고유 재배치 ${attempted}개를 연속 시험했습니다. 같은 화물 수량을 유지하면서 생성 가능한 재배치 탐색공간을 모두 소진했지만 PASS에는 도달하지 못했습니다. 가장 안전한 재배치안을 적용했으며, 이 경우에는 적재량·박스 적층조건 또는 보조자재 조건을 바꿔야 합니다.`);
         return;
       }
 
@@ -286,7 +283,7 @@ export default function FinalCertificationGate() {
         <div>
           <span>FINAL SAFETY GATE · RAPIER 3D · {palletMode ? 'PALLET' : 'DIRECT BOX'}</span>
           <h2 id="final-cert-title">최종 적재 결과 전 관성 검증</h2>
-          <p>출발 가속 · 급정거 · 급회전을 모두 통과해야 최종 결과가 열립니다. 보강재로 부족하면 같은 화물 수량을 유지한 채 낮고 넓은 재배치 후보를 자동 생성해 다시 시험합니다.</p>
+          <p>출발 가속 · 급정거 · 급회전을 모두 통과해야 최종 결과가 열립니다. DIRECT BOX는 PASS가 나올 때까지 같은 화물 수량을 유지한 고유 재배치안을 연속 생성·검증하며, 동일 배치 반복 또는 탐색공간 소진 때만 중단합니다.</p>
         </div>
         {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
       </header>
@@ -304,8 +301,8 @@ export default function FinalCertificationGate() {
       {running && <div className="final-cert-running">
         <div className="physics-spinner" />
         <div>
-          <b>{repositionAttempt.total > 0 ? `재배치 ${repositionAttempt.index}/${repositionAttempt.total} · ${repositionAttempt.label}` : `${progress?.levelLabel ?? '기본 적재'} · ${scenarioLabel}`}</b>
-          <span>{repositionAttempt.total > 0 ? `${progress?.levelLabel ?? ''} · ${scenarioLabel} · 관성 프레임 ${progressPercent}%` : `관성 프레임 계산 ${progressPercent}%`}</span>
+          <b>{repositionAttempt.index > 0 ? `재배치 ${repositionAttempt.index}회 · PASS까지 계속 탐색 · ${repositionAttempt.label}` : `${progress?.levelLabel ?? '기본 적재'} · ${scenarioLabel}`}</b>
+          <span>{repositionAttempt.index > 0 ? `${progress?.levelLabel ?? ''} · ${scenarioLabel} · 관성 프레임 ${progressPercent}%` : `관성 프레임 계산 ${progressPercent}%`}</span>
         </div>
         <progress max="100" value={progressPercent} />
       </div>}
@@ -337,7 +334,7 @@ export default function FinalCertificationGate() {
       {error && <div className="final-cert-error"><b>최종 결과 잠금 유지</b><span>{error}</span></div>}
 
       {!running && error && <div className="final-cert-actions">
-        {request && target && <button type="button" className="primary" onClick={() => void execute(request, target)}>자동 재배치 다시 최적화</button>}
+        {request && target && <button type="button" className="primary" onClick={() => void execute(request, target)}>현재 조건으로 다시 탐색</button>}
         <button type="button" onClick={() => { setOpen(false); window.dispatchEvent(new Event(OPEN_INERTIA_TEST_EVENT)); }}>관성 테스트 자세히 보기</button>
         <button type="button" onClick={() => setOpen(false)}>적재안 수정</button>
       </div>}
