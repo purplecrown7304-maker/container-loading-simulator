@@ -1,0 +1,318 @@
+/* Clean two-tier header: global actions above, work/data tools below. */
+:root {
+  --clean-global-header-height: 52px;
+  --clean-workbar-height: 40px;
+  --clean-header-total: 92px;
+}
+
+.reference-utility {
+  height: var(--clean-global-header-height);
+  grid-template-columns: minmax(250px, 320px) minmax(340px, 1fr) auto;
+  gap: 16px;
+  padding: 0 14px;
+  overflow: visible;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
+}
+
+.reference-utility .ref-brand { gap: 10px; }
+.reference-utility .ref-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+.reference-utility .ref-brand-text b { font-size: 12px; }
+.reference-utility .ref-brand-text small { margin-top: 2px; font-size: 8px; }
+
+.reference-utility .ref-vehicle {
+  justify-content: center;
+  gap: 6px;
+}
+.reference-utility .ref-vehicle .equipment-current {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 260px;
+  height: 32px;
+  padding: 0 11px;
+  background: #f8fafc;
+  border-color: #cbd7e6;
+  text-align: left;
+}
+.reference-utility .ref-vehicle .equipment-current b {
+  color: #172033;
+  font-size: 10px;
+}
+.reference-utility .ref-vehicle .equipment-current small {
+  overflow: hidden;
+  color: #748197;
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reference-utility .ref-vehicle .add,
+.reference-utility .ref-user-actions > button,
+.reference-utility .ref-more-actions > summary {
+  height: 32px;
+  border-radius: 7px;
+  font-size: 9px;
+}
+
+.reference-utility .ref-user-actions {
+  gap: 5px;
+  overflow: visible;
+}
+.reference-utility .ref-user-actions .ai {
+  min-width: 86px;
+  background: #285400;
+  border-color: #4b780f;
+  color: #d9ff9b;
+}
+.reference-utility .physics-launch-button { min-width: 76px; }
+.reference-utility .ref-avatar {
+  width: 30px;
+  height: 30px;
+  margin-left: 2px;
+}
+
+.ref-more-actions,
+.excel-import-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+.ref-more-actions > summary,
+.excel-import-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.ref-more-actions > summary::-webkit-details-marker,
+.excel-import-menu > summary::-webkit-details-marker { display: none; }
+.ref-more-actions > summary {
+  min-width: 62px;
+  padding: 0 10px;
+  border: 1px solid #d5dfeb;
+  background: #fff;
+  color: #475569;
+  font-weight: 700;
+}
+.ref-more-actions > summary::after,
+.excel-import-menu > summary::after {
+  content: '⌄';
+  margin-left: 5px;
+  transform: translateY(-1px);
+  font-size: 10px;
+}
+.ref-more-actions[open] > summary,
+.excel-import-menu[open] > summary {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.ref-more-menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 2500;
+  display: grid;
+  min-width: 145px;
+  padding: 6px;
+  border: 1px solid #d7e0eb;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, .16);
+}
+.reference-utility .ref-more-menu button,
+.reference-utility .ref-more-menu .member {
+  display: block;
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #334155;
+  text-align: left;
+  font-size: 9px;
+}
+.reference-utility .ref-more-menu button:hover { background: #f1f5f9; }
+
+.mockup-dashboard {
+  height: calc(100vh - var(--clean-global-header-height)) !important;
+}
+.mockup-topbar {
+  height: var(--clean-workbar-height) !important;
+  min-height: var(--clean-workbar-height) !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 0 14px !important;
+  overflow: visible !important;
+  background: #f8fafc !important;
+  border-bottom: 1px solid #dbe3ee !important;
+}
+.mockup-topbar .brand-block { display: none !important; }
+.mockup-topbar .main-nav { display: none !important; }
+
+.mockup-topbar .workspace-tools-nav {
+  gap: 4px;
+  margin-left: 0;
+  min-width: 0;
+}
+.mockup-topbar .workspace-tools-nav::before,
+.mockup-topbar .top-actions.compact::before {
+  flex: 0 0 auto;
+  margin-right: 3px;
+  color: #94a3b8;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+.mockup-topbar .workspace-tools-nav::before { content: '작업'; }
+.mockup-topbar .top-actions.compact::before { content: '데이터'; }
+.mockup-topbar .workspace-tools-nav button,
+.mockup-topbar .top-actions.compact > button,
+.mockup-topbar .excel-import-menu > summary {
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 9px !important;
+  border: 1px solid #d7e0eb !important;
+  border-radius: 6px !important;
+  background: #fff !important;
+  color: #334155 !important;
+  font-size: 8px !important;
+  font-weight: 700 !important;
+  white-space: nowrap;
+}
+.mockup-topbar .workspace-tools-nav button:hover,
+.mockup-topbar .top-actions.compact > button:hover,
+.mockup-topbar .excel-import-menu > summary:hover {
+  border-color: #b7c7db !important;
+  background: #f1f5f9 !important;
+}
+.mockup-topbar .workspace-tools-nav button.done {
+  border-color: #a7f3d0 !important;
+  background: #ecfdf5 !important;
+  color: #047857 !important;
+}
+.mockup-topbar .top-actions.compact {
+  margin-left: auto !important;
+  display: flex !important;
+  flex: 0 0 auto;
+  align-items: center !important;
+  gap: 4px !important;
+  max-width: none !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+.excel-import-menu > summary {
+  min-width: 58px;
+}
+.excel-import-popover {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 2600;
+  display: grid;
+  gap: 7px;
+  width: 225px;
+  padding: 10px;
+  border: 1px solid #d7e0eb;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, .18);
+}
+.excel-import-popover label {
+  display: grid;
+  grid-template-columns: 1fr 105px;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 9px;
+}
+.excel-import-popover .excel-mode-select {
+  width: 105px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 24px 0 8px;
+  font-size: 9px;
+}
+.mockup-topbar .excel-import-popover button {
+  width: 100%;
+  min-height: 32px !important;
+  height: auto !important;
+  padding: 7px 9px !important;
+  border: 1px solid #dbe3ee !important;
+  border-radius: 7px !important;
+  background: #f8fafc !important;
+  color: #334155 !important;
+  font-size: 9px !important;
+  text-align: left;
+  white-space: normal;
+}
+.mockup-topbar .excel-import-popover .excel-message {
+  border-color: #bfdbfe !important;
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+  line-height: 1.35;
+}
+
+.dashboard-grid {
+  height: calc(100vh - var(--clean-header-total)) !important;
+}
+
+@media (max-width: 1200px) {
+  .reference-utility {
+    grid-template-columns: minmax(220px, 270px) minmax(280px, 1fr) auto;
+    gap: 9px;
+    padding: 0 9px;
+  }
+  .reference-utility .ref-vehicle .equipment-current { min-width: 205px; }
+  .reference-utility .ref-vehicle .equipment-current small { display: none; }
+  .reference-utility .ref-more-menu .member { display: block; }
+}
+
+@media (max-width: 900px) {
+  .reference-utility {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .reference-utility .ref-vehicle { display: none; }
+  .mockup-topbar {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    scrollbar-width: thin;
+  }
+  .mockup-topbar .workspace-tools-nav,
+  .mockup-topbar .top-actions.compact { flex: 0 0 auto; }
+  .mockup-dashboard { height: auto !important; }
+  .dashboard-grid { height: auto !important; }
+}
+
+@media (max-width: 700px) {
+  .reference-utility {
+    min-height: 48px;
+    height: 48px;
+    padding: 0 8px;
+  }
+  .reference-utility .ref-brand-text small { display: none; }
+  .reference-utility .ref-user-actions .ai { display: none; }
+  .reference-utility .physics-launch-button { min-width: 68px; }
+  .reference-utility .ref-more-actions > summary { min-width: 50px; padding: 0 7px; }
+  .mockup-topbar {
+    height: 40px !important;
+    min-height: 40px !important;
+    padding: 0 8px !important;
+  }
+  .mockup-topbar .workspace-tools-nav::before,
+  .mockup-topbar .top-actions.compact::before { display: none; }
+  .mockup-topbar .workspace-tools-nav button,
+  .mockup-topbar .top-actions.compact > button,
+  .mockup-topbar .excel-import-menu > summary { padding: 0 7px !important; }
+  .ref-more-menu,
+  .excel-import-popover { position: fixed; top: 52px; right: 8px; }
+  .excel-import-popover { width: min(260px, calc(100vw - 16px)); }
+}
