@@ -2,6 +2,7 @@ import { Edges } from '@react-three/drei';
 import { useMemo } from 'react';
 import type { PalletLoad } from './engine/palletOptimization';
 import type { ContainerSpec } from './engine/types';
+import EquipmentShell3D from './EquipmentShell3D';
 import type { SecuringUsage } from './inertiaCertification';
 
 type Props = {
@@ -113,8 +114,8 @@ export default function SecuringAids3D({ container, pallets, usage, scale }: Pro
     };
   }, [pallets]);
 
-  if (!usage || usage.level === 0) return null;
-  const barCount = Math.max(0, usage.loadBars);
+  const activeUsage = usage && usage.level > 0 ? usage : null;
+  const barCount = Math.max(0, activeUsage?.loadBars ?? 0);
   const barXs = occupied && barCount > 0
     ? Array.from({ length: barCount }, (_, index) => {
       if (barCount === 1) return Math.min(container.length - 0.04, occupied.maxX + 0.035);
@@ -126,8 +127,9 @@ export default function SecuringAids3D({ container, pallets, usage, scale }: Pro
   const barHeight = occupied ? Math.min(container.height * 0.72, Math.max(0.6, occupied.maxTop * 0.65)) : container.height * 0.5;
 
   return <group>
-    {pallets.map(pallet => <PalletSecuring key={`securing-${pallet.palletIndex}`} container={container} pallet={pallet} usage={usage} scale={scale} />)}
-    {barXs.map((x, index) => <mesh
+    <EquipmentShell3D container={container} scale={scale} />
+    {activeUsage && pallets.map(pallet => <PalletSecuring key={`securing-${pallet.palletIndex}`} container={container} pallet={pallet} usage={activeUsage} scale={scale} />)}
+    {activeUsage && barXs.map((x, index) => <mesh
       key={`load-bar-${index}`}
       position={[sceneX(container, x, scale), barHeight * scale, 0]}
     >
