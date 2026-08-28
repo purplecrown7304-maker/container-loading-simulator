@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
+import { STORAGE_UPDATED_EVENT } from './storage';
 import {
   CONTAINER_EQUIPMENT,
   OPEN_TRANSPORT_SELECTOR_EVENT,
   TRUCK_EQUIPMENT,
   createCustomEquipment,
   findMatchingEquipment,
+  getTransportEquipment,
+  hasStoredTransportEquipment,
   readTransportEquipment,
   selectTransportEquipment,
   type EquipmentGeometry,
@@ -77,6 +80,22 @@ function applyToDashboard(spec: TransportEquipment) {
   return applied === Object.keys(values).length;
 }
 
+function specMatchesEquipment(spec: EditableSpec, equipment: TransportEquipment) {
+  return Math.abs(spec.length - equipment.length) < 0.001
+    && Math.abs(spec.width - equipment.width) < 0.001
+    && Math.abs(spec.height - equipment.height) < 0.001
+    && Math.abs(spec.maxPayloadKg - equipment.maxPayloadKg) < 1
+    && Math.abs(spec.floorLoadLimitKgPerM2 - equipment.floorLoadLimitKgPerM2) < 1;
+}
+
+function syncSelectionFromDashboard(category: TransportCategory) {
+  const values = readDashboardSpec();
+  if (!values) return;
+  const match = findMatchingEquipment(values.length, values.width, values.height, values.maxPayloadKg);
+  if (match && Math.abs(match.floorLoadLimitKgPerM2 - values.floorLoadLimitKgPerM2) < 1) selectTransportEquipment(match);
+  else selectTransportEquipment(createCustomEquipment(category, values));
+}
+
 function EquipmentIcon({ geometry, truck }: { geometry: EquipmentGeometry; truck: boolean }) {
   if (geometry === 'tank') return <svg viewBox="0 0 180 100" aria-hidden="true"><rect x="20" y="22" width="140" height="58" rx="2" className="eq-line"/><rect x="36" y="30" width="108" height="42" rx="21" className="eq-fill"/><circle cx="55" cy="78" r="5" className="eq-dark"/><circle cx="125" cy="78" r="5" className="eq-dark"/></svg>;
   if (geometry === 'platform') return <svg viewBox="0 0 180 100" aria-hidden="true"><path d="M20 64 L145 46 L160 55 L36 76 Z" className="eq-fill"/><path d="M20 64 L145 46 L160 55 L36 76 Z M32 73v9m116-28v10" className="eq-line"/></svg>;
@@ -107,6 +126,32 @@ export default function TransportEquipmentSelector() {
   const list = useMemo(() => category === 'container' ? CONTAINER_EQUIPMENT : TRUCK_EQUIPMENT, [category]);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const dashboard = readDashboardSpec();
+      if (!dashboard) return;
+      if (hasStoredTransportEquipment()) {
+        const persisted = readTransportEquipment();
+        if (!specMatchesEquipment(dashboard, persisted)) applyToDashboard(persisted);
+        return;
+      }
+      const known = findMatchingEquipment(dashboard.length, dashboard.width, dashboard.height, dashboard.maxPayloadKg);
+      if (known && Math.abs(known.floorLoadLimitKgPerM2 - dashboard.floorLoadLimitKgPerM2) < 1) {
+        selectTransportEquipment(known);
+        return;
+      }
+      const legacy40hc = Math.abs(dashboard.length - 12.03) < 0.02 && Math.abs(dashboard.width - 2.35) < 0.02 && Math.abs(dashboard.height - 2.69) < 0.03 && Math.abs(dashboard.maxPayloadKg - 26500) < 50;
+      const standard40hc = getTransportEquipment('40-high-cube');
+      if (legacy40hc && standard40hc) {
+        applyToDashboard(standard40hc);
+        selectTransportEquipment(standard40hc);
+        return;
+      }
+      selectTransportEquipment(createCustomEquipment('container', dashboard));
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
     const onOpen = (event: Event) => {
       const detail = (event as CustomEvent<{ category?: TransportCategory }>).detail;
       const nextCategory = detail?.category ?? readTransportEquipment().category;
@@ -124,16 +169,15 @@ export default function TransportEquipmentSelector() {
       const target = event.target;
       if (!(target instanceof HTMLInputElement)) return;
       if (!target.closest('.dashboard-left .dashboard-card:first-child')) return;
-      window.setTimeout(() => {
-        const values = readDashboardSpec();
-        if (!values) return;
-        const match = findMatchingEquipment(values.length, values.width, values.height, values.maxPayloadKg);
-        if (match) selectTransportEquipment(match);
-        else selectTransportEquipment(createCustomEquipment(readTransportEquipment().category, values));
-      }, 0);
+      window.setTimeout(() => syncSelectionFromDashboard(readTransportEquipment().category), 0);
     };
+    const onStoredState = () => window.setTimeout(() => syncSelectionFromDashboard(readTransportEquipment().category), 30);
     document.addEventListener('change', onDashboardChange, true);
-    return () => document.removeEventListener('change', onDashboardChange, true);
+    window.addEventListener(STORAGE_UPDATED_EVENT, onStoredState);
+    return () => {
+      document.removeEventListener('change', onDashboardChange, true);
+      window.removeEventListener(STORAGE_UPDATED_EVENT, onStoredState);
+    };
   }, []);
 
   const choose = (item: TransportEquipment) => {
@@ -149,7 +193,7 @@ export default function TransportEquipmentSelector() {
     }
     selectTransportEquipment(item);
     setCustom(editable(item));
-    setMessage(item.specializedCargo ? `${item.shortName}은 특수화물 전용 장비입니다. 박스 적재 결과는 참고용입니다.` : `${item.shortName} 규격을 현재 적재계획에 적용했습니다.`);
+    setMessage(item.specializedCargo ? `${item.shortName}은 특수화물 전용 장비입니다. 박스 적재 결과는 참고용입니다.` : `${item.shortName} 규격을 현재 적재계획에 적용했습니다. 자동 적재를 다시 실행하세요.`);
   };
 
   const applyCustom = () => {
@@ -164,7 +208,7 @@ export default function TransportEquipmentSelector() {
       return;
     }
     selectTransportEquipment(item);
-    setMessage(`${item.shortName} 사용자 규격을 적용했습니다.`);
+    setMessage(`${item.shortName} 사용자 규격을 적용했습니다. 자동 적재를 다시 실행하세요.`);
   };
 
   if (!open) return null;
@@ -198,7 +242,7 @@ export default function TransportEquipmentSelector() {
 
       <footer className="transport-selector-foot">
         <div><b>현재 선택: {selected.shortName}</b><span>{selected.length.toFixed(3)} × {selected.width.toFixed(3)} × {selected.height.toFixed(3)}m · {selected.maxPayloadKg.toLocaleString()}kg</span></div>
-        <div><span>{selected.sourceLabel}</span><small>실제 장비 제원은 제조사·연식·국가별 허용중량에 따라 달라질 수 있으므로 출하 전 실제 장비 데이터를 확인하세요.</small></div>
+        <div><span>{selected.sourceLabel}</span><small>{selected.note ?? '실제 장비 제원은 제조사·연식·국가별 허용중량에 따라 달라질 수 있으므로 출하 전 실제 장비 데이터를 확인하세요.'}</small></div>
       </footer>
       {message && <p className="transport-selector-message" role="status">{message}</p>}
     </section>
