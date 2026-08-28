@@ -57,13 +57,34 @@ test('truck tab exposes requested road equipment and custom values can be applie
   await expect(page.locator('.transport-dashboard-setting')).toContainText('Custom Truck');
 });
 
-test('tank equipment is clearly marked as specialized cargo', async ({ page }) => {
+test('tank equipment is marked specialized and blocks general box optimization', async ({ page }) => {
   await page.addInitScript(() => localStorage.clear());
   await page.goto('/');
+  await page.getByRole('button', { name: '예시 데이터로 시작' }).click();
   await page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' }).click();
   const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
   await dialog.getByRole('button', { name: /20' TANK/ }).click();
   await expect(dialog.getByText(/특수화물 전용 장비/)).toBeVisible();
   await dialog.getByRole('button', { name: '닫기' }).click();
   await expect(page.locator('.equipment-special-warning')).toContainText('특수화물 전용');
+
+  await page.locator('.quick-card .primary-action').click();
+  const safety = page.getByRole('alertdialog', { name: /일반 박스 적재 대상이 아닙니다/ });
+  await expect(safety).toBeVisible();
+  await expect(safety).toContainText('20FT Tank');
+  await expect(page.locator('.calculation-overlay')).toHaveCount(0);
+});
+
+test('selected equipment persists after reload', async ({ page }) => {
+  await page.addInitScript(() => localStorage.clear());
+  await page.goto('/');
+  await page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' }).click();
+  const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
+  await dialog.getByRole('button', { name: /40' OPEN TOP/ }).click();
+  await dialog.getByRole('button', { name: '닫기' }).click();
+  await expect(page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' })).toContainText('40FT Open Top');
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' })).toContainText('40FT Open Top');
+  await expect(page.locator('.transport-dashboard-setting')).toContainText('40FT Open Top');
 });
