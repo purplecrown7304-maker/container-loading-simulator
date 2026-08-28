@@ -64,6 +64,7 @@ import './enterprise-strategy.css';
 import './enterprise-approval.css';
 import './enterprise-manufacturing.css';
 import './transport-equipment.css';
+import './topbar-cleanup.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
