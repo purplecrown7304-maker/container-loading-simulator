@@ -1,1 +1,1 @@
-export { default } from './BoxLoadingViewerReference';
+export { default } from './BoxLoadingViewerEquipment';
