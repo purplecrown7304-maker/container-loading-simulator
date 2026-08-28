@@ -80,14 +80,22 @@ export default function ExcelImportActions() {
 
   return createPortal(
     <>
-      <select className="excel-mode-select" value={mode} onChange={(e) => setMode(e.target.value as ImportMode)} aria-label="엑셀 가져오기 방식">
-        <option value="replace">전체 교체</option>
-        <option value="merge">병합</option>
-      </select>
-      <button className="secondary" onClick={downloadCargoTemplate}>엑셀 양식</button>
-      <button className="secondary" onClick={() => inputRef.current?.click()}>엑셀 업로드</button>
+      <details className="excel-import-menu">
+        <summary>Excel</summary>
+        <div className="excel-import-popover">
+          <label>
+            <span>가져오기 방식</span>
+            <select className="excel-mode-select" value={mode} onChange={(e) => setMode(e.target.value as ImportMode)} aria-label="엑셀 가져오기 방식">
+              <option value="replace">전체 교체</option>
+              <option value="merge">병합</option>
+            </select>
+          </label>
+          <button className="secondary" onClick={downloadCargoTemplate}>엑셀 양식 다운로드</button>
+          <button className="secondary" onClick={() => inputRef.current?.click()}>엑셀 파일 업로드</button>
+          {message && <button className="excel-message" onClick={() => issues.length && setShowReport(true)}>{message}</button>}
+        </div>
+      </details>
       <input ref={inputRef} className="hidden-file-input" type="file" accept=".xlsx,.xls" onChange={(event) => void handleFile(event.target.files?.[0])} />
-      {message && <button className="excel-message" onClick={() => issues.length && setShowReport(true)}>{message}</button>}
       {showReport && issues.length > 0 && createPortal(
         <div className="excel-report-backdrop" onClick={() => setShowReport(false)}>
           <section className="excel-report" onClick={(e) => e.stopPropagation()}>
