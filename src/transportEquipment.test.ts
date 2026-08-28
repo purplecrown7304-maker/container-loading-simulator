@@ -18,6 +18,8 @@ describe('transport equipment catalog', () => {
       "40' OPEN TOP",
       "20' FLATRACK",
       "40' FLATRACK",
+      "20' FLATRACK COLLAPSIBLE",
+      "40' FLATRACK COLLAPSIBLE",
       "20' PLATFORM",
       "40' PLATFORM",
       "20' REFRIGERATED",
