@@ -23,6 +23,7 @@ import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
 import TransportEquipmentSelector from './TransportEquipmentSelector';
 import TransportEquipmentDashboardSummary from './TransportEquipmentDashboardSummary';
 import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
+import TransportEquipmentRecalculationNotice from './TransportEquipmentRecalculationNotice';
 import PhysicsValidationTool from './PhysicsValidationTool';
 import InertiaTestTool from './InertiaTestTool';
 import InertiaTestLauncher from './InertiaTestLauncher';
@@ -70,6 +71,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ReferenceWorkspaceBar />
       <TransportEquipmentSelector />
       <TransportEquipmentSafetyGuard />
+      <TransportEquipmentRecalculationNotice />
       <ResultsOverlay />
       <CertificationInvalidationBridge />
       <FinalCertificationGate />
