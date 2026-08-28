@@ -76,6 +76,7 @@ export const OPEN_TRANSPORT_SELECTOR_EVENT = 'container-loading:open-transport-s
 const STORAGE_KEY = 'container-loading:transport-equipment-v1';
 
 let selected: TransportEquipment = TRANSPORT_EQUIPMENT.find(item => item.id === '40-high-cube')!;
+let loadedFromStorage = false;
 const listeners = new Set<() => void>();
 
 function clone(value: TransportEquipment): TransportEquipment { return { ...value }; }
@@ -86,7 +87,10 @@ function loadStored() {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw) as TransportEquipment;
-    if (parsed && typeof parsed.id === 'string' && Number.isFinite(parsed.length) && Number.isFinite(parsed.width) && Number.isFinite(parsed.height) && Number.isFinite(parsed.maxPayloadKg)) selected = parsed;
+    if (parsed && typeof parsed.id === 'string' && Number.isFinite(parsed.length) && Number.isFinite(parsed.width) && Number.isFinite(parsed.height) && Number.isFinite(parsed.maxPayloadKg)) {
+      selected = parsed;
+      loadedFromStorage = true;
+    }
   } catch { /* ignore malformed legacy value */ }
 }
 loadStored();
@@ -96,12 +100,14 @@ function emit() {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent<TransportEquipment>(TRANSPORT_EQUIPMENT_EVENT, { detail: clone(selected) }));
 }
 
-export function readTransportEquipment() { return clone(selected); }
+export function readTransportEquipment() { return selected; }
+export function hasStoredTransportEquipment() { return loadedFromStorage; }
 export function subscribeTransportEquipment(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener); }
 export function useTransportEquipment() { return useSyncExternalStore(subscribeTransportEquipment, readTransportEquipment, readTransportEquipment); }
 
 export function selectTransportEquipment(value: TransportEquipment) {
   selected = clone(value);
+  loadedFromStorage = true;
   if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, JSON.stringify(selected));
   emit();
 }
