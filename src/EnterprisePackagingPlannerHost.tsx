@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import EnterprisePackagingPlanner from './EnterprisePackagingPlanner';
 import { ENTERPRISE_PACKAGING_PLANNER_EVENT } from './enterprisePackagingPlannerStore';
 
@@ -28,12 +29,17 @@ function scrollToMain() {
 
 export default function EnterprisePackagingPlannerHost() {
   const [revision, setRevision] = useState(0);
+  const [actionsTarget, setActionsTarget] = useState<Element | null>(null);
 
   useEffect(() => {
     const refresh = () => setRevision((value) => value + 1);
     window.addEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, refresh);
     return () => window.removeEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, refresh);
   }, []);
+
+  useEffect(() => {
+    setActionsTarget(document.querySelector('.enterprise-packaging-planner .packaging-actions'));
+  }, [revision]);
 
   useEffect(() => {
     const onShortcutClick = (event: MouseEvent) => {
@@ -75,43 +81,17 @@ export default function EnterprisePackagingPlannerHost() {
   }, []);
 
   return <div className="enterprise-packaging-host">
-    <div
-      className="enterprise-packaging-backbar"
-      style={{
-        position: 'sticky',
-        top: 8,
-        zIndex: 40,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        width: 'fit-content',
-        margin: '12px 0 8px 26px',
-        padding: '6px',
-        border: '1px solid #cbd5e1',
-        borderRadius: 10,
-        background: 'rgba(255,255,255,0.96)',
-        boxShadow: '0 4px 14px rgba(15,23,42,0.08)',
-      }}
-    >
+    <EnterprisePackagingPlanner key={revision} />
+    {actionsTarget && createPortal(
       <button
         type="button"
         className="enterprise-back-to-main"
         onClick={backToMain}
-        style={{
-          minHeight: 36,
-          padding: '7px 12px',
-          border: '1px solid #94a3b8',
-          borderRadius: 8,
-          background: '#ffffff',
-          color: '#172033',
-          fontWeight: 800,
-          cursor: 'pointer',
-        }}
+        style={{ order: -1 }}
       >
         ← 메인 적재 화면으로
-      </button>
-      <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>입력한 제품/박스 정보는 유지됩니다.</span>
-    </div>
-    <EnterprisePackagingPlanner key={revision} />
+      </button>,
+      actionsTarget,
+    )}
   </div>;
 }
