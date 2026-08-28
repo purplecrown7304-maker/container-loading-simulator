@@ -13,6 +13,7 @@ import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
 import PalletResultsOptimizer from './PalletResultsOptimizer';
 import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
 import EnterprisePackagingPlannerHost from './EnterprisePackagingPlannerHost';
+import EnterpriseTransportEquipmentAdapter from './EnterpriseTransportEquipmentAdapter';
 import ProductPackagingExcelActions from './ProductPackagingExcelActions';
 import EnterprisePackagingOutputActions from './EnterprisePackagingOutputActions';
 import EnterprisePackagingStrategyExplorer from './EnterprisePackagingStrategyExplorer';
@@ -76,6 +77,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <App />
       <TransportEquipmentDashboardSummary />
       <EnterprisePackagingPlannerHost />
+      <EnterpriseTransportEquipmentAdapter />
       <ProductPackagingExcelActions />
       <EnterprisePackagingOutputActions />
       <EnterpriseManufacturingSettings />
