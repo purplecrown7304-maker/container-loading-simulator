@@ -11,8 +11,12 @@ test('enterprise planner can return to the main simulator without losing the doc
   await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('#product-packaging-planner');
   await expect(page.locator('#product-packaging-planner')).toBeInViewport();
 
+  const actions = page.locator('.enterprise-packaging-planner .packaging-actions');
   const back = page.getByRole('button', { name: '메인 적재 화면으로' });
   await expect(back).toBeVisible();
+  await expect(actions.locator('button').first()).toHaveClass(/enterprise-back-to-main/);
+  await expect(page.getByText('입력한 제품/박스 정보는 유지됩니다.')).toHaveCount(0);
+
   await back.click();
 
   await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('');
