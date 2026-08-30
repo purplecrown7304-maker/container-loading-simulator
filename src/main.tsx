@@ -20,6 +20,7 @@ import EnterprisePackagingStrategyExplorer from './EnterprisePackagingStrategyEx
 import EnterpriseCartonApprovalCenter from './EnterpriseCartonApprovalCenter';
 import EnterpriseManufacturingSettings from './EnterpriseManufacturingSettings';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
+import HeaderActionBridge from './HeaderActionBridge';
 import TransportEquipmentSelector from './TransportEquipmentSelector';
 import TransportEquipmentDashboardSummary from './TransportEquipmentDashboardSummary';
 import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
@@ -70,6 +71,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <ReferenceWorkspaceBar />
+      <HeaderActionBridge />
       <TransportEquipmentSelector />
       <TransportEquipmentSafetyGuard />
       <TransportEquipmentRecalculationNotice />
