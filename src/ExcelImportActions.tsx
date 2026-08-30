@@ -3,8 +3,7 @@ import { createPortal } from 'react-dom';
 import { downloadCargoTemplate, parseCargoWorkbook, type ImportIssue } from './excel';
 import type { CargoItem, ContainerSpec } from './engine/types';
 import { readStoredState, writeStoredState, type StoredState } from './storage';
-
-type ImportMode = 'replace' | 'merge';
+import { EXCEL_IMPORT_EVENT, type ExcelImportDetail, type ExcelImportMode } from './uiEvents';
 
 const defaultContainer: ContainerSpec = {
   length: 12.03,
@@ -15,18 +14,36 @@ const defaultContainer: ContainerSpec = {
 
 export default function ExcelImportActions() {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [portalTarget, setPortalTarget] = useState<Element | null>(null);
+  const modeRef = useRef<ExcelImportMode>('replace');
   const [message, setMessage] = useState('');
-  const [mode, setMode] = useState<ImportMode>('replace');
   const [issues, setIssues] = useState<ImportIssue[]>([]);
   const [showReport, setShowReport] = useState(false);
 
   useEffect(() => {
-    setPortalTarget(document.querySelector('.top-actions'));
+    const onExcelAction = (event: Event) => {
+      const detail = (event as CustomEvent<ExcelImportDetail>).detail;
+      if (!detail) return;
+      if (detail.action === 'template') {
+        downloadCargoTemplate();
+        setMessage('엑셀 양식을 다운로드했습니다.');
+        return;
+      }
+      modeRef.current = detail.mode ?? 'replace';
+      inputRef.current?.click();
+    };
+    window.addEventListener(EXCEL_IMPORT_EVENT, onExcelAction);
+    return () => window.removeEventListener(EXCEL_IMPORT_EVENT, onExcelAction);
   }, []);
+
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessage(''), 5000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
+    const mode = modeRef.current;
 
     try {
       const result = await parseCargoWorkbook(file);
@@ -37,7 +54,7 @@ export default function ExcelImportActions() {
       let updatedCount = 0;
 
       if (mode === 'merge') {
-        const map = new Map(currentCargo.map((item) => [item.id, item]));
+        const map = new Map(currentCargo.map(item => [item.id, item]));
         newCount = 0;
         for (const item of result.items) {
           if (map.has(item.id)) updatedCount += 1;
@@ -76,46 +93,25 @@ export default function ExcelImportActions() {
     }
   };
 
-  if (!portalTarget) return null;
-
-  return createPortal(
-    <>
-      <details className="excel-import-menu">
-        <summary>Excel</summary>
-        <div className="excel-import-popover">
-          <label>
-            <span>가져오기 방식</span>
-            <select className="excel-mode-select" value={mode} onChange={(e) => setMode(e.target.value as ImportMode)} aria-label="엑셀 가져오기 방식">
-              <option value="replace">전체 교체</option>
-              <option value="merge">병합</option>
-            </select>
-          </label>
-          <button className="secondary" onClick={downloadCargoTemplate}>엑셀 양식 다운로드</button>
-          <button className="secondary" onClick={() => inputRef.current?.click()}>엑셀 파일 업로드</button>
-          {message && <button className="excel-message" onClick={() => issues.length && setShowReport(true)}>{message}</button>}
-        </div>
-      </details>
-      <input ref={inputRef} className="hidden-file-input" type="file" accept=".xlsx,.xls" onChange={(event) => void handleFile(event.target.files?.[0])} />
-      {showReport && issues.length > 0 && createPortal(
-        <div className="excel-report-backdrop" onClick={() => setShowReport(false)}>
-          <section className="excel-report" onClick={(e) => e.stopPropagation()}>
-            <div className="excel-report-head">
-              <div><strong>엑셀 업로드 오류 상세</strong><span>{issues.length}건</span></div>
-              <button className="secondary" onClick={() => setShowReport(false)}>닫기</button>
-            </div>
-            <div className="excel-report-list">
-              {issues.map((issue, index) => (
-                <article key={`${issue.row}-${index}`}>
-                  <b>{issue.row > 0 ? `${issue.row}행` : '파일 오류'}</b>
-                  <span>{issue.code ? `[${issue.code}] ` : ''}{issue.message}</span>
-                </article>
-              ))}
-            </div>
-          </section>
-        </div>,
-        document.body,
-      )}
-    </>,
-    portalTarget,
-  );
+  return <>
+    <input ref={inputRef} className="hidden-file-input" type="file" accept=".xlsx,.xls" onChange={event => void handleFile(event.target.files?.[0])} />
+    {message && <button className="excel-import-toast" type="button" onClick={() => issues.length && setShowReport(true)}>{message}</button>}
+    {showReport && issues.length > 0 && createPortal(
+      <div className="excel-report-backdrop" onClick={() => setShowReport(false)}>
+        <section className="excel-report" onClick={event => event.stopPropagation()}>
+          <div className="excel-report-head">
+            <div><strong>엑셀 업로드 오류 상세</strong><span>{issues.length}건</span></div>
+            <button className="secondary" onClick={() => setShowReport(false)}>닫기</button>
+          </div>
+          <div className="excel-report-list">
+            {issues.map((issue, index) => <article key={`${issue.row}-${index}`}>
+              <b>{issue.row > 0 ? `${issue.row}행` : '파일 오류'}</b>
+              <span>{issue.code ? `[${issue.code}] ` : ''}{issue.message}</span>
+            </article>)}
+          </div>
+        </section>
+      </div>,
+      document.body,
+    )}
+  </>;
 }
