@@ -39,6 +39,12 @@ type OrientationVariant = {
   forcedRotatedIds: Set<string>;
 };
 
+type PalletSearchCombination = {
+  variant: OrientationVariant;
+  heightRatio: number;
+  maxStackLevels: number;
+};
+
 export function readPalletSnapshot(): PalletSnapshot | undefined {
   if (typeof window === 'undefined') return undefined;
   return (window as PalletWindow).__containerLoadingPalletSnapshot;
@@ -224,7 +230,25 @@ function addCandidate(
   list.push({ label, spec, result, target, staticPenalty: staticPenalty(result) });
 }
 
-export function buildPalletAdaptiveCandidates(current: PhysicsTarget, snapshot: PalletSnapshot): PalletAdaptiveCandidate[] {
+function sampleCombinations(combinations: PalletSearchCombination[], budget: number) {
+  if (budget >= combinations.length) return combinations;
+  if (budget <= 1) return combinations.slice(0, 1);
+  const chosen: PalletSearchCombination[] = [];
+  const seen = new Set<number>();
+  for (let i = 0; i < budget; i += 1) {
+    const index = Math.round(i * (combinations.length - 1) / (budget - 1));
+    if (seen.has(index)) continue;
+    seen.add(index);
+    chosen.push(combinations[index]);
+  }
+  return chosen;
+}
+
+export function buildPalletAdaptiveCandidates(
+  current: PhysicsTarget,
+  snapshot: PalletSnapshot,
+  limit = Number.POSITIVE_INFINITY,
+): PalletAdaptiveCandidate[] {
   if (current.mode !== 'pallets') return [];
   const seen = new Set<string>([createPhysicsTargetSignature(current)]);
   const list: PalletAdaptiveCandidate[] = [];
@@ -233,22 +257,30 @@ export function buildPalletAdaptiveCandidates(current: PhysicsTarget, snapshot: 
   const maxLevels = Math.min(configuredMax, physicalMax);
   const levelOptions = Array.from({ length: maxLevels }, (_, index) => index + 1);
   const heightRatios = [0.6, 0.72, 0.84, 0.96, 1.05, 1.15];
+  const combinations: PalletSearchCombination[] = [];
 
   for (const variant of orientationVariants(current.cargo)) {
     for (const heightRatio of heightRatios) {
-      for (const maxStackLevels of levelOptions) {
-        const spec = { ...snapshot.spec, maxStackLevels };
-        const cargo = cappedCargo(variant.cargo, spec, heightRatio);
-        const packed = restoreRotationFlags(centerPalletCargo(packOnPallets(current.container, cargo, spec)), variant.forcedRotatedIds);
-        const baseLabel = `${variant.label} · 높이 ${Math.round(heightRatio * 100)}% · ${maxStackLevels}단 제한`;
-        addCandidate(list, seen, current, spec, packed, `팔레트 위 재배치 · ${baseLabel}`);
-        addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, false), `안쪽 밀착 2열 · ${baseLabel}`);
-        addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, true), `문쪽 밀착 2열 · ${baseLabel}`);
-      }
+      for (const maxStackLevels of levelOptions) combinations.push({ variant, heightRatio, maxStackLevels });
     }
   }
 
-  return list.sort((a, b) => a.staticPenalty - b.staticPenalty);
+  const combinationBudget = Number.isFinite(limit)
+    ? Math.min(combinations.length, Math.max(4, Math.ceil(Math.max(1, limit) * 1.5)))
+    : combinations.length;
+
+  for (const { variant, heightRatio, maxStackLevels } of sampleCombinations(combinations, combinationBudget)) {
+    const spec = { ...snapshot.spec, maxStackLevels };
+    const cargo = cappedCargo(variant.cargo, spec, heightRatio);
+    const packed = restoreRotationFlags(centerPalletCargo(packOnPallets(current.container, cargo, spec)), variant.forcedRotatedIds);
+    const baseLabel = `${variant.label} · 높이 ${Math.round(heightRatio * 100)}% · ${maxStackLevels}단 제한`;
+    addCandidate(list, seen, current, spec, packed, `팔레트 위 재배치 · ${baseLabel}`);
+    addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, false), `안쪽 밀착 2열 · ${baseLabel}`);
+    addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, true), `문쪽 밀착 2열 · ${baseLabel}`);
+  }
+
+  const sorted = list.sort((a, b) => a.staticPenalty - b.staticPenalty || a.label.localeCompare(b.label));
+  return Number.isFinite(limit) ? sorted.slice(0, Math.max(1, Math.floor(limit))) : sorted;
 }
 
 export function baselinePalletCandidate(current: PhysicsTarget, snapshot: PalletSnapshot): PalletAdaptiveCandidate {
