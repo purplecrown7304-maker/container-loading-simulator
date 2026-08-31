@@ -2,7 +2,7 @@ import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult } fr
 import { validatePlacements } from './constraints';
 import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
-import { packByBlockSpaceBeam } from './blockSpaceBeamPacker';
+import { packByBlockSpaceBeamV2 } from './blockSpaceBeamPackerV2';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -37,13 +37,14 @@ function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], resu
 /**
  * DIRECT BOX 기본 엔진.
  *
- * 기존의 "CBM/중량 정렬 -> 완성 세로 스택 -> x 선반 전진 -> 문쪽 잔량 혼합" 방식은 사용하지 않는다.
- * 현재 기준은 다음 두 단계다.
- * 1) 동일 SKU를 직육면체 블록 후보로 만들고 Maximal Empty Space + Beam Search로 배치한다.
- * 2) 남은 수량은 같은 빈 공간/Beam Search 위에서 단품 후보까지 허용해 안전한 자투리 공간에 혼합 적재한다.
+ * 현재 기준은 Wall Completion + Homogeneous Block + Maximal Empty Space + Beam Search다.
+ * 1) 같은 깊이의 컨테이너 폭을 가능한 한 먼저 완성한다.
+ * 2) 동일 SKU 직육면체 블록을 우선하고, 보완 폭이 정확히 맞는 다른 SKU는 같은 벽에 붙여 채운다.
+ * 3) 박스 접촉면을 보상하고, 재사용하기 어려운 길고 좁은 sliver/corridor 빈 공간을 강하게 감점한다.
+ * 4) 벽/블록 단계 후 남은 수량만 같은 EMS/Beam 탐색에 단품 후보를 허용해 혼합 적재한다.
  *
- * 경계, 충돌, 지지율, 적층단, 누적 상부하중, 최대 payload는 최적화 점수가 아니라 hard constraint다.
- * 무거운 화물은 낮은 위치를 선호하지만 컨테이너 안쪽 한쪽 끝에 몰아넣는 보상은 주지 않는다.
+ * 경계, 충돌, 지지율, 적층단, 누적 상부하중, 최대 payload는 hard constraint다.
+ * 무거운 화물은 낮은 위치를 선호하며 한쪽 끝에 몰아넣지 않는다.
  */
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
@@ -80,7 +81,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     }
   }
 
-  const packed = packByBlockSpaceBeam(container, normalizedCargo, strategy);
+  const packed = packByBlockSpaceBeamV2(container, normalizedCargo, strategy);
   const result: LoadingResult = {
     placements: packed.placements,
     remaining: [...preflight.rejected, ...packed.remaining],
