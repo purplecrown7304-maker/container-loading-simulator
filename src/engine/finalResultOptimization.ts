@@ -85,12 +85,7 @@ function stackProfileKey(cargo: CargoItem[]) {
     .join('|');
 }
 
-/**
- * Generates every distinct, deterministic stack-height profile that can be
- * explored without changing the requested cargo count. There is deliberately
- * no fixed "3회/6회" retry budget: search terminates only when the finite set
- * of unique stack profiles has been exhausted.
- */
+/** Broad deterministic profile inventory. Exhaustive callers can still request all profiles. */
 export function buildDirectReoptimizationCargoProfiles(current: PhysicsTarget): CargoSearchProfile[] {
   if (current.mode !== 'boxes') return [];
   const profiles: CargoSearchProfile[] = [];
@@ -102,9 +97,7 @@ export function buildDirectReoptimizationCargoProfiles(current: PhysicsTarget): 
     profiles.push({ label, cargo });
   };
 
-  for (const ratio of HEIGHT_RATIOS) {
-    add(`전체 높이 ${Math.round(ratio * 100)}%`, cappedCargo(current, ratio));
-  }
+  for (const ratio of HEIGHT_RATIOS) add(`전체 높이 ${Math.round(ratio * 100)}%`, cappedCargo(current, ratio));
 
   const maxLayers = current.cargo.reduce((max, item) => Math.max(max, physicalLayerLimit(current, item)), 1);
   const modes: Array<{ mode: LayerProfileMode; label: string }> = [
@@ -114,12 +107,23 @@ export function buildDirectReoptimizationCargoProfiles(current: PhysicsTarget): 
     { mode: 'staggered', label: 'SKU 층수 분산' },
   ];
   for (let reduction = 1; reduction < maxLayers; reduction += 1) {
-    for (const profile of modes) {
-      add(`${profile.label} · ${reduction}단 낮춤`, reducedCargo(current, reduction, profile.mode));
-    }
+    for (const profile of modes) add(`${profile.label} · ${reduction}단 낮춤`, reducedCargo(current, reduction, profile.mode));
   }
-
   return profiles;
+}
+
+function sampleProfiles(profiles: CargoSearchProfile[], budget: number) {
+  if (budget >= profiles.length) return profiles;
+  if (budget <= 1) return profiles.slice(0, 1);
+  const selected: CargoSearchProfile[] = [];
+  const seen = new Set<number>();
+  for (let i = 0; i < budget; i += 1) {
+    const index = Math.round(i * (profiles.length - 1) / (budget - 1));
+    if (seen.has(index)) continue;
+    seen.add(index);
+    selected.push(profiles[index]);
+  }
+  return selected;
 }
 
 function weightedCogHeight(result: LoadingResult) {
@@ -148,8 +152,15 @@ export function buildDirectResultReoptimizationCandidates(
   if (current.mode !== 'boxes') return [];
   const seen = new Set<string>([createPhysicsTargetSignature(current)]);
   const candidates: DirectResultReoptimizationCandidate[] = [];
+  const allProfiles = buildDirectReoptimizationCargoProfiles(current);
+  // A finite result limit also bounds expensive loadContainer generation work.
+  // We sample across the full low/high stack-profile range instead of generating everything then slicing.
+  const profileBudget = Number.isFinite(limit)
+    ? Math.min(allProfiles.length, Math.max(4, Math.ceil(Math.max(1, limit) * 1.5)))
+    : allProfiles.length;
+  const profiles = sampleProfiles(allProfiles, profileBudget);
 
-  for (const profile of buildDirectReoptimizationCargoProfiles(current)) {
+  for (const profile of profiles) {
     for (const strategy of STRATEGIES) {
       const result = loadContainer(current.container, profile.cargo, { strategy, publish: false });
       if (result.validationIssues.length > 0) continue;
