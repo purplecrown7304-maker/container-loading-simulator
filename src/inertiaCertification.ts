@@ -100,8 +100,6 @@ const LEVEL_LABEL: Record<SecuringLevel, string> = {
 };
 
 export function minimumSecuringLevelForMode(mode: PhysicsTarget['mode']): SecuringLevel {
-  // 운송 가능한 최종 적재안은 물리적으로 서 있기만 하는 상태가 아니라
-  // 최소한의 실제 고정/유닛화가 적용된 상태에서 검증한다.
   return mode === 'pallets' ? 1 : 1;
 }
 
@@ -190,7 +188,6 @@ export function isInertiaStable(result: InertiaAnimationResult, mode: PhysicsTar
   return true;
 }
 
-/** Legacy level summary retained for UI/tests. Certification itself uses securingProfileForUsage below. */
 export function securingProfileForLevel(mode: PhysicsTarget['mode'], level: SecuringLevel): InertiaSecuringProfile {
   if (level === 0) return { frictionCoefficient: 0.62, cargoRetentionRatio: 0, supportRetentionRatio: 0 };
   if (mode === 'pallets') {
@@ -203,10 +200,6 @@ export function securingProfileForLevel(mode: PhysicsTarget['mode'], level: Secu
   return { frictionCoefficient: 0.90, cargoRetentionRatio: 0.54, supportRetentionRatio: 0 };
 }
 
-/**
- * Builds the actual physics restraint from the material BOM rather than from a level number alone.
- * The constants are conservative internal comparison coefficients, not manufacturer-rated capacities.
- */
 export function securingProfileForUsage(mode: PhysicsTarget['mode'], usage: SecuringUsage): InertiaSecuringProfile {
   if (usage.level === 0) return { frictionCoefficient: 0.62 };
 
@@ -328,6 +321,7 @@ export async function runInertiaCertification(
   target: PhysicsTarget,
   onProgress?: (progress: CertificationProgress) => void,
   onScenarioResult?: (result: InertiaAnimationResult, level: SecuringLevel) => void,
+  shouldCancel?: () => boolean,
 ): Promise<InertiaCertification> {
   let finalResults: Partial<Record<InertiaScenario, InertiaAnimationResult>> = {};
   const minimumLevel = minimumSecuringLevelForMode(target.mode);
@@ -335,6 +329,7 @@ export async function runInertiaCertification(
   const attempts: InertiaReinforcementAttempt[] = [];
 
   for (let rawLevel = minimumLevel; rawLevel <= 3; rawLevel += 1) {
+    if (shouldCancel?.()) throw new Error('INERTIA_CERTIFICATION_CANCELLED');
     const level = rawLevel as SecuringLevel;
     const securing = buildSecuringUsage(target, level);
     finalLevel = level;
@@ -350,6 +345,7 @@ export async function runInertiaCertification(
     let allPassed = true;
 
     for (let index = 0; index < SCENARIOS.length; index += 1) {
+      if (shouldCancel?.()) throw new Error('INERTIA_CERTIFICATION_CANCELLED');
       const scenario = SCENARIOS[index];
       const result = await runInertiaAnimation(
         target.container,
@@ -365,6 +361,7 @@ export async function runInertiaCertification(
           physicsProgress: value,
         }),
         profile,
+        { captureFrames: false, shouldCancel },
       );
       levelResults[scenario] = result;
       onScenarioResult?.(result, level);
@@ -398,6 +395,7 @@ export async function runInertiaCertification(
     if (levelPassed) break;
   }
 
+  if (shouldCancel?.()) throw new Error('INERTIA_CERTIFICATION_CANCELLED');
   const usage = buildSecuringUsage(target, finalLevel);
   const failedScenarios = SCENARIOS.filter(scenario => {
     const result = finalResults[scenario];
