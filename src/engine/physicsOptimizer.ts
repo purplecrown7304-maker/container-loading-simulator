@@ -39,6 +39,13 @@ function totalUnstable(physics: PhysicsValidationSuite) {
   return physics.unstableCount + physics.supportUnstableCount;
 }
 
+function placementSignature(result: LoadingResult) {
+  return result.placements
+    .map(p => [p.cargoId, p.x, p.y, p.z, p.length, p.width, p.height, p.weightKg, p.rotated === true ? 1 : 0].join(':'))
+    .sort()
+    .join('|');
+}
+
 /**
  * 안전 등급은 적재율/그룹핑 같은 운영 효율보다 항상 먼저 비교한다.
  * 0: 운송 안전 목표 충족
@@ -65,8 +72,6 @@ function scoreCandidate(container: ContainerSpec, cargo: CargoItem[], result: Lo
   const unstablePenalty = totalUnstable(physics) * 18;
   const movingPenalty = physics.settled ? 0 : 12;
 
-  // 이 점수는 같은 안전 등급 안에서 운영 효율을 비교하는 보조 점수다.
-  // 최종 후보 선택 자체는 아래 compareCandidates에서 물리 안전을 먼저 본다.
   const score = clamp(
     physics.score * 0.75 +
     completionScore * 0.10 +
@@ -87,8 +92,6 @@ export function comparePhysicsOptimizationCandidates(a: PhysicsOptimizationCandi
   const unstableDiff = totalUnstable(a.physics) - totalUnstable(b.physics);
   if (unstableDiff !== 0) return unstableDiff;
 
-  // 같은 안전 등급이면 물리점수가 최우선이다. 따라서 적재율이 높다는 이유로
-  // 더 낮은 물리점수 후보가 선택되는 일이 없다.
   if (a.physicsScore !== b.physicsScore) return b.physicsScore - a.physicsScore;
   if (a.completionScore !== b.completionScore) return b.completionScore - a.completionScore;
   if (a.score !== b.score) return b.score - a.score;
@@ -98,7 +101,7 @@ export function comparePhysicsOptimizationCandidates(a: PhysicsOptimizationCandi
 
 /**
  * 후보 적재안을 여러 개 만든 뒤 Rapier 3D 운송 시나리오로 실제 움직임을 비교한다.
- * 휴리스틱 규칙은 후보 생성과 운영 효율에만 쓰고, 최종 안전 우선순위는 물리 점수가 결정한다.
+ * 동일한 placement 좌표가 전략 이름만 다르게 생성된 경우에는 물리 결과를 재사용한다.
  */
 export async function optimizeLoadingWithPhysics(
   container: ContainerSpec,
@@ -107,15 +110,25 @@ export async function optimizeLoadingWithPhysics(
 ): Promise<PhysicsOptimizedLoading> {
   const activeCargo = cargo.filter(item => item.quantity > 0);
   const candidates: PhysicsOptimizationCandidate[] = [];
+  const physicsByLayout = new Map<string, PhysicsValidationSuite>();
 
   for (let index = 0; index < STRATEGIES.length; index += 1) {
     const strategy = STRATEGIES[index];
     const result = loadContainer(container, activeCargo, { strategy, publish: false });
-    const physics = await runPhysicsValidationSuite(
-      container,
-      result.placements,
-      value => onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: STRATEGIES.length, physicsProgress: value }),
-    );
+    const signature = placementSignature(result);
+    let physics = physicsByLayout.get(signature);
+
+    if (physics) {
+      onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: STRATEGIES.length, physicsProgress: 1 });
+    } else {
+      physics = await runPhysicsValidationSuite(
+        container,
+        result.placements,
+        value => onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: STRATEGIES.length, physicsProgress: value }),
+      );
+      physicsByLayout.set(signature, physics);
+    }
+
     const scored = scoreCandidate(container, activeCargo, result, physics);
     candidates.push({
       strategy,
