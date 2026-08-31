@@ -24,9 +24,18 @@ export type StrategyComparison = {
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
 
 const strategyMeta: Record<LoadingStrategy, { label: string; description: string }> = {
-  capacity: { label: '최대 적재율형', description: 'CBM과 중량 수요가 큰 품목을 우선해 공간 활용을 높입니다.' },
-  stability: { label: '안정성 우선형', description: '무겁고 바닥면이 큰 화물을 안쪽·아래쪽에 먼저 배치합니다.' },
-  unloading: { label: '하역 편의형', description: '하역 순서가 늦은 화물을 안쪽, 먼저 꺼낼 화물을 문쪽에 배치합니다.' },
+  capacity: {
+    label: '공간 활용형',
+    description: '동일 SKU 블록 + 최대 빈 공간 + Beam Search로 안전 제약 안에서 공간 활용률을 우선합니다.',
+  },
+  stability: {
+    label: '안정성 우선형',
+    description: '같은 블록 탐색을 사용하면서 낮은 무게중심, 좌우·전후 중량 균형과 넓은 접촉을 더 강하게 평가합니다.',
+  },
+  unloading: {
+    label: '하역 편의형',
+    description: '블록·최대 빈 공간 탐색에 하역 순서를 추가 점수로 반영하되 지지·압축하중·중량 안전조건은 그대로 유지합니다.',
+  },
 };
 
 function unloadingScore(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult) {
