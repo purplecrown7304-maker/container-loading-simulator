@@ -8,6 +8,7 @@ export type BalanceAssessment = {
   lateralDeviationPct: number;
   verticalCenterPct: number;
   lowerHeavyRatio: number;
+  /** 호환용 지표: 컨테이너 안쪽 절반에 놓인 중량 비율. 높을수록 좋다는 의미는 더 이상 없다. */
   innerHeavyRatio: number;
   balanceScore: number;
   stabilityScore: number;
@@ -47,15 +48,22 @@ export function assessWeightBalance(container: ContainerSpec, result: LoadingRes
   const lateralDeviationPct = Math.abs(ny - 0.5) * 200;
   const verticalCenterPct = nz * 100;
   const totalWeight = result.loadedWeightKg;
-  const lowerHalfWeight = placements.filter((p) => p.z + p.height / 2 <= container.height / 2).reduce((sum, p) => sum + p.weightKg, 0);
-  const innerHalfWeight = placements.filter((p) => p.x + p.length / 2 <= container.length / 2).reduce((sum, p) => sum + p.weightKg, 0);
+  const lowerHalfWeight = placements
+    .filter((p) => p.z + p.height / 2 <= container.height / 2)
+    .reduce((sum, p) => sum + p.weightKg, 0);
+  const innerHalfWeight = placements
+    .filter((p) => p.x + p.length / 2 <= container.length / 2)
+    .reduce((sum, p) => sum + p.weightKg, 0);
   const lowerHeavyRatio = totalWeight > 0 ? lowerHalfWeight / totalWeight : 0;
   const innerHeavyRatio = totalWeight > 0 ? innerHalfWeight / totalWeight : 0;
+  const maxLongitudinalHalfRatio = Math.max(innerHeavyRatio, 1 - innerHeavyRatio);
+
   const balanceScore = clampScore(100 - longitudinalDeviationPct * 0.9 - lateralDeviationPct * 1.25);
   const verticalPenalty = Math.max(0, verticalCenterPct - 35) * 1.35;
   const lowerBonus = Math.max(0, lowerHeavyRatio - 0.5) * 35;
-  const innerBonus = Math.max(0, innerHeavyRatio - 0.5) * 15;
-  const stabilityScore = clampScore(88 - verticalPenalty + lowerBonus + innerBonus);
+  const longitudinalConcentrationPenalty = Math.max(0, maxLongitudinalHalfRatio - 0.6) * 110;
+  const lateralPenalty = Math.max(0, lateralDeviationPct - 10) * 0.4;
+  const stabilityScore = clampScore(88 - verticalPenalty + lowerBonus - longitudinalConcentrationPenalty - lateralPenalty);
   const validationPenalty = result.validationIssues.length * 25;
   const shape = assessShapeQuality(container, placements);
   const loadingQualityScore = clampScore(balanceScore * 0.45 + stabilityScore * 0.55 - validationPenalty - shape.shapePenalty);
@@ -65,8 +73,15 @@ export function assessWeightBalance(container: ContainerSpec, result: LoadingRes
   messages.push(lateralDeviationPct <= 10 ? '좌우 무게중심이 중앙에 가깝습니다.' : `좌우 무게중심 편차가 ${lateralDeviationPct.toFixed(1)}%입니다.`);
   messages.push(longitudinalDeviationPct <= 15 ? '앞뒤 무게분포가 비교적 균형적입니다.' : `앞뒤 무게중심 편차가 ${longitudinalDeviationPct.toFixed(1)}%입니다.`);
   messages.push(verticalCenterPct <= 40 ? '무게중심 높이가 낮아 안정적인 편입니다.' : `무게중심 높이가 컨테이너 높이의 ${verticalCenterPct.toFixed(1)}%로 높습니다.`);
-  messages.push(innerHeavyRatio >= 0.5 ? '전체 중량의 절반 이상이 컨테이너 안쪽 절반에 배치되었습니다.' : '무거운 화물을 더 안쪽으로 이동할 여지가 있습니다.');
+  messages.push(maxLongitudinalHalfRatio <= 0.6
+    ? '컨테이너 길이 절반 어느 쪽도 총중량의 60%를 넘지 않아 종방향 분포가 양호합니다.'
+    : `컨테이너 길이 절반 한쪽에 총중량의 ${(maxLongitudinalHalfRatio * 100).toFixed(1)}%가 몰려 있습니다.`);
   messages.push(...shape.messages);
 
-  return { centerOfGravity: { x: cogX, y: cogY, z: cogZ }, normalized: { x: nx, y: ny, z: nz }, longitudinalDeviationPct, lateralDeviationPct, verticalCenterPct, lowerHeavyRatio, innerHeavyRatio, balanceScore, stabilityScore, loadingQualityScore, grade, messages };
+  return {
+    centerOfGravity: { x: cogX, y: cogY, z: cogZ },
+    normalized: { x: nx, y: ny, z: nz },
+    longitudinalDeviationPct, lateralDeviationPct, verticalCenterPct,
+    lowerHeavyRatio, innerHeavyRatio, balanceScore, stabilityScore, loadingQualityScore, grade, messages,
+  };
 }
