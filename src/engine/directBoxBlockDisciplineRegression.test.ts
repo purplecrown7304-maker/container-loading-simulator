@@ -56,6 +56,23 @@ describe('DIRECT BOX block / maximal-empty-space discipline', () => {
     expect(result.validationIssues).toEqual([]);
   });
 
+  it('places the heavier box lower when two otherwise equal boxes must share one vertical column', () => {
+    const result = loadContainer(
+      { length: 0.5, width: 0.5, height: 1, maxPayloadKg: 1000 },
+      [
+        cargo({ id: 'A-LIGHT', name: 'LIGHT', quantity: 1, weightKg: 5, maxStackLayers: 2, maxTopLoadKg: 100 }),
+        cargo({ id: 'Z-HEAVY', name: 'HEAVY', quantity: 1, weightKg: 50, maxStackLayers: 2, maxTopLoadKg: 100 }),
+      ],
+      { strategy: 'stability', publish: false },
+    );
+    const heavy = result.placements.find((p) => p.cargoId === 'Z-HEAVY');
+    const light = result.placements.find((p) => p.cargoId === 'A-LIGHT');
+    expect(heavy).toBeDefined();
+    expect(light).toBeDefined();
+    expect(heavy!.z).toBeLessThan(light!.z);
+    expect(result.validationIssues).toEqual([]);
+  });
+
   it('does not depend on input row order when equal candidates compete', () => {
     const items = [cargo({ id: 'B', quantity: 2 }), cargo({ id: 'A', quantity: 2 })];
     const forward = loadContainer(baseContainer, items, { publish: false });
