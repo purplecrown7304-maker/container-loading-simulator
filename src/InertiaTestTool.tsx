@@ -251,10 +251,13 @@ export default function InertiaTestTool() {
       target.supports ?? [],
       value => { if (generationId.current === id) setGenerationProgress(Math.round(value * 100)); },
       securingProfile,
+      { shouldCancel: () => generationId.current !== id },
     ).then(result => {
       if (generationId.current !== id) return;
       setAnimation(result);
-      setCompletedResults(current => ({ ...current, [scenario]: result }));
+      // 완료된 다른 시나리오는 보고서에 수치만 필요하다. 프레임까지 3세트 보관하지 않는다.
+      const summaryResult: InertiaAnimationResult = { ...result, frames: [] };
+      setCompletedResults(current => ({ ...current, [scenario]: summaryResult }));
       setGenerating(false);
       setGenerationProgress(100);
       setPlayhead(0);
@@ -263,13 +266,13 @@ export default function InertiaTestTool() {
       if (generationId.current !== id) return;
       console.error('Inertia animation failed', reason);
       setGenerating(false);
-      setError('관성 애니메이션을 생성하지 못했습니다. 브라우저를 새로고침한 뒤 다시 시도하세요.');
+      setError('관성 애니메이션을 생성하지 못했습니다. 다시 시도하세요.');
     });
     return () => { generationId.current += 1; };
   }, [open, scenario, target]);
 
   useEffect(() => {
-    if (!playing || !animation) return;
+    if (!playing || !animation || animation.frames.length === 0) return;
     let frameId = 0;
     let previous = performance.now();
     const tick = (now: number) => {
@@ -290,7 +293,7 @@ export default function InertiaTestTool() {
   }, [animation, playing, speed]);
 
   const scenarioInfo = SCENARIOS.find(item => item.id === scenario) ?? SCENARIOS[0];
-  const frameIndex = animation ? Math.min(animation.frames.length - 1, Math.floor(playhead)) : 0;
+  const frameIndex = animation?.frames.length ? Math.min(animation.frames.length - 1, Math.floor(playhead)) : 0;
   const frame = animation?.frames[frameIndex];
   const elapsedSeconds = animation && frame ? frame.step / 60 : 0;
   const testedCount = Object.keys(completedResults).length;
@@ -347,7 +350,7 @@ export default function InertiaTestTool() {
         </div>}
       </div>
 
-      {animation && <>
+      {animation && animation.frames.length > 0 && <>
         <div className="inertia-metrics">
           <span>상자 <b>{animation.cargoCount} EA</b></span>
           {animation.supportCount > 0 && <span>팔레트 <b>{animation.supportCount} EA</b></span>}
