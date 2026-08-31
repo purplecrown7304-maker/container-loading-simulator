@@ -104,7 +104,25 @@ function depthCandidates(state: State, context: Context) {
       }
     }
   }
-  return [...values].sort((a, b) => a - b).slice(0, MAX_DEPTHS);
+  const sorted = [...values].sort((a, b) => a - b);
+  if (sorted.length <= MAX_DEPTHS) return sorted;
+
+  // 작은 depth만 남기면 짧은 wall 후보에 탐색이 편향된다.
+  // 큰 depth 절반을 항상 보존하고 나머지는 전체 범위에서 균등 샘플링한다.
+  const largeCount = Math.ceil(MAX_DEPTHS / 2);
+  const largest = sorted.slice(-largeCount);
+  const rest = sorted.slice(0, -largeCount);
+  const sampleCount = MAX_DEPTHS - largest.length;
+  const sampled: number[] = [];
+  if (sampleCount > 0 && rest.length > 0) {
+    for (let i = 0; i < sampleCount; i += 1) {
+      const index = sampleCount === 1
+        ? 0
+        : Math.round(i * (rest.length - 1) / (sampleCount - 1));
+      sampled.push(rest[index]);
+    }
+  }
+  return [...new Set([...sampled, ...largest])].sort((a, b) => a - b).slice(-MAX_DEPTHS);
 }
 
 function blockOptionsForDepth(
@@ -228,10 +246,9 @@ function buildWallPlans(state: State, context: Context): WallPlan[] {
 
     for (const local of beam) {
       if (!local.lanes.length) continue;
-      const widthFill = local.usedWidth / Math.max(EPS, context.container.width);
       // 화물 사이 내부 통로는 구조적으로 불가능하다. 남는 폭은 y+ 측벽 한 곳에만 존재한다.
-      // 너무 좁은 한 줄만 앞으로 돌출되는 벽은 제외해 전도/이동 여유를 줄인다.
-      if (widthFill < 0.5) continue;
+      // 폭 점유율은 안전 하드컷이 아니라 휴리스틱 점수로만 다룬다.
+      // 낮은 widthFill도 후보는 보존하고, 필요 시 후단 고정재/더니지 평가가 판단한다.
       plans.push({ ...local, depth, score: localScore(local, depth, context) });
     }
   }
@@ -262,9 +279,32 @@ function blockPlacements(block: Block, x0: number, y0: number): Placement[] {
 }
 
 function applyWall(state: State, plan: WallPlan, context: Context): State | null {
+  // Block 내부 불변조건을 코드로 강제한다.
+  for (const lane of plan.lanes) {
+    const block = lane.block;
+    const geometryMatches =
+      Math.abs(block.length - block.nx * block.boxLength) <= TOUCH
+      && Math.abs(block.width - block.ny * block.boxWidth) <= TOUCH
+      && Math.abs(block.height - block.nz * block.item.height) <= TOUCH;
+    if (!geometryMatches || block.nz > safeLayers(block.item)) return null;
+  }
+
   const additions = plan.lanes.flatMap((lane) => blockPlacements(lane.block, state.xFront, lane.y));
   if (additions.some((p) => !isInsideContainer(context.container, p))) return null;
   if (additions.some((p, i) => state.placements.some((q) => overlaps(p, q)) || additions.slice(0, i).some((q) => overlaps(p, q)))) return null;
+
+  // 동일 SKU 직육면체 블록이라는 현재 전제를 안전검증으로 다시 확인한다.
+  // 바닥 위 박스는 충분한 지지와 누적 적층 규칙을 모두 통과해야 한다.
+  const staged = [...state.placements];
+  const orderedAdditions = [...additions].sort((a, b) => a.z - b.z || a.x - b.x || a.y - b.y);
+  for (const placement of orderedAdditions) {
+    const item = context.cargoById.get(placement.cargoId);
+    if (!item) return null;
+    if (placement.z > TOUCH && !hasAdequateSupport(placement, staged, undefined, 0.999)) return null;
+    if (!canPlaceByStackingRules(item, placement, staged, context.cargoById)) return null;
+    staged.push(placement);
+  }
+
   return {
     xFront: round6(state.xFront + plan.depth),
     placements: [...state.placements, ...additions],
