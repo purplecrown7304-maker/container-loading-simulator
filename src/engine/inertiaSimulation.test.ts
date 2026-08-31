@@ -29,6 +29,35 @@ describe('inertia animation frames', () => {
     expect(result.frames.some(frame => frame.phase === 'coast')).toBe(true);
   }, 20_000);
 
+  it('can calculate certification metrics without retaining transform frames', async () => {
+    const result = await runInertiaAnimation(
+      container,
+      [floatingBox],
+      'cornering',
+      [],
+      undefined,
+      undefined,
+      { captureFrames: false },
+    );
+    expect(result.frames).toEqual([]);
+    expect(result.fps).toBe(0);
+    expect(result.cargoCount).toBe(1);
+    expect(result.maxHorizontalShiftM).toBeGreaterThanOrEqual(0);
+    expect(result.maxTiltDeg).toBeGreaterThanOrEqual(0);
+  }, 20_000);
+
+  it('stops a stale simulation when the caller cancels it', async () => {
+    await expect(runInertiaAnimation(
+      container,
+      [floatingBox],
+      'braking',
+      [],
+      undefined,
+      undefined,
+      { captureFrames: false, shouldCancel: () => true },
+    )).rejects.toThrow('INERTIA_SIMULATION_CANCELLED');
+  }, 20_000);
+
   it('applies pallet-relative restraint forces during braking', async () => {
     const pallet: PhysicsSupport = {
       id: 'PALLET-01',
