@@ -16,6 +16,7 @@ import { openLoadingReport } from './report';
 import { STORAGE_UPDATED_EVENT, type StoredState } from './storage';
 
 const EPS = 1e-9;
+const MAX_DIRECT_WORK_ORDER_CANDIDATES = 8;
 
 type Candidate = DirectResultReoptimizationCandidate;
 type Evaluated = Candidate & { certification: InertiaCertification; risk: number };
@@ -62,11 +63,12 @@ export default function DirectWorkOrderOptimizer() {
 
   const execute = useCallback(async (detail: DirectWorkOrderRequest) => {
     const id = ++runId.current;
+    const cancelled = () => runId.current !== id;
     const current = requestTarget(detail);
     setOpen(true);
     setRunning(true);
     setProgress(null);
-    setMessage('작업지시서가 나올 때까지 직접 적재 배치를 다시 탐색합니다.');
+    setMessage('현재 적재안과 안전성이 높은 소수 재배치 후보를 관성 검증합니다.');
     setError('');
 
     if (!current.result.placements.length) {
@@ -83,46 +85,57 @@ export default function DirectWorkOrderOptimizer() {
       target: current,
       staticPenalty: 0,
     };
-    const candidates = [baseline, ...buildDirectResultReoptimizationCandidates(current, 9999)];
+    const alternatives = buildDirectResultReoptimizationCandidates(current, MAX_DIRECT_WORK_ORDER_CANDIDATES - 1);
+    const candidates = [baseline, ...alternatives];
     setAttempt({ index: 0, total: candidates.length, label: '' });
     let bestFailed: Evaluated | null = null;
 
-    for (let index = 0; index < candidates.length; index += 1) {
-      if (runId.current !== id) return;
-      const liveTarget = readPhysicsTarget();
-      if (!liveTarget || createPhysicsTargetSignature(liveTarget) !== initialSignature) {
-        setRunning(false);
-        setError('반복 최적화 중 적재안이 변경되어 중단했습니다. 현재 적재안으로 작업지시서를 다시 실행하세요.');
-        return;
-      }
-      const candidate = candidates[index];
-      setAttempt({ index: index + 1, total: candidates.length, label: candidate.label });
-      setMessage(`상자 재배치 ${index + 1}/${candidates.length} · ${candidate.label}`);
-      const certification = await runInertiaCertification(candidate.target, next => {
-        if (runId.current === id) setProgress(next);
-      });
-      if (runId.current !== id) return;
+    try {
+      for (let index = 0; index < candidates.length; index += 1) {
+        if (cancelled()) return;
+        const liveTarget = readPhysicsTarget();
+        if (!liveTarget || createPhysicsTargetSignature(liveTarget) !== initialSignature) {
+          setRunning(false);
+          setError('반복 최적화 중 적재안이 변경되어 중단했습니다. 현재 적재안으로 작업지시서를 다시 실행하세요.');
+          return;
+        }
+        const candidate = candidates[index];
+        setAttempt({ index: index + 1, total: candidates.length, label: candidate.label });
+        setMessage(`상자 재배치 ${index + 1}/${candidates.length} · ${candidate.label}`);
+        const certification = await runInertiaCertification(
+          candidate.target,
+          next => { if (!cancelled()) setProgress(next); },
+          undefined,
+          cancelled,
+        );
+        if (cancelled()) return;
 
-      const evaluated: Evaluated = { ...candidate, certification, risk: certificationRisk(certification) };
-      if (certification.status === 'passed') {
-        applyCandidate(candidate, certification);
-        setRunning(false);
-        setMessage(`작업지시서 승인 · ${candidate.label}`);
-        const opened = openLoadingReport(candidate.target.container, candidate.target.cargo, candidate.target.result);
-        if (opened) setOpen(false);
-        else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
-        return;
+        const evaluated: Evaluated = { ...candidate, certification, risk: certificationRisk(certification) };
+        if (certification.status === 'passed') {
+          applyCandidate(candidate, certification);
+          setRunning(false);
+          setMessage(`작업지시서 승인 · ${candidate.label}`);
+          const opened = openLoadingReport(candidate.target.container, candidate.target.cargo, candidate.target.result);
+          if (opened) setOpen(false);
+          else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
+          return;
+        }
+        if (!bestFailed || better(evaluated, bestFailed)) bestFailed = evaluated;
       }
-      if (!bestFailed || better(evaluated, bestFailed)) bestFailed = evaluated;
-    }
 
-    if (runId.current !== id) return;
-    setRunning(false);
-    if (bestFailed) {
-      applyCandidate(bestFailed, bestFailed.certification);
-      setMessage(`유효 배치 전부 탐색 · 가장 안전한 실패안 적용 · ${bestFailed.label}`);
+      if (cancelled()) return;
+      setRunning(false);
+      if (bestFailed) {
+        applyCandidate(bestFailed, bestFailed.certification);
+        setMessage(`상위 안전 후보 비교 완료 · 가장 안전한 실패안 적용 · ${bestFailed.label}`);
+      }
+      setError(`현재 적재안과 정적 안전점수가 높은 상위 ${candidates.length - 1}개 재배치를 시험했지만 관성 3종 PASS가 나오지 않았습니다. 무한 재탐색 대신 적재량·적층조건 또는 보조자재를 조정한 뒤 다시 검증하세요.`);
+    } catch (reason) {
+      if (cancelled()) return;
+      console.error('Direct work-order inertia search failed', reason);
+      setRunning(false);
+      setError('직접 적재 관성 검증을 완료하지 못했습니다. 현재 적재안을 유지한 채 다시 실행할 수 있습니다.');
     }
-    setError('같은 화물 수량과 제약조건을 유지해 만들 수 있는 직접 적재 배치를 모두 시험했지만 관성 3종 PASS가 나오지 않았습니다. 이 경우에는 작업지시서를 억지로 만들지 않습니다.');
   }, []);
 
   useEffect(() => {
@@ -143,15 +156,15 @@ export default function DirectWorkOrderOptimizer() {
       <header>
         <div>
           <span>FINAL WORK ORDER OPTIMIZER · DIRECT BOX</span>
-          <h2 id="direct-work-order-title">작업지시서 전 상자 재배치 반복</h2>
-          <p>같은 SKU 묶음과 무거운→가벼운 중량 흐름을 유지하면서 적재 높이와 전략을 계속 바꾸고, 관성 3종 PASS가 나오는 순간 작업지시서를 생성합니다.</p>
+          <h2 id="direct-work-order-title">작업지시서 전 상자 안전 후보 비교</h2>
+          <p>현재 배치와 정적 안전성이 높은 상위 후보만 관성 3종으로 비교합니다. 화물 수량은 유지하며 브라우저가 장시간 멈추지 않도록 최대 {MAX_DIRECT_WORK_ORDER_CANDIDATES}개 배치만 시험합니다.</p>
         </div>
         {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
       </header>
 
       <div className="final-cert-running">
         {running && <div className="physics-spinner" />}
-        <div><b>{message}</b><span>{attempt.total ? `배치 ${attempt.index}/${attempt.total} · 전체 탐색 ${percent}%` : '후보 생성 중'}</span></div>
+        <div><b>{message}</b><span>{attempt.total ? `배치 ${attempt.index}/${attempt.total} · 비교 ${percent}%` : '후보 생성 중'}</span></div>
         <progress max="100" value={percent} />
       </div>
 
@@ -159,16 +172,16 @@ export default function DirectWorkOrderOptimizer() {
         <span>현재 보강 <b>{progress.levelLabel}</b></span>
         <span>관성 시나리오 <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
         <span>현재 계산 <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
-        <span>탐색 원칙 <b>SKU 묶음 → 중량 흐름 → 낮은 높이 → PASS</b></span>
+        <span>탐색 원칙 <b>안전 우선 · 제한된 후보 비교</b></span>
       </div>}
 
       <article className="final-cert-materials">
-        <div className="final-cert-material-head"><div><b>자동 변경 항목</b><span>화물 수량은 유지</span></div><strong>{attempt.total || '-'}개 유효 배치</strong></div>
+        <div className="final-cert-material-head"><div><b>자동 비교 범위</b><span>화물 수량 유지</span></div><strong>{attempt.total || '-'}개 배치</strong></div>
         <div className="final-cert-material-grid">
-          <div><span>상자 배치</span><b>안정성/적재율/하역</b><small>적재 전략을 바꿔 재생성</small></div>
-          <div><span>적재 높이</span><b>단계적으로 하향</b><small>무게중심을 낮춰 재시험</small></div>
-          <div><span>품목 순서</span><b>동일 SKU 우선</b><small>혼합은 마지막 잔여공간</small></div>
-          <div><span>중량 흐름</span><b>무거운→가벼운</b><small>가벼움-무거움-가벼움 방지</small></div>
+          <div><span>상자 배치</span><b>안정성/적재율/하역</b><small>전략별 고유 배치만 비교</small></div>
+          <div><span>적재 높이</span><b>저중심 후보 우선</b><small>정적 안전점수로 선별</small></div>
+          <div><span>후보 수</span><b>최대 {MAX_DIRECT_WORK_ORDER_CANDIDATES}개</b><small>무제한 반복 제거</small></div>
+          <div><span>관성 검증</span><b>출발·급정거·급회전</b><small>3종 시나리오</small></div>
           <div><span>보강재</span><b>자동 재산정</b><small>미끄럼방지·블로킹·고정바</small></div>
           <div><span>승인</span><b>관성 3종 PASS</b><small>PASS 전 작업지시서 잠금</small></div>
         </div>
