@@ -1,8 +1,7 @@
 import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult } from './types';
 import { validatePlacements } from './constraints';
-import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
-import { packByBlockSpaceBeamV2 } from './blockSpaceBeamPackerV2';
+import { packByStrictWalls } from './strictWallPacker';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -35,16 +34,15 @@ function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], resu
 }
 
 /**
- * DIRECT BOX 기본 엔진.
+ * DIRECT BOX 안전 우선 엔진.
  *
- * 현재 기준은 Wall Completion + Homogeneous Block + Maximal Empty Space + Beam Search다.
- * 1) 같은 깊이의 컨테이너 폭을 가능한 한 먼저 완성한다.
- * 2) 동일 SKU 직육면체 블록을 우선하고, 보완 폭이 정확히 맞는 다른 SKU는 같은 벽에 붙여 채운다.
- * 3) 박스 접촉면을 보상하고, 재사용하기 어려운 길고 좁은 sliver/corridor 빈 공간을 강하게 감점한다.
- * 4) 벽/블록 단계 후 남은 수량만 같은 EMS/Beam 탐색에 단품 후보를 허용해 혼합 적재한다.
+ * 자동 적재는 저장된 manual override를 재사용하지 않고 매번 현재 안전 엔진으로 다시 계산한다.
+ * 바닥 적재는 컨테이너 폭 방향으로 lane을 서로 맞붙인 하나의 wall을 완성한 뒤에만 다음 x 구간으로 진행한다.
+ * 따라서 화물-빈통로-화물 형태의 내부 longitudinal/lateral corridor는 생성하지 않는다.
+ * 남는 폭은 컨테이너 측벽 쪽 한 곳에만 남을 수 있다.
+ * 상부 혼합 적재는 바로 아래 박스와 바닥면이 정확히 일치하고 100% 지지되는 경우에만 허용한다.
  *
- * 경계, 충돌, 지지율, 적층단, 누적 상부하중, 최대 payload는 hard constraint다.
- * 무거운 화물은 낮은 위치를 선호하며 한쪽 끝에 몰아넣지 않는다.
+ * 경계, 충돌, 최대 적층단, 누적 상부 허용중량, 최대 payload는 hard constraint다.
  */
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
@@ -72,16 +70,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     return result;
   }
 
-  if (preflight.rejected.length === 0 && shouldPublish && options.strategy === undefined) {
-    const manual = readManualOverride(container, normalizedCargo);
-    if (manual) {
-      publishCorrections(manual.autoCorrections ?? []);
-      publishLoadingResult(container, normalizedCargo, manual);
-      return manual;
-    }
-  }
-
-  const packed = packByBlockSpaceBeamV2(container, normalizedCargo, strategy);
+  const packed = packByStrictWalls(container, normalizedCargo, strategy);
   const result: LoadingResult = {
     placements: packed.placements,
     remaining: [...preflight.rejected, ...packed.remaining],
