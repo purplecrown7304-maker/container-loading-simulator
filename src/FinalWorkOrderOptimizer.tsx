@@ -42,7 +42,7 @@ export default function FinalWorkOrderOptimizer() {
     }
 
     const initialSignature = createPhysicsTargetSignature(current);
-    const alternatives = buildPalletAdaptiveCandidates(current, snapshot).slice(0, MAX_PALLET_WORK_ORDER_CANDIDATES - 1);
+    const alternatives = buildPalletAdaptiveCandidates(current, snapshot, MAX_PALLET_WORK_ORDER_CANDIDATES - 1);
     const candidates = [baselinePalletCandidate(current, snapshot), ...alternatives];
     setAttempt({ index: 0, total: candidates.length, label: '' });
     let bestFailed: EvaluatedPalletCandidate | null = null;
