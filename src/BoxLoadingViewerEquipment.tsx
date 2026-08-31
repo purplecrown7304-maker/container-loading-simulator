@@ -32,7 +32,9 @@ function CargoGroup({ items, container, scale, selectedIndex, onSelect }: { item
         (placement.z + placement.height / 2) * scale + 0.03,
         (placement.y + placement.width / 2) * scale - container.width * scale / 2,
       );
-      object.scale.set(placement.length * scale * 0.985, placement.height * scale * 0.985, placement.width * scale * 0.985);
+      // 안전 검토용 뷰어는 실제 placement 치수를 그대로 렌더링한다.
+      // 이전 0.985 축소는 맞닿은 박스 사이에 존재하지 않는 시각적 간극을 만들었다.
+      object.scale.set(placement.length * scale, placement.height * scale, placement.width * scale);
       object.updateMatrix();
       mesh.setMatrixAt(instanceIndex, object.matrix);
       const color = base.clone();
