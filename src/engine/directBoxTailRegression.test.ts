@@ -2,38 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { loadContainer } from './loadingEngine';
 import type { CargoItem, ContainerSpec } from './types';
 
-const container: ContainerSpec = {
-  length: 2,
-  width: 1,
-  height: 1,
-  maxPayloadKg: 5000,
+const container: ContainerSpec = { length: 1, width: 1, height: 1, maxPayloadKg: 5000 };
+
+const wide: CargoItem = {
+  id: 'WIDE', name: 'WIDE', length: 1, width: 0.6, height: 1,
+  weightKg: 10, quantity: 1, maxStackLayers: 1, maxTopLoadKg: 100, allowRotation: false,
+};
+const narrow: CargoItem = {
+  id: 'NARROW', name: 'NARROW', length: 1, width: 0.4, height: 1,
+  weightKg: 8, quantity: 1, maxStackLayers: 1, maxTopLoadKg: 100, allowRotation: false,
 };
 
-const cargo: CargoItem = {
-  id: 'RAGGED',
-  name: 'RAGGED',
-  length: 0.5,
-  width: 0.5,
-  height: 0.5,
-  weightKg: 10,
-  quantity: 5,
-  maxStackLayers: 2,
-  maxTopLoadKg: 100,
-  allowRotation: false,
-};
-
-describe('direct-box deferred tail-zone regression', () => {
-  it('keeps the incomplete same-SKU remainder behind the completed pure slice', () => {
-    const result = loadContainer(container, [cargo], { strategy: 'capacity', publish: false });
-
-    const pureSlice = result.placements.filter((placement) => Math.abs(placement.x) < 1e-9);
-    const deferredTail = result.placements.filter((placement) => placement.x >= 0.5 - 1e-9);
-
-    expect(pureSlice).toHaveLength(4);
-    expect(deferredTail).toHaveLength(1);
-    expect(deferredTail[0]?.cargoId).toBe('RAGGED');
-    expect(deferredTail[0]?.x).toBeGreaterThanOrEqual(0.5 - 1e-9);
-    expect(result.remaining).toHaveLength(0);
+describe('direct-box residual maximal-empty-space regression', () => {
+  it('allows residual cargo to reuse a safe inner gap instead of pushing it toward the door', () => {
+    const result = loadContainer(container, [wide, narrow], { strategy: 'capacity', publish: false });
+    expect(result.placements).toHaveLength(2);
+    expect(result.remaining).toEqual([]);
+    expect(result.placements.every((p) => Math.abs(p.x) < 1e-9)).toBe(true);
+    const occupiedWidth = result.placements.reduce((sum, p) => sum + p.width, 0);
+    expect(occupiedWidth).toBeCloseTo(1, 9);
     expect(result.validationIssues).toEqual([]);
   });
 });
