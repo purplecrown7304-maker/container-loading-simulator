@@ -10,7 +10,7 @@ const DEFAULT_RESTITUTION = 0.01;
 const START_ACCELERATION_G = 0.30;
 const BRAKING_G = 0.50;
 const CORNERING_G = 0.35;
-const RECORD_EVERY_STEPS = 2;
+const METRIC_SAMPLE_EVERY_STEPS = 2;
 const SIMULATION_HZ = 60;
 
 export type InertiaPhase = 'settle' | 'force' | 'coast';
@@ -22,6 +22,13 @@ export type InertiaSecuringProfile = {
   cargoRestraint?: RestraintModel;
   /** Container-level blocking/load-bar restraint; stacked upper pallets rely on friction/contact. */
   supportRestraint?: RestraintModel;
+};
+
+export type InertiaRunOptions = {
+  /** Certification only needs motion metrics. Set false to avoid storing large transform histories. */
+  captureFrames?: boolean;
+  /** Allows UI/certification callers to stop stale simulations when a new run replaces them. */
+  shouldCancel?: () => boolean;
 };
 
 export type InertiaAnimationFrame = {
@@ -66,6 +73,20 @@ function chooseStepCount(count: number) {
   if (count >= 400) return 180;
   if (count >= 200) return 210;
   return 240;
+}
+
+function frameEverySteps(count: number) {
+  if (count >= 700) return 8;
+  if (count >= 400) return 6;
+  if (count >= 200) return 4;
+  return 2;
+}
+
+function yieldEverySteps(count: number) {
+  if (count >= 700) return 6;
+  if (count >= 400) return 8;
+  if (count >= 200) return 10;
+  return 16;
 }
 
 function phaseForStep(step: number, totalSteps: number): InertiaPhase {
@@ -140,10 +161,15 @@ export async function runInertiaAnimation(
   supports: PhysicsSupport[] = [],
   onProgress?: (value: number) => void,
   securing?: InertiaSecuringProfile,
+  options: InertiaRunOptions = {},
 ): Promise<InertiaAnimationResult> {
   const RAPIER = await getRapier();
   const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
-  const totalSteps = chooseStepCount(placements.length + supports.length);
+  const bodyCount = placements.length + supports.length;
+  const totalSteps = chooseStepCount(bodyCount);
+  const frameEvery = frameEverySteps(bodyCount);
+  const yieldEvery = yieldEverySteps(bodyCount);
+  const captureFrames = options.captureFrames !== false;
   const frames: InertiaAnimationFrame[] = [];
   const friction = Math.max(0.05, Math.min(2, securing?.frictionCoefficient ?? DEFAULT_FRICTION));
   const cargoRetentionRatio = Math.max(0, Math.min(0.95, securing?.cargoRetentionRatio ?? 0));
@@ -214,7 +240,7 @@ export async function runInertiaAnimation(
   let maxCargoRestraintForceN = 0;
   let maxSupportRestraintForceN = 0;
 
-  const record = (step: number) => {
+  const sample = (step: number, saveFrame: boolean) => {
     supportBodies.forEach((entry, index) => {
       const p = entry.body.translation();
       const parent = entry.parentSupportIndex >= 0 ? supportBodies[entry.parentSupportIndex] : undefined;
@@ -238,13 +264,16 @@ export async function runInertiaAnimation(
         : { x: entry.center.x, z: entry.center.z };
       maxCargoRelativeSlipM = Math.max(maxCargoRelativeSlipM, Math.hypot(p.x - target.x, p.z - target.z));
     });
-    frames.push({ cargo: packTransforms(cargoBodies), supports: packTransforms(supportBodies), phase: phaseForStep(step, totalSteps), step });
+    if (captureFrames && saveFrame) {
+      frames.push({ cargo: packTransforms(cargoBodies), supports: packTransforms(supportBodies), phase: phaseForStep(step, totalSteps), step });
+    }
   };
 
   try {
     onProgress?.(0);
-    record(0);
+    sample(0, true);
     for (let step = 0; step < totalSteps; step += 1) {
+      if (options.shouldCancel?.()) throw new Error('INERTIA_SIMULATION_CANCELLED');
       const accel = accelerationForScenario(scenario, step, totalSteps);
       dynamicBodies.forEach(entry => {
         entry.body.resetForces(false);
@@ -300,16 +329,19 @@ export async function runInertiaAnimation(
       }
 
       world.step();
-      if ((step + 1) % RECORD_EVERY_STEPS === 0 || step === totalSteps - 1) record(step + 1);
-      if (step % 24 === 23) {
-        onProgress?.((step + 1) / totalSteps);
+      const completedStep = step + 1;
+      const sampleMetrics = completedStep % METRIC_SAMPLE_EVERY_STEPS === 0 || step === totalSteps - 1;
+      const saveFrame = completedStep % frameEvery === 0 || step === totalSteps - 1;
+      if (sampleMetrics || saveFrame) sample(completedStep, saveFrame);
+      if (completedStep % yieldEvery === 0) {
+        onProgress?.(completedStep / totalSteps);
         await new Promise<void>(resolve => setTimeout(resolve, 0));
       }
     }
     onProgress?.(1);
     return {
       scenario,
-      fps: SIMULATION_HZ / RECORD_EVERY_STEPS,
+      fps: captureFrames ? SIMULATION_HZ / frameEvery : 0,
       simulatedSeconds: totalSteps / SIMULATION_HZ,
       cargoCount: placements.length,
       supportCount: supports.length,
