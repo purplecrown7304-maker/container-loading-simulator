@@ -13,6 +13,8 @@ import { openPalletLoadingReport as openPalletLoadingReportV2 } from './palletWo
 import { readPhysicsTarget } from './physicsTarget';
 import { REQUEST_FINAL_WORK_ORDER_EVENT, type FinalWorkOrderRequest } from './finalWorkOrderEvents';
 
+const MAX_PALLET_WORK_ORDER_CANDIDATES = 8;
+
 export default function FinalWorkOrderOptimizer() {
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
@@ -24,12 +26,13 @@ export default function FinalWorkOrderOptimizer() {
 
   const execute = useCallback(async (_detail: FinalWorkOrderRequest) => {
     const id = ++runId.current;
+    const cancelled = () => runId.current !== id;
     const current = readPhysicsTarget();
     const snapshot = readPalletSnapshot();
     setOpen(true);
     setRunning(true);
     setProgress(null);
-    setMessage('작업지시서가 나올 때까지 팔레트와 팔레트 위 상자 배치를 계속 바꿉니다.');
+    setMessage('현재 팔레트 배치와 안전성이 높은 소수 후보를 관성 검증합니다.');
     setError('');
 
     if (!current || current.mode !== 'pallets' || !snapshot) {
@@ -39,46 +42,57 @@ export default function FinalWorkOrderOptimizer() {
     }
 
     const initialSignature = createPhysicsTargetSignature(current);
-    const candidates = [baselinePalletCandidate(current, snapshot), ...buildPalletAdaptiveCandidates(current, snapshot)];
+    const alternatives = buildPalletAdaptiveCandidates(current, snapshot).slice(0, MAX_PALLET_WORK_ORDER_CANDIDATES - 1);
+    const candidates = [baselinePalletCandidate(current, snapshot), ...alternatives];
     setAttempt({ index: 0, total: candidates.length, label: '' });
     let bestFailed: EvaluatedPalletCandidate | null = null;
 
-    for (let index = 0; index < candidates.length; index += 1) {
-      if (runId.current !== id) return;
-      const liveTarget = readPhysicsTarget();
-      if (!liveTarget || createPhysicsTargetSignature(liveTarget) !== initialSignature) {
-        setRunning(false);
-        setError('반복 최적화 중 적재안이 변경되어 중단했습니다. 현재 적재안으로 작업지시서를 다시 실행하세요.');
-        return;
-      }
-      const candidate = candidates[index];
-      setAttempt({ index: index + 1, total: candidates.length, label: candidate.label });
-      setMessage(`작업지시서 후보 ${index + 1}/${candidates.length} · ${candidate.label}`);
-      const certification = await runInertiaCertification(candidate.target, next => {
-        if (runId.current === id) setProgress(next);
-      });
-      if (runId.current !== id) return;
+    try {
+      for (let index = 0; index < candidates.length; index += 1) {
+        if (cancelled()) return;
+        const liveTarget = readPhysicsTarget();
+        if (!liveTarget || createPhysicsTargetSignature(liveTarget) !== initialSignature) {
+          setRunning(false);
+          setError('반복 최적화 중 적재안이 변경되어 중단했습니다. 현재 적재안으로 작업지시서를 다시 실행하세요.');
+          return;
+        }
+        const candidate = candidates[index];
+        setAttempt({ index: index + 1, total: candidates.length, label: candidate.label });
+        setMessage(`작업지시서 후보 ${index + 1}/${candidates.length} · ${candidate.label}`);
+        const certification = await runInertiaCertification(
+          candidate.target,
+          next => { if (!cancelled()) setProgress(next); },
+          undefined,
+          cancelled,
+        );
+        if (cancelled()) return;
 
-      const evaluated: EvaluatedPalletCandidate = { ...candidate, certification, risk: palletCertificationRisk(certification) };
-      if (certification.status === 'passed') {
-        applyPalletAdaptiveCandidate(candidate, certification);
-        setRunning(false);
-        setMessage(`작업지시서 승인 · ${candidate.label}`);
-        const opened = openPalletLoadingReportV2(candidate.target.container, candidate.target.cargo);
-        if (opened) setOpen(false);
-        else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
-        return;
+        const evaluated: EvaluatedPalletCandidate = { ...candidate, certification, risk: palletCertificationRisk(certification) };
+        if (certification.status === 'passed') {
+          applyPalletAdaptiveCandidate(candidate, certification);
+          setRunning(false);
+          setMessage(`작업지시서 승인 · ${candidate.label}`);
+          const opened = openPalletLoadingReportV2(candidate.target.container, candidate.target.cargo);
+          if (opened) setOpen(false);
+          else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
+          return;
+        }
+        if (!bestFailed || betterPalletEvaluation(evaluated, bestFailed)) bestFailed = evaluated;
       }
-      if (!bestFailed || betterPalletEvaluation(evaluated, bestFailed)) bestFailed = evaluated;
-    }
 
-    if (runId.current !== id) return;
-    setRunning(false);
-    if (bestFailed) {
-      applyPalletAdaptiveCandidate(bestFailed, bestFailed.certification);
-      setMessage(`유효 배치 전부 탐색 · 가장 안전한 실패안 적용 · ${bestFailed.label}`);
+      if (cancelled()) return;
+      setRunning(false);
+      if (bestFailed) {
+        applyPalletAdaptiveCandidate(bestFailed, bestFailed.certification);
+        setMessage(`상위 안전 후보 비교 완료 · 가장 안전한 실패안 적용 · ${bestFailed.label}`);
+      }
+      setError(`현재 팔레트안과 정적 안전점수가 높은 상위 ${candidates.length - 1}개 후보를 시험했지만 관성 3종 PASS가 나오지 않았습니다. 무제한 재탐색 대신 팔레트 규격·적층 높이·보강 조건을 조정한 뒤 다시 검증하세요.`);
+    } catch (reason) {
+      if (cancelled()) return;
+      console.error('Pallet work-order inertia search failed', reason);
+      setRunning(false);
+      setError('팔레트 관성 검증을 완료하지 못했습니다. 현재 적재안을 유지한 채 다시 실행할 수 있습니다.');
     }
-    setError('화물 수량·팔레트 규격·상부하중 등 필수 제약을 유지하면서 만들 수 있는 모든 유효 팔레트 배치를 시험했지만 관성 3종 PASS가 나오지 않았습니다. 이 경우 작업지시서를 억지로 생성하지 않습니다.');
   }, []);
 
   useEffect(() => {
@@ -99,15 +113,15 @@ export default function FinalWorkOrderOptimizer() {
       <header>
         <div>
           <span>ADAPTIVE WORK ORDER OPTIMIZER · PALLET</span>
-          <h2 id="final-work-order-title">작업지시서 전 팔레트 반복 최적화</h2>
-          <p>작업지시서가 생성될 때까지 팔레트 위치와 팔레트 위 상자의 방향·높이·적층 방법을 계속 바꾸고 관성 3종을 재검증합니다.</p>
+          <h2 id="final-work-order-title">작업지시서 전 팔레트 안전 후보 비교</h2>
+          <p>현재 팔레트안과 정적 안전성이 높은 상위 후보만 관성 3종으로 비교합니다. 화물 수량은 유지하고 브라우저가 장시간 멈추지 않도록 최대 {MAX_PALLET_WORK_ORDER_CANDIDATES}개 배치만 시험합니다.</p>
         </div>
         {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
       </header>
 
       <div className="final-cert-running">
         {running && <div className="physics-spinner" />}
-        <div><b>{message}</b><span>{attempt.total ? `유효 배치 ${attempt.index}/${attempt.total} · 탐색 ${percent}%` : '후보 생성 중'}</span></div>
+        <div><b>{message}</b><span>{attempt.total ? `후보 ${attempt.index}/${attempt.total} · 비교 ${percent}%` : '후보 생성 중'}</span></div>
         <progress max="100" value={percent} />
       </div>
 
@@ -115,18 +129,18 @@ export default function FinalWorkOrderOptimizer() {
         <span>현재 보강 <b>{progress.levelLabel}</b></span>
         <span>관성 시나리오 <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
         <span>현재 계산 <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
-        <span>종료 조건 <b>PASS → 즉시 작업지시서</b></span>
+        <span>종료 조건 <b>PASS 또는 상위 후보 비교 완료</b></span>
       </div>}
 
       <article className="final-cert-materials">
-        <div className="final-cert-material-head"><div><b>반복 탐색 범위</b><span>화물 수량은 유지</span></div><strong>{attempt.total || '-'}개 유효 배치</strong></div>
+        <div className="final-cert-material-head"><div><b>자동 비교 범위</b><span>화물 수량 유지</span></div><strong>{attempt.total || '-'}개 배치</strong></div>
         <div className="final-cert-material-grid">
-          <div><span>팔레트 위 상자</span><b>방향 변경</b><small>자동/정방향/90도/교차</small></div>
-          <div><span>유닛 높이</span><b>계속 낮춰 비교</b><small>무게중심 하향</small></div>
-          <div><span>팔레트 적층</span><b>1단부터 비교</b><small>빈 바닥 우선</small></div>
-          <div><span>바닥 배열</span><b>2열 우선</b><small>폭이 허용하면 좌우 사용</small></div>
-          <div><span>보강재</span><b>매번 재산정</b><small>밴딩·각대·랩핑·고정바</small></div>
-          <div><span>작업지시서</span><b>PASS 즉시 생성</b><small>실패 후보는 계속 다음 배치</small></div>
+          <div><span>팔레트 위 상자</span><b>방향 변경</b><small>자동/정방향/90도/교차 후보</small></div>
+          <div><span>유닛 높이</span><b>저중심 후보 우선</b><small>정적 안전점수로 선별</small></div>
+          <div><span>팔레트 적층</span><b>안전한 층수 비교</b><small>높은 위험 후보 후순위</small></div>
+          <div><span>바닥 배열</span><b>안쪽/문쪽 밀착 비교</b><small>고유 배치만 유지</small></div>
+          <div><span>후보 수</span><b>최대 {MAX_PALLET_WORK_ORDER_CANDIDATES}개</b><small>무제한 반복 제거</small></div>
+          <div><span>승인</span><b>관성 3종 PASS</b><small>PASS 전 작업지시서 잠금</small></div>
         </div>
       </article>
 
