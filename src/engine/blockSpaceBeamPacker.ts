@@ -69,8 +69,8 @@ function fitCount(available: number, size: number) {
 function safeLayers(item: CargoItem) {
   let limit = item.maxStackLayers ?? Number.POSITIVE_INFINITY;
   if (item.maxTopLoadKg !== undefined) {
-    const topLoadLimit = 1 + Math.floor((Math.max(0, item.maxTopLoadKg) + EPS) / Math.max(item.weightKg, EPS));
-    limit = Math.min(limit, topLoadLimit);
+    const byTopLoad = 1 + Math.floor((Math.max(0, item.maxTopLoadKg) + EPS) / Math.max(item.weightKg, EPS));
+    limit = Math.min(limit, byTopLoad);
   }
   return Math.max(1, limit);
 }
@@ -141,13 +141,17 @@ function physicallyValid(candidate: Candidate, state: State, context: Context) {
   const block = candidate.block;
   if (state.loadedWeightKg + block.weightKg > context.container.maxPayloadKg + EPS) return false;
   const box = occupied(candidate);
-  if (!isInsideContainer(context.container, box)) return false;
-  if (state.placements.some((p) => overlaps(box, p))) return false;
+  if (!isInsideContainer(context.container, box) || state.placements.some((p) => overlaps(box, p))) return false;
   const units = unitsOf(block, candidate.x, candidate.y, candidate.z);
+
+  // 바닥의 동일-SKU 블록은 safeLayers()가 내부 기둥의 적층단/상부하중을 이미 제한한다.
+  // 여기서 단품별 그래프 검사를 생략해 40ft 다품종 탐색의 후보 평가 비용을 줄인다.
+  if (candidate.z <= EPS) return units.every((unit) => isInsideContainer(context.container, unit));
+
   const staged = [...state.placements];
   for (const unit of units) {
     if (!isInsideContainer(context.container, unit) || staged.some((p) => overlaps(unit, p))) return false;
-    if (unit.z > EPS && !hasAdequateSupport(unit, staged)) return false;
+    if (!hasAdequateSupport(unit, staged)) return false;
     if (!canPlaceByStackingRules(block.item, unit, staged, context.cargoById)) return false;
     staged.push(unit);
   }
@@ -195,10 +199,13 @@ function candidateScore(candidate: Candidate, state: State, context: Context) {
 
   let score = blockRatio * 950 + fill * 90 + block.quantity * 0.35 + contact * 12;
   score -= xNorm * 3;
-  score -= zNorm * (12 + weightRank * 28);
+  score -= zNorm * 14;
+  // 무게 자체를 안쪽 배치 보너스로 쓰지 않는다. 대신 무거울수록 낮은 위치의 점수를 높이고 높은 위치를 강하게 감점한다.
+  score += weightRank * (1 - zNorm) * 30;
+  score -= weightRank * zNorm * 40;
   score -= Math.abs(cogX - 0.5) * 22 + Math.abs(cogY - 0.5) * 30;
   if (context.strategy === 'capacity') score += fill * 40 + blockRatio * 250;
-  if (context.strategy === 'stability') score -= zNorm * 40 + Math.abs(cogY - 0.5) * 24;
+  if (context.strategy === 'stability') score += weightRank * (1 - zNorm) * 18 - zNorm * 38 - Math.abs(cogY - 0.5) * 24;
   if (context.strategy === 'unloading') {
     const target = unloadTarget(block.item, context);
     if (target !== null) score -= Math.abs(xNorm - target) * 90;
@@ -208,7 +215,9 @@ function candidateScore(candidate: Candidate, state: State, context: Context) {
 
 function candidateList(state: State, context: Context, allowSingles: boolean) {
   const candidates: Candidate[] = [];
-  const spaces = [...state.spaces].sort((a, b) => a.z - b.z || a.x - b.x || spaceVolume(b) - spaceVolume(a) || a.y - b.y).slice(0, MAX_SPACES);
+  const spaces = [...state.spaces]
+    .sort((a, b) => a.z - b.z || a.x - b.x || spaceVolume(b) - spaceVolume(a) || a.y - b.y)
+    .slice(0, MAX_SPACES);
   for (const space of spaces) for (const item of context.cargo) {
     const left = state.remaining.get(item.id) ?? 0;
     if (left <= 0) continue;
@@ -223,7 +232,9 @@ function candidateList(state: State, context: Context, allowSingles: boolean) {
       }
     }
   }
-  return candidates.sort((a, b) => b.score - a.score || b.block.quantity - a.block.quantity || a.block.item.id.localeCompare(b.block.item.id) || a.x - b.x || a.y - b.y || a.z - b.z).slice(0, MAX_CANDIDATES);
+  return candidates
+    .sort((a, b) => b.score - a.score || b.block.quantity - a.block.quantity || a.block.item.id.localeCompare(b.block.item.id) || a.x - b.x || a.y - b.y || a.z - b.z)
+    .slice(0, MAX_CANDIDATES);
 }
 
 function intersects(space: Space, p: Placement) {
@@ -241,11 +252,15 @@ function subtract(space: Space, p: Placement): Space[] {
     { x: space.x, y: py2, z: space.z, length: space.length, width: y2 - py2, height: space.height },
     { x: space.x, y: space.y, z: space.z, length: space.length, width: space.width, height: p.z - space.z },
     { x: space.x, y: space.y, z: pz2, length: space.length, width: space.width, height: z2 - pz2 },
-  ].filter((s) => s.length > EPS && s.width > EPS && s.height > EPS).map((s) => ({ ...s, x: round6(s.x), y: round6(s.y), z: round6(s.z), length: round6(s.length), width: round6(s.width), height: round6(s.height) }));
+  ].filter((s) => s.length > EPS && s.width > EPS && s.height > EPS)
+    .map((s) => ({ ...s, x: round6(s.x), y: round6(s.y), z: round6(s.z), length: round6(s.length), width: round6(s.width), height: round6(s.height) }));
 }
 
 function contains(outer: Space, inner: Space) {
-  return inner.x >= outer.x - EPS && inner.y >= outer.y - EPS && inner.z >= outer.z - EPS && inner.x + inner.length <= outer.x + outer.length + EPS && inner.y + inner.width <= outer.y + outer.width + EPS && inner.z + inner.height <= outer.z + outer.height + EPS;
+  return inner.x >= outer.x - EPS && inner.y >= outer.y - EPS && inner.z >= outer.z - EPS
+    && inner.x + inner.length <= outer.x + outer.length + EPS
+    && inner.y + inner.width <= outer.y + outer.width + EPS
+    && inner.z + inner.height <= outer.z + outer.height + EPS;
 }
 
 function nextSpaces(spaces: Space[], p: Placement) {
@@ -278,7 +293,32 @@ function weightMetrics(container: ContainerSpec, placements: Placement[]) {
     if (cx <= container.length / 2 + EPS) inner += p.weightKg;
   }
   const half = inner / total;
-  return { nx: sx / total / container.length, ny: sy / total / container.width, nz: sz / total / container.height, maxHalfRatio: Math.max(half, 1 - half) };
+  return {
+    nx: sx / total / Math.max(EPS, container.length),
+    ny: sy / total / Math.max(EPS, container.width),
+    nz: sz / total / Math.max(EPS, container.height),
+    maxHalfRatio: Math.max(half, 1 - half),
+  };
+}
+
+function unloadingArrangementScore(state: State, context: Context) {
+  if (context.unloadMax <= context.unloadMin) return 0.5;
+  const byCargo = new Map<string, number[]>();
+  for (const p of state.placements) {
+    const xs = byCargo.get(p.cargoId) ?? [];
+    xs.push((p.x + p.length / 2) / Math.max(EPS, context.container.length));
+    byCargo.set(p.cargoId, xs);
+  }
+  let total = 0, count = 0;
+  for (const item of context.cargo) {
+    const target = unloadTarget(item, context);
+    const xs = byCargo.get(item.id);
+    if (target === null || !xs?.length) continue;
+    const actual = xs.reduce((sum, x) => sum + x, 0) / xs.length;
+    total += clamp01(1 - Math.abs(actual - target));
+    count += 1;
+  }
+  return count ? total / count : 0.5;
 }
 
 function stateScore(state: State, context: Context) {
@@ -290,9 +330,11 @@ function stateScore(state: State, context: Context) {
   const balance = clamp01(1 - Math.abs(w.nx - 0.5) * 1.4 - Math.abs(w.ny - 0.5) * 2);
   const lowCog = clamp01(1 - Math.max(0, w.nz - 0.32) * 1.8);
   const halfPenalty = Math.max(0, w.maxHalfRatio - 0.6) * 700 * clamp01(demandCompletion / 0.5);
-  let score = utilization * 850 + clamp01(demandCompletion) * 360 + countCompletion * 120 + balance * 75 + lowCog * 70 - halfPenalty - Math.min(80, state.spaces.length * 0.32);
+  let score = utilization * 850 + clamp01(demandCompletion) * 360 + countCompletion * 120
+    + balance * 75 + lowCog * 70 - halfPenalty - Math.min(80, state.spaces.length * 0.32);
   if (context.strategy === 'capacity') score += utilization * 240;
   if (context.strategy === 'stability') score += balance * 110 + lowCog * 130;
+  if (context.strategy === 'unloading') score += unloadingArrangementScore(state, context) * 180;
   return score;
 }
 
@@ -309,7 +351,9 @@ function trim(states: State[], context: Context) {
     const old = unique.get(key);
     if (!old || stateScore(state, context) > stateScore(old, context)) unique.set(key, state);
   }
-  return [...unique.values()].sort((a, b) => stateScore(b, context) - stateScore(a, context) || b.usedVolumeM3 - a.usedVolumeM3 || b.loadedCount - a.loadedCount).slice(0, BEAM_WIDTH);
+  return [...unique.values()]
+    .sort((a, b) => stateScore(b, context) - stateScore(a, context) || b.usedVolumeM3 - a.usedVolumeM3 || b.loadedCount - a.loadedCount)
+    .slice(0, BEAM_WIDTH);
 }
 
 function phase(initial: State[], context: Context, allowSingles: boolean) {
@@ -335,7 +379,10 @@ export function packByBlockSpaceBeam(container: ContainerSpec, cargo: CargoItem[
   const ordered = [...cargo].sort((a, b) => a.id.localeCompare(b.id));
   const priorities = ordered.map((i) => i.unloadPriority).filter((v): v is number => Number.isFinite(v));
   const context: Context = {
-    container, cargo: ordered, cargoById: new Map(ordered.map((i) => [i.id, i])), strategy,
+    container,
+    cargo: ordered,
+    cargoById: new Map(ordered.map((i) => [i.id, i])),
+    strategy,
     requestedVolumeM3: ordered.reduce((sum, i) => sum + volumeOfItem(i) * i.quantity, 0),
     requestedCount: ordered.reduce((sum, i) => sum + i.quantity, 0),
     maxUnitWeightKg: Math.max(EPS, ...ordered.map((i) => i.weightKg)),
@@ -343,11 +390,15 @@ export function packByBlockSpaceBeam(container: ContainerSpec, cargo: CargoItem[
     unloadMax: priorities.length ? Math.max(...priorities) : 0,
   };
   const initial: State = {
-    placements: [], spaces: [{ x: 0, y: 0, z: 0, length: container.length, width: container.width, height: container.height }],
-    remaining: new Map(ordered.map((i) => [i.id, i.quantity])), loadedWeightKg: 0, usedVolumeM3: 0, loadedCount: 0,
+    placements: [],
+    spaces: [{ x: 0, y: 0, z: 0, length: container.length, width: container.width, height: container.height }],
+    remaining: new Map(ordered.map((i) => [i.id, i.quantity])),
+    loadedWeightKg: 0,
+    usedVolumeM3: 0,
+    loadedCount: 0,
   };
 
-  // 논문식 1차: 동일 SKU 직육면체 블록. 2차: 같은 EMS/Beam 탐색에 단품까지 풀어 잔여 빈 공간을 혼합 적재한다.
+  // 1차: 동일 SKU 직육면체 블록. 2차: 같은 EMS/Beam 탐색에 단품을 허용해 잔여 안전 공간을 혼합 적재한다.
   const blockBeam = phase([initial], context, false);
   const finalBeam = phase(blockBeam, context, true);
   const best = trim(finalBeam, context)[0] ?? initial;
