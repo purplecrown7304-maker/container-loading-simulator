@@ -16,6 +16,26 @@ function signature(placements: Placement[]) {
   return placements.map((p) => `${p.cargoId}:${p.x}:${p.y}:${p.z}:${p.length}:${p.width}:${p.height}`).sort();
 }
 
+function expectFullWidthRows(placements: Placement[], expectedWidth: number) {
+  const rows = new Map<string, Placement[]>();
+  for (const p of placements.filter((value) => Math.abs(value.z) < 0.001)) {
+    const key = p.x.toFixed(3);
+    const values = rows.get(key) ?? [];
+    values.push(p);
+    rows.set(key, values);
+  }
+  expect(rows.size).toBeGreaterThan(0);
+  for (const values of rows.values()) {
+    const sorted = [...values].sort((a, b) => a.y - b.y);
+    let cursor = 0;
+    for (const p of sorted) {
+      expect(p.y).toBeCloseTo(cursor, 6);
+      cursor = p.y + p.width;
+    }
+    expect(cursor).toBeCloseTo(expectedWidth, 6);
+  }
+}
+
 describe('DIRECT BOX block / maximal-empty-space discipline', () => {
   it.each<LoadingStrategy>(['capacity', 'stability', 'unloading'])(
     '%s keeps physical constraints hard while using the new block search',
@@ -54,6 +74,21 @@ describe('DIRECT BOX block / maximal-empty-space discipline', () => {
     expect(result.placements).toHaveLength(4);
     expect(new Set(result.placements.map((p) => p.x))).toEqual(new Set([0, 0.75]));
     expect(result.validationIssues).toEqual([]);
+  });
+
+  it('completes each wall width instead of creating repeated comb-shaped corridor gaps', () => {
+    const result = loadContainer(
+      { length: 3, width: 1, height: 1, maxPayloadKg: 10000 },
+      [
+        cargo({ id: 'A-WIDE', length: 0.5, width: 0.6, height: 1, quantity: 6, maxStackLayers: 1 }),
+        cargo({ id: 'B-FILLER', length: 0.5, width: 0.4, height: 1, quantity: 6, maxStackLayers: 1 }),
+      ],
+      { strategy: 'capacity', publish: false },
+    );
+    expect(result.placements).toHaveLength(12);
+    expect(result.remaining).toEqual([]);
+    expect(result.validationIssues).toEqual([]);
+    expectFullWidthRows(result.placements, 1);
   });
 
   it('places the heavier box lower when two otherwise equal boxes must share one vertical column', () => {
