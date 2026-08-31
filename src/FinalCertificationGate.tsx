@@ -30,6 +30,7 @@ const SCENARIO_LABEL = {
 } as const;
 
 const EPS = 1e-9;
+const MAX_DIRECT_REPOSITION_CANDIDATES = 6;
 
 type CachedCertification = {
   signature: string;
@@ -109,6 +110,7 @@ export default function FinalCertificationGate() {
   const execute = useCallback(async (detail: CertificationRequestDetail, nextTarget: PhysicsTarget) => {
     const id = ++runId.current;
     const requestedSignature = createPhysicsTargetSignature(nextTarget);
+    const cancelled = () => runId.current !== id;
     setRequest(detail);
     setTarget(nextTarget);
     setOpen(true);
@@ -124,17 +126,18 @@ export default function FinalCertificationGate() {
       const result = await runInertiaCertification(
         nextTarget,
         nextProgress => {
-          if (runId.current !== id) return;
+          if (cancelled()) return;
           setProgress(nextProgress);
           setUsage(buildSecuringUsage(nextTarget, nextProgress.level));
         },
         (scenarioResult, level) => {
-          if (runId.current !== id) return;
+          if (cancelled()) return;
           setLatestResult(scenarioResult);
           setUsage(buildSecuringUsage(nextTarget, level));
         },
+        cancelled,
       );
-      if (runId.current !== id) return;
+      if (cancelled()) return;
 
       const currentTarget = readPhysicsTarget();
       const stillCurrent = Boolean(currentTarget && createPhysicsTargetSignature(currentTarget) === requestedSignature && result.targetSignature === requestedSignature);
@@ -165,11 +168,11 @@ export default function FinalCertificationGate() {
 
       if (nextTarget.mode !== 'boxes') {
         setRunning(false);
-        setError('최대 보강까지 적용했지만 전체 이동·기울기·화물-팔레트 상대 미끄럼·팔레트 자체 이동 중 하나 이상이 내부 안정 기준을 넘었습니다. 팔레트 작업지시서 최종화에서는 재배치 후보까지 자동 비교합니다.');
+        setError('최대 보강까지 적용했지만 전체 이동·기울기·화물-팔레트 상대 미끄럼·팔레트 자체 이동 중 하나 이상이 내부 안정 기준을 넘었습니다. 팔레트 작업지시서 최종화에서 제한된 상위 재배치 후보를 비교할 수 있습니다.');
         return;
       }
 
-      const candidates = buildDirectResultReoptimizationCandidates(nextTarget, Number.POSITIVE_INFINITY);
+      const candidates = buildDirectResultReoptimizationCandidates(nextTarget, MAX_DIRECT_REPOSITION_CANDIDATES);
       if (!candidates.length) {
         setRunning(false);
         setError('보강재만으로 통과하지 못했고, 같은 화물 수량을 유지하면서 만들 수 있는 추가 고유 재배치안이 없습니다. 적재량 또는 화물 조건을 조정해야 합니다.');
@@ -180,7 +183,7 @@ export default function FinalCertificationGate() {
       let attempted = 0;
 
       for (const candidate of candidates) {
-        if (runId.current !== id) return;
+        if (cancelled()) return;
         attempted += 1;
         setTarget(candidate.target);
         setRepositionAttempt({ index: attempted, label: candidate.label });
@@ -190,17 +193,18 @@ export default function FinalCertificationGate() {
         const candidateCertification = await runInertiaCertification(
           candidate.target,
           nextProgress => {
-            if (runId.current !== id) return;
+            if (cancelled()) return;
             setProgress(nextProgress);
             setUsage(buildSecuringUsage(candidate.target, nextProgress.level));
           },
           (scenarioResult, level) => {
-            if (runId.current !== id) return;
+            if (cancelled()) return;
             setLatestResult(scenarioResult);
             setUsage(buildSecuringUsage(candidate.target, level));
           },
+          cancelled,
         );
-        if (runId.current !== id) return;
+        if (cancelled()) return;
 
         setCertification(candidateCertification);
         setUsage(candidateCertification.securing);
@@ -231,14 +235,14 @@ export default function FinalCertificationGate() {
         setCertification(bestFailed.certification);
         setUsage(bestFailed.certification.securing);
         setRunning(false);
-        setError(`관성 3종 PASS가 나올 때까지 고유 재배치 ${attempted}개를 연속 시험했습니다. 같은 화물 수량을 유지하면서 생성 가능한 재배치 탐색공간을 모두 소진했지만 PASS에는 도달하지 못했습니다. 가장 안전한 재배치안을 적용했으며, 이 경우에는 적재량·박스 적층조건 또는 보조자재 조건을 바꿔야 합니다.`);
+        setError(`기본 적재안이 관성 3종을 통과하지 못해 안전성이 높은 상위 재배치 ${attempted}개를 추가 비교했습니다. PASS에는 도달하지 못해 가장 안전한 후보를 적용했습니다. 적재량·박스 적층조건 또는 보조자재 조건을 조정한 뒤 다시 검증하세요.`);
         return;
       }
 
       setRunning(false);
       setError('자동 재배치 후보를 평가하지 못했습니다. 적재안을 수정한 뒤 다시 실행하세요.');
     } catch (reason) {
-      if (runId.current !== id) return;
+      if (cancelled()) return;
       console.error('Final inertia certification failed', reason);
       setRunning(false);
       setError('최종 관성 검증 또는 자동 재배치를 완료하지 못했습니다. 현재 적재안을 유지한 채 다시 실행할 수 있습니다.');
@@ -283,7 +287,7 @@ export default function FinalCertificationGate() {
         <div>
           <span>FINAL SAFETY GATE · RAPIER 3D · {palletMode ? 'PALLET' : 'DIRECT BOX'}</span>
           <h2 id="final-cert-title">최종 적재 결과 전 관성 검증</h2>
-          <p>출발 가속 · 급정거 · 급회전을 모두 통과해야 최종 결과가 열립니다. DIRECT BOX는 PASS가 나올 때까지 같은 화물 수량을 유지한 고유 재배치안을 연속 생성·검증하며, 동일 배치 반복 또는 탐색공간 소진 때만 중단합니다.</p>
+          <p>출발 가속 · 급정거 · 급회전을 모두 검증합니다. 기본 적재안이 실패하면 DIRECT BOX는 정적 안전점수가 높은 상위 {MAX_DIRECT_REPOSITION_CANDIDATES}개 재배치만 추가 비교해 브라우저가 장시간 멈추는 것을 방지합니다.</p>
         </div>
         {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
       </header>
@@ -301,8 +305,8 @@ export default function FinalCertificationGate() {
       {running && <div className="final-cert-running">
         <div className="physics-spinner" />
         <div>
-          <b>{repositionAttempt.index > 0 ? `재배치 ${repositionAttempt.index}회 · PASS까지 계속 탐색 · ${repositionAttempt.label}` : `${progress?.levelLabel ?? '기본 적재'} · ${scenarioLabel}`}</b>
-          <span>{repositionAttempt.index > 0 ? `${progress?.levelLabel ?? ''} · ${scenarioLabel} · 관성 프레임 ${progressPercent}%` : `관성 프레임 계산 ${progressPercent}%`}</span>
+          <b>{repositionAttempt.index > 0 ? `재배치 ${repositionAttempt.index}/${MAX_DIRECT_REPOSITION_CANDIDATES} · 안전 후보 비교 · ${repositionAttempt.label}` : `${progress?.levelLabel ?? '기본 적재'} · ${scenarioLabel}`}</b>
+          <span>{repositionAttempt.index > 0 ? `${progress?.levelLabel ?? ''} · ${scenarioLabel} · 물리 계산 ${progressPercent}%` : `물리 계산 ${progressPercent}%`}</span>
         </div>
         <progress max="100" value={progressPercent} />
       </div>}
