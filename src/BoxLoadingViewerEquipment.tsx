@@ -7,17 +7,45 @@ import { cargoColor } from './cargoColors';
 import { CargoFaceInfoLabels } from './CargoFaceInfoLabels';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
+import { analyzeWeightDistribution } from './engine/weightDistribution';
 import EquipmentShell3D from './EquipmentShell3D';
 import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
-import { PreviewCameraController, PreviewViewControls, readBoxLabelPreference, saveBoxLabelPreference, type PreviewView } from './PreviewViewControls';
+import {
+  PreviewCameraController,
+  PreviewViewControls,
+  readBoxLabelPreference,
+  readWeightCgPreference,
+  readWeightGraphPreference,
+  saveBoxLabelPreference,
+  saveWeightCgPreference,
+  saveWeightGraphPreference,
+  type PreviewView,
+} from './PreviewViewControls';
 import { AxisGuide, ClearanceGuide, clearanceValues } from './SceneGuides';
 import { PLACEMENT_SELECT_EVENT, selectPlacement, type PlacementSelectDetail } from './selectionEvents';
 import { readStoredState } from './storage';
 import { useTransportEquipment } from './transportEquipment';
+import WeightDistribution3D from './WeightDistribution3D';
+import WeightDistributionPanel from './WeightDistributionPanel';
+import './weight-distribution.css';
 
 type IndexedPlacement = { placement: Placement; index: number };
 
-function CargoGroup({ items, container, scale, selectedIndex, onSelect }: { items: IndexedPlacement[]; container: ContainerSpec; scale: number; selectedIndex: number | null; onSelect: (index: number) => void }) {
+function CargoGroup({
+  items,
+  container,
+  scale,
+  selectedIndex,
+  onSelect,
+  dimmed,
+}: {
+  items: IndexedPlacement[];
+  container: ContainerSpec;
+  scale: number;
+  selectedIndex: number | null;
+  onSelect: (index: number) => void;
+  dimmed: boolean;
+}) {
   const ref = useRef<THREE.InstancedMesh>(null);
   const cargoId = items[0]?.placement.cargoId ?? '';
   const base = useMemo(() => new THREE.Color(cargoColor(cargoId)), [cargoId]);
@@ -46,25 +74,31 @@ function CargoGroup({ items, container, scale, selectedIndex, onSelect }: { item
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }, [items, container, scale, base, selectedIndex]);
 
-  return <instancedMesh ref={ref} args={[undefined, undefined, items.length]} castShadow receiveShadow onClick={(event) => {
+  return <instancedMesh ref={ref} args={[undefined, undefined, items.length]} castShadow={!dimmed} receiveShadow onClick={(event) => {
     event.stopPropagation();
     if (event.instanceId === undefined) return;
     const value = items[event.instanceId];
     if (value) onSelect(value.index);
   }}>
     <boxGeometry />
-    <meshStandardMaterial roughness={0.58} metalness={0.01} />
+    <meshStandardMaterial
+      roughness={0.58}
+      metalness={0.01}
+      transparent={dimmed}
+      opacity={dimmed ? 0.2 : 1}
+      depthWrite={!dimmed}
+    />
   </instancedMesh>;
 }
 
-function CargoEdges({ items, container, scale }: { items: IndexedPlacement[]; container: ContainerSpec; scale: number }) {
+function CargoEdges({ items, container, scale, dimmed }: { items: IndexedPlacement[]; container: ContainerSpec; scale: number; dimmed: boolean }) {
   const geometry = useMemo(() => {
     const box = new THREE.BoxGeometry(1, 1, 1);
     const edges = new THREE.EdgesGeometry(box, 15);
     box.dispose();
     return edges;
   }, []);
-  const material = useMemo(() => new THREE.LineBasicMaterial({ color: '#16324f', transparent: false, depthTest: true, depthWrite: false }), []);
+  const material = useMemo(() => new THREE.LineBasicMaterial({ color: '#16324f', transparent: dimmed, opacity: dimmed ? 0.3 : 1, depthTest: true, depthWrite: false }), [dimmed]);
   useEffect(() => () => { geometry.dispose(); material.dispose(); }, [geometry, material]);
 
   return <group>{items.map(({ placement, index }) => <lineSegments
@@ -96,6 +130,8 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [view, setView] = useState<PreviewView>('free');
   const [showLabels, setShowLabels] = useState(readBoxLabelPreference);
+  const [showWeightGraph, setShowWeightGraph] = useState(readWeightGraphPreference);
+  const [showWeightCenter, setShowWeightCenter] = useState(readWeightCgPreference);
   const [certification, setCertification] = useState<InertiaCertification | null>(() => {
     const latest = readLatestInertiaCertification();
     return latest?.mode === 'boxes' ? latest : null;
@@ -115,10 +151,13 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
   }, [result.placements]);
   const selected = selectedIndex === null ? undefined : result.placements[selectedIndex];
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
+  const weightDistribution = useMemo(() => analyzeWeightDistribution(container, result, 20, 8), [container, result]);
   const securingUsage = certification?.securing ?? null;
 
   const change = (index: number | null) => { setSelectedIndex(index); selectPlacement(index); };
   const toggleLabels = () => setShowLabels(current => { const next = !current; saveBoxLabelPreference(next); return next; });
+  const toggleWeightGraph = () => setShowWeightGraph(current => { const next = !current; saveWeightGraphPreference(next); return next; });
+  const toggleWeightCenter = () => setShowWeightCenter(current => { const next = !current; saveWeightCgPreference(next); return next; });
 
   useEffect(() => setCertification(null), [result, container]);
   useEffect(() => {
@@ -141,7 +180,16 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
 
   return <section className="viewer reference-viewer">
     <div className="reference-3d">
-      <PreviewViewControls view={view} onViewChange={setView} showLabels={showLabels} onToggleLabels={toggleLabels} />
+      <PreviewViewControls
+        view={view}
+        onViewChange={setView}
+        showLabels={showLabels}
+        onToggleLabels={toggleLabels}
+        showWeightGraph={showWeightGraph}
+        onToggleWeightGraph={toggleWeightGraph}
+        showWeightCenter={showWeightCenter}
+        onToggleWeightCenter={toggleWeightCenter}
+      />
       <Canvas shadows camera={{ position: [7.6, 4.8, 7.2], fov: 46 }} dpr={[1, 1.25]} gl={{ antialias: true, powerPreference: 'high-performance' }} onPointerMissed={() => change(null)}>
         <color attach="background" args={['#edf3f9']} />
         <ambientLight intensity={2.1} />
@@ -150,19 +198,21 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
         <AxisGuide container={container} scale={scale} />
         <ClearanceGuide container={container} placements={result.placements} scale={scale} />
         {groups.map(([id, items]) => <group key={id}>
-          <CargoGroup items={items} container={container} scale={scale} selectedIndex={selectedIndex} onSelect={(index) => change(index)} />
-          <CargoEdges items={items} container={container} scale={scale} />
-          {showLabels && <CargoFaceInfoLabels placements={items.map(({ placement }) => placement)} container={container} scale={scale} displayName={cargoMap.get(id)?.name ?? id} verticalOffset={0.03} />}
+          <CargoGroup items={items} container={container} scale={scale} selectedIndex={selectedIndex} onSelect={(index) => change(index)} dimmed={showWeightGraph} />
+          <CargoEdges items={items} container={container} scale={scale} dimmed={showWeightGraph} />
+          {showLabels && !showWeightGraph && <CargoFaceInfoLabels placements={items.map(({ placement }) => placement)} container={container} scale={scale} displayName={cargoMap.get(id)?.name ?? id} verticalOffset={0.03} />}
         </group>)}
         <BoxSecuringAids3D container={container} placements={result.placements} usage={securingUsage} scale={scale} />
-        {selected && <BoxOutline p={selected} container={container} scale={scale} />}
+        {showWeightGraph && <WeightDistribution3D container={container} analysis={weightDistribution} scale={scale} showCenterOfGravity={showWeightCenter} />}
+        {selected && !showWeightGraph && <BoxOutline p={selected} container={container} scale={scale} />}
         <PreviewCameraController view={view} container={container} scale={scale} />
       </Canvas>
+      {showWeightGraph && <WeightDistributionPanel analysis={weightDistribution} />}
       <div className="equipment-view-badge"><b>{equipment.shortName}</b><span>{equipment.category === 'truck' ? 'TRUCK' : 'CONTAINER'} · {equipment.sourceLabel}</span></div>
       {equipment.specializedCargo && <div className="equipment-special-warning">특수화물 전용 장비 · 박스 적재 결과는 참고용</div>}
       {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip"><b>관성 보강 적용</b><span>미끄럼방지 {securingUsage.antiSlipMats}EA</span><span>블로킹재 {securingUsage.dunnageBlocks}EA</span>{securingUsage.loadBars > 0 && <span>고정바 {securingUsage.loadBars}EA</span>}</div>}
-      {clearances && <div className="reference-clearance-strip"><span>안쪽 <b>{clearances.back}</b></span><span>문쪽 <b>{clearances.door}</b></span><span>좌측 <b>{clearances.left}</b></span><span>우측 <b>{clearances.right}</b></span><span>천장 <b>{clearances.top}</b></span></div>}
-      {selected && <div className="reference-selected"><i style={{ background: cargoColor(selected.cargoId) }} /><b>{cargoMap.get(selected.cargoId)?.name || selected.cargoId}</b><span>{selected.weightKg}kg · {(selected.length * selected.width * selected.height).toFixed(3)} CBM · R{addresses[selectedIndex!]?.row} C{addresses[selectedIndex!]?.column} L{addresses[selectedIndex!]?.layer}</span></div>}
+      {clearances && !showWeightGraph && <div className="reference-clearance-strip"><span>안쪽 <b>{clearances.back}</b></span><span>문쪽 <b>{clearances.door}</b></span><span>좌측 <b>{clearances.left}</b></span><span>우측 <b>{clearances.right}</b></span><span>천장 <b>{clearances.top}</b></span></div>}
+      {selected && !showWeightGraph && <div className="reference-selected"><i style={{ background: cargoColor(selected.cargoId) }} /><b>{cargoMap.get(selected.cargoId)?.name || selected.cargoId}</b><span>{selected.weightKg}kg · {(selected.length * selected.width * selected.height).toFixed(3)} CBM · R{addresses[selectedIndex!]?.row} C{addresses[selectedIndex!]?.column} L{addresses[selectedIndex!]?.layer}</span></div>}
     </div>
   </section>;
 }
