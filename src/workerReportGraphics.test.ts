@@ -23,11 +23,18 @@ const result: LoadingResult = {
 };
 
 describe('worker report graphics', () => {
-  it('groups consecutive work by cargo, zone and layer', () => {
+  it('groups the work order by height layer instead of alternating SKU runs', () => {
     const groups = buildWorkerStepGroups(container, cargo, result);
-    expect(groups.length).toBeGreaterThan(1);
-    expect(groups[0].group).toBe(1);
-    expect(groups[0].quantity).toBeGreaterThanOrEqual(1);
+    expect(groups).toHaveLength(2);
+    expect(groups.map(group => group.layer)).toEqual([1, 2]);
+    expect(groups.map(group => group.quantity)).toEqual([4, 2]);
+    expect(groups[0].cargoId).toBe('1단 전체');
+    expect(groups[0].label).toContain('A(Heavy A) 2EA');
+    expect(groups[0].label).toContain('B(Light B) 2EA');
+    expect(groups[0].fromStep).toBe(1);
+    expect(groups[0].toStep).toBe(1);
+    expect(groups[1].fromStep).toBe(2);
+    expect(groups[1].toStep).toBe(2);
     expect(groups.reduce((sum, group) => sum + group.quantity, 0)).toBe(result.placements.length);
   });
 
@@ -41,5 +48,6 @@ describe('worker report graphics', () => {
     expect(side).toContain('바닥');
     expect(progress).toHaveLength(3);
     expect(progress[2]).toContain('3단계');
+    expect(progress[2]).toContain('2단까지');
   });
 });
