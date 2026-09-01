@@ -9,6 +9,11 @@ import {
   type EvaluatedPalletCandidate,
 } from './engine/palletAdaptiveSearch';
 import { createPhysicsTargetSignature, runInertiaCertification, type CertificationProgress } from './inertiaCertification';
+import {
+  canCreateWorkOrder,
+  completeCertificationForWorkOrder,
+  workOrderApprovalLabel,
+} from './inertiaWorkOrderPolicy';
 import { openPalletLoadingReport as openPalletLoadingReportV2 } from './palletWorkerReportV2';
 import { readPhysicsTarget } from './physicsTarget';
 import { REQUEST_FINAL_WORK_ORDER_EVENT, type FinalWorkOrderRequest } from './finalWorkOrderEvents';
@@ -59,7 +64,7 @@ export default function FinalWorkOrderOptimizer() {
         const candidate = candidates[index];
         setAttempt({ index: index + 1, total: candidates.length, label: candidate.label });
         setMessage(`작업지시서 후보 ${index + 1}/${candidates.length} · ${candidate.label}`);
-        const certification = await runInertiaCertification(
+        const initialCertification = await runInertiaCertification(
           candidate.target,
           next => { if (!cancelled()) setProgress(next); },
           undefined,
@@ -67,11 +72,20 @@ export default function FinalWorkOrderOptimizer() {
         );
         if (cancelled()) return;
 
+        const certification = await completeCertificationForWorkOrder(
+          candidate.target,
+          initialCertification,
+          next => { if (!cancelled()) setProgress(next); },
+          undefined,
+          cancelled,
+        );
+        if (cancelled()) return;
+
         const evaluated: EvaluatedPalletCandidate = { ...candidate, certification, risk: palletCertificationRisk(certification) };
-        if (certification.status === 'passed') {
+        if (canCreateWorkOrder(certification)) {
           applyPalletAdaptiveCandidate(candidate, certification);
           setRunning(false);
-          setMessage(`작업지시서 승인 · ${candidate.label}`);
+          setMessage(`작업지시서 ${workOrderApprovalLabel(certification)} · ${candidate.label}`);
           const opened = openPalletLoadingReportV2(candidate.target.container, candidate.target.cargo);
           if (opened) setOpen(false);
           else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
@@ -84,9 +98,9 @@ export default function FinalWorkOrderOptimizer() {
       setRunning(false);
       if (bestFailed) {
         applyPalletAdaptiveCandidate(bestFailed, bestFailed.certification);
-        setMessage(`상위 안전 후보 비교 완료 · 가장 안전한 실패안 적용 · ${bestFailed.label}`);
+        setMessage(`상위 안전 후보 비교 완료 · 가장 낮은 위험안 적용 · ${bestFailed.label}`);
       }
-      setError(`현재 팔레트안과 정적 안전점수가 높은 상위 ${candidates.length - 1}개 후보를 시험했지만 관성 3종 PASS가 나오지 않았습니다. 무제한 재탐색 대신 팔레트 규격·적층 높이·보강 조건을 조정한 뒤 다시 검증하세요.`);
+      setError(`현재 팔레트안과 상위 ${candidates.length - 1}개 후보를 확인했지만 모두 위험 기준을 넘었거나 3종 검증을 완료하지 못했습니다. 위험 판정에서는 작업지시서를 생성하지 않습니다.`);
     } catch (reason) {
       if (cancelled()) return;
       console.error('Pallet work-order inertia search failed', reason);
@@ -114,7 +128,7 @@ export default function FinalWorkOrderOptimizer() {
         <div>
           <span>ADAPTIVE WORK ORDER OPTIMIZER · PALLET</span>
           <h2 id="final-work-order-title">작업지시서 전 팔레트 안전 후보 비교</h2>
-          <p>현재 팔레트안과 정적 안전성이 높은 상위 후보만 관성 3종으로 비교합니다. 화물 수량은 유지하고 브라우저가 장시간 멈추지 않도록 최대 {MAX_PALLET_WORK_ORDER_CANDIDATES}개 배치만 시험합니다.</p>
+          <p>출발 가속 · 급정거 · 급회전 3종이 모두 위험 기준 이내이면 작업지시서를 생성합니다. PASS 기준을 조금 넘은 경우에는 주의 승인으로 처리하고 팔레트 고정 권장사항을 작업지시서에 자동 기입합니다.</p>
         </div>
         {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
       </header>
@@ -129,7 +143,7 @@ export default function FinalWorkOrderOptimizer() {
         <span>현재 보강 <b>{progress.levelLabel}</b></span>
         <span>관성 시나리오 <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
         <span>현재 계산 <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
-        <span>종료 조건 <b>PASS 또는 상위 후보 비교 완료</b></span>
+        <span>승인 기준 <b>3종 모두 위험 아님</b></span>
       </div>}
 
       <article className="final-cert-materials">
@@ -138,9 +152,9 @@ export default function FinalWorkOrderOptimizer() {
           <div><span>팔레트 위 상자</span><b>방향 변경</b><small>자동/정방향/90도/교차 후보</small></div>
           <div><span>유닛 높이</span><b>저중심 후보 우선</b><small>정적 안전점수로 선별</small></div>
           <div><span>팔레트 적층</span><b>안전한 층수 비교</b><small>높은 위험 후보 후순위</small></div>
-          <div><span>바닥 배열</span><b>안쪽/문쪽 밀착 비교</b><small>고유 배치만 유지</small></div>
-          <div><span>후보 수</span><b>최대 {MAX_PALLET_WORK_ORDER_CANDIDATES}개</b><small>무제한 반복 제거</small></div>
-          <div><span>승인</span><b>관성 3종 PASS</b><small>PASS 전 작업지시서 잠금</small></div>
+          <div><span>3종 검증</span><b>모두 위험 아님</b><small>전체 이동·기울기·상대이동 확인</small></div>
+          <div><span>주의 결과</span><b>작업지시서 생성</b><small>권장사항 자동 기입</small></div>
+          <div><span>위험 결과</span><b>출력 차단</b><small>재배치/보강 후 재검증</small></div>
         </div>
       </article>
 
