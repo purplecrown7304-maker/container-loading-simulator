@@ -1,33 +1,36 @@
 import { createPhysicsTargetSignature, readLatestInertiaCertification } from './inertiaCertification';
+import { assessWorkOrderCertification, canCreateWorkOrder } from './inertiaWorkOrderPolicy';
 import { readPhysicsTarget } from './physicsTarget';
 
 export function hasCurrentInertiaVerification(): boolean {
   if (typeof window === 'undefined') return false;
   const target = readPhysicsTarget();
   const certification = readLatestInertiaCertification();
-  if (!target || !certification || certification.status !== 'passed') return false;
-  return certification.targetSignature === createPhysicsTargetSignature(target);
+  if (!target || !certification) return false;
+  if (certification.targetSignature !== createPhysicsTargetSignature(target)) return false;
+  return canCreateWorkOrder(certification);
 }
 
 /**
- * v2.6 final-output rule: a generic Rapier candidate score is not enough.
- * Work orders and Excel exports are verified only by the exact current target's
- * final acceleration/braking/cornering inertia PASS.
+ * The exact current target must complete all three inertia scenarios. Strict PASS
+ * and CAUTION (below DANGER thresholds) are accepted for an operational work
+ * order; DANGER or incomplete testing remains fail-closed.
  */
 export function hasCurrentPhysicsVerification(): boolean {
   return hasCurrentInertiaVerification();
 }
 
-/**
- * Final operational exports are fail-closed. Older versions allowed a user to
- * confirm and export an unverified plan; v2.6 intentionally removes that bypass.
- */
 export function confirmUnverifiedExport(kind: string): boolean {
   if (hasCurrentInertiaVerification()) return true;
   if (typeof window !== 'undefined') {
-    window.alert(
-      `현재 적재안은 최종 관성 3종 PASS와 정확히 일치하지 않습니다.\n\n${kind} 출력은 차단되었습니다. 현재 적재안으로 최종 관성검증을 다시 실행하세요.`,
-    );
+    const target = readPhysicsTarget();
+    const certification = readLatestInertiaCertification();
+    const matches = Boolean(target && certification && certification.targetSignature === createPhysicsTargetSignature(target));
+    const level = matches && certification ? assessWorkOrderCertification(certification) : 'incomplete';
+    const reason = level === 'danger'
+      ? '관성 테스트에서 위험 기준을 초과했습니다. 재배치 또는 보강 후 다시 검사하세요.'
+      : '현재 적재안의 출발·급정거·급회전 3종 검사가 완료되지 않았거나 최신 적재안과 일치하지 않습니다.';
+    window.alert(`${kind} 출력은 현재 차단되어 있습니다.\n\n${reason}`);
   }
   return false;
 }
