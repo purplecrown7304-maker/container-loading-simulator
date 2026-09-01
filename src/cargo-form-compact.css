@@ -1,0 +1,14 @@
+.cargo-add-panel{margin-top:6px!important;padding-top:6px!important}
+.cargo-add-panel>summary{display:flex;align-items:center;min-height:30px;padding:5px 2px;font-size:11px!important;color:#475569!important}
+.cargo-add-panel[open]>summary{margin-bottom:5px;color:#2563eb!important}
+.cargo-add-panel .cargo-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:8px;border-radius:8px;background:#f8fafc;border:1px solid #e2e8f0}
+.cargo-add-panel .cargo-form>label{min-width:0;margin:0;gap:3px;font-size:10px;line-height:1.1}
+.cargo-add-panel .cargo-form>.form-grid{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.cargo-add-panel .cargo-form .form-grid>label{min-width:0;margin:0;gap:3px;font-size:9.5px;line-height:1.1}
+.cargo-add-panel .cargo-form input:not([type="checkbox"]){height:30px;min-height:30px!important;padding:4px 6px!important;border-radius:6px;font-size:11px!important}
+.cargo-add-panel .cargo-form .form-grid>label:nth-child(7){grid-column:span 2}
+.cargo-add-panel .cargo-form .form-grid>label:last-child{flex-direction:row;align-items:center;justify-content:center;align-self:end;gap:5px;height:30px;padding:5px 6px;border:1px solid #dbe3ee;border-radius:6px;background:#fff;color:#475569;font-size:9.5px;white-space:nowrap}
+.cargo-add-panel .cargo-form .form-grid>label:last-child input[type="checkbox"]{width:14px;height:14px;min-height:0;margin:0;padding:0;accent-color:#2563eb}
+.cargo-add-panel .cargo-form>button{grid-column:1/-1;height:32px;margin-top:1px;padding:0 12px;border-radius:7px;font-size:11px}
+@media(max-width:1080px){.cargo-add-panel .cargo-form>.form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.cargo-add-panel .cargo-form .form-grid>label:nth-child(7){grid-column:auto}.cargo-add-panel .cargo-form .form-grid>label:last-child{grid-column:auto}}
+@media(max-width:760px){.cargo-add-panel .cargo-form{grid-template-columns:repeat(2,minmax(0,1fr))}.cargo-add-panel .cargo-form>.form-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.cargo-add-panel .cargo-form .form-grid>label:nth-child(7){grid-column:span 2}}
