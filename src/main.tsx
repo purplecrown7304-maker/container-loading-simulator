@@ -27,7 +27,7 @@ import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
 import TransportEquipmentRecalculationNotice from './TransportEquipmentRecalculationNotice';
 import PhysicsValidationTool from './PhysicsValidationTool';
 import InertiaTestTool from './InertiaTestTool';
-import InertiaTestLauncher from './InertiaTestLauncher';
+import InspectionStatusPanel from './InspectionStatusPanel';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -40,6 +40,7 @@ import './zone-utilization.css';
 import './auto-correction.css';
 import './dashboard-mockup.css';
 import './cargo-form-compact.css';
+import './inspection-flow.css';
 import './strategy-comparison.css';
 import './spare-capacity.css';
 import './manual-editor.css';
@@ -83,6 +84,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <DirectWorkOrderOptimizer />
       <PalletResultsOptimizer />
       <App />
+      <InspectionStatusPanel />
       <TransportEquipmentDashboardSummary />
       <EnterprisePackagingPlannerHost />
       <EnterpriseTransportEquipmentAdapter />
@@ -94,7 +96,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <SecuringMaterialSettingsPanel />
       <PhysicsValidationTool />
       <InertiaTestTool />
-      <InertiaTestLauncher />
       <ExcelImportActions />
       <ExcelExportActions />
     </ErrorBoundary>
