@@ -11,6 +11,7 @@ import FinalCertificationGate from './FinalCertificationGate';
 import FinalWorkOrderOptimizer from './FinalWorkOrderOptimizer';
 import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
 import PalletResultsOptimizer from './PalletResultsOptimizer';
+import PalletWeightDistributionDock from './PalletWeightDistributionDock';
 import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
 import EnterprisePackagingPlannerHost from './EnterprisePackagingPlannerHost';
 import EnterpriseTransportEquipmentAdapter from './EnterpriseTransportEquipmentAdapter';
@@ -68,6 +69,7 @@ import './enterprise-approval.css';
 import './enterprise-manufacturing.css';
 import './transport-equipment.css';
 import './topbar-cleanup.css';
+import './pallet-weight-distribution.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -84,6 +86,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <DirectWorkOrderOptimizer />
       <PalletResultsOptimizer />
       <App />
+      <PalletWeightDistributionDock />
       <InspectionStatusPanel />
       <TransportEquipmentDashboardSummary />
       <EnterprisePackagingPlannerHost />
