@@ -1,5 +1,5 @@
 import { cargoColor } from './cargoColors';
-import { buildWorkSequence, type WorkStep } from './engine/workSequence';
+import { buildWorkSequence } from './engine/workSequence';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 
 export type WorkerStepGroup = {
@@ -9,7 +9,7 @@ export type WorkerStepGroup = {
   quantity: number;
   cargoId: string;
   label: string;
-  zone: WorkStep['zone'];
+  zone: string;
   layer: number;
   minRow: number;
   maxRow: number;
@@ -31,45 +31,81 @@ function shortCode(value: string) {
   return value.length <= 9 ? value : `${value.slice(0, 8)}…`;
 }
 
+/**
+ * 작업지시서는 개별 박스 순서가 아니라 수직 높이(Z) 단계별로 단순화한다.
+ *
+ * 기존 방식은 다음 박스가 같은 SKU일 때만 묶어서 SKU가 교차하면 수십 개 작업으로
+ * 잘게 쪼개졌다. 실제 작업자는 바닥부터 한 높이 단계를 완성한 뒤 다음 높이로 올라가는
+ * 편이 더 이해하기 쉽고, 아래 지지 박스를 먼저 놓는 안전 원칙도 유지된다.
+ *
+ * 한 단계 안의 SKU별 수량은 label에 요약하고, 위치는 전체 R/C 범위와 안쪽→문쪽으로
+ * 표시한다. 그림 속 모든 박스에는 해당 높이 단계의 같은 번호가 표시된다.
+ */
 export function buildWorkerStepGroups(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult): WorkerStepGroup[] {
   const steps = buildWorkSequence(container, cargo, result, 'LOAD');
-  const groups: WorkerStepGroup[] = [];
+  const cargoNames = new Map(cargo.map(item => [item.id, item.name]));
+  const byLayer = new Map<number, {
+    firstStep: number;
+    lastStep: number;
+    minRow: number;
+    maxRow: number;
+    minColumn: number;
+    maxColumn: number;
+    placementIndices: number[];
+    counts: Map<string, number>;
+  }>();
 
-  steps.forEach(step => {
-    const current = groups.at(-1);
-    const merge = current &&
-      current.cargoId === step.cargoId &&
-      current.zone === step.zone &&
-      current.layer === step.layer;
-
-    if (merge) {
-      current.toStep = step.step;
-      current.quantity += 1;
-      current.minRow = Math.min(current.minRow, step.row);
-      current.maxRow = Math.max(current.maxRow, step.row);
-      current.minColumn = Math.min(current.minColumn, step.column);
-      current.maxColumn = Math.max(current.maxColumn, step.column);
-      current.placementIndices.push(step.placementIndex);
-      return;
-    }
-
-    groups.push({
-      group: groups.length + 1,
-      fromStep: step.step,
-      toStep: step.step,
-      quantity: 1,
-      cargoId: step.cargoId,
-      label: step.label,
-      zone: step.zone,
-      layer: step.layer,
+  for (const step of steps) {
+    const current = byLayer.get(step.layer) ?? {
+      firstStep: step.step,
+      lastStep: step.step,
       minRow: step.row,
       maxRow: step.row,
       minColumn: step.column,
       maxColumn: step.column,
-      placementIndices: [step.placementIndex],
+      placementIndices: [],
+      counts: new Map<string, number>(),
+    };
+    current.firstStep = Math.min(current.firstStep, step.step);
+    current.lastStep = Math.max(current.lastStep, step.step);
+    current.minRow = Math.min(current.minRow, step.row);
+    current.maxRow = Math.max(current.maxRow, step.row);
+    current.minColumn = Math.min(current.minColumn, step.column);
+    current.maxColumn = Math.max(current.maxColumn, step.column);
+    current.placementIndices.push(step.placementIndex);
+    current.counts.set(step.cargoId, (current.counts.get(step.cargoId) ?? 0) + 1);
+    byLayer.set(step.layer, current);
+  }
+
+  return [...byLayer.entries()]
+    .sort(([layerA, a], [layerB, b]) => layerA - layerB || a.firstStep - b.firstStep)
+    .map(([layer, value], index) => {
+      const breakdown = [...value.counts.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([id, count]) => {
+          const name = cargoNames.get(id);
+          return `${id}${name && name !== id ? `(${name})` : ''} ${count}EA`;
+        })
+        .join(' · ');
+      const quantity = [...value.counts.values()].reduce((sum, count) => sum + count, 0);
+      const group = index + 1;
+      return {
+        group,
+        // 화면/인쇄물에서 더 이상 개별 박스 번호를 노출하지 않도록 간단한 단계 번호로 정규화한다.
+        fromStep: group,
+        toStep: group,
+        quantity,
+        cargoId: `${layer}단 전체`,
+        label: breakdown,
+        zone: '안쪽 → 문쪽',
+        layer,
+        minRow: value.minRow,
+        maxRow: value.maxRow,
+        minColumn: value.minColumn,
+        maxColumn: value.maxColumn,
+        placementIndices: value.placementIndices,
+      };
     });
-  });
-  return groups;
 }
 
 function groupByPlacement(groups: WorkerStepGroup[]) {
@@ -192,5 +228,5 @@ export function buildProgressSvgs(container: ContainerSpec, result: LoadingResul
     Math.max(1, Math.ceil(groups.length * 2 / 3)),
     groups.length,
   ];
-  return marks.map((limit, index) => miniTopView(container, result, groups, limit, `${index + 1}단계 · 작업 ${limit}번까지`));
+  return marks.map((limit, index) => miniTopView(container, result, groups, limit, `${index + 1}단계 · ${groups[limit - 1]?.layer ?? limit}단까지`));
 }
