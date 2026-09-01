@@ -1,0 +1,222 @@
+.preview-view-controls .preview-weight-toggle,
+.preview-view-controls .preview-weight-cg-toggle {
+  white-space: nowrap;
+}
+
+.preview-view-controls .preview-weight-toggle.active {
+  background: #7c3aed;
+  color: #fff;
+  box-shadow: 0 5px 14px rgba(124, 58, 237, .26);
+}
+
+.preview-view-controls .preview-weight-cg-toggle.active {
+  background: #5b21b6;
+  color: #fff;
+}
+
+.weight-distribution-panel {
+  position: absolute;
+  top: 68px;
+  right: 14px;
+  z-index: 42;
+  width: min(286px, calc(100% - 28px));
+  padding: 12px 13px;
+  border: 1px solid rgba(148, 163, 184, .36);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, .14);
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+}
+
+.weight-distribution-panel header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.weight-distribution-panel header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weight-distribution-panel header b {
+  color: #172033;
+  font-size: 13px;
+}
+
+.weight-distribution-panel header span {
+  color: #6b7280;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.weight-distribution-state {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #ecfdf3;
+  color: #166534;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.weight-distribution-state.caution {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.weight-distribution-state.empty {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.weight-distribution-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.weight-distribution-metrics > div {
+  min-width: 0;
+  padding: 8px;
+  border-radius: 9px;
+  background: #f8fafc;
+}
+
+.weight-distribution-metrics span,
+.weight-distribution-metrics small {
+  display: block;
+  color: #64748b;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.weight-distribution-metrics b {
+  display: block;
+  margin: 2px 0;
+  color: #172033;
+  font-size: 12px;
+}
+
+.weight-distribution-balance {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.weight-distribution-balance > div {
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
+  align-items: center;
+  gap: 6px;
+  color: #475569;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.weight-distribution-balance > div > span:last-child {
+  text-align: right;
+}
+
+.weight-balance-track {
+  position: relative;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.weight-balance-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #3b82f6, #22c55e);
+}
+
+.weight-balance-track::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: 50%;
+  width: 1px;
+  background: rgba(15, 23, 42, .45);
+}
+
+.weight-distribution-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.weight-distribution-legend i {
+  flex: 1;
+  height: 7px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2563eb 0%, #22c55e 34%, #f59e0b 67%, #ef4444 100%);
+}
+
+.weight-distribution-note {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.weight-cell-tooltip {
+  min-width: 110px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, .7);
+  border-radius: 9px;
+  background: rgba(15, 23, 42, .92);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .25);
+  color: white;
+  text-align: center;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.weight-cell-tooltip b,
+.weight-cell-tooltip span,
+.weight-cell-tooltip small {
+  display: block;
+}
+
+.weight-cell-tooltip b { font-size: 9px; }
+.weight-cell-tooltip span { margin-top: 2px; font-size: 11px; font-weight: 900; }
+.weight-cell-tooltip small { margin-top: 1px; color: #cbd5e1; font-size: 8px; }
+
+.weight-cog-label {
+  display: inline-block;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(91, 33, 182, .94);
+  box-shadow: 0 6px 16px rgba(91, 33, 182, .22);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 900;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+@media (max-width: 760px) {
+  .weight-distribution-panel {
+    top: auto;
+    right: 8px;
+    bottom: 8px;
+    width: min(260px, calc(100% - 16px));
+    max-height: 44%;
+    overflow: auto;
+    padding: 10px;
+  }
+  .weight-distribution-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
