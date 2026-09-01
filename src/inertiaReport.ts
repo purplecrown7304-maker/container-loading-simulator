@@ -1,5 +1,18 @@
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import type { PhysicsScenario } from './engine/physicsValidation';
+import {
+  INERTIA_PASS_PALLET_CARGO_SLIP_M,
+  INERTIA_PASS_SHIFT_M,
+  INERTIA_PASS_SUPPORT_SHIFT_M,
+  INERTIA_PASS_TILT_DEG,
+} from './inertiaCertification';
+import {
+  WORK_ORDER_DANGER_PALLET_CARGO_SLIP_M,
+  WORK_ORDER_DANGER_SHIFT_M,
+  WORK_ORDER_DANGER_SUPPORT_SHIFT_M,
+  WORK_ORDER_DANGER_TILT_DEG,
+  isInertiaResultDangerous,
+} from './inertiaWorkOrderPolicy';
 import type { PhysicsTarget } from './physicsTarget';
 
 type InertiaScenario = Exclude<PhysicsScenario, 'settle'>;
@@ -34,9 +47,13 @@ function escapeHtml(value: unknown) {
     .replaceAll("'", '&#039;');
 }
 
-function assessLevel(result: InertiaAnimationResult): AssessmentLevel {
-  if (result.maxHorizontalShiftM > 0.03 || result.maxTiltDeg > 4.5) return 'danger';
-  if (result.maxHorizontalShiftM > 0.012 || result.maxTiltDeg > 1.8) return 'warning';
+function assessLevel(result: InertiaAnimationResult, mode: PhysicsTarget['mode']): AssessmentLevel {
+  if (isInertiaResultDangerous(result, mode)) return 'danger';
+  if (result.maxHorizontalShiftM > INERTIA_PASS_SHIFT_M || result.maxTiltDeg > INERTIA_PASS_TILT_DEG) return 'warning';
+  if (mode === 'pallets') {
+    if ((result.maxCargoRelativeSlipM ?? 0) > INERTIA_PASS_PALLET_CARGO_SLIP_M) return 'warning';
+    if ((result.maxSupportShiftM ?? 0) > INERTIA_PASS_SUPPORT_SHIFT_M) return 'warning';
+  }
   return 'stable';
 }
 
@@ -49,27 +66,45 @@ function mm(value: number) {
   return `${raw.toFixed(raw >= 10 ? 0 : 1)} mm`;
 }
 
-function buildEvaluation(result: InertiaAnimationResult, level: AssessmentLevel) {
+function buildEvaluation(result: InertiaAnimationResult, level: AssessmentLevel, mode: PhysicsTarget['mode']) {
   const shift = mm(result.maxHorizontalShiftM);
   const tilt = `${result.maxTiltDeg.toFixed(1)}°`;
-  if (level === 'stable') return `최대 이동 ${shift}, 최대 기울기 ${tilt}로 기본 비교 시나리오에서 큰 미끄러짐·전도 징후가 확인되지 않았습니다.`;
+  const slip = mm(result.maxCargoRelativeSlipM ?? 0);
+  const support = mm(result.maxSupportShiftM ?? 0);
+  if (level === 'stable') {
+    return mode === 'pallets'
+      ? `최대 이동 ${shift}, 최대 기울기 ${tilt}, 화물↔팔레트 ${slip}, 팔레트 이동 ${support}로 내부 PASS 범위입니다.`
+      : `최대 이동 ${shift}, 최대 기울기 ${tilt}로 내부 PASS 범위입니다.`;
+  }
   const issues: string[] = [];
-  if (result.maxHorizontalShiftM > 0.03) issues.push(`수평 이동이 ${shift}로 위험 기준을 넘음`);
-  else if (result.maxHorizontalShiftM > 0.012) issues.push(`수평 이동이 ${shift}로 재확인 범위`);
-  if (result.maxTiltDeg > 4.5) issues.push(`기울기가 ${tilt}로 전도 위험 범위`);
-  else if (result.maxTiltDeg > 1.8) issues.push(`기울기가 ${tilt}로 재확인 범위`);
+  if (result.maxHorizontalShiftM > WORK_ORDER_DANGER_SHIFT_M) issues.push(`수평 이동 ${shift} · 위험 기준 초과`);
+  else if (result.maxHorizontalShiftM > INERTIA_PASS_SHIFT_M) issues.push(`수평 이동 ${shift} · PASS 기준 초과/위험 이내`);
+  if (result.maxTiltDeg > WORK_ORDER_DANGER_TILT_DEG) issues.push(`기울기 ${tilt} · 위험 기준 초과`);
+  else if (result.maxTiltDeg > INERTIA_PASS_TILT_DEG) issues.push(`기울기 ${tilt} · PASS 기준 초과/위험 이내`);
+  if (mode === 'pallets') {
+    if ((result.maxCargoRelativeSlipM ?? 0) > WORK_ORDER_DANGER_PALLET_CARGO_SLIP_M) issues.push(`화물↔팔레트 미끄럼 ${slip} · 위험 기준 초과`);
+    else if ((result.maxCargoRelativeSlipM ?? 0) > INERTIA_PASS_PALLET_CARGO_SLIP_M) issues.push(`화물↔팔레트 미끄럼 ${slip} · PASS 기준 초과/위험 이내`);
+    if ((result.maxSupportShiftM ?? 0) > WORK_ORDER_DANGER_SUPPORT_SHIFT_M) issues.push(`팔레트 이동 ${support} · 위험 기준 초과`);
+    else if ((result.maxSupportShiftM ?? 0) > INERTIA_PASS_SUPPORT_SHIFT_M) issues.push(`팔레트 이동 ${support} · PASS 기준 초과/위험 이내`);
+  }
   return issues.join(' · ') || `최대 이동 ${shift}, 최대 기울기 ${tilt}로 추가 확인이 필요합니다.`;
 }
 
 function buildRecommendations(scenario: InertiaScenario, result: InertiaAnimationResult, mode: PhysicsTarget['mode']) {
   const items: string[] = [];
-  if (result.maxHorizontalShiftM > 0.012) {
+  if (result.maxHorizontalShiftM > INERTIA_PASS_SHIFT_M) {
     items.push('바닥·팔레트 접촉면의 미끄럼 방지 상태를 확인하고 필요 시 미끄럼방지재를 적용합니다.');
     items.push('화물 사이의 큰 빈 공간을 줄이고 빈 공간은 적절한 완충·고정재로 채워 이동 여유를 줄입니다.');
   }
-  if (result.maxTiltDeg > 1.8) {
+  if (result.maxTiltDeg > INERTIA_PASS_TILT_DEG) {
     items.push('높은 적층은 낮추고 무거운 화물을 하부에 배치해 무게중심을 낮춥니다.');
     items.push('열 또는 블록 단위의 랩핑·밴딩·결박 필요성을 검토하고 상단 돌출 적재를 줄입니다.');
+  }
+  if (mode === 'pallets' && (result.maxCargoRelativeSlipM ?? 0) > INERTIA_PASS_PALLET_CARGO_SLIP_M) {
+    items.push('화물-팔레트 상대 미끄럼이 있으므로 밴딩·랩핑·미끄럼방지재가 화물과 팔레트를 함께 구속하는지 확인합니다.');
+  }
+  if (mode === 'pallets' && (result.maxSupportShiftM ?? 0) > INERTIA_PASS_SUPPORT_SHIFT_M) {
+    items.push('팔레트 자체 이동을 줄이도록 바닥 접촉면, 고정바와 블로킹 위치를 확인합니다.');
   }
   if (scenario === 'acceleration') {
     items.push('출발 시 후방 관성 방향으로 밀리지 않도록 길이 방향 후방 지지·블로킹 상태를 점검합니다.');
@@ -87,7 +122,7 @@ function buildRecommendations(scenario: InertiaScenario, result: InertiaAnimatio
 
 function assessScenario(scenario: InertiaScenario, result: InertiaAnimationResult, mode: PhysicsTarget['mode']): ScenarioAssessment {
   const info = SCENARIOS.find(item => item.id === scenario) ?? SCENARIOS[0];
-  const level = assessLevel(result);
+  const level = assessLevel(result, mode);
   return {
     scenario,
     label: info.label,
@@ -95,7 +130,7 @@ function assessScenario(scenario: InertiaScenario, result: InertiaAnimationResul
     level,
     levelLabel: levelLabel(level),
     result,
-    evaluation: buildEvaluation(result, level),
+    evaluation: buildEvaluation(result, level, mode),
     recommendations: buildRecommendations(scenario, result, mode),
   };
 }
@@ -108,7 +143,11 @@ export function openInertiaImprovementReport(target: PhysicsTarget, results: Ine
 
   const worst = [...assessments].sort((a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level] || b.result.maxHorizontalShiftM - a.result.maxHorizontalShiftM || b.result.maxTiltDeg - a.result.maxTiltDeg)[0];
   const tested = assessments.length;
-  const overallLabel = worst.level === 'danger' ? '재배치/고정 보완 후 재시험 권장' : worst.level === 'warning' ? '일부 보완 후 재시험 권장' : '기본 시나리오 안정 범위';
+  const overallLabel = worst.level === 'danger'
+    ? '위험 · 작업지시서 생성 불가'
+    : worst.level === 'warning'
+      ? '위험 아님 · 권장사항 반영 후 작업지시서 생성 가능'
+      : '안정 · 작업지시서 생성 가능';
   const commonRecommendations = [...new Set(assessments.flatMap(item => item.recommendations))];
   const popup = window.open('', '_blank', 'width=1100,height=900');
   if (!popup) return false;
@@ -136,7 +175,7 @@ export function openInertiaImprovementReport(target: PhysicsTarget, results: Ine
   <h2>시나리오별 평가</h2><table><thead><tr><th>상황</th><th>관성 조건</th><th>판정</th><th>최대 이동</th><th>최대 기울기</th><th>평가 내용</th></tr></thead><tbody>${scenarioRows}</tbody></table>
   <h2>보완할 점</h2><ol class="recommend">${recommendationHtml}</ol>
   <h2>보완 후 재시험 체크</h2><ul class="check">${retestHtml}</ul>
-  <div class="notice">본 보고서는 0.30g 출발, 0.50g 급제동, 0.35g 횡가속 비교 시나리오와 시뮬레이터 내부 이동·기울기 경고 기준을 사용한 보조 평가입니다. 실제 운송 안전 판정은 차량, 노면, 화물 고정장치, 포장재 강도, 마찰계수 및 회사/법규 기준을 별도로 적용해야 합니다.</div>
+  <div class="notice">작업지시서는 3개 시나리오가 모두 실행되고 위험 판정이 없을 때 생성할 수 있습니다. 보완 권장 단계는 내부 PASS 기준을 일부 초과했지만 위험 기준 이내이므로 권장사항이 작업지시서에 함께 표시됩니다. 실제 운송 안전 판정은 차량, 노면, 화물 고정장치, 포장재 강도, 마찰계수 및 회사/법규 기준을 별도로 적용해야 합니다.</div>
   <div class="actions"><button onclick="window.close()">닫기</button><button class="print" onclick="window.print()">인쇄 / PDF 저장</button></div></main></body></html>`);
   popup.document.close();
   return true;
