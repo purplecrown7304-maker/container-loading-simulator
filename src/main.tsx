@@ -8,6 +8,7 @@ import ResultsOverlay from './ResultsOverlay';
 import CertificationInvalidationBridge from './CertificationInvalidationBridge';
 import './certifiedExportConsistency';
 import FinalCertificationGate from './FinalCertificationGate';
+import FinalWorkflowRecoveryBridge from './FinalWorkflowRecoveryBridge';
 import FinalWorkOrderOptimizer from './FinalWorkOrderOptimizer';
 import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
 import PalletResultsOptimizer from './PalletResultsOptimizer';
@@ -91,6 +92,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ResultsOverlay />
       <CertificationInvalidationBridge />
       <FinalCertificationGate />
+      <FinalWorkflowRecoveryBridge />
       <FinalWorkOrderOptimizer />
       <DirectWorkOrderOptimizer />
       <PalletResultsOptimizer />
