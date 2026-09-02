@@ -12,6 +12,7 @@ import FinalWorkOrderOptimizer from './FinalWorkOrderOptimizer';
 import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
 import PalletResultsOptimizer from './PalletResultsOptimizer';
 import PalletWeightDistributionDock from './PalletWeightDistributionDock';
+import PalletWeightDistributionLauncher from './PalletWeightDistributionLauncher';
 import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
 import EnterprisePackagingPlannerHost from './EnterprisePackagingPlannerHost';
 import EnterpriseTransportEquipmentAdapter from './EnterpriseTransportEquipmentAdapter';
@@ -22,6 +23,7 @@ import EnterpriseCartonApprovalCenter from './EnterpriseCartonApprovalCenter';
 import EnterpriseManufacturingSettings from './EnterpriseManufacturingSettings';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
 import HeaderActionBridge from './HeaderActionBridge';
+import HeaderLoadingStatusBoard from './HeaderLoadingStatusBoard';
 import TransportEquipmentSelector from './TransportEquipmentSelector';
 import TransportEquipmentDashboardSummary from './TransportEquipmentDashboardSummary';
 import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
@@ -70,12 +72,15 @@ import './enterprise-manufacturing.css';
 import './transport-equipment.css';
 import './topbar-cleanup.css';
 import './pallet-weight-distribution.css';
+import './header-loading-status.css';
+import './pallet-weight-launcher.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <ReferenceWorkspaceBar />
       <HeaderActionBridge />
+      <HeaderLoadingStatusBoard />
       <TransportEquipmentSelector />
       <TransportEquipmentSafetyGuard />
       <TransportEquipmentRecalculationNotice />
@@ -87,6 +92,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <PalletResultsOptimizer />
       <App />
       <PalletWeightDistributionDock />
+      <PalletWeightDistributionLauncher />
       <InspectionStatusPanel />
       <TransportEquipmentDashboardSummary />
       <EnterprisePackagingPlannerHost />

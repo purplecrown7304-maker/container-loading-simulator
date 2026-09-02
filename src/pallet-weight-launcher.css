@@ -1,0 +1,15 @@
+.pallet-viewer .pallet-weight-dock:not(.open) > .pallet-weight-toolbar {
+  display: none !important;
+}
+
+.pallet-viewer .preview-view-controls .pallet-weight-inline-launcher {
+  flex: 0 0 auto;
+  margin-left: 0;
+  white-space: nowrap;
+}
+
+.pallet-viewer .preview-view-controls .pallet-weight-inline-launcher.active {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #fff;
+}
