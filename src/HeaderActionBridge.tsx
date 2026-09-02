@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
+import { FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 
 function clickButton(selector: string, text?: string): boolean {
   const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(selector));
   const button = text ? buttons.find(item => item.textContent?.replace(/\s+/g, '').includes(text.replace(/\s+/g, ''))) : buttons[0];
-  if (!button) return false;
+  if (!button || button.disabled) return false;
   button.click();
   return true;
 }
@@ -16,7 +17,8 @@ export default function HeaderActionBridge() {
       if (!action) return;
 
       if (action === 'run-loading') {
-        clickButton('.quick-card .primary-action');
+        const started = clickButton('.quick-card .primary-action');
+        if (started) window.dispatchEvent(new Event(FINAL_LOADING_WORKFLOW_START_EVENT));
         return;
       }
       if (action === 'show-results') {
