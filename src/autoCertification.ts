@@ -1,3 +1,4 @@
+import { requestDirectWorkOrder } from './directWorkOrderEvents';
 import { runPhysicsValidationSuite, type PhysicsScenario, type PhysicsValidationSuite } from './engine/physicsValidation';
 import { createPhysicsTargetSignature, requestCertifiedResults } from './inertiaCertification';
 import { publishPhysicsTarget, readPhysicsTarget, subscribePhysicsTarget, type PhysicsTarget } from './physicsTarget';
@@ -101,7 +102,14 @@ async function validateThenCertify(target: PhysicsTarget) {
       detail: { mode: target.mode, result: physics, finalValidation: true, signature },
     }));
 
-    // 최종 배치에 대한 실제 Rapier 검증이 끝난 뒤에만 관성 3종을 시작한다.
+    // 박스 모드는 사용자가 '작업지시서 발급'을 눌렀을 때와 같은 검증 엔진을 자동 호출한다.
+    // 보고서는 열지 않고, 관성 3종 + 누락 시나리오 보완 + 제한된 안전 후보 비교까지만 끝낸다.
+    if (target.mode === 'boxes') {
+      requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false });
+      return;
+    }
+
+    // 팔레트는 기존 팔레트 최종 게이트를 유지한다.
     requestCertifiedResults({ container: target.container, cargo: target.cargo, result: target.result });
   } catch (error) {
     if (runId !== validationRunId) return;
