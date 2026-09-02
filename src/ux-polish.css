@@ -1,0 +1,73 @@
+/* Main-screen UX cleanup: prioritize actions, remove passive repetition, and enlarge the simulator. */
+.dashboard-grid{grid-template-columns:260px minmax(680px,1fr) 300px!important;gap:10px!important;padding:10px!important}
+.dashboard-left,.dashboard-center,.dashboard-right{gap:8px!important}
+.dashboard-card{padding:11px!important;border-radius:9px!important}
+
+/* Passive option descriptions repeat behavior already shown by the inspection flow. */
+.dashboard-left>.loading-options{display:none!important}
+
+/* Keep section names short and remove step numbering from the permanent layout. */
+.dashboard-left>.dashboard-card:first-child>h2{font-size:0!important;margin:0 0 9px!important}
+.dashboard-left>.dashboard-card:first-child>h2::after{content:'컨테이너 정보';font-size:12px;font-weight:800;color:#172033}
+.cargo-browser .card-heading-row>h2{font-size:0!important;margin:0!important}
+.cargo-browser .card-heading-row>h2::after{content:'화물';font-size:12px;font-weight:800;color:#172033}
+
+/* Compact equipment/spec block: values first, explanations only when expanded. */
+.dashboard-left>.dashboard-card:first-child .spec-list{gap:6px!important;margin-top:9px!important}
+.dashboard-left>.dashboard-card:first-child .spec-list span{font-size:8.5px!important}
+.dashboard-left>.dashboard-card:first-child details{margin-top:8px!important;padding-top:7px!important}
+.dashboard-left>.dashboard-card:first-child summary{font-size:8.5px!important}
+
+/* Cargo list should scan like a list, not a form. */
+.cargo-scroll{max-height:330px!important}
+.cargo-list-item{padding-top:7px!important;padding-bottom:7px!important}
+.cargo-list-item span,.cargo-list-item small{font-size:7.5px!important}
+.cargo-inline-actions button{min-height:26px!important;padding:4px 7px!important}
+.status-message{margin:7px 0 0!important;font-size:8px!important;line-height:1.35!important}
+
+/* The simulator is the visual focus. */
+.viewer-card{padding:10px!important}
+.viewer-host{height:calc(100vh - 86px)!important;margin-top:0!important;min-height:440px!important}
+.viewer-bottom-actions{margin-top:3px!important}
+
+/* Right rail: actions -> inspection -> field summary, all vertically scannable. */
+.dashboard-right{position:sticky!important;top:66px!important;max-height:calc(100vh - 76px)!important;overflow-y:auto!important;overflow-x:hidden!important;padding-right:2px!important;scrollbar-width:thin}
+.dashboard-right>.dashboard-card{flex:0 0 auto}
+.inspection-flow-card{order:-20!important}
+.operational-right-summary{order:-10!important}
+
+/* Inspection headings already explain the columns; remove repeated labels. */
+.inspection-flow-head>div>span{display:none!important}
+.inspection-flow-head h2{font-size:0!important}
+.inspection-flow-head h2::after{content:'검사 진행';font-size:12px;font-weight:800;color:#172033}
+.inspection-status-table thead{display:none!important}
+.inspection-status-table td{padding-top:6px!important;padding-bottom:6px!important}
+.inspection-status-table td:nth-child(2)>small{margin-top:2px!important;color:#8a95a5!important}
+
+/* Header board: compact labels and stronger values. */
+.header-loading-status-cell{padding-left:11px!important;padding-right:11px!important}
+.header-loading-status-label{font-size:6.5px!important;letter-spacing:.01em}
+.header-loading-status-cell>b{font-size:9.5px!important}
+.header-loading-status-badge{min-width:58px!important;padding:3px 7px!important}
+
+/* Remove nonessential footer copy. */
+.dashboard-footer{display:none!important}
+
+@media(max-width:1380px){
+  .dashboard-grid{grid-template-columns:240px minmax(560px,1fr) 280px!important}
+  .viewer-host{height:calc(100vh - 88px)!important}
+}
+@media(max-width:1080px){
+  .dashboard-grid{grid-template-columns:240px minmax(0,1fr)!important}
+  .dashboard-right{position:static!important;max-height:none!important;overflow:visible!important;padding-right:0!important;grid-column:1/-1!important;display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .viewer-final-action-row,.inspection-flow-card{grid-column:1/-1!important}
+  .operational-right-summary{grid-column:1/-1!important}
+  .viewer-host{height:54vh!important;min-height:390px!important}
+}
+@media(max-width:760px){
+  .dashboard-grid{grid-template-columns:1fr!important;padding:7px!important;gap:7px!important}
+  .dashboard-right{grid-template-columns:1fr!important}
+  .viewer-host{height:50vh!important;min-height:340px!important}
+  .dashboard-card{padding:10px!important}
+  .cargo-scroll{max-height:300px!important}
+}
