@@ -1,0 +1,170 @@
+import type { CargoItem, ContainerSpec, Placement } from './types';
+
+const TOUCH = 0.004;
+const GAP = 0.03;
+
+type Column = {
+  key: string;
+  x: number;
+  y: number;
+  length: number;
+  width: number;
+  placements: Placement[];
+};
+
+export type StabilityFilterResult = {
+  placements: Placement[];
+  removedByCargo: Map<string, number>;
+};
+
+function roundKey(value: number) {
+  return Math.round(value * 1000) / 1000;
+}
+
+function columnKey(p: Placement) {
+  return `${roundKey(p.x)}|${roundKey(p.y)}|${roundKey(p.length)}|${roundKey(p.width)}`;
+}
+
+function intervalOverlap(a0: number, a1: number, b0: number, b1: number) {
+  return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+}
+
+function areSideAdjacent(a: Column, b: Column) {
+  const xTouch = Math.abs((a.x + a.length) - b.x) <= TOUCH || Math.abs((b.x + b.length) - a.x) <= TOUCH;
+  const yTouch = Math.abs((a.y + a.width) - b.y) <= TOUCH || Math.abs((b.y + b.width) - a.y) <= TOUCH;
+  const yOverlap = intervalOverlap(a.y, a.y + a.width, b.y, b.y + b.width);
+  const xOverlap = intervalOverlap(a.x, a.x + a.length, b.x, b.x + b.length);
+  const enoughY = yOverlap >= Math.min(a.width, b.width) * 0.3 - TOUCH;
+  const enoughX = xOverlap >= Math.min(a.length, b.length) * 0.3 - TOUCH;
+  return (xTouch && enoughY) || (yTouch && enoughX);
+}
+
+function gapBetween(a: Column, b: Column) {
+  const dx = Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.length, b.x + b.length));
+  const dy = Math.max(0, Math.max(a.y, b.y) - Math.min(a.y + a.width, b.y + b.width));
+  return Math.hypot(dx, dy);
+}
+
+function buildColumns(placements: Placement[]) {
+  const map = new Map<string, Column>();
+  for (const placement of placements) {
+    const key = columnKey(placement);
+    const column = map.get(key) ?? {
+      key,
+      x: placement.x,
+      y: placement.y,
+      length: placement.length,
+      width: placement.width,
+      placements: [],
+    };
+    column.placements.push(placement);
+    map.set(key, column);
+  }
+  for (const column of map.values()) column.placements.sort((a, b) => a.z - b.z);
+  return [...map.values()];
+}
+
+function columnTop(column: Column) {
+  const top = column.placements[column.placements.length - 1];
+  return top ? top.z + top.height : 0;
+}
+
+function topCargoId(column: Column) {
+  return column.placements[column.placements.length - 1]?.cargoId ?? '';
+}
+
+function countSameSkuNeighbours(column: Column, columns: Column[]) {
+  const cargoId = topCargoId(column);
+  return columns.filter(other => other !== column && topCargoId(other) === cargoId && areSideAdjacent(column, other)).length;
+}
+
+function trimTop(column: Column, removed: Placement[]) {
+  const top = column.placements.pop();
+  if (top) removed.push(top);
+}
+
+/**
+ * Operational shape guard applied after the geometric packer.
+ *
+ * It intentionally prefers leaving cargo unplaced over creating a narrow tower,
+ * a one-box island, or a large height cliff that would be unstable in braking/turning.
+ * Only top boxes are removed, so a retained box never loses its support.
+ */
+export function filterOperationallyUnsafeShape(
+  container: ContainerSpec,
+  cargo: CargoItem[],
+  placements: Placement[],
+): StabilityFilterResult {
+  if (placements.length <= 1) return { placements, removedByCargo: new Map() };
+
+  const cargoById = new Map(cargo.map(item => [item.id, item]));
+  const columns = buildColumns(placements);
+  const removed: Placement[] = [];
+
+  // Repeat because trimming one tower can expose another height cliff next to it.
+  for (let pass = 0; pass < 12; pass += 1) {
+    let changed = false;
+
+    for (const column of columns) {
+      if (!column.placements.length) continue;
+      const neighbours = columns.filter(other => other !== column && other.placements.length && areSideAdjacent(column, other));
+      const layers = column.placements.length;
+      const top = column.placements[column.placements.length - 1];
+      const item = cargoById.get(top.cargoId);
+      const sameSkuNeighbours = countSameSkuNeighbours(column, columns);
+
+      // A vertical stack standing completely by itself is never allowed to become a tower.
+      if (layers > 1 && neighbours.length === 0) {
+        trimTop(column, removed);
+        changed = true;
+        continue;
+      }
+
+      // Three or more layers need a same-SKU footprint at least two boxes wide.
+      // Five or more layers need a wider block, not a 1x1 / 1x2 chimney.
+      if (layers >= 3 && sameSkuNeighbours < 1) {
+        trimTop(column, removed);
+        changed = true;
+        continue;
+      }
+      if (layers >= 5 && sameSkuNeighbours < 2) {
+        trimTop(column, removed);
+        changed = true;
+        continue;
+      }
+
+      if (neighbours.length) {
+        const neighbourTop = Math.max(...neighbours.map(columnTop));
+        const tallestNeighbourLayer = Math.max(...neighbours.map(n => n.placements[n.placements.length - 1]?.height ?? 0));
+        const allowedCliff = Math.max(top.height, tallestNeighbourLayer, item?.height ?? 0, 0.25);
+        if (columnTop(column) - neighbourTop > allowedCliff + TOUCH) {
+          trimTop(column, removed);
+          changed = true;
+          continue;
+        }
+      }
+    }
+
+    if (!changed) break;
+  }
+
+  // Remove isolated single-box islands when the rest of the load already forms a block.
+  // A small end gap is tolerated, but a visibly detached box is not.
+  const nonEmpty = columns.filter(column => column.placements.length);
+  if (nonEmpty.length >= 4) {
+    for (const column of nonEmpty) {
+      if (column.placements.length !== 1) continue;
+      const nearest = Math.min(...nonEmpty.filter(other => other !== column).map(other => gapBetween(column, other)));
+      const p = column.placements[0];
+      const touchesBoundary = p.x <= TOUCH || p.y <= TOUCH || p.x + p.length >= container.length - TOUCH || p.y + p.width >= container.width - TOUCH;
+      if (nearest > GAP && !touchesBoundary) {
+        trimTop(column, removed);
+      }
+    }
+  }
+
+  const kept = columns.flatMap(column => column.placements).sort((a, b) => a.x - b.x || a.y - b.y || a.z - b.z);
+  const removedByCargo = new Map<string, number>();
+  for (const placement of removed) removedByCargo.set(placement.cargoId, (removedByCargo.get(placement.cargoId) ?? 0) + 1);
+  return { placements: kept, removedByCargo };
+}
