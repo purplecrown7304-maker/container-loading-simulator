@@ -23,7 +23,8 @@ type LatestResultWindow = Window & {
 };
 
 type Tone = 'pass' | 'warning' | 'danger' | 'pending' | 'running';
-type WorkflowStage = 1 | 2 | 3 | 4 | 5 | null;
+type ActiveWorkflowStage = 1 | 2 | 3 | 4 | 5;
+type WorkflowStage = ActiveWorkflowStage | null;
 
 type StatusRow = {
   step: number;
@@ -82,6 +83,11 @@ export default function InspectionStatusPanel() {
       return nextTarget;
     };
 
+    // 핵심: 검사 이벤트가 늦게 도착해도 진행 단계를 절대로 뒤로 되돌리지 않는다.
+    const advance = (stage: ActiveWorkflowStage) => {
+      setWorkflowStage(current => current === null ? null : Math.max(current, stage) as ActiveWorkflowStage);
+    };
+
     const onWorkflowStart = () => {
       setWorkflowStage(1);
       setCertification(undefined);
@@ -90,37 +96,35 @@ export default function InspectionStatusPanel() {
 
     const onLoadingResult = () => {
       const nextTarget = refresh();
-      if (!nextTarget?.result.placements.length) {
-        setWorkflowStage(null);
-        return;
-      }
-      setWorkflowStage(current => current === null ? null : 2);
+      if (!nextTarget?.result.placements.length) return;
+      advance(2);
     };
 
     const onPhysicsTarget = (event: Event) => {
       const detail = (event as CustomEvent<PhysicsTarget | undefined>).detail;
       refresh();
       if (!detail?.result.placements.length) return;
-      setWorkflowStage(current => current === null ? null : 3);
-      window.setTimeout(() => {
-        setWorkflowStage(current => current === 3 ? 4 : current);
-      }, 180);
+      advance(3);
+      window.setTimeout(() => advance(4), 180);
     };
 
     const onPhysicsResult = () => {
       refresh();
       setPhysicsSeen(true);
+      // 물리 검증 결과가 왔다는 것은 3단계가 끝났다는 뜻이다.
+      // PHYSICS_TARGET_EVENT를 놓쳤더라도 관성 검사 단계로 계속 진행한다.
+      advance(4);
     };
 
     const onCertification = () => {
       refresh();
-      setWorkflowStage(current => current === null ? null : 5);
+      advance(5);
     };
 
     const onPalletSnapshot = () => {
       const nextTarget = refresh();
       if (!nextTarget?.result.placements.length) return;
-      setWorkflowStage(current => current === null ? null : Math.max(current, 2) as WorkflowStage);
+      advance(2);
     };
 
     window.addEventListener(FINAL_LOADING_WORKFLOW_START_EVENT, onWorkflowStart);
@@ -175,9 +179,7 @@ export default function InspectionStatusPanel() {
         ? '발급 차단'
         : approval === 'incomplete'
           ? '검사 필요'
-          : approval === 'caution'
-            ? '발급 가능'
-            : '발급 가능';
+          : '발급 가능';
 
     return [
       {
@@ -211,7 +213,7 @@ export default function InspectionStatusPanel() {
       {
         step: 5,
         label: '작업지시서',
-        note: approval === 'caution' ? '주의사항을 포함해 메뉴에서 발급할 수 있습니다.' : approval === 'pass' ? '최종 검사 완료 · 메뉴에서 발급할 수 있습니다.' : approval === 'danger' ? '재배치/보강 후 최종 적재를 다시 진행하세요.' : '관성 3종 완료 후 발급 가능 여부를 판정합니다.',
+        note: approval === 'caution' ? '주의사항을 포함해 발급할 수 있습니다.' : approval === 'pass' ? '최종 검사 완료 · 발급할 수 있습니다.' : approval === 'danger' ? '재배치/보강 후 최종 적재를 다시 진행하세요.' : '관성 3종 완료 후 발급 가능 여부를 판정합니다.',
         status: workStatus,
         tone: workTone,
       },
@@ -247,11 +249,19 @@ export default function InspectionStatusPanel() {
   }, [rows, workflowStage]);
 
   if (!host) return null;
-  const current = displayedRows.find(row => row.tone === 'danger')
-    ?? displayedRows.find(row => row.tone === 'warning')
-    ?? displayedRows.find(row => row.tone === 'running')
-    ?? displayedRows.find(row => row.tone === 'pending')
-    ?? displayedRows[displayedRows.length - 1];
+
+  // 최종 적재 진행 중에는 현재 실행 단계가 가장 먼저 보이도록 한다.
+  const current = workflowStage !== null && workflowStage < 5
+    ? displayedRows.find(row => row.tone === 'running')
+      ?? displayedRows.find(row => row.tone === 'danger')
+      ?? displayedRows.find(row => row.tone === 'warning')
+      ?? displayedRows.find(row => row.tone === 'pending')
+      ?? displayedRows[displayedRows.length - 1]
+    : displayedRows.find(row => row.tone === 'danger')
+      ?? displayedRows.find(row => row.tone === 'warning')
+      ?? displayedRows.find(row => row.tone === 'running')
+      ?? displayedRows.find(row => row.tone === 'pending')
+      ?? displayedRows[displayedRows.length - 1];
 
   return createPortal(
     <section className="dashboard-card inspection-flow-card" aria-labelledby="inspection-flow-title">
