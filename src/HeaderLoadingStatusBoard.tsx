@@ -30,9 +30,9 @@ function readBoxSummary(): LoadingSummary {
 
 function judgmentLabel(judgment: Judgment) {
   if (judgment === 'pass') return '적재 가능';
-  if (judgment === 'warning') return '확인 필요';
+  if (judgment === 'warning') return '확인';
   if (judgment === 'fail') return '적재 불가';
-  return '검증 전';
+  return '대기';
 }
 
 export default function HeaderLoadingStatusBoard() {
@@ -82,12 +82,12 @@ export default function HeaderLoadingStatusBoard() {
   if (!portalTarget) return null;
 
   const summary = palletSummary ?? boxSummary;
-  const typeLabel = equipment.category === 'truck' ? '트럭 종류' : '컨테이너 종류';
+  const typeLabel = equipment.category === 'truck' ? '트럭' : '컨테이너';
 
   return createPortal(
     <span
       className="header-loading-status-board"
-      aria-label="현재 적재 현황판"
+      aria-label="적재 현황"
       onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
     >
       <span className="header-loading-status-cell header-loading-status-type">
@@ -95,15 +95,15 @@ export default function HeaderLoadingStatusBoard() {
         <b title={equipment.shortName}>{equipment.shortName}</b>
       </span>
       <span className="header-loading-status-cell">
-        <span className="header-loading-status-label">적재물 갯수</span>
+        <span className="header-loading-status-label">적재 수량</span>
         <b>{summary.count.toLocaleString()} EA</b>
       </span>
       <span className="header-loading-status-cell">
-        <span className="header-loading-status-label">총 무게</span>
+        <span className="header-loading-status-label">적재 중량</span>
         <b>{Math.round(summary.weightKg).toLocaleString()} kg</b>
       </span>
       <span className="header-loading-status-cell header-loading-status-result">
-        <span className="header-loading-status-label">적재 판정 결과</span>
+        <span className="header-loading-status-label">판정</span>
         <b className={`header-loading-status-badge ${summary.judgment}`}>{judgmentLabel(summary.judgment)}</b>
       </span>
     </span>,
