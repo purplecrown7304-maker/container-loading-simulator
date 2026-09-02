@@ -1,6 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
-import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
+import { APP_ACTION_EVENT, dispatchAppAction, type AppActionDetail } from './uiEvents';
+import './viewer-final-actions.css';
 
 function clickButton(selector: string, text?: string): boolean {
   const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(selector));
@@ -11,6 +13,9 @@ function clickButton(selector: string, text?: string): boolean {
 }
 
 export default function HeaderActionBridge() {
+  const [footerHost, setFooterHost] = useState<HTMLElement | null>(null);
+  const [running, setRunning] = useState(false);
+
   useEffect(() => {
     const onAction = (event: Event) => {
       const action = (event as CustomEvent<AppActionDetail>).detail?.action;
@@ -54,5 +59,55 @@ export default function HeaderActionBridge() {
     return () => window.removeEventListener(APP_ACTION_EVENT, onAction);
   }, []);
 
-  return null;
+  useEffect(() => {
+    let frame = 0;
+    const sync = () => {
+      setFooterHost(document.querySelector<HTMLElement>('.viewer-bottom-actions'));
+      setRunning(Boolean(document.querySelector('.calculation-overlay')) || Boolean(document.querySelector('.quick-card .primary-action:disabled')));
+    };
+    const schedule = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(sync);
+    };
+
+    sync();
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'class'] });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, []);
+
+  if (!footerHost) return null;
+
+  return createPortal(
+    <div className="viewer-final-action-row" aria-label="최종 적재 작업">
+      <button
+        type="button"
+        className="viewer-final-action primary"
+        disabled={running}
+        onClick={() => dispatchAppAction('run-loading')}
+      >
+        {running ? '최종 적재 진행 중…' : '최종 적재 진행'}
+      </button>
+      <button
+        type="button"
+        className="viewer-final-action report"
+        disabled={running}
+        onClick={() => dispatchAppAction('print-report')}
+      >
+        작업지시서 발급
+      </button>
+      <button
+        type="button"
+        className="viewer-final-action reset"
+        disabled={running}
+        onClick={() => dispatchAppAction('reset-all')}
+      >
+        전체 초기화
+      </button>
+    </div>,
+    footerHost,
+  );
 }
