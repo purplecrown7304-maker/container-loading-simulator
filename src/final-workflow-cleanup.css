@@ -1,0 +1,56 @@
+/* Final workflow cleanup: keep only the inspection board in the right rail. */
+.dashboard-right > .summary-card,
+.dashboard-right > .constraint-card,
+.dashboard-right > .quick-card {
+  display: none !important;
+}
+
+.dashboard-right {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.dashboard-right > .inspection-flow-card {
+  width: 100%;
+  margin: 0;
+}
+
+/* The manual inertia launcher is no longer part of the operator flow. */
+.inspection-inertia-action {
+  display: none !important;
+}
+
+/* Global menu is intentionally reduced to the three final operator actions. */
+.header-menu-panel.final-workflow-menu {
+  width: 300px;
+  padding: 8px;
+}
+
+.header-menu-panel.final-workflow-menu section {
+  padding: 5px;
+  border-bottom: 0;
+}
+
+.header-menu-panel.final-workflow-menu section > strong {
+  margin-bottom: 7px;
+}
+
+.header-menu-panel.final-workflow-menu section > button {
+  min-height: 50px;
+  margin: 3px 0;
+}
+
+.header-menu-panel.final-workflow-menu .final-menu-danger > span {
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.header-menu-panel.final-workflow-menu .final-menu-danger b {
+  color: #be123c;
+}
+
+@media (max-width: 700px) {
+  .header-menu-panel.final-workflow-menu {
+    width: min(300px, calc(100vw - 18px));
+  }
+}
