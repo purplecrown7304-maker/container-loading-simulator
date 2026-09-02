@@ -25,9 +25,9 @@
 .cargo-inline-actions button{min-height:26px!important;padding:4px 7px!important}
 .status-message{margin:7px 0 0!important;font-size:8px!important;line-height:1.35!important}
 
-/* The simulator is the visual focus. */
+/* The simulator is the visual focus without pushing controls below the viewport. */
 .viewer-card{padding:10px!important}
-.viewer-host{height:calc(100vh - 86px)!important;margin-top:0!important;min-height:440px!important}
+.viewer-host{height:calc(100vh - 128px)!important;margin-top:0!important;min-height:440px!important}
 .viewer-bottom-actions{margin-top:3px!important}
 
 /* Right rail: actions -> inspection -> field summary, all vertically scannable. */
@@ -55,7 +55,7 @@
 
 @media(max-width:1380px){
   .dashboard-grid{grid-template-columns:240px minmax(560px,1fr) 280px!important}
-  .viewer-host{height:calc(100vh - 88px)!important}
+  .viewer-host{height:calc(100vh - 128px)!important}
 }
 @media(max-width:1080px){
   .dashboard-grid{grid-template-columns:240px minmax(0,1fr)!important}
