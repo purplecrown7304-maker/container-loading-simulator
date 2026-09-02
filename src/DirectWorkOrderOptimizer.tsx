@@ -70,14 +70,18 @@ export default function DirectWorkOrderOptimizer() {
     const id = ++runId.current;
     const cancelled = () => runId.current !== id;
     const current = requestTarget(detail);
-    setOpen(true);
+    const automatic = detail.openReport === false;
+    setOpen(!automatic);
     setRunning(true);
     setProgress(null);
-    setMessage('현재 적재안과 안전성이 높은 소수 재배치 후보를 관성 검증합니다.');
+    setMessage(automatic
+      ? '최종 적재 진행 · 관성 3종과 안전 후보를 자동 검증합니다.'
+      : '현재 적재안과 안전성이 높은 소수 재배치 후보를 관성 검증합니다.');
     setError('');
 
     if (!current.result.placements.length) {
       setRunning(false);
+      setOpen(true);
       setError('적재 결과가 없습니다. 먼저 자동 적재를 실행하세요.');
       return;
     }
@@ -101,12 +105,13 @@ export default function DirectWorkOrderOptimizer() {
         const liveTarget = readPhysicsTarget();
         if (!liveTarget || createPhysicsTargetSignature(liveTarget) !== initialSignature) {
           setRunning(false);
-          setError('반복 최적화 중 적재안이 변경되어 중단했습니다. 현재 적재안으로 작업지시서를 다시 실행하세요.');
+          setOpen(true);
+          setError('반복 최적화 중 적재안이 변경되어 중단했습니다. 현재 적재안으로 다시 실행하세요.');
           return;
         }
         const candidate = candidates[index];
         setAttempt({ index: index + 1, total: candidates.length, label: candidate.label });
-        setMessage(`상자 재배치 ${index + 1}/${candidates.length} · ${candidate.label}`);
+        setMessage(`${automatic ? '최종 적재 자동검증' : '상자 재배치'} ${index + 1}/${candidates.length} · ${candidate.label}`);
         const initialCertification = await runInertiaCertification(
           candidate.target,
           next => { if (!cancelled()) setProgress(next); },
@@ -115,6 +120,8 @@ export default function DirectWorkOrderOptimizer() {
         );
         if (cancelled()) return;
 
+        // 일반 관성 검증은 strict PASS 실패 시 해당 보강 단계에서 중간 종료될 수 있다.
+        // 최종 적재 흐름에서는 작업지시서 버튼을 누르지 않아도 빠진 시나리오까지 자동으로 끝까지 계산한다.
         const certification = await completeCertificationForWorkOrder(
           candidate.target,
           initialCertification,
@@ -128,7 +135,14 @@ export default function DirectWorkOrderOptimizer() {
         if (canCreateWorkOrder(certification)) {
           applyCandidate(candidate, certification);
           setRunning(false);
-          setMessage(`작업지시서 ${workOrderApprovalLabel(certification)} · ${candidate.label}`);
+          setMessage(`최종 관성검증 ${workOrderApprovalLabel(certification)} · ${candidate.label}`);
+
+          // 최종 적재 진행에서 호출된 경우 검증만 끝내고 작업지시서는 사용자가 별도 버튼으로 발급한다.
+          if (automatic) {
+            setOpen(false);
+            return;
+          }
+
           const opened = openLoadingReport(candidate.target.container, candidate.target.cargo, candidate.target.result);
           if (opened) setOpen(false);
           else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
@@ -142,12 +156,19 @@ export default function DirectWorkOrderOptimizer() {
       if (bestFailed) {
         applyCandidate(bestFailed, bestFailed.certification);
         setMessage(`상위 안전 후보 비교 완료 · 가장 낮은 위험안 적용 · ${bestFailed.label}`);
+        if (automatic) {
+          // 위험/미완료 결과도 검사 흐름에는 확정 결과로 전달해 4단계에서 무한 대기하지 않게 한다.
+          setOpen(false);
+        }
       }
-      setError(`현재 적재안과 상위 ${candidates.length - 1}개 재배치를 확인했지만 모두 위험 기준을 넘었거나 3종 검증을 완료하지 못했습니다. 위험 판정에서는 작업지시서를 생성하지 않습니다.`);
+      const failureMessage = `현재 적재안과 상위 ${Math.max(0, candidates.length - 1)}개 재배치를 확인했지만 모두 위험 기준을 넘었거나 3종 검증을 완료하지 못했습니다. 위험 판정에서는 작업지시서를 생성하지 않습니다.`;
+      setError(failureMessage);
+      if (!automatic) setOpen(true);
     } catch (reason) {
       if (cancelled()) return;
       console.error('Direct work-order inertia search failed', reason);
       setRunning(false);
+      setOpen(true);
       setError('직접 적재 관성 검증을 완료하지 못했습니다. 현재 적재안을 유지한 채 다시 실행할 수 있습니다.');
     }
   }, []);
