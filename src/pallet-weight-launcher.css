@@ -2,6 +2,10 @@
   display: none !important;
 }
 
+.pallet-viewer .preview-view-controls {
+  z-index: 90 !important;
+}
+
 .pallet-viewer .preview-view-controls .pallet-weight-inline-launcher {
   flex: 0 0 auto;
   margin-left: 0;
@@ -9,7 +13,18 @@
 }
 
 .pallet-viewer .preview-view-controls .pallet-weight-inline-launcher.active {
-  background: #7c3aed;
-  border-color: #7c3aed;
-  color: #fff;
+  background: #7c3aed !important;
+  border-color: #7c3aed !important;
+  color: #fff !important;
+}
+
+/* 3D 무게분포가 켜져도 기존 미리보기 제어 버튼을 그대로 사용한다.
+   도크 내부의 중복 방향 버튼과 중복 ON/OFF 버튼은 화면에서만 숨긴다. */
+.pallet-viewer .pallet-weight-dock.open > .pallet-weight-toolbar .pallet-weight-view-buttons,
+.pallet-viewer .pallet-weight-dock.open > .pallet-weight-toolbar > button:first-of-type {
+  display: none !important;
+}
+
+.pallet-viewer .pallet-weight-dock.open > .pallet-weight-toolbar {
+  left: auto !important;
 }
