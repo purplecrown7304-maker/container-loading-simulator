@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   OPEN_TRANSPORT_SELECTOR_EVENT,
+  TRANSPORT_EQUIPMENT,
   TRANSPORT_EQUIPMENT_EVENT,
   readTransportEquipment,
   selectTransportEquipment,
@@ -15,6 +16,13 @@ const DASHBOARD_FIELDS = [
   ['최대중량', 'maxPayloadKg'],
   ['바닥 허용하중(kg/m²)', 'floorLoadLimitKgPerM2'],
 ] as const;
+
+const EXPLICIT_CUSTOM_STORAGE_KEY = 'container-loading:explicit-custom-equipment-v1';
+
+type PendingExplicitChange =
+  | { kind: 'known'; equipment: TransportEquipment; until: number }
+  | { kind: 'custom'; until: number }
+  | null;
 
 function sameEquipment(a: TransportEquipment, b: TransportEquipment) {
   return a.id === b.id
@@ -60,8 +68,28 @@ function restoreDashboardEquipment(equipment: TransportEquipment) {
   });
 }
 
-function isExplicitEquipmentControl(target: Element) {
-  return Boolean(target.closest('.transport-equipment-card, .transport-apply-custom'));
+function closestKnownEquipment(candidate: TransportEquipment) {
+  const known = TRANSPORT_EQUIPMENT.filter(item => !item.id.startsWith('custom-') && item.category === candidate.category);
+  if (!known.length) return null;
+
+  const score = (item: TransportEquipment) => {
+    const length = Math.abs(item.length - candidate.length) / Math.max(0.1, item.length);
+    const width = Math.abs(item.width - candidate.width) / Math.max(0.1, item.width);
+    const height = Math.abs(item.height - candidate.height) / Math.max(0.1, item.height);
+    const payload = Math.abs(item.maxPayloadKg - candidate.maxPayloadKg) / Math.max(1000, item.maxPayloadKg);
+    const floor = Math.abs(item.floorLoadLimitKgPerM2 - candidate.floorLoadLimitKgPerM2) / Math.max(500, item.floorLoadLimitKgPerM2);
+    return length * 4 + width * 4 + height * 4 + payload + floor;
+  };
+
+  return [...known].sort((a, b) => score(a) - score(b))[0] ?? null;
+}
+
+function equipmentFromCard(target: Element) {
+  const card = target.closest('.transport-equipment-card');
+  if (!card) return null;
+  const name = card.querySelector('.transport-equipment-card-name')?.textContent?.trim();
+  if (!name) return null;
+  return TRANSPORT_EQUIPMENT.find(item => item.name === name) ?? null;
 }
 
 function isExplicitDashboardSpecChange(target: Element) {
@@ -84,33 +112,58 @@ export default function TransportEquipmentSafetyGuard() {
   const equipment = useTransportEquipment();
   const [blocked, setBlocked] = useState(false);
   const acceptedEquipment = useRef<TransportEquipment>(readTransportEquipment());
-  const explicitChangeUntil = useRef(0);
+  const pendingExplicit = useRef<PendingExplicitChange>(null);
   const restoring = useRef(false);
 
   useEffect(() => {
-    const allowExplicitChange = (event: Event) => {
+    // 과거 자동 동기화 버그로 Custom Container/Truck가 저장된 경우 복구한다.
+    // Custom은 사용자가 직접 '사용자 규격 적용'을 눌렀다는 표식이 있을 때만 유지한다.
+    const initial = readTransportEquipment();
+    const explicitlyCustom = window.localStorage.getItem(EXPLICIT_CUSTOM_STORAGE_KEY) === '1';
+    if (initial.id.startsWith('custom-') && !explicitlyCustom) {
+      const recovered = closestKnownEquipment(initial);
+      if (recovered) {
+        acceptedEquipment.current = { ...recovered };
+        restoring.current = true;
+        window.setTimeout(() => {
+          restoreDashboardEquipment(recovered);
+          selectTransportEquipment(recovered);
+          queueMicrotask(() => { restoring.current = false; });
+        }, 0);
+      }
+    }
+
+    const markExplicitChange = (event: Event) => {
       if (!event.isTrusted) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
-      if (isExplicitEquipmentControl(target) || (event.type === 'change' && isExplicitDashboardSpecChange(target))) {
-        explicitChangeUntil.current = performance.now() + 1500;
-      }
-    };
 
-    const onEquipmentChanged = (event: Event) => {
-      const next = (event as CustomEvent<TransportEquipment>).detail ?? readTransportEquipment();
-      if (!next) return;
-      if (restoring.current) return;
-      if (sameEquipment(next, acceptedEquipment.current)) return;
-
-      if (performance.now() <= explicitChangeUntil.current) {
-        acceptedEquipment.current = { ...next };
-        explicitChangeUntil.current = 0;
+      const customApply = target.closest('.transport-apply-custom');
+      if (customApply) {
+        pendingExplicit.current = { kind: 'custom', until: performance.now() + 2000 };
+        window.localStorage.setItem(EXPLICIT_CUSTOM_STORAGE_KEY, '1');
         return;
       }
 
-      // 적재 실패, 재배치, 물리검증, 저장 동기화 등 프로그램 내부 동작은
-      // 사용자가 선택한 컨테이너/차량을 바꾸지 못한다.
+      const cardEquipment = equipmentFromCard(target);
+      if (cardEquipment) {
+        if (cardEquipment.id.startsWith('custom-')) {
+          // Custom 카드는 편집 화면만 여는 단계이므로 아직 장비 변경으로 인정하지 않는다.
+          pendingExplicit.current = null;
+          return;
+        }
+        pendingExplicit.current = { kind: 'known', equipment: cardEquipment, until: performance.now() + 2000 };
+        window.localStorage.removeItem(EXPLICIT_CUSTOM_STORAGE_KEY);
+        return;
+      }
+
+      if (event.type === 'change' && isExplicitDashboardSpecChange(target)) {
+        pendingExplicit.current = { kind: 'custom', until: performance.now() + 2000 };
+        window.localStorage.setItem(EXPLICIT_CUSTOM_STORAGE_KEY, '1');
+      }
+    };
+
+    const restoreAccepted = () => {
       const previous = { ...acceptedEquipment.current };
       restoring.current = true;
       restoreDashboardEquipment(previous);
@@ -118,12 +171,50 @@ export default function TransportEquipmentSafetyGuard() {
       queueMicrotask(() => { restoring.current = false; });
     };
 
-    document.addEventListener('click', allowExplicitChange, true);
-    document.addEventListener('change', allowExplicitChange, true);
+    const onEquipmentChanged = (event: Event) => {
+      const next = (event as CustomEvent<TransportEquipment>).detail ?? readTransportEquipment();
+      if (!next || restoring.current) return;
+      if (sameEquipment(next, acceptedEquipment.current)) return;
+
+      const pending = pendingExplicit.current;
+      const activePending = pending && performance.now() <= pending.until ? pending : null;
+      if (!activePending) pendingExplicit.current = null;
+
+      if (activePending?.kind === 'known') {
+        // 알려진 장비 카드 클릭 직후 입력칸이 순차 갱신되면서 발생하는
+        // 임시 Custom 변환은 절대 받아들이지 않는다.
+        if (next.id === activePending.equipment.id) {
+          acceptedEquipment.current = { ...next };
+          pendingExplicit.current = null;
+          window.localStorage.removeItem(EXPLICIT_CUSTOM_STORAGE_KEY);
+          return;
+        }
+        restoreAccepted();
+        return;
+      }
+
+      if (activePending?.kind === 'custom') {
+        if (next.id.startsWith('custom-')) {
+          acceptedEquipment.current = { ...next };
+          pendingExplicit.current = null;
+          window.localStorage.setItem(EXPLICIT_CUSTOM_STORAGE_KEY, '1');
+          return;
+        }
+        restoreAccepted();
+        return;
+      }
+
+      // 적재 실패, 재배치, 물리검증, 관성검사, 저장 동기화 또는
+      // 프로그램이 발생시킨 change 이벤트는 장비 선택을 바꿀 수 없다.
+      restoreAccepted();
+    };
+
+    document.addEventListener('click', markExplicitChange, true);
+    document.addEventListener('change', markExplicitChange, true);
     window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, onEquipmentChanged);
     return () => {
-      document.removeEventListener('click', allowExplicitChange, true);
-      document.removeEventListener('change', allowExplicitChange, true);
+      document.removeEventListener('click', markExplicitChange, true);
+      document.removeEventListener('change', markExplicitChange, true);
       window.removeEventListener(TRANSPORT_EQUIPMENT_EVENT, onEquipmentChanged);
     };
   }, []);
