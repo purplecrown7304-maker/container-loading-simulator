@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { OPEN_TRANSPORT_SELECTOR_EVENT, useTransportEquipment } from './transportEquipment';
-import { dispatchAppAction, dispatchExcelImport, openWorkspace } from './uiEvents';
+import { dispatchAppAction, openWorkspace } from './uiEvents';
+import './final-workflow-cleanup.css';
 
 const LOCAL_SESSION_KEY = 'container-loading-local-operator-v1';
 
@@ -112,35 +113,21 @@ export default function ReferenceWorkspaceBar() {
           <button className={`header-menu-button ${menuOpen ? 'active' : ''}`} type="button" onClick={() => { setMenuOpen(v => !v); setAccountOpen(false); }} aria-haspopup="menu" aria-expanded={menuOpen}>
             <span aria-hidden="true">☰</span> 메뉴
           </button>
-          {menuOpen && <nav className="header-menu-panel" aria-label="통합 작업 메뉴">
+          {menuOpen && <nav className="header-menu-panel final-workflow-menu" aria-label="최종 적재 작업 메뉴">
             <section>
-              <strong>작업</strong>
-              <button type="button" onClick={() => runAndClose(() => openWorkspace('boxes'))}><span>▣</span><div><b>박스 선택</b><small>적재할 화물 선택 및 수량 입력</small></div></button>
-              <button type="button" onClick={() => runAndClose(() => openWorkspace('vehicles'))}><span>▤</span><div><b>차량 관리</b><small>커스텀 차량 규격과 계획 관리</small></div></button>
-              <button className="menu-primary" type="button" onClick={() => runAndClose(() => dispatchAppAction('run-loading'))}><span>◆</span><div><b>적재 최적화</b><small>현재 조건으로 자동 적재 실행</small></div></button>
-              <button type="button" onClick={() => runAndClose(() => window.dispatchEvent(new CustomEvent('container-loading:open-physics-validation')))}><span>◈</span><div><b>물리 검증</b><small>현재 적재안 안정성 검증</small></div></button>
-              <button type="button" onClick={() => runAndClose(() => openWorkspace('safety'))}><span>✓</span><div><b>일일 점검</b><small>작업 전 안전 점검 기록</small></div></button>
-              <button type="button" onClick={() => runAndClose(() => dispatchAppAction('show-results'))}><span>▦</span><div><b>결과 보기</b><small>적재 결과와 제약 조건 확인</small></div></button>
-            </section>
-
-            <section>
-              <strong>데이터</strong>
-              <div className="menu-grid-actions">
-                <button type="button" onClick={() => runAndClose(() => dispatchAppAction('load-local'))}>불러오기</button>
-                <button type="button" onClick={() => runAndClose(() => dispatchAppAction('save-local'))}>저장</button>
-                <button type="button" onClick={() => runAndClose(() => openWorkspace('data'))}>계획 관리</button>
-                <button type="button" onClick={() => runAndClose(() => dispatchAppAction('print-report'))}>작업지시서</button>
-              </div>
-              <div className="menu-grid-actions excel-actions">
-                <button type="button" onClick={() => runAndClose(() => dispatchExcelImport('template'))}>엑셀 양식</button>
-                <button type="button" onClick={() => runAndClose(() => dispatchExcelImport('upload', 'replace'))}>엑셀 전체교체</button>
-                <button type="button" onClick={() => runAndClose(() => dispatchExcelImport('upload', 'merge'))}>엑셀 병합</button>
-              </div>
-            </section>
-
-            <section className="menu-footer-actions">
-              <button type="button" onClick={() => runAndClose(() => dispatchAppAction('viewer'))}>3D 보기</button>
-              <button type="button" onClick={() => runAndClose(() => document.documentElement.requestFullscreen?.())}>전체 화면</button>
+              <strong>최종 작업</strong>
+              <button className="menu-primary" type="button" onClick={() => runAndClose(() => dispatchAppAction('run-loading'))}>
+                <span>▶</span>
+                <div><b>최종 적재 진행</b><small>적재 계산 → 제약 조건 → 물리 검증 → 관성 3종 순서로 실행</small></div>
+              </button>
+              <button type="button" onClick={() => runAndClose(() => dispatchAppAction('print-report'))}>
+                <span>▤</span>
+                <div><b>작업지시서 발급</b><small>최종 검사 결과를 기준으로 작업지시서를 생성</small></div>
+              </button>
+              <button className="final-menu-danger" type="button" onClick={() => runAndClose(() => dispatchAppAction('reset-all'))}>
+                <span>↺</span>
+                <div><b>전체 초기화</b><small>현재 화물과 적재 결과를 모두 초기화</small></div>
+              </button>
             </section>
           </nav>}
         </div>
