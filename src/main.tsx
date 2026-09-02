@@ -79,6 +79,7 @@ import './header-loading-status.css';
 import './pallet-weight-launcher.css';
 import './remaining-length.css';
 import './operational-right-summary.css';
+import './ux-polish.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
