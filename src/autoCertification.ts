@@ -3,6 +3,7 @@ import { createPhysicsTargetSignature, requestCertifiedResults } from './inertia
 import { publishPhysicsTarget, readPhysicsTarget, subscribePhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
 export const FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT = 'container-loading:final-physics-validation-progress';
+export const FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT = 'container-loading:final-physics-validation-complete';
 export const FINAL_PHYSICS_VALIDATION_ERROR_EVENT = 'container-loading:final-physics-validation-error';
 const PHYSICS_VALIDATION_RESULT_EVENT = 'container-loading:physics-validation-result';
 
@@ -12,19 +13,51 @@ let validationRunId = 0;
 type FinalPhysicsWindow = Window & {
   __containerLoadingLatestPhysics?: PhysicsValidationSuite;
   __containerLoadingFinalPhysicsRunning?: boolean;
+  __containerLoadingFinalPhysicsSignature?: string;
+  __containerLoadingFinalPhysicsResult?: PhysicsValidationSuite;
 };
 
-type FinalPhysicsProgress = {
+export type FinalPhysicsProgress = {
   mode: PhysicsTarget['mode'];
+  signature: string;
   progress: number;
   scenario: PhysicsScenario;
 };
 
-function publishProgress(target: PhysicsTarget, progress: number, scenario: PhysicsScenario) {
+export type FinalPhysicsComplete = {
+  mode: PhysicsTarget['mode'];
+  signature: string;
+  result: PhysicsValidationSuite;
+};
+
+function publishProgress(target: PhysicsTarget, signature: string, progress: number, scenario: PhysicsScenario) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent<FinalPhysicsProgress>(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, {
-    detail: { mode: target.mode, progress: Math.max(0, Math.min(100, Math.round(progress * 100))), scenario },
+    detail: {
+      mode: target.mode,
+      signature,
+      progress: Math.max(0, Math.min(100, Math.round(progress * 100))),
+      scenario,
+    },
   }));
+}
+
+function clearFinalPhysicsRecord() {
+  if (typeof window === 'undefined') return;
+  const physicsWindow = window as FinalPhysicsWindow;
+  physicsWindow.__containerLoadingFinalPhysicsSignature = undefined;
+  physicsWindow.__containerLoadingFinalPhysicsResult = undefined;
+  physicsWindow.__containerLoadingLatestPhysics = undefined;
+}
+
+export function readFinalPhysicsValidation() {
+  if (typeof window === 'undefined') return undefined;
+  const physicsWindow = window as FinalPhysicsWindow;
+  if (!physicsWindow.__containerLoadingFinalPhysicsSignature || !physicsWindow.__containerLoadingFinalPhysicsResult) return undefined;
+  return {
+    signature: physicsWindow.__containerLoadingFinalPhysicsSignature,
+    result: physicsWindow.__containerLoadingFinalPhysicsResult,
+  };
 }
 
 async function validateThenCertify(target: PhysicsTarget) {
@@ -35,9 +68,8 @@ async function validateThenCertify(target: PhysicsTarget) {
   const signature = createPhysicsTargetSignature(target);
   const physicsWindow = window as FinalPhysicsWindow;
   physicsWindow.__containerLoadingFinalPhysicsRunning = true;
-  // 후보 선택 단계에서 남아 있던 물리 결과와 최종 검증 결과를 구분한다.
-  physicsWindow.__containerLoadingLatestPhysics = undefined;
-  publishProgress(target, 0, 'settle');
+  clearFinalPhysicsRecord();
+  publishProgress(target, signature, 0, 'settle');
 
   try {
     const physics = await runPhysicsValidationSuite(
@@ -45,30 +77,39 @@ async function validateThenCertify(target: PhysicsTarget) {
       target.result.placements,
       (value, scenario) => {
         if (runId !== validationRunId) return;
-        publishProgress(target, value, scenario);
+        publishProgress(target, signature, value, scenario);
       },
       target.supports ?? [],
     );
     if (runId !== validationRunId) return;
 
     const current = readPhysicsTarget();
-    if (!current || createPhysicsTargetSignature(current) !== signature) return;
+    if (!current || createPhysicsTargetSignature(current) !== signature) {
+      physicsWindow.__containerLoadingFinalPhysicsRunning = false;
+      return;
+    }
 
     physicsWindow.__containerLoadingLatestPhysics = physics;
+    physicsWindow.__containerLoadingFinalPhysicsSignature = signature;
+    physicsWindow.__containerLoadingFinalPhysicsResult = physics;
     physicsWindow.__containerLoadingFinalPhysicsRunning = false;
-    publishProgress(target, 1, physics.worstScenario);
+    publishProgress(target, signature, 1, physics.worstScenario);
+
+    const completeDetail: FinalPhysicsComplete = { mode: target.mode, signature, result: physics };
+    window.dispatchEvent(new CustomEvent<FinalPhysicsComplete>(FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT, { detail: completeDetail }));
     window.dispatchEvent(new CustomEvent(PHYSICS_VALIDATION_RESULT_EVENT, {
-      detail: { mode: target.mode, result: physics, finalValidation: true },
+      detail: { mode: target.mode, result: physics, finalValidation: true, signature },
     }));
 
-    // 실제 Rapier 최종 검증이 끝난 뒤에만 관성 3종을 시작한다.
+    // 최종 배치에 대한 실제 Rapier 검증이 끝난 뒤에만 관성 3종을 시작한다.
     requestCertifiedResults({ container: target.container, cargo: target.cargo, result: target.result });
   } catch (error) {
     if (runId !== validationRunId) return;
     physicsWindow.__containerLoadingFinalPhysicsRunning = false;
+    clearFinalPhysicsRecord();
     console.error('Final Rapier physics validation failed', error);
     window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, {
-      detail: { mode: target.mode, error },
+      detail: { mode: target.mode, signature, error },
     }));
   }
 }
