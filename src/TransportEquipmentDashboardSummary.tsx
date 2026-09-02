@@ -15,24 +15,12 @@ export default function TransportEquipmentDashboardSummary() {
 
   const open = () => window.dispatchEvent(new CustomEvent(OPEN_TRANSPORT_SELECTOR_EVENT, { detail: { category: equipment.category } }));
   const title = equipment.category === 'truck' ? '1. 트럭 적재공간 정보' : '1. 컨테이너 정보';
-  const feature = equipment.specializedCargo
-    ? '특수화물 전용'
-    : equipment.temperatureControlled
-      ? '온도관리 장비'
-      : equipment.sideLoading && equipment.topLoading
-        ? '측면·상부 적재 가능'
-        : equipment.sideLoading
-          ? '측면 적재 가능'
-          : equipment.topLoading
-            ? '상부 적재 가능'
-            : '일반 적재 장비';
 
   return <>
     {titleTarget && createPortal(<span className="transport-dashboard-title">{title}</span>, titleTarget)}
     {settingTarget && createPortal(<div className="transport-dashboard-setting">
       <span>운송 장비</span>
       <b>{equipment.shortName}</b>
-      <small>{feature} · {equipment.sourceLabel}</small>
       <button type="button" onClick={open}>장비 변경</button>
     </div>, settingTarget)}
   </>;
