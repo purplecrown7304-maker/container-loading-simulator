@@ -1,17 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT,
   FINAL_PHYSICS_VALIDATION_ERROR_EVENT,
   FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT,
+  readFinalPhysicsValidation,
+  requestExactCertification,
+  type FinalPhysicsComplete,
+  type FinalPhysicsProgress,
 } from './autoCertification';
 import { analyzeConstraints } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
-import type { PhysicsScenario } from './engine/physicsValidation';
+import type { PhysicsScenario, PhysicsValidationSuite } from './engine/physicsValidation';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
 import {
   INERTIA_CERTIFICATION_EVENT,
+  clearLatestInertiaCertification,
   createPhysicsTargetSignature,
   readLatestInertiaCertification,
   type InertiaCertification,
@@ -19,18 +25,12 @@ import {
 import { assessWorkOrderCertification } from './inertiaWorkOrderPolicy';
 import { PHYSICS_TARGET_EVENT, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
-const PHYSICS_RESULT_EVENT = 'container-loading:physics-validation-result';
 const PALLET_SNAPSHOT_EVENT = 'container-loading:pallet-snapshot-updated';
 
-type LatestResultWindow = Window & {
-  __containerLoadingLatestResult?: { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
-  __containerLoadingLatestPhysics?: unknown;
-  __containerLoadingFinalPhysicsRunning?: boolean;
-};
-
+type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
+type LatestResultWindow = Window & { __containerLoadingLatestResult?: LoadingDetail };
 type Tone = 'pass' | 'warning' | 'danger' | 'pending' | 'running';
-type ActiveWorkflowStage = 1 | 2 | 3 | 4 | 5;
-type WorkflowStage = ActiveWorkflowStage | null;
+type WorkflowStage = 1 | 2 | 3 | 4 | 5 | null;
 
 type StatusRow = {
   step: number;
@@ -40,24 +40,18 @@ type StatusRow = {
   tone: Tone;
 };
 
-type FinalPhysicsProgressDetail = {
-  mode: PhysicsTarget['mode'];
-  progress: number;
-  scenario: PhysicsScenario;
-};
+type PhysicsErrorDetail = { mode?: PhysicsTarget['mode']; signature?: string; error?: unknown };
 
-type PhysicsResultDetail = {
-  mode?: PhysicsTarget['mode'];
-  finalValidation?: boolean;
-};
+function latestBoxTarget(): PhysicsTarget | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const latest = (window as LatestResultWindow).__containerLoadingLatestResult;
+  return latest ? { mode: 'boxes', ...latest } : undefined;
+}
 
 function currentTarget(): PhysicsTarget | undefined {
   if (typeof window === 'undefined') return undefined;
-  const physicsTarget = readPhysicsTarget();
-  if (physicsTarget?.mode === 'pallets') return physicsTarget;
-  const latest = (window as LatestResultWindow).__containerLoadingLatestResult;
-  if (latest) return { mode: 'boxes', ...latest };
-  return physicsTarget;
+  // 최종 후보가 재배치되면 physicsTarget이 App의 이전 result보다 최신이다.
+  return readPhysicsTarget() ?? latestBoxTarget();
 }
 
 function matchingCertification(target: PhysicsTarget | undefined): InertiaCertification | undefined {
@@ -65,6 +59,12 @@ function matchingCertification(target: PhysicsTarget | undefined): InertiaCertif
   const certification = readLatestInertiaCertification();
   if (!certification) return undefined;
   return certification.targetSignature === createPhysicsTargetSignature(target) ? certification : undefined;
+}
+
+function physicsScenarioLabel(scenario: PhysicsScenario) {
+  if (scenario === 'settle') return '정적 중력';
+  if (scenario === 'braking') return '급제동 0.50g';
+  return '횡가속 0.35g';
 }
 
 function toneLabel(tone: Tone) {
@@ -75,128 +75,182 @@ function toneLabel(tone: Tone) {
   return '대기';
 }
 
-function physicsScenarioLabel(scenario: PhysicsScenario) {
-  if (scenario === 'settle') return '정적 중력';
-  if (scenario === 'braking') return '급제동 0.50g';
-  return '횡가속 0.35g';
-}
-
-const RUNNING_NOTE: Record<number, string> = {
-  1: '최종 적재안을 계산하고 있습니다.',
-  2: '중량·충돌·높이·하중 조건을 순서대로 확인합니다.',
-  3: 'Rapier 기준으로 배치 안정성을 실제 계산합니다.',
-  4: '출발 0.30g → 급정거 0.50g → 급회전 0.35g 순서로 검증합니다.',
-};
-
 export default function InspectionStatusPanel() {
+  const initialTarget = currentTarget();
+  const initialPhysics = readFinalPhysicsValidation();
+  const initialSignature = initialTarget ? createPhysicsTargetSignature(initialTarget) : '';
+
   const [host, setHost] = useState<HTMLElement | null>(null);
-  const [target, setTarget] = useState<PhysicsTarget | undefined>(() => currentTarget());
-  const [certification, setCertification] = useState<InertiaCertification | undefined>(() => matchingCertification(currentTarget()));
-  const [physicsSeen, setPhysicsSeen] = useState(() => typeof window !== 'undefined' && Boolean((window as LatestResultWindow).__containerLoadingLatestPhysics));
+  const [target, setTarget] = useState<PhysicsTarget | undefined>(initialTarget);
+  const [certification, setCertification] = useState<InertiaCertification | undefined>(() => {
+    if (!initialPhysics || initialPhysics.signature !== initialSignature) return undefined;
+    return matchingCertification(initialTarget);
+  });
+  const [finalPhysicsSignature, setFinalPhysicsSignature] = useState(initialPhysics?.signature ?? '');
+  const [physicsResult, setPhysicsResult] = useState<PhysicsValidationSuite | undefined>(initialPhysics?.result);
   const [physicsProgress, setPhysicsProgress] = useState(0);
   const [physicsScenario, setPhysicsScenario] = useState<PhysicsScenario>('settle');
   const [physicsError, setPhysicsError] = useState('');
   const [workflowStage, setWorkflowStage] = useState<WorkflowStage>(null);
+  const workflowActive = useRef(false);
+  const repairingSignature = useRef('');
 
   useEffect(() => {
     setHost(document.querySelector<HTMLElement>('.dashboard-right'));
 
-    const refresh = () => {
-      const nextTarget = currentTarget();
-      const finalPhysicsRunning = Boolean((window as LatestResultWindow).__containerLoadingFinalPhysicsRunning);
+    const setFreshTarget = (nextTarget: PhysicsTarget | undefined) => {
       setTarget(nextTarget);
-      setCertification(matchingCertification(nextTarget));
-      // 후보 최적화 과정의 물리 결과를 최종 물리검증 완료로 오인하지 않는다.
-      setPhysicsSeen(!finalPhysicsRunning && Boolean((window as LatestResultWindow).__containerLoadingLatestPhysics));
-      return nextTarget;
-    };
-
-    const advance = (stage: ActiveWorkflowStage) => {
-      setWorkflowStage(current => current === null ? null : Math.max(current, stage) as ActiveWorkflowStage);
+      if (!nextTarget) {
+        setCertification(undefined);
+        return '';
+      }
+      return createPhysicsTargetSignature(nextTarget);
     };
 
     const onWorkflowStart = () => {
+      workflowActive.current = true;
+      repairingSignature.current = '';
       setWorkflowStage(1);
       setCertification(undefined);
-      setPhysicsSeen(false);
+      setFinalPhysicsSignature('');
+      setPhysicsResult(undefined);
       setPhysicsProgress(0);
       setPhysicsScenario('settle');
       setPhysicsError('');
     };
 
-    const onLoadingResult = () => {
-      const nextTarget = refresh();
-      if (!nextTarget?.result.placements.length) return;
-      advance(2);
+    const onLoadingResult = (event: Event) => {
+      const detail = (event as CustomEvent<LoadingDetail>).detail;
+      const nextTarget = detail ? ({ mode: 'boxes', ...detail } satisfies PhysicsTarget) : currentTarget();
+      setFreshTarget(nextTarget);
+      setCertification(undefined);
+      if (workflowActive.current && nextTarget?.result.placements.length) setWorkflowStage(2);
     };
 
     const onPhysicsTarget = (event: Event) => {
-      const detail = (event as CustomEvent<PhysicsTarget | undefined>).detail;
-      refresh();
-      if (!detail?.result.placements.length) return;
-      // 실제 물리검증 결과가 오기 전에는 4단계로 넘어가지 않는다.
-      advance(3);
+      const nextTarget = (event as CustomEvent<PhysicsTarget | undefined>).detail ?? currentTarget();
+      if (!nextTarget?.result.placements.length) return;
+      const signature = setFreshTarget(nextTarget);
+      const finalPhysics = readFinalPhysicsValidation();
+      if (!finalPhysics || finalPhysics.signature !== signature) {
+        setCertification(undefined);
+        setFinalPhysicsSignature('');
+        setPhysicsResult(undefined);
+        if (workflowActive.current) setWorkflowStage(3);
+      }
     };
 
     const onPhysicsProgress = (event: Event) => {
-      const detail = (event as CustomEvent<FinalPhysicsProgressDetail>).detail;
+      const detail = (event as CustomEvent<FinalPhysicsProgress>).detail;
       if (!detail) return;
       setPhysicsError('');
-      setPhysicsSeen(false);
       setPhysicsProgress(detail.progress);
       setPhysicsScenario(detail.scenario);
-      advance(3);
+      setFinalPhysicsSignature('');
+      setPhysicsResult(undefined);
+      setCertification(undefined);
+      workflowActive.current = true;
+      setWorkflowStage(3);
     };
 
-    const onPhysicsResult = (event: Event) => {
-      const detail = (event as CustomEvent<PhysicsResultDetail>).detail;
-      const finalPhysicsRunning = Boolean((window as LatestResultWindow).__containerLoadingFinalPhysicsRunning);
-      // App의 후보 선택용 물리 결과는 최종 검증 완료 신호가 아니다.
-      if (finalPhysicsRunning && !detail?.finalValidation) return;
-      refresh();
-      setPhysicsError('');
+    const onPhysicsComplete = (event: Event) => {
+      const detail = (event as CustomEvent<FinalPhysicsComplete>).detail;
+      if (!detail) return;
+      const nextTarget = currentTarget();
+      if (!nextTarget || createPhysicsTargetSignature(nextTarget) !== detail.signature) return;
+      setTarget(nextTarget);
+      setFinalPhysicsSignature(detail.signature);
+      setPhysicsResult(detail.result);
       setPhysicsProgress(100);
-      setPhysicsSeen(true);
-      advance(4);
+      setPhysicsError('');
+      setCertification(undefined);
+      repairingSignature.current = '';
+      workflowActive.current = true;
+      setWorkflowStage(4);
     };
 
-    const onPhysicsError = () => {
-      refresh();
-      setPhysicsSeen(false);
-      setPhysicsError('Rapier 최종 물리검증 실행 실패');
-      setWorkflowStage(current => current === null ? null : 3);
+    const onPhysicsError = (event: Event) => {
+      const detail = (event as CustomEvent<PhysicsErrorDetail>).detail;
+      setPhysicsError(detail?.error instanceof Error ? detail.error.message : 'Rapier 최종 물리검증 실행 실패');
+      setFinalPhysicsSignature('');
+      setPhysicsResult(undefined);
+      setCertification(undefined);
+      workflowActive.current = true;
+      setWorkflowStage(3);
     };
 
-    const onCertification = () => {
-      refresh();
-      advance(5);
+    const onCertification = (event: Event) => {
+      const nextCertification = (event as CustomEvent<InertiaCertification | undefined>).detail;
+      if (!nextCertification) {
+        setCertification(undefined);
+        return;
+      }
+
+      const nextTarget = currentTarget();
+      if (!nextTarget) return;
+      const targetSignature = createPhysicsTargetSignature(nextTarget);
+      if (nextCertification.targetSignature !== targetSignature) return;
+
+      const finalPhysics = readFinalPhysicsValidation();
+      if (!finalPhysics || finalPhysics.signature !== targetSignature) {
+        // 관성검사 도중 더 안전한 재배치 후보로 바뀐 경우,
+        // 새 최종 배치도 반드시 Rapier를 다시 통과시킨 뒤 관성 3종을 재실행한다.
+        setTarget(nextTarget);
+        setCertification(undefined);
+        setFinalPhysicsSignature('');
+        setPhysicsResult(undefined);
+        setPhysicsError('');
+        workflowActive.current = true;
+        setWorkflowStage(3);
+
+        if (repairingSignature.current !== targetSignature) {
+          repairingSignature.current = targetSignature;
+          clearLatestInertiaCertification();
+          window.setTimeout(() => requestExactCertification(nextTarget), 0);
+        }
+        return;
+      }
+
+      setTarget(nextTarget);
+      setFinalPhysicsSignature(finalPhysics.signature);
+      setPhysicsResult(finalPhysics.result);
+      setCertification(nextCertification);
+      repairingSignature.current = '';
+      workflowActive.current = false;
+      setWorkflowStage(5);
     };
 
     const onPalletSnapshot = () => {
-      const nextTarget = refresh();
+      const nextTarget = currentTarget();
       if (!nextTarget?.result.placements.length) return;
-      advance(2);
+      setFreshTarget(nextTarget);
+      if (workflowActive.current && workflowStage !== 3 && workflowStage !== 4) setWorkflowStage(2);
     };
 
     window.addEventListener(FINAL_LOADING_WORKFLOW_START_EVENT, onWorkflowStart);
     window.addEventListener(LOADING_RESULT_EVENT, onLoadingResult);
     window.addEventListener(PHYSICS_TARGET_EVENT, onPhysicsTarget);
     window.addEventListener(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, onPhysicsProgress);
-    window.addEventListener(PHYSICS_RESULT_EVENT, onPhysicsResult);
+    window.addEventListener(FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT, onPhysicsComplete);
     window.addEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
     window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
     window.addEventListener(PALLET_SNAPSHOT_EVENT, onPalletSnapshot);
+
     return () => {
       window.removeEventListener(FINAL_LOADING_WORKFLOW_START_EVENT, onWorkflowStart);
       window.removeEventListener(LOADING_RESULT_EVENT, onLoadingResult);
       window.removeEventListener(PHYSICS_TARGET_EVENT, onPhysicsTarget);
       window.removeEventListener(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, onPhysicsProgress);
-      window.removeEventListener(PHYSICS_RESULT_EVENT, onPhysicsResult);
+      window.removeEventListener(FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT, onPhysicsComplete);
       window.removeEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
       window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
       window.removeEventListener(PALLET_SNAPSHOT_EVENT, onPalletSnapshot);
     };
   }, []);
+
+  const targetSignature = target ? createPhysicsTargetSignature(target) : '';
+  const physicsDone = Boolean(targetSignature && finalPhysicsSignature === targetSignature && physicsResult);
+  const acceptedCertification = physicsDone && certification?.targetSignature === targetSignature ? certification : undefined;
 
   const checks = useMemo(() => {
     if (!target) return [];
@@ -209,8 +263,10 @@ export default function InspectionStatusPanel() {
     const weight = target?.result.loadedWeightKg ?? 0;
     const constraintFail = checks.some(check => check.status === 'fail');
     const constraintWarn = checks.some(check => check.status === 'warn');
-    const approval = certification ? assessWorkOrderCertification(certification) : 'incomplete';
-    const inertiaTone: Tone = !certification
+    const approval = acceptedCertification ? assessWorkOrderCertification(acceptedCertification) : 'incomplete';
+    const physicsUnstable = physicsResult ? physicsResult.unstableCount + physicsResult.supportUnstableCount : 0;
+
+    const inertiaTone: Tone = !acceptedCertification
       ? 'pending'
       : approval === 'danger'
         ? 'danger'
@@ -219,7 +275,8 @@ export default function InspectionStatusPanel() {
           : approval === 'pass'
             ? 'pass'
             : 'running';
-    const workTone: Tone = !certification
+
+    const workTone: Tone = !acceptedCertification
       ? 'pending'
       : approval === 'danger'
         ? 'danger'
@@ -228,13 +285,6 @@ export default function InspectionStatusPanel() {
           : approval === 'caution'
             ? 'warning'
             : 'pass';
-    const workStatus = !certification
-      ? '검사 전'
-      : approval === 'danger'
-        ? '발급 차단'
-        : approval === 'incomplete'
-          ? '검사 필요'
-          : '발급 가능';
 
     return [
       {
@@ -254,85 +304,95 @@ export default function InspectionStatusPanel() {
       {
         step: 3,
         label: '물리 검증',
-        note: physicsError || (physicsSeen ? 'Rapier 최종 배치 안정성 계산 완료' : placements ? '제약 조건 확인 후 실제 Rapier 검증' : '적재 계산 후 검사'),
-        status: physicsError ? '실패' : physicsSeen ? '완료' : '대기',
-        tone: physicsError ? 'danger' : physicsSeen ? 'pass' : 'pending',
+        note: physicsError
+          ? `Rapier 실패 · ${physicsError}`
+          : physicsDone && physicsResult
+            ? `Rapier ${physicsResult.score}점 · 불안정 ${physicsUnstable}건 · ${physicsResult.settled ? '정지 확인' : '잔류 움직임 감지'}`
+            : placements ? '최종 배치에 정적 중력·급제동·횡가속 적용' : '적재 계산 후 검사',
+        status: physicsError ? '실패' : physicsDone ? '완료' : '대기',
+        tone: physicsError ? 'danger' : physicsDone ? 'pass' : 'pending',
       },
       {
         step: 4,
         label: '관성 3종',
-        note: certification ? `출발 0.30g · 급정거 0.50g · 급회전 0.35g · ${certification.testedScenarios}/3` : '물리 검증 완료 후 출발 → 급정거 → 급회전 순차 검사',
-        status: certification ? (approval === 'pass' ? '통과' : approval === 'caution' ? '보완 권장' : approval === 'danger' ? '위험' : '진행') : '대기',
+        note: acceptedCertification
+          ? `출발 0.30g · 급정거 0.50g · 급회전 0.35g · ${acceptedCertification.testedScenarios}/3`
+          : physicsDone ? 'Rapier 완료 · 관성 3종 검사 대기' : '물리 검증 완료 후 실행',
+        status: acceptedCertification
+          ? approval === 'pass' ? '통과' : approval === 'caution' ? '보완 권장' : approval === 'danger' ? '위험' : '진행'
+          : '대기',
         tone: inertiaTone,
       },
       {
         step: 5,
         label: '작업지시서',
-        note: approval === 'caution' ? '주의사항을 포함해 발급할 수 있습니다.' : approval === 'pass' ? '최종 검사 완료 · 발급할 수 있습니다.' : approval === 'danger' ? '재배치/보강 후 최종 적재를 다시 진행하세요.' : '관성 3종 완료 후 발급 가능 여부를 판정합니다.',
-        status: workStatus,
+        note: approval === 'caution'
+          ? '주의사항 포함 발급 가능'
+          : approval === 'pass'
+            ? '최종 물리·관성 검사 완료'
+            : approval === 'danger'
+              ? '재배치/보강 후 다시 검사'
+              : '모든 검사가 끝난 뒤 발급 판정',
+        status: !acceptedCertification
+          ? '검사 전'
+          : approval === 'danger'
+            ? '발급 차단'
+            : approval === 'incomplete'
+              ? '검사 필요'
+              : '발급 가능',
         tone: workTone,
       },
     ];
-  }, [target, checks, certification, physicsSeen, physicsError]);
+  }, [target, checks, physicsDone, physicsResult, physicsError, acceptedCertification]);
 
-  const displayedRows = useMemo<StatusRow[]>(() => {
+  const displayedRows = useMemo(() => {
     if (workflowStage === null || workflowStage === 5) return rows;
     return rows.map(row => {
       if (row.step < workflowStage) {
         if (row.tone === 'danger' || row.tone === 'warning') return row;
-        return {
-          ...row,
-          status: row.step === 1 || row.step === 3 ? '완료' : '통과',
-          tone: 'pass' as Tone,
-        };
+        return { ...row, status: row.step === 1 || row.step === 3 ? '완료' : '통과', tone: 'pass' as Tone };
       }
       if (row.step === workflowStage) {
-        if (row.tone === 'danger' || row.tone === 'warning') return row;
-        const runningNote = row.step === 3
-          ? `Rapier ${physicsScenarioLabel(physicsScenario)} · ${physicsProgress}% 계산 중`
-          : RUNNING_NOTE[row.step] ?? row.note;
-        return {
-          ...row,
-          note: runningNote,
-          status: '진행',
-          tone: 'running' as Tone,
-        };
+        if (row.tone === 'danger') return row;
+        const note = row.step === 1
+          ? '최종 적재안을 계산하고 있습니다.'
+          : row.step === 2
+            ? '중량·충돌·높이·하중 조건을 확인합니다.'
+            : row.step === 3
+              ? `Rapier ${physicsScenarioLabel(physicsScenario)} · ${physicsProgress}% 실제 계산 중`
+              : '출발 0.30g → 급정거 0.50g → 급회전 0.35g 검사 중';
+        return { ...row, note, status: '진행', tone: 'running' as Tone };
       }
-      return {
-        ...row,
-        status: '대기',
-        tone: 'pending' as Tone,
-      };
+      return { ...row, status: '대기', tone: 'pending' as Tone };
     });
   }, [rows, workflowStage, physicsProgress, physicsScenario]);
 
   if (!host) return null;
 
-  const current = workflowStage !== null && workflowStage < 5
-    ? displayedRows.find(row => row.tone === 'running')
-      ?? displayedRows.find(row => row.tone === 'danger')
-      ?? displayedRows.find(row => row.tone === 'warning')
-      ?? displayedRows.find(row => row.tone === 'pending')
-      ?? displayedRows[displayedRows.length - 1]
-    : displayedRows.find(row => row.tone === 'danger')
-      ?? displayedRows.find(row => row.tone === 'warning')
-      ?? displayedRows.find(row => row.tone === 'running')
-      ?? displayedRows.find(row => row.tone === 'pending')
-      ?? displayedRows[displayedRows.length - 1];
+  const current = displayedRows.find(row => row.tone === 'running')
+    ?? displayedRows.find(row => row.tone === 'danger')
+    ?? displayedRows.find(row => row.tone === 'warning')
+    ?? displayedRows.find(row => row.tone === 'pending')
+    ?? displayedRows[displayedRows.length - 1];
 
   return createPortal(
     <section className="dashboard-card inspection-flow-card" aria-labelledby="inspection-flow-title">
       <div className="inspection-flow-head">
-        <div><h2 id="inspection-flow-title">검사 진행 상황</h2><span>최종 적재 진행 시 적재 → 제약 → Rapier 물리 → 관성 3종 순서로 자동 검사</span></div>
+        <div>
+          <h2 id="inspection-flow-title">검사 진행 상황</h2>
+          <span>적재 → 제약 → 최종 Rapier 물리 → 관성 3종 → 작업지시서</span>
+        </div>
         <b className={`inspection-overall tone-${current.tone}`}>{toneLabel(current.tone)}</b>
       </div>
       <table className="inspection-status-table">
         <thead><tr><th>순서</th><th>검사</th><th>상황</th></tr></thead>
-        <tbody>{displayedRows.map(row => <tr key={row.step} className={`tone-${row.tone}`}>
-          <td><span className="inspection-step-no">{row.step}</span></td>
-          <td><b>{row.label}</b><small>{row.note}</small></td>
-          <td><strong>{row.status}</strong></td>
-        </tr>)}</tbody>
+        <tbody>{displayedRows.map(row => (
+          <tr key={row.step} className={`tone-${row.tone}`}>
+            <td><span className="inspection-step-no">{row.step}</span></td>
+            <td><b>{row.label}</b><small>{row.note}</small></td>
+            <td><strong>{row.status}</strong></td>
+          </tr>
+        ))}</tbody>
       </table>
     </section>,
     host,
