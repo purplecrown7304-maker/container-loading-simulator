@@ -23,13 +23,13 @@ function currentTarget(): PhysicsTarget | undefined {
 
 function shortReason(reason: string) {
   const text = reason.trim();
-  if (!text) return '적재 조건 확인';
+  if (!text) return '조건 확인';
   if (/중량|payload|무게/i.test(text)) return '중량 제한';
   if (/높이|height|천장/i.test(text)) return '높이 제한';
   if (/공간|배치|fit|적재 불가|남은/i.test(text)) return '공간 부족';
   if (/상부|허용중량|stack|적층/i.test(text)) return '적층 조건';
   if (/회전|rotation/i.test(text)) return '방향 조건';
-  return text.length > 22 ? `${text.slice(0, 22)}…` : text;
+  return text.length > 18 ? `${text.slice(0, 18)}…` : text;
 }
 
 function mm(value: number) {
@@ -75,32 +75,31 @@ export default function OperationalRightSummary() {
   const ceilingTone = summary && summary.ceilingClearance < 0.05 ? 'warn' : 'safe';
 
   return createPortal(
-    <section className="dashboard-card operational-right-summary" aria-label="현장 적재 요약">
+    <section className="dashboard-card operational-right-summary" aria-label="현장 요약">
       <div className="operational-summary-head">
         <h2>현장 요약</h2>
-        <span>{target.mode === 'pallets' ? '팔레트 적재' : '박스 적재'}</span>
       </div>
 
       <div className="operational-section">
         <div className="operational-section-title">
-          <b>미적재 화물</b>
+          <b>미적재</b>
           <strong className={remainingCount ? 'has-remaining' : 'all-loaded'}>{remainingCount ? `${remainingCount} EA` : '없음'}</strong>
         </div>
-        {remaining.length ? <div className="unplaced-list">
+        {remaining.length > 0 && <div className="unplaced-list">
           {remaining.slice(0, 4).map((item, index) => <div key={`${item.cargoId}-${index}`}>
             <span><b>{item.cargoId}</b>{cargoMap.get(item.cargoId)?.name ? ` ${cargoMap.get(item.cargoId)?.name}` : ''}</span>
             <em>{item.quantity} EA</em>
             <small>{shortReason(item.reason)}</small>
           </div>)}
           {remaining.length > 4 && <p>외 {remaining.length - 4}개 품목</p>}
-        </div> : <p className="all-loaded-note">등록된 적재 대상이 모두 배치되었습니다.</p>}
+        </div>}
       </div>
 
       {summary && <div className="operational-section safety-compact-section">
-        <div className="operational-section-title"><b>안전 여유</b><span>현재 적재안 기준</span></div>
+        <div className="operational-section-title"><b>안전 상태</b></div>
         <div className="safety-compact-grid">
           <div className={ceilingTone}><span>천장 여유</span><b>{mm(summary.ceilingClearance)}</b></div>
-          <div className={floorTone}><span>최대 바닥하중</span><b>{Math.round(summary.floor.maxKgPerM2).toLocaleString()} kg/m²</b><small>기준 {summary.floorLimit.toLocaleString()}</small></div>
+          <div className={floorTone}><span>바닥하중</span><b>{Math.round(summary.floor.maxKgPerM2).toLocaleString()} kg/m²</b><small>한도 {summary.floorLimit.toLocaleString()}</small></div>
           <div className={cgTone}><span>무게중심 편차</span><b>{summary.cgDeviation.toFixed(1)}%</b><small>앞뒤 {summary.balance.longitudinalDeviationPct.toFixed(1)} · 좌우 {summary.balance.lateralDeviationPct.toFixed(1)}</small></div>
         </div>
       </div>}
