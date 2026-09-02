@@ -12,8 +12,16 @@ function clickButton(selector: string, text?: string): boolean {
   return true;
 }
 
+function workflowBusy() {
+  const physicsRunning = Boolean((window as Window & { __containerLoadingFinalPhysicsRunning?: boolean }).__containerLoadingFinalPhysicsRunning);
+  return physicsRunning
+    || Boolean(document.querySelector('.calculation-overlay'))
+    || Boolean(document.querySelector('.quick-card .primary-action:disabled'))
+    || Boolean(document.querySelector('.final-cert-backdrop .physics-spinner'));
+}
+
 export default function HeaderActionBridge() {
-  const [footerHost, setFooterHost] = useState<HTMLElement | null>(null);
+  const [actionHost, setActionHost] = useState<HTMLElement | null>(null);
   const [running, setRunning] = useState(false);
 
   useEffect(() => {
@@ -62,8 +70,8 @@ export default function HeaderActionBridge() {
   useEffect(() => {
     let frame = 0;
     const sync = () => {
-      setFooterHost(document.querySelector<HTMLElement>('.viewer-bottom-actions'));
-      setRunning(Boolean(document.querySelector('.calculation-overlay')) || Boolean(document.querySelector('.quick-card .primary-action:disabled')));
+      setActionHost(document.querySelector<HTMLElement>('.dashboard-right'));
+      setRunning(workflowBusy());
     };
     const schedule = () => {
       window.cancelAnimationFrame(frame);
@@ -73,23 +81,26 @@ export default function HeaderActionBridge() {
     sync();
     const observer = new MutationObserver(schedule);
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'class'] });
+    const timer = window.setInterval(schedule, 400);
     return () => {
       window.cancelAnimationFrame(frame);
+      window.clearInterval(timer);
       observer.disconnect();
     };
   }, []);
 
-  if (!footerHost) return null;
+  if (!actionHost) return null;
 
   return createPortal(
-    <div className="viewer-final-action-row" aria-label="최종 적재 작업">
+    <section className="dashboard-card viewer-final-action-row" aria-label="주요 작업">
+      <h2>주요 작업</h2>
       <button
         type="button"
         className="viewer-final-action primary"
         disabled={running}
         onClick={() => dispatchAppAction('run-loading')}
       >
-        {running ? '최종 적재 진행 중…' : '최종 적재 진행'}
+        {running ? '검사 진행 중…' : '최종 적재 진행'}
       </button>
       <button
         type="button"
@@ -107,7 +118,7 @@ export default function HeaderActionBridge() {
       >
         전체 초기화
       </button>
-    </div>,
-    footerHost,
+    </section>,
+    actionHost,
   );
 }
