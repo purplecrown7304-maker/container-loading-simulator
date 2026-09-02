@@ -3,8 +3,13 @@ import { createPortal } from 'react-dom';
 import { readWeightGraphPreference } from './PreviewViewControls';
 
 function findWeightToggle() {
-  return Array.from(document.querySelectorAll<HTMLButtonElement>('.pallet-weight-dock > .pallet-weight-toolbar button'))
+  return Array.from(document.querySelectorAll<HTMLButtonElement>('.pallet-weight-dock > .pallet-weight-toolbar > button'))
     .find((button) => button.textContent?.includes('3D 무게분포')) ?? null;
+}
+
+function findDockViewButton(label: string) {
+  return Array.from(document.querySelectorAll<HTMLButtonElement>('.pallet-weight-dock .pallet-weight-view-buttons button'))
+    .find((button) => button.textContent?.trim() === label) ?? null;
 }
 
 export default function PalletWeightDistributionLauncher() {
@@ -30,6 +35,22 @@ export default function PalletWeightDistributionLauncher() {
       window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
+  }, []);
+
+  useEffect(() => {
+    const forwardView = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const button = target?.closest<HTMLButtonElement>('.pallet-viewer .preview-view-controls .preview-view-buttons button');
+      if (!button) return;
+      const dock = document.querySelector('.pallet-viewer .pallet-weight-dock');
+      if (!dock?.classList.contains('open')) return;
+      const label = button.textContent?.trim();
+      if (!label) return;
+      window.requestAnimationFrame(() => findDockViewButton(label)?.click());
+    };
+
+    document.addEventListener('click', forwardView);
+    return () => document.removeEventListener('click', forwardView);
   }, []);
 
   if (!portalTarget) return null;
