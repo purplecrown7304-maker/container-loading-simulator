@@ -34,7 +34,7 @@ function sanitizeSpec(spec: PalletSpec): PalletSpec {
 }
 
 function packCentered(container: ContainerSpec, cargo: CargoItem[], spec: PalletSpec) {
-  return centerPalletCargo(packOnPallets(container, cargo, spec));
+  return centerPalletCargo(packOnPallets(container, cargo, spec), container);
 }
 
 function PalletBoards({ container, result, spec, scale, onOpen }: { container: ContainerSpec; result: OptimizedPalletPackingResult; spec: PalletSpec; scale: number; onOpen: (p: PalletLoad) => void }) {

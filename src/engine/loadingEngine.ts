@@ -1,5 +1,6 @@
 import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult } from './types';
 import { validatePlacements } from './constraints';
+import { centerPlacementsOnContainer } from './containerCentering';
 import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
 import { filterOperationallyUnsafeShape } from './placementStabilityFilter';
@@ -67,6 +68,10 @@ function mergeSafetyRemoved(
  * 최종 결과에서는 별도 형상 가드를 한 번 더 적용해 1열 고층 기둥, 인접 적층 높이 급차,
  * 주변과 떨어진 낱개 섬 적재를 제거한다. 안전한 위치가 없으면 억지로 쌓지 않고 미적재로 남긴다.
  *
+ * 형상 가드가 끝난 자동 적재 결과는 전체 배치를 하나의 강체처럼 X/Y 평행이동해
+ * 화물 무게중심을 컨테이너 자체의 기하학적 중심에 최대한 맞춘다. 적재된 박스 영역의
+ * 중앙을 새 기준점으로 사용하지 않는다. Z는 낮은 무게중심 원칙을 유지한다.
+ *
  * 경계, 충돌, 최대 적층단, 누적 상부 허용중량, 최대 payload는 hard constraint다.
  */
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
@@ -106,17 +111,18 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
 
   const packed = packByStrictWalls(container, normalizedCargo, strategy);
   const filtered = filterOperationallyUnsafeShape(container, normalizedCargo, packed.placements);
-  const loadedWeightKg = filtered.placements.reduce((sum, placement) => sum + placement.weightKg, 0);
-  const usedVolumeM3 = filtered.placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0);
+  const centeredPlacements = centerPlacementsOnContainer(container, filtered.placements);
+  const loadedWeightKg = centeredPlacements.reduce((sum, placement) => sum + placement.weightKg, 0);
+  const usedVolumeM3 = centeredPlacements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0);
   const result: LoadingResult = {
-    placements: filtered.placements,
+    placements: centeredPlacements,
     remaining: [
       ...preflight.rejected,
       ...mergeSafetyRemoved(packed.remaining, filtered.removedByCargo),
     ],
     loadedWeightKg,
     usedVolumeM3,
-    validationIssues: validatePlacements(container, filtered.placements),
+    validationIssues: validatePlacements(container, centeredPlacements),
     autoCorrections: [],
   };
 

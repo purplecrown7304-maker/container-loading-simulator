@@ -1,7 +1,10 @@
 import type { OptimizedPalletPackingResult, PalletLoad } from './palletOptimization';
+import type { ContainerSpec } from './types';
 
 const EPS = 1e-9;
 const CENTERLINE_EPS = 1e-6;
+const round6 = (value: number) => Math.round(value * 1_000_000) / 1_000_000;
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 let nextOverride: OptimizedPalletPackingResult | null = null;
 
 /**
@@ -47,29 +50,66 @@ function centerLoadCargo(load: PalletLoad): PalletLoad {
     ...load,
     cargoPlacements: load.cargoPlacements.map((placement) => ({
       ...placement,
-      x: placement.x + dx,
-      y: placement.y + dy,
+      x: round6(placement.x + dx),
+      y: round6(placement.y + dy),
     })),
     centerOfGravity: {
       ...load.centerOfGravity,
-      x: load.centerOfGravity.x + dx * cargoFraction,
-      y: load.centerOfGravity.y + dy * cargoFraction,
+      x: round6(load.centerOfGravity.x + dx * cargoFraction),
+      y: round6(load.centerOfGravity.y + dy * cargoFraction),
     },
   };
 }
 
-function layoutCenterY(pallets: PalletLoad[]) {
-  if (!pallets.length) return 0;
-  const minY = Math.min(...pallets.map((pallet) => pallet.y));
-  const maxY = Math.max(...pallets.map((pallet) => pallet.y + pallet.width));
-  return (minY + maxY) / 2;
+function translateLoad(load: PalletLoad, dx: number, dy: number): PalletLoad {
+  return {
+    ...load,
+    x: round6(load.x + dx),
+    y: round6(load.y + dy),
+    cargoPlacements: load.cargoPlacements.map((placement) => ({
+      ...placement,
+      x: round6(placement.x + dx),
+      y: round6(placement.y + dy),
+    })),
+    centerOfGravity: {
+      ...load.centerOfGravity,
+      x: round6(load.centerOfGravity.x + dx),
+      y: round6(load.centerOfGravity.y + dy),
+    },
+  };
 }
 
-function recalcLateralImbalance(pallets: PalletLoad[]) {
-  if (!pallets.length) return 0;
-  const centerY = layoutCenterY(pallets);
+function centerPalletGroupOnContainer(pallets: PalletLoad[], container: ContainerSpec) {
+  if (!pallets.length) return [];
+  const totalWeightKg = pallets.reduce((sum, pallet) => sum + Math.max(0, pallet.totalWeightKg), 0);
+  if (totalWeightKg <= EPS) return pallets.map((pallet) => translateLoad(pallet, 0, 0));
+
+  const cogX = pallets.reduce(
+    (sum, pallet) => sum + pallet.centerOfGravity.x * Math.max(0, pallet.totalWeightKg),
+    0,
+  ) / totalWeightKg;
+  const cogY = pallets.reduce(
+    (sum, pallet) => sum + pallet.centerOfGravity.y * Math.max(0, pallet.totalWeightKg),
+    0,
+  ) / totalWeightKg;
+
+  const minX = Math.min(...pallets.map((pallet) => pallet.x));
+  const maxX = Math.max(...pallets.map((pallet) => pallet.x + pallet.length));
+  const minY = Math.min(...pallets.map((pallet) => pallet.y));
+  const maxY = Math.max(...pallets.map((pallet) => pallet.y + pallet.width));
+
+  const desiredDx = container.length / 2 - cogX;
+  const desiredDy = container.width / 2 - cogY;
+  const dx = clamp(desiredDx, -minX, container.length - maxX);
+  const dy = clamp(desiredDy, -minY, container.width - maxY);
+
+  return pallets.map((pallet) => translateLoad(pallet, dx, dy));
+}
+
+function recalcLateralImbalance(pallets: PalletLoad[], container: ContainerSpec) {
   let left = 0;
   let right = 0;
+  const centerY = container.width / 2;
   for (const pallet of pallets) {
     const delta = pallet.centerOfGravity.y - centerY;
     if (Math.abs(delta) < CENTERLINE_EPS) continue;
@@ -80,22 +120,34 @@ function recalcLateralImbalance(pallets: PalletLoad[]) {
 }
 
 /**
- * Centers the complete cargo footprint on every pallet without changing
- * relative box-to-box support, layer heights, or pallet positions.
- * Recomputes the lateral imbalance from the centered pallet COGs so the
- * displayed/optimized balance metric cannot remain stale after centering.
+ * 1) Centers each cargo footprint on its own pallet.
+ * 2) Centers the complete palletized load against the container's fixed
+ *    geometric X/Y center, never the currently occupied pallet footprint.
+ * 3) Recomputes lateral imbalance against container.width / 2.
+ *
+ * The complete pallet group is translated rigidly and clamped by container
+ * walls, so pallet-to-pallet spacing, stack columns, support, and Z heights are
+ * preserved. Vertical CG remains governed by the low-CG stability rules.
+ *
+ * A one-shot override is already inertia-certified and must remain byte-for-byte
+ * equivalent in placement coordinates; it is therefore returned without a new
+ * centering pass. Its later balance assessment still uses the container center.
  */
-export function centerPalletCargo(result: OptimizedPalletPackingResult): OptimizedPalletPackingResult {
+export function centerPalletCargo(
+  result: OptimizedPalletPackingResult,
+  container: ContainerSpec,
+): OptimizedPalletPackingResult {
   if (nextOverride) {
     const override = nextOverride;
     nextOverride = null;
     return override;
   }
-  const pallets = result.pallets.map(centerLoadCargo);
+  const cargoCentered = result.pallets.map(centerLoadCargo);
+  const pallets = centerPalletGroupOnContainer(cargoCentered, container);
   return {
     ...result,
     pallets,
     placements: pallets.flatMap((pallet) => pallet.cargoPlacements),
-    lateralImbalanceKg: recalcLateralImbalance(pallets),
+    lateralImbalanceKg: recalcLateralImbalance(pallets, container),
   };
 }
