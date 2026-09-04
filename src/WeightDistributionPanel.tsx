@@ -17,7 +17,7 @@ export default function WeightDistributionPanel({ analysis }: { analysis: Weight
     <header>
       <div>
         <b>3D 무게 분포</b>
-        <span>20 × 8 바닥 격자 · 실제 겹침면적 비례</span>
+        <span>20 × 8 바닥 격자 · 컨테이너 중심 L/2, W/2 기준</span>
       </div>
       <strong className={`weight-distribution-state ${analysis.status}`}>{stateLabel}</strong>
     </header>
@@ -25,8 +25,8 @@ export default function WeightDistributionPanel({ analysis }: { analysis: Weight
     <div className="weight-distribution-metrics">
       <div><span>총 투영 중량</span><b>{analysis.totalWeightKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</b><small>모든 적재층 포함</small></div>
       <div><span>최대 국부하중</span><b>{(maxCell?.kgPerM2 ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</b><small>kg/m² · 설정 경고 {analysis.localWarningKgPerM2.toLocaleString(undefined, { maximumFractionDigits: 0 })}</small></div>
-      <div><span>길이방향 CG</span><b>{offsetLabel(analysis.centerOffsetMm.longitudinal, '안쪽', '문쪽')}</b><small>컨테이너 중앙 기준</small></div>
-      <div><span>좌우 CG</span><b>{offsetLabel(analysis.centerOffsetMm.lateral, '좌측', '우측')}</b><small>높이 {analysis.centerOffsetMm.vertical.toFixed(0)} mm</small></div>
+      <div><span>화물 CG · 길이</span><b>{offsetLabel(analysis.centerOffsetMm.longitudinal, '안쪽', '문쪽')}</b><small>컨테이너 L/2 기준 편차</small></div>
+      <div><span>화물 CG · 좌우</span><b>{offsetLabel(analysis.centerOffsetMm.lateral, '좌측', '우측')}</b><small>컨테이너 W/2 기준 · 높이 {analysis.centerOffsetMm.vertical.toFixed(0)} mm</small></div>
     </div>
 
     <div className="weight-distribution-balance">

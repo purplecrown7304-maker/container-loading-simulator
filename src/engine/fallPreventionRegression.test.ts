@@ -37,14 +37,21 @@ function layerCountAt(placements: Placement[], x: number, y: number) {
   return placements.filter((p) => Math.abs(p.x - x) < 0.001 && Math.abs(p.y - y) < 0.001).length;
 }
 
-describe('fall / overturn prevention outranks fill rate and CG centering', () => {
+function horizontalCg(placements: Placement[]) {
+  const weight = placements.reduce((sum, p) => sum + p.weightKg, 0);
+  return {
+    x: placements.reduce((sum, p) => sum + (p.x + p.length / 2) * p.weightKg, 0) / weight,
+    y: placements.reduce((sum, p) => sum + (p.y + p.width / 2) * p.weightKg, 0) / weight,
+  };
+}
+
+describe('fall / overturn prevention with fixed container-center target', () => {
   it('turns a tall wall facing a large empty fall zone into a low edge and staircase', () => {
     const container: ContainerSpec = { length: 2.5, width: 1.2, height: 2.4, maxPayloadKg: 10000 };
     const green = cargo('GREEN');
     const brown = cargo('BROWN');
     const placements: Placement[] = [];
 
-    // Low cargo ends at x=1.0, leaving a 0.5m open fall zone before the tall green wall at x=1.5.
     for (const y of [0, 0.4, 0.8]) placements.push(...column(brown, 0.5, y, 2));
     for (const y of [0, 0.4, 0.8]) placements.push(...column(green, 1.5, y, 5));
     for (const y of [0, 0.4, 0.8]) placements.push(...column(green, 2.0, y, 5));
@@ -73,22 +80,26 @@ describe('fall / overturn prevention outranks fill rate and CG centering', () =>
     expect(result.removedByCargo.size).toBe(0);
   });
 
-  it('cancels CG centering when translation would remove wall restraint and create a fall edge', () => {
+  it('does not revert to the inner wall when centering exposes a fall edge', () => {
     const container: ContainerSpec = { length: 4, width: 1, height: 2, maxPayloadKg: 10000 };
     const item = cargo('STAIR', { width: 0.5, height: 0.5 });
-    const safeWallAnchored = [
+    const wallAnchored = [
       ...column(item, 0, 0, 3),
       ...column(item, 0, 0.5, 3),
       ...column(item, 0.5, 0, 2),
       ...column(item, 0.5, 0.5, 2),
     ];
 
-    const result = centerPlacementsWithFallSafety(container, [item], safeWallAnchored);
-    expect(Math.min(...result.map((p) => p.x))).toBeCloseTo(0, 6);
-    expect(result.map((p) => `${p.x}:${p.y}:${p.z}`)).toEqual(safeWallAnchored.map((p) => `${p.x}:${p.y}:${p.z}`));
+    const result = centerPlacementsWithFallSafety(container, [item], wallAnchored);
+    const cg = horizontalCg(result.placements);
+
+    expect(Math.min(...result.placements.map((p) => p.x))).toBeGreaterThan(0);
+    expect(result.removedByCargo.get('STAIR')).toBeGreaterThan(0);
+    expect(cg.x).toBeCloseTo(container.length / 2, 6);
+    expect(cg.y).toBeCloseTo(container.width / 2, 6);
   });
 
-  it('still allows CG centering when the translated load remains a low, fall-safe block', () => {
+  it('centers a low fall-safe block on the container center without removing cargo', () => {
     const container: ContainerSpec = { length: 4, width: 1, height: 2, maxPayloadKg: 10000 };
     const item = cargo('LOW', { width: 0.5, height: 0.5 });
     const lowBlock = [
@@ -97,7 +108,11 @@ describe('fall / overturn prevention outranks fill rate and CG centering', () =>
     ];
 
     const result = centerPlacementsWithFallSafety(container, [item], lowBlock);
-    expect(Math.min(...result.map((p) => p.x))).toBeGreaterThan(0);
-    expect(result).toHaveLength(lowBlock.length);
+    const cg = horizontalCg(result.placements);
+
+    expect(result.placements).toHaveLength(lowBlock.length);
+    expect(result.removedByCargo.size).toBe(0);
+    expect(cg.x).toBeCloseTo(container.length / 2, 6);
+    expect(cg.y).toBeCloseTo(container.width / 2, 6);
   });
 });

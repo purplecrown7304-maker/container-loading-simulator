@@ -99,6 +99,21 @@ export default function WeightDistribution3D({
       </div>
     </Html>}
 
+    {showCenterOfGravity && <group>
+      {/* Fixed horizontal reference. In scene coordinates L/2,W/2 is exactly (0,0). */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.047, 0]} renderOrder={34}>
+        <ringGeometry args={[0.21, 0.245, 32]} />
+        <meshBasicMaterial color="#0f766e" transparent opacity={0.96} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+      <mesh position={[0, 0.09, 0]} renderOrder={34}>
+        <boxGeometry args={[0.035, 0.18, 0.035]} />
+        <meshBasicMaterial color="#0f766e" depthWrite={false} />
+      </mesh>
+      <Html center position={[0, 0.28, 0]} zIndexRange={[46, 0]}>
+        <span className="weight-cog-label">컨테이너 중심 · L/2, W/2</span>
+      </Html>
+    </group>}
+
     {showCenterOfGravity && analysis.totalWeightKg > 0 && <group>
       <mesh position={[
         cog.x * scale - container.length * scale / 2,
@@ -137,7 +152,7 @@ export default function WeightDistribution3D({
         ]}
         zIndexRange={[45, 0]}
       >
-        <span className="weight-cog-label">CG · 무게중심</span>
+        <span className="weight-cog-label">화물 CG · 컨테이너 중심 대비</span>
       </Html>
     </group>}
   </group>;
