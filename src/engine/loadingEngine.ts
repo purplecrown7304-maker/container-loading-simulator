@@ -36,6 +36,16 @@ function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], resu
   window.dispatchEvent(new CustomEvent(LOADING_RESULT_EVENT, { detail }));
 }
 
+function combineRemoved(...sources: Array<Map<string, number>>) {
+  const combined = new Map<string, number>();
+  for (const source of sources) {
+    for (const [cargoId, quantity] of source) {
+      combined.set(cargoId, (combined.get(cargoId) ?? 0) + quantity);
+    }
+  }
+  return combined;
+}
+
 function mergeSafetyRemoved(
   remaining: Array<{ cargoId: string; quantity: number; reason: string }>,
   removedByCargo: Map<string, number>,
@@ -70,9 +80,10 @@ function mergeSafetyRemoved(
  * 높은 적층의 열린 가장자리는 낮게 만들고 안쪽으로 한 단씩 올라가는 계단형을 우선한다.
  * 안전한 위치가 없으면 적재율을 위해 억지로 쌓지 않고 미적재로 남긴다.
  *
- * 형상 가드가 끝난 자동 적재 결과는 화물 무게중심을 컨테이너 자체의 기하학적 중심에
- * 최대한 맞추되, X/Y 평행이동 때문에 컨테이너 벽 지지를 잃거나 새로운 낙하 절벽이 생기면
- * 중앙 이동을 취소한다. 즉 낙하·전도 방지가 무게중심 최적화보다 우선한다. Z는 낮은 무게중심 원칙을 유지한다.
+ * 모든 수평 무게중심 기준점은 적재물 자체의 외곽/중점이 아니라 컨테이너 기하학적 중심
+ * (length / 2, width / 2)이다. 화물 CG는 이 기준점과의 편차를 계산하기 위한 측정값일 뿐이다.
+ * 중앙 이동으로 새 낙하 위험이 생기면 원래 한쪽 벽 배치로 되돌리지 않고, 위험한 상단 박스만
+ * 제거한 뒤 다시 컨테이너 중심으로 보정한다. Z는 낮은 무게중심 원칙을 유지한다.
  *
  * 경계, 충돌, 낙하·전도 형상, 최대 적층단, 누적 상부 허용중량, 최대 payload는 hard constraint다.
  */
@@ -113,14 +124,16 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
 
   const packed = packByStrictWalls(container, normalizedCargo, strategy);
   const filtered = filterOperationallyUnsafeShape(container, normalizedCargo, packed.placements);
-  const finalPlacements = centerPlacementsWithFallSafety(container, normalizedCargo, filtered.placements);
+  const centered = centerPlacementsWithFallSafety(container, normalizedCargo, filtered.placements);
+  const finalPlacements = centered.placements;
+  const safetyRemoved = combineRemoved(filtered.removedByCargo, centered.removedByCargo);
   const loadedWeightKg = finalPlacements.reduce((sum, placement) => sum + placement.weightKg, 0);
   const usedVolumeM3 = finalPlacements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0);
   const result: LoadingResult = {
     placements: finalPlacements,
     remaining: [
       ...preflight.rejected,
-      ...mergeSafetyRemoved(packed.remaining, filtered.removedByCargo),
+      ...mergeSafetyRemoved(packed.remaining, safetyRemoved),
     ],
     loadedWeightKg,
     usedVolumeM3,
