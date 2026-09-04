@@ -128,17 +128,24 @@ function recalcLateralImbalance(pallets: PalletLoad[], container: ContainerSpec)
  * The complete pallet group is translated rigidly and clamped by container
  * walls, so pallet-to-pallet spacing, stack columns, support, and Z heights are
  * preserved. Vertical CG remains governed by the low-CG stability rules.
+ *
+ * A one-shot override is already inertia-certified and must remain byte-for-byte
+ * equivalent in placement coordinates; it is therefore returned without a new
+ * centering pass. Its later balance assessment still uses the container center.
  */
 export function centerPalletCargo(
   result: OptimizedPalletPackingResult,
   container: ContainerSpec,
 ): OptimizedPalletPackingResult {
-  const source = nextOverride ?? result;
-  nextOverride = null;
-  const cargoCentered = source.pallets.map(centerLoadCargo);
+  if (nextOverride) {
+    const override = nextOverride;
+    nextOverride = null;
+    return override;
+  }
+  const cargoCentered = result.pallets.map(centerLoadCargo);
   const pallets = centerPalletGroupOnContainer(cargoCentered, container);
   return {
-    ...source,
+    ...result,
     pallets,
     placements: pallets.flatMap((pallet) => pallet.cargoPlacements),
     lateralImbalanceKg: recalcLateralImbalance(pallets, container),
