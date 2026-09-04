@@ -1,6 +1,6 @@
 import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult } from './types';
 import { validatePlacements } from './constraints';
-import { centerPlacementsOnContainer } from './containerCentering';
+import { centerPlacementsWithFallSafety } from './fallSafetyCentering';
 import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
 import { filterOperationallyUnsafeShape } from './placementStabilityFilter';
@@ -44,7 +44,7 @@ function mergeSafetyRemoved(
   for (const [cargoId, quantity] of removedByCargo) {
     if (quantity <= 0) continue;
     const previous = merged.get(cargoId);
-    const reason = '단독 고층 기둥·인접 높이 급차·고립 낱개 적재를 방지하기 위해 안전 적재에서 제외';
+    const reason = '낙하·전도 방지를 위해 고적층 절벽, 큰 개방면, 급격한 높이 단차 또는 고립 적재를 안전 적재에서 제외';
     merged.set(cargoId, {
       cargoId,
       quantity: quantity + (previous?.quantity ?? 0),
@@ -65,14 +65,16 @@ function mergeSafetyRemoved(
  * 남는 폭은 컨테이너 측벽 쪽 한 곳에만 남을 수 있다.
  * 상부 혼합 적재는 바로 아래 박스와 바닥면이 정확히 일치하고 100% 지지되는 경우에만 허용한다.
  *
- * 최종 결과에서는 별도 형상 가드를 한 번 더 적용해 1열 고층 기둥, 인접 적층 높이 급차,
- * 주변과 떨어진 낱개 섬 적재를 제거한다. 안전한 위치가 없으면 억지로 쌓지 않고 미적재로 남긴다.
+ * 최종 결과에서는 별도 형상 가드를 적용해 1열 고층 기둥, 방향별 인접 적층 높이 급차,
+ * 큰 빈 공간을 향한 고적층 개방면, 주변과 떨어진 낱개 섬 적재를 제거한다.
+ * 높은 적층의 열린 가장자리는 낮게 만들고 안쪽으로 한 단씩 올라가는 계단형을 우선한다.
+ * 안전한 위치가 없으면 적재율을 위해 억지로 쌓지 않고 미적재로 남긴다.
  *
- * 형상 가드가 끝난 자동 적재 결과는 전체 배치를 하나의 강체처럼 X/Y 평행이동해
- * 화물 무게중심을 컨테이너 자체의 기하학적 중심에 최대한 맞춘다. 적재된 박스 영역의
- * 중앙을 새 기준점으로 사용하지 않는다. Z는 낮은 무게중심 원칙을 유지한다.
+ * 형상 가드가 끝난 자동 적재 결과는 화물 무게중심을 컨테이너 자체의 기하학적 중심에
+ * 최대한 맞추되, X/Y 평행이동 때문에 컨테이너 벽 지지를 잃거나 새로운 낙하 절벽이 생기면
+ * 중앙 이동을 취소한다. 즉 낙하·전도 방지가 무게중심 최적화보다 우선한다. Z는 낮은 무게중심 원칙을 유지한다.
  *
- * 경계, 충돌, 최대 적층단, 누적 상부 허용중량, 최대 payload는 hard constraint다.
+ * 경계, 충돌, 낙하·전도 형상, 최대 적층단, 누적 상부 허용중량, 최대 payload는 hard constraint다.
  */
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
@@ -111,18 +113,18 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
 
   const packed = packByStrictWalls(container, normalizedCargo, strategy);
   const filtered = filterOperationallyUnsafeShape(container, normalizedCargo, packed.placements);
-  const centeredPlacements = centerPlacementsOnContainer(container, filtered.placements);
-  const loadedWeightKg = centeredPlacements.reduce((sum, placement) => sum + placement.weightKg, 0);
-  const usedVolumeM3 = centeredPlacements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0);
+  const finalPlacements = centerPlacementsWithFallSafety(container, normalizedCargo, filtered.placements);
+  const loadedWeightKg = finalPlacements.reduce((sum, placement) => sum + placement.weightKg, 0);
+  const usedVolumeM3 = finalPlacements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0);
   const result: LoadingResult = {
-    placements: centeredPlacements,
+    placements: finalPlacements,
     remaining: [
       ...preflight.rejected,
       ...mergeSafetyRemoved(packed.remaining, filtered.removedByCargo),
     ],
     loadedWeightKg,
     usedVolumeM3,
-    validationIssues: validatePlacements(container, centeredPlacements),
+    validationIssues: validatePlacements(container, finalPlacements),
     autoCorrections: [],
   };
 
