@@ -2,6 +2,8 @@ import type { CargoItem, ContainerSpec, Placement } from './types';
 
 const TOUCH = 0.004;
 const GAP = 0.03;
+const MIN_OPEN_FALL_GAP = 0.12;
+const MAX_EXPOSED_LAYERS = 2;
 
 type Column = {
   key: string;
@@ -11,6 +13,9 @@ type Column = {
   width: number;
   placements: Placement[];
 };
+
+type Face = 'xMin' | 'xMax' | 'yMin' | 'yMax';
+const FACES: Face[] = ['xMin', 'xMax', 'yMin', 'yMax'];
 
 export type StabilityFilterResult = {
   placements: Placement[];
@@ -37,6 +42,65 @@ function areSideAdjacent(a: Column, b: Column) {
   const enoughY = yOverlap >= Math.min(a.width, b.width) * 0.3 - TOUCH;
   const enoughX = xOverlap >= Math.min(a.length, b.length) * 0.3 - TOUCH;
   return (xTouch && enoughY) || (yTouch && enoughX);
+}
+
+function faceNeighbours(column: Column, columns: Column[], face: Face) {
+  return columns.filter((other) => {
+    if (other === column || !other.placements.length) return false;
+    const xOverlap = intervalOverlap(column.x, column.x + column.length, other.x, other.x + other.length);
+    const yOverlap = intervalOverlap(column.y, column.y + column.width, other.y, other.y + other.width);
+    if (face === 'xMin') {
+      return Math.abs((other.x + other.length) - column.x) <= TOUCH
+        && yOverlap >= Math.min(column.width, other.width) * 0.3 - TOUCH;
+    }
+    if (face === 'xMax') {
+      return Math.abs((column.x + column.length) - other.x) <= TOUCH
+        && yOverlap >= Math.min(column.width, other.width) * 0.3 - TOUCH;
+    }
+    if (face === 'yMin') {
+      return Math.abs((other.y + other.width) - column.y) <= TOUCH
+        && xOverlap >= Math.min(column.length, other.length) * 0.3 - TOUCH;
+    }
+    return Math.abs((column.y + column.width) - other.y) <= TOUCH
+      && xOverlap >= Math.min(column.length, other.length) * 0.3 - TOUCH;
+  });
+}
+
+function faceTouchesContainer(column: Column, container: ContainerSpec, face: Face) {
+  if (face === 'xMin') return column.x <= TOUCH;
+  if (face === 'xMax') return column.x + column.length >= container.length - TOUCH;
+  if (face === 'yMin') return column.y <= TOUCH;
+  return column.y + column.width >= container.width - TOUCH;
+}
+
+function nearestFacingGap(column: Column, columns: Column[], face: Face) {
+  let nearest = Number.POSITIVE_INFINITY;
+  for (const other of columns) {
+    if (other === column || !other.placements.length) continue;
+    const xOverlap = intervalOverlap(column.x, column.x + column.length, other.x, other.x + other.length);
+    const yOverlap = intervalOverlap(column.y, column.y + column.width, other.y, other.y + other.width);
+    let gap = Number.POSITIVE_INFINITY;
+    if (face === 'xMin' && other.x + other.length <= column.x + TOUCH
+      && yOverlap >= Math.min(column.width, other.width) * 0.3 - TOUCH) {
+      gap = column.x - (other.x + other.length);
+    } else if (face === 'xMax' && other.x >= column.x + column.length - TOUCH
+      && yOverlap >= Math.min(column.width, other.width) * 0.3 - TOUCH) {
+      gap = other.x - (column.x + column.length);
+    } else if (face === 'yMin' && other.y + other.width <= column.y + TOUCH
+      && xOverlap >= Math.min(column.length, other.length) * 0.3 - TOUCH) {
+      gap = column.y - (other.y + other.width);
+    } else if (face === 'yMax' && other.y >= column.y + column.width - TOUCH
+      && xOverlap >= Math.min(column.length, other.length) * 0.3 - TOUCH) {
+      gap = other.y - (column.y + column.width);
+    }
+    if (gap >= -TOUCH) nearest = Math.min(nearest, Math.max(0, gap));
+  }
+  return nearest;
+}
+
+function dangerousOpenClearance(column: Column, face: Face) {
+  const fallDimension = face === 'xMin' || face === 'xMax' ? column.length : column.width;
+  return Math.max(MIN_OPEN_FALL_GAP, fallDimension * 0.4);
 }
 
 function gapBetween(a: Column, b: Column) {
@@ -86,9 +150,15 @@ function trimTop(column: Column, removed: Placement[]) {
 /**
  * Operational shape guard applied after the geometric packer.
  *
- * It intentionally prefers leaving cargo unplaced over creating a narrow tower,
- * a one-box island, or a large height cliff that would be unstable in braking/turning.
- * Only top boxes are removed, so a retained box never loses its support.
+ * Fall and overturn prevention is a hard constraint and outranks CG centering / fill rate.
+ * Every horizontal face is checked independently, so same-height neighbours on the left/right
+ * cannot hide a dangerous height cliff or a large open fall zone in front/behind the stack.
+ *
+ * Rules:
+ * - a stack facing a sufficiently large open interior gap may expose at most two layers;
+ * - adjacent stacks may rise by at most roughly one box layer at a time, producing a staircase;
+ * - container walls count as restraint;
+ * - only top boxes are removed, so retained boxes never lose vertical support.
  */
 export function filterOperationallyUnsafeShape(
   container: ContainerSpec,
@@ -101,8 +171,8 @@ export function filterOperationallyUnsafeShape(
   const columns = buildColumns(placements);
   const removed: Placement[] = [];
 
-  // Repeat because trimming one tower can expose another height cliff next to it.
-  for (let pass = 0; pass < 12; pass += 1) {
+  // Repeat because trimming one edge can expose the next row and must create a gradual staircase.
+  for (let pass = 0; pass < 24; pass += 1) {
     let changed = false;
 
     for (const column of columns) {
@@ -133,16 +203,37 @@ export function filterOperationallyUnsafeShape(
         continue;
       }
 
-      if (neighbours.length) {
-        const neighbourTop = Math.max(...neighbours.map(columnTop));
-        const tallestNeighbourLayer = Math.max(...neighbours.map(n => n.placements[n.placements.length - 1]?.height ?? 0));
-        const allowedCliff = Math.max(top.height, tallestNeighbourLayer, item?.height ?? 0, 0.25);
-        if (columnTop(column) - neighbourTop > allowedCliff + TOUCH) {
-          trimTop(column, removed);
-          changed = true;
+      let directionalRisk = false;
+      for (const face of FACES) {
+        if (faceTouchesContainer(column, container, face)) continue;
+        const facing = faceNeighbours(column, columns, face);
+
+        if (facing.length > 0) {
+          // Use the lowest significant facing neighbour. A tall neighbour elsewhere on another
+          // face must not mask a low row directly in front of this stack.
+          const facingTop = Math.min(...facing.map(columnTop));
+          const tallestFacingLayer = Math.max(...facing.map(n => n.placements[n.placements.length - 1]?.height ?? 0));
+          const allowedCliff = Math.max(top.height, tallestFacingLayer, item?.height ?? 0, 0.25);
+          if (columnTop(column) - facingTop > allowedCliff + TOUCH) {
+            trimTop(column, removed);
+            changed = true;
+            directionalRisk = true;
+            break;
+          }
           continue;
         }
+
+        // No touching restraint on this face. A tiny seam is tolerated, but a gap large enough
+        // for a box/stack to rotate into is treated as a fall zone. Open edges stay low (<= 2 layers).
+        const gap = nearestFacingGap(column, columns, face);
+        if (gap > dangerousOpenClearance(column, face) + TOUCH && layers > MAX_EXPOSED_LAYERS) {
+          trimTop(column, removed);
+          changed = true;
+          directionalRisk = true;
+          break;
+        }
       }
+      if (directionalRisk) continue;
     }
 
     if (!changed) break;
