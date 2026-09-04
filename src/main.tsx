@@ -27,6 +27,7 @@ import HeaderActionBridge from './HeaderActionBridge';
 import HeaderLoadingStatusBoard from './HeaderLoadingStatusBoard';
 import RemainingLengthIndicator from './RemainingLengthIndicator';
 import OperationalRightSummary from './OperationalRightSummary';
+import DashboardCommandDock from './DashboardCommandDock';
 import TransportEquipmentSelector from './TransportEquipmentSelector';
 import TransportEquipmentDashboardSummary from './TransportEquipmentDashboardSummary';
 import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
@@ -103,6 +104,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <PalletWeightDistributionLauncher />
       <InspectionStatusPanel />
       <OperationalRightSummary />
+      <DashboardCommandDock />
       <TransportEquipmentDashboardSummary />
       <EnterprisePackagingPlannerHost />
       <EnterpriseTransportEquipmentAdapter />
