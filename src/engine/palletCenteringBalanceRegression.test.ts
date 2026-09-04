@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { centerPalletCargo } from './palletCentering';
 import type { OptimizedPalletPackingResult, PalletLoad } from './palletOptimization';
+import type { ContainerSpec } from './types';
+
+const container: ContainerSpec = {
+  length: 4,
+  width: 2.35,
+  height: 2.6,
+  maxPayloadKg: 10000,
+};
 
 function load(): PalletLoad {
   return {
     palletIndex: 1,
     x: 0,
-    y: 0.625,
+    y: 0,
     z: 0,
     stackLevel: 1,
     stackColumn: 1,
@@ -16,7 +24,7 @@ function load(): PalletLoad {
     cargoPlacements: [{
       cargoId: 'A',
       x: 0,
-      y: 0.625,
+      y: 0,
       z: 0.15,
       length: 0.5,
       width: 0.4,
@@ -29,7 +37,7 @@ function load(): PalletLoad {
     cornerGuardsUsed: false,
     wrappingUsed: false,
     totalWeightKg: 125,
-    centerOfGravity: { x: 0.35, y: 0.895, z: 0.27 },
+    centerOfGravity: { x: 0.35, y: 0.27, z: 0.27 },
   };
 }
 
@@ -59,10 +67,14 @@ function result(pallet: PalletLoad): OptimizedPalletPackingResult {
 }
 
 describe('pallet centering balance regression', () => {
-  it('recalculates stale lateral imbalance after moving cargo to the pallet center', () => {
-    const centered = centerPalletCargo(result(load()));
-    expect(centered.placements[0]?.y).toBeCloseTo(0.975, 6);
-    expect(centered.pallets[0]?.centerOfGravity.y).toBeCloseTo(1.175, 6);
+  it('uses the container center rather than the occupied pallet footprint center', () => {
+    const centered = centerPalletCargo(result(load()), container);
+    const pallet = centered.pallets[0];
+
+    expect(pallet.centerOfGravity.x).toBeCloseTo(container.length / 2, 6);
+    expect(pallet.centerOfGravity.y).toBeCloseTo(container.width / 2, 6);
+    expect(pallet.x).toBeGreaterThan(0);
+    expect(pallet.y).toBeGreaterThan(0);
     expect(centered.lateralImbalanceKg).toBe(0);
   });
 });
