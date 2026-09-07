@@ -1,0 +1,53 @@
+name: Patch Verify
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  patch-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Upgrade npm
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Targeted policy and safety regression tests
+        run: >-
+          npx vitest run
+          src/inertiaWorkOrderPolicy.test.ts
+          src/engine/physicsOptimizer.test.ts
+          src/resultsModalEvents.test.ts
+          src/certifiedExport.test.ts
+          src/workOrderAccessPolicy.test.ts
+          src/engine/fallPreventionRegression.test.ts
+          src/engine/directBoxInputPreflightRegression.test.ts
+          src/engine/directBoxOversizeRegression.test.ts
+          src/engine/directBoxTailRegression.test.ts
+          src/engine/directBoxMixedStackLimitsRegression.test.ts
+          src/engine/directBoxDeterministicPriorityRegression.test.ts
+          src/engine/fortyFootTwentySkuRegression.test.ts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Architecture checks
+        run: npm run check:architecture
+
+      - name: Production build
+        run: npm run build
+
+      - name: Bundle checks
+        run: npm run check:bundle
