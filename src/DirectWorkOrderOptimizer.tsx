@@ -75,8 +75,8 @@ export default function DirectWorkOrderOptimizer() {
     setRunning(true);
     setProgress(null);
     setMessage(automatic
-      ? '최종 적재 진행 · 관성 3종과 안전 후보를 자동 검증합니다.'
-      : '현재 적재안과 안전성이 높은 소수 재배치 후보를 관성 검증합니다.');
+      ? '최종 적재 진행 · 현재 적재 수량을 유지한 채 관성 상태를 자동 확인합니다.'
+      : '현재 적재 수량을 유지하고 관성 결과는 작업지시서의 경고 정보로 확인합니다.');
     setError('');
 
     if (!current.result.placements.length) {
@@ -111,7 +111,7 @@ export default function DirectWorkOrderOptimizer() {
         }
         const candidate = candidates[index];
         setAttempt({ index: index + 1, total: candidates.length, label: candidate.label });
-        setMessage(`${automatic ? '최종 적재 자동검증' : '상자 재배치'} ${index + 1}/${candidates.length} · ${candidate.label}`);
+        setMessage(`${automatic ? '최종 적재 자동검증' : '관성 상태 확인'} ${index + 1}/${candidates.length} · ${candidate.label}`);
         const initialCertification = await runInertiaCertification(
           candidate.target,
           next => { if (!cancelled()) setProgress(next); },
@@ -120,8 +120,6 @@ export default function DirectWorkOrderOptimizer() {
         );
         if (cancelled()) return;
 
-        // 일반 관성 검증은 strict PASS 실패 시 해당 보강 단계에서 중간 종료될 수 있다.
-        // 최종 적재 흐름에서는 작업지시서 버튼을 누르지 않아도 빠진 시나리오까지 자동으로 끝까지 계산한다.
         const certification = await completeCertificationForWorkOrder(
           candidate.target,
           initialCertification,
@@ -135,9 +133,8 @@ export default function DirectWorkOrderOptimizer() {
         if (canCreateWorkOrder(certification)) {
           applyCandidate(candidate, certification);
           setRunning(false);
-          setMessage(`최종 관성검증 ${workOrderApprovalLabel(certification)} · ${candidate.label}`);
+          setMessage(`관성 상태 ${workOrderApprovalLabel(certification)} · ${candidate.label} · 작업지시서 생성 가능`);
 
-          // 최종 적재 진행에서 호출된 경우 검증만 끝내고 작업지시서는 사용자가 별도 버튼으로 발급한다.
           if (automatic) {
             setOpen(false);
             return;
@@ -155,21 +152,17 @@ export default function DirectWorkOrderOptimizer() {
       setRunning(false);
       if (bestFailed) {
         applyCandidate(bestFailed, bestFailed.certification);
-        setMessage(`상위 안전 후보 비교 완료 · 가장 낮은 위험안 적용 · ${bestFailed.label}`);
-        if (automatic) {
-          // 위험/미완료 결과도 검사 흐름에는 확정 결과로 전달해 4단계에서 무한 대기하지 않게 한다.
-          setOpen(false);
-        }
+        setMessage(`관성 상태 확인 완료 · ${workOrderApprovalLabel(bestFailed.certification)} · ${bestFailed.label}`);
+        if (automatic) setOpen(false);
       }
-      const failureMessage = `현재 적재안과 상위 ${Math.max(0, candidates.length - 1)}개 재배치를 확인했지만 모두 위험 기준을 넘었거나 3종 검증을 완료하지 못했습니다. 위험 판정에서는 작업지시서를 생성하지 않습니다.`;
-      setError(failureMessage);
+      setError('관성 상태 확인을 완료하지 못했습니다. 적재 수량은 유지됩니다.');
       if (!automatic) setOpen(true);
     } catch (reason) {
       if (cancelled()) return;
       console.error('Direct work-order inertia search failed', reason);
       setRunning(false);
       setOpen(true);
-      setError('직접 적재 관성 검증을 완료하지 못했습니다. 현재 적재안을 유지한 채 다시 실행할 수 있습니다.');
+      setError('직접 적재 관성 검증을 완료하지 못했습니다. 현재 적재안과 적재 수량은 유지됩니다.');
     }
   }, []);
 
@@ -190,16 +183,16 @@ export default function DirectWorkOrderOptimizer() {
     <section className="final-cert-modal" role="dialog" aria-modal="true" aria-labelledby="direct-work-order-title">
       <header>
         <div>
-          <span>FINAL WORK ORDER OPTIMIZER · DIRECT BOX</span>
-          <h2 id="direct-work-order-title">작업지시서 전 상자 안전 후보 비교</h2>
-          <p>출발 가속 · 급정거 · 급회전 3종이 모두 위험 기준 이내이면 작업지시서를 생성합니다. 내부 PASS 기준을 조금 넘는 경우에는 주의 승인으로 처리하고 권장 보완사항을 작업지시서에 자동 기입합니다.</p>
+          <span>FINAL WORK ORDER · DIRECT BOX</span>
+          <h2 id="direct-work-order-title">작업지시서 관성 상태 확인</h2>
+          <p>현재 적재 수량은 유지합니다. 관성 결과가 PASS·주의·위험·미완료 중 어느 상태여도 작업지시서를 생성하며, 위험 상태는 문서에 경고와 보완사항으로 표시합니다.</p>
         </div>
         {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
       </header>
 
       <div className="final-cert-running">
         {running && <div className="physics-spinner" />}
-        <div><b>{message}</b><span>{attempt.total ? `배치 ${attempt.index}/${attempt.total} · 비교 ${percent}%` : '후보 생성 중'}</span></div>
+        <div><b>{message}</b><span>{attempt.total ? `배치 ${attempt.index}/${attempt.total} · 확인 ${percent}%` : '검증 준비 중'}</span></div>
         <progress max="100" value={percent} />
       </div>
 
@@ -207,22 +200,22 @@ export default function DirectWorkOrderOptimizer() {
         <span>현재 보강 <b>{progress.levelLabel}</b></span>
         <span>관성 시나리오 <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
         <span>현재 계산 <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
-        <span>승인 기준 <b>3종 모두 위험 아님</b></span>
+        <span>출력 정책 <b>위험이어도 작업지시서 생성</b></span>
       </div>}
 
       <article className="final-cert-materials">
-        <div className="final-cert-material-head"><div><b>자동 비교 범위</b><span>화물 수량 유지</span></div><strong>{attempt.total || '-'}개 배치</strong></div>
+        <div className="final-cert-material-head"><div><b>적재 정책</b><span>화물 수량 우선 유지</span></div><strong>{attempt.total || '-'}개 배치</strong></div>
         <div className="final-cert-material-grid">
-          <div><span>상자 배치</span><b>안정성/적재율/하역</b><small>전략별 고유 배치만 비교</small></div>
-          <div><span>적재 높이</span><b>저중심 후보 우선</b><small>정적 안전점수로 선별</small></div>
-          <div><span>후보 수</span><b>최대 {MAX_DIRECT_WORK_ORDER_CANDIDATES}개</b><small>무제한 반복 없음</small></div>
-          <div><span>관성 검증</span><b>출발·급정거·급회전</b><small>3종 모두 확인</small></div>
+          <div><span>상자 배치</span><b>적재량 우선</b><small>무게중심 때문에 수량 감소 금지</small></div>
+          <div><span>무게중심</span><b>평가/경고</b><small>적재 차단 조건 아님</small></div>
+          <div><span>하드 안전조건</span><b>계속 적용</b><small>경계·충돌·적층·중량</small></div>
+          <div><span>관성 검증</span><b>상태 기록</b><small>출발·급정거·급회전</small></div>
           <div><span>주의 결과</span><b>작업지시서 생성</b><small>권장사항 자동 기입</small></div>
-          <div><span>위험 결과</span><b>출력 차단</b><small>재배치/보강 후 재검증</small></div>
+          <div><span>위험 결과</span><b>작업지시서 생성</b><small>위험 경고·워터마크 표시</small></div>
         </div>
       </article>
 
-      {error && <div className="final-cert-error"><b>작업지시서 생성 불가</b><span>{error}</span></div>}
+      {error && <div className="final-cert-error"><b>처리 알림</b><span>{error}</span></div>}
     </section>
   </div>;
 }
