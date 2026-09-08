@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import EquipmentCard3D from './EquipmentCard3D';
+import EditableEquipmentCard from './EditableEquipmentCard';
 import { STORAGE_UPDATED_EVENT } from './storage';
 import {
   CONTAINER_EQUIPMENT,
@@ -231,7 +232,7 @@ export default function TransportEquipmentSelector() {
       </div>
 
       <div className="transport-equipment-grid">
-        {list.map(item => <EquipmentCard key={item.id} item={item} active={selected.id === item.id} onSelect={choose} />)}
+        {list.map(item => <EditableEquipmentCard key={item.id} item={item} active={selected.id === item.id} onSelect={choose} onMessage={setMessage} />)}
       </div>
 
       {(selected.id.startsWith('custom-') || message.includes('사용자 규격')) && <section className="transport-custom-editor">
