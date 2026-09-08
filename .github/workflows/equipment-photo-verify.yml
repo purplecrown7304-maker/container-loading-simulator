@@ -1,0 +1,25 @@
+name: Equipment Photo Verify
+
+on:
+  push:
+    branches: [feat/equipment-photo-cards-20260908-v2]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Upgrade npm
+        run: npm install -g npm@11
+      - name: Install dependencies
+        run: npm install
+      - name: Verify embedded atlas
+        run: npx vitest run src/equipmentPhotoAtlas.test.ts
+      - name: Production build
+        run: npm run build
