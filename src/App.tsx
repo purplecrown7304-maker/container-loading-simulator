@@ -18,6 +18,7 @@ import { openResultsModal } from './resultsModalEvents';
 import { createRandomSampleCargo } from './sampleCargo';
 import { normalizeCargo, readStoredState, STORAGE_KEY, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
 import WorkspaceTools from './WorkspaceTools';
+import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 
 const BoxLoadingViewer = lazy(() => import('./BoxLoadingViewer'));
 const PalletModePanel = lazy(() => import('./PalletModePanel'));
@@ -261,6 +262,23 @@ export default function App() {
     resetDraft();
   };
 
+  useEffect(() => {
+    const onAppAction = (event: Event) => {
+      const action = (event as CustomEvent<AppActionDetail>).detail?.action;
+      if (!action) return;
+      if (action === 'run-loading') { void runLoading(); return; }
+      if (action === 'show-results') { showResults(); return; }
+      if (action === 'load-local') { loadLocal(); return; }
+      if (action === 'save-local') { saveLocal(); return; }
+      if (action === 'print-report') { printReport(); return; }
+      if (action === 'reset-all') { resetAll(); return; }
+      if (action === 'viewer') { scrollToViewer(); return; }
+      if (action === 'dashboard') scrollToDashboard();
+    };
+    window.addEventListener(APP_ACTION_EVENT, onAppAction);
+    return () => window.removeEventListener(APP_ACTION_EVENT, onAppAction);
+  }, [container, cargo, result, mode, isRunning, navSection]);
+
   return <main className="app-shell mockup-dashboard">
     <header className="topbar mockup-topbar">
       <div className="brand-block"><span className="brand-cube" aria-hidden="true">CL</span><strong>컨테이너 적재 시뮬레이터</strong></div>
@@ -371,6 +389,15 @@ export default function App() {
       </section>
 
       <aside className="dashboard-right">
+        <section className="dashboard-card viewer-final-action-row" aria-label="주요 작업">
+          <h2>주요 작업</h2>
+          <button type="button" className="viewer-final-action primary" disabled={isRunning} onClick={() => void runLoading()}>
+            {isRunning ? '검사 진행 중…' : '최종 적재 진행'}
+          </button>
+          <button type="button" className="viewer-final-action report" disabled={isRunning} onClick={printReport}>작업지시서 보기</button>
+          <button type="button" className="viewer-final-action reset" disabled={isRunning} onClick={resetAll}>전체 초기화</button>
+        </section>
+
         <section className="dashboard-card summary-card"><h2>4. 적재 요약</h2><div className="summary-metric-grid">
           <div><span>총 부피</span><b>{result.usedVolumeM3.toFixed(1)} / {totalVolume.toFixed(1)} m³</b><small>{fillRate.toFixed(1)}%</small></div>
           <div><span>총 중량</span><b>{result.loadedWeightKg.toLocaleString()} / {container.maxPayloadKg.toLocaleString()} kg</b><small>{weightRate.toFixed(1)}%</small></div>
