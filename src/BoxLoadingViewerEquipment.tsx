@@ -30,6 +30,7 @@ import WeightDistributionPanel from './WeightDistributionPanel';
 import './weight-distribution.css';
 
 type IndexedPlacement = { placement: Placement; index: number };
+type Props = { result: LoadingResult; container: ContainerSpec; cargo?: CargoItem[] };
 
 function CargoGroup({
   items,
@@ -60,8 +61,6 @@ function CargoGroup({
         (placement.z + placement.height / 2) * scale + 0.03,
         (placement.y + placement.width / 2) * scale - container.width * scale / 2,
       );
-      // 안전 검토용 뷰어는 실제 placement 치수를 그대로 렌더링한다.
-      // 이전 0.985 축소는 맞닿은 박스 사이에 존재하지 않는 시각적 간극을 만들었다.
       object.scale.set(placement.length * scale, placement.height * scale, placement.width * scale);
       object.updateMatrix();
       mesh.setMatrixAt(instanceIndex, object.matrix);
@@ -81,13 +80,7 @@ function CargoGroup({
     if (value) onSelect(value.index);
   }}>
     <boxGeometry />
-    <meshStandardMaterial
-      roughness={0.58}
-      metalness={0.01}
-      transparent={dimmed}
-      opacity={dimmed ? 0.2 : 1}
-      depthWrite={!dimmed}
-    />
+    <meshStandardMaterial roughness={0.58} metalness={0.01} transparent={dimmed} opacity={dimmed ? 0.2 : 1} depthWrite={!dimmed} />
   </instancedMesh>;
 }
 
@@ -126,7 +119,7 @@ function BoxOutline({ p, container, scale }: { p: Placement; container: Containe
   </mesh>;
 }
 
-export default function BoxLoadingViewerEquipment({ result, container }: { result: LoadingResult; container: ContainerSpec }) {
+export default function BoxLoadingViewerEquipment({ result, container, cargo }: Props) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [view, setView] = useState<PreviewView>('free');
   const [showLabels, setShowLabels] = useState(readBoxLabelPreference);
@@ -138,7 +131,8 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
   });
   const equipment = useTransportEquipment();
   const scale = 0.5;
-  const cargoMap = useMemo(() => new Map((readStoredState()?.cargo ?? []).map((item) => [item.id, item] as [string, CargoItem])), [result.placements]);
+  const cargoSource = cargo ?? readStoredState()?.cargo ?? [];
+  const cargoMap = useMemo(() => new Map(cargoSource.map((item) => [item.id, item] as [string, CargoItem])), [cargoSource]);
   const addresses = useMemo(() => buildPlacementAddresses(result.placements, container.length), [result.placements, container.length]);
   const groups = useMemo(() => {
     const map = new Map<string, IndexedPlacement[]>();
