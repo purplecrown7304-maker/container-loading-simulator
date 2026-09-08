@@ -1,173 +1,84 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
-async function restoreSample(page: import('@playwright/test').Page) {
-  const empty = page.locator('.empty-cargo');
-  if (await empty.isVisible().catch(() => false)) {
-    await empty.getByRole('button', { name: '샘플 복원' }).click();
-  } else {
-    const cargoItems = page.locator('.cargo-list-item');
-    if (await cargoItems.count() === 0) await page.getByRole('button', { name: '샘플 복원' }).first().click();
-  }
-  await expect(page.locator('.cargo-list-item').first()).toBeVisible();
+const STORAGE_KEY = 'container-loading-simulator-v1';
+const container = { length: 12.032, width: 2.35, height: 2.7, maxPayloadKg: 28600, floorLoadLimitKgPerM2: 1500, floorLoadWarningMultiplier: 3 };
+
+async function seedCargo(page: Page, quantity = 1) {
+  await page.addInitScript(({ key, containerSpec, qty }) => {
+    localStorage.clear();
+    localStorage.setItem(key, JSON.stringify({
+      container: containerSpec,
+      cargo: [{ id: 'E2E-A', name: 'E2E A', length: 0.5, width: 0.4, height: 0.3, weightKg: 10, quantity: qty, maxStackLayers: 7, maxTopLoadKg: 100, allowRotation: true }],
+    }));
+  }, { key: STORAGE_KEY, containerSpec: container, qty: quantity });
 }
 
-test('current dashboard and field material settings mount correctly', async ({ page }) => {
+async function goToLoading(page: Page) {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: '운송 장비를 선택하세요' })).toBeVisible();
+  await page.getByRole('button', { name: '화물 선택으로' }).click();
+  await expect(page.getByRole('heading', { name: '화물을 선택하세요' })).toBeVisible();
+  await page.getByRole('button', { name: '자동 적재로' }).click();
+  await expect(page.getByRole('heading', { name: '자동 적재' })).toBeVisible();
+  await expect(page.locator('.ux3-viewer-host canvas')).toBeVisible({ timeout: 20_000 });
+}
+
+test('UX v3 mounts as a four-step loading workflow', async ({ page }) => {
+  await seedCargo(page, 2);
   await page.goto('/');
 
   await expect(page.getByText('컨테이너 적재 시뮬레이터')).toBeVisible();
-  await expect(page.getByText('1. 컨테이너 정보')).toBeVisible();
-  await expect(page.getByText('2. 적재할 화물')).toBeVisible();
-  await expect(page.getByText('3. 적재 옵션')).toBeVisible();
-  await expect(page.getByText('4. 적재 요약')).toBeVisible();
-  await expect(page.getByText('5. 제약 조건 체크')).toBeVisible();
-  await expect(page.locator('.viewer-host canvas')).toBeVisible({ timeout: 20_000 });
-
-  await restoreSample(page);
-  await expect(page.locator('.cargo-list-item')).not.toHaveCount(0);
-  await expect(page.getByRole('button', { name: /물리 최적 자동 적재/ })).toBeEnabled();
-  await expect(page.getByRole('button', { name: /Excel 내보내기/ })).toBeVisible();
-  await expect(page.getByText('적재 보조자재 실제 중량 설정')).toBeVisible();
+  await expect(page.getByText('장비 선택', { exact: true })).toBeVisible();
+  await expect(page.getByText('화물 선택', { exact: true })).toBeVisible();
+  await expect(page.getByText('자동 적재', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('결과 확인', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Excel 내보내기' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '화물 선택으로' })).toBeEnabled();
 });
 
-test('box optimization automatically continues into final inertia certification', async ({ page }) => {
+test('direct box loading reaches result tabs and work order without a certification gate', async ({ page }) => {
+  test.setTimeout(120_000);
+  await seedCargo(page, 1);
+  await goToLoading(page);
+
+  await page.getByRole('button', { name: '자동 적재 실행' }).click();
+  await expect(page.getByRole('heading', { name: '적재 결과' })).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByRole('button', { name: /^미적재/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: '무게 분포' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '안전 검사' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '작업지시서 열기' })).toBeEnabled();
+
+  const popupPromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: '작업지시서 열기' }).click();
+  const popup = await popupPromise;
+  await expect(popup).toHaveTitle(/적재 작업지시서/);
+});
+
+test('pallet mode completes without the legacy certification modal', async ({ page }) => {
   test.setTimeout(90_000);
+  await seedCargo(page, 2);
   await page.goto('/');
-  await restoreSample(page);
-
-  await page.getByRole('button', { name: /물리 최적 자동 적재/ }).click();
-  const gate = page.locator('.final-cert-modal');
-  await expect(gate).toBeVisible({ timeout: 70_000 });
-  await expect(gate.getByRole('heading', { name: '최종 적재 결과 전 관성 검증' })).toBeVisible();
-  await expect(gate).toContainText('DIRECT BOX');
-  await expect(gate).toContainText('출발 가속');
-  await expect(gate).toContainText('급정거');
-  await expect(gate).toContainText('급회전');
-  await expect(gate).toContainText('통과 기준');
-});
-
-test('manual result view remains gated before a certified result exists', async ({ page }) => {
-  test.setTimeout(60_000);
-  await page.goto('/');
-  await restoreSample(page);
-
-  await page.locator('.viewer-bottom-actions .result-open-action').click();
-  const gate = page.locator('.final-cert-modal');
-  await expect(gate).toBeVisible({ timeout: 10_000 });
-  await expect(gate).toContainText('DIRECT BOX');
-  await expect(page.locator('.results-modal')).toHaveCount(0);
-});
-
-test('Excel export remains blocked until the current box plan has a matching inertia PASS', async ({ page }) => {
-  await page.goto('/');
-  await page.evaluate(() => {
-    const detail = {
-      container: { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 },
-      cargo: [{ id: 'E2E-A', name: 'E2E A', length: 0.5, width: 0.4, height: 0.3, weightKg: 10, quantity: 1 }],
-      result: {
-        placements: [{ cargoId: 'E2E-A', x: 0, y: 0, z: 0, length: 0.5, width: 0.4, height: 0.3, weightKg: 10 }],
-        remaining: [],
-        loadedWeightKg: 10,
-        usedVolumeM3: 0.06,
-        validationIssues: [],
-      },
-    };
-    window.dispatchEvent(new CustomEvent('container-loading:result', { detail }));
-  });
-
-  const exportButton = page.getByRole('button', { name: /Excel 내보내기/ });
-  await expect(exportButton).toBeEnabled();
-  const dialogPromise = page.waitForEvent('dialog');
-  await exportButton.click();
-  const dialog = await dialogPromise;
-  expect(dialog.message()).toContain('관성 시뮬레이션 3종');
-  await dialog.accept();
-});
-
-test('pallet optimization automatically requests pallet inertia certification', async ({ page }) => {
-  test.setTimeout(70_000);
-  await page.goto('/');
-  await restoreSample(page);
-
+  await page.getByRole('button', { name: '화물 선택으로' }).click();
   await page.getByRole('button', { name: '팔레트', exact: true }).click();
-  await expect(page.locator('.pallet-preview canvas')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText('사용 팔레트', { exact: true })).toBeVisible();
-  await expect(page.getByText('관성 보강', { exact: true })).toBeVisible();
-  await expect(page.getByText('보조자재 중량', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '자동 적재로' }).click();
+  await expect(page.locator('.ux3-viewer-host canvas')).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('button', { name: '자동 적재 실행' }).click();
+  await expect(page.getByRole('heading', { name: '적재 결과' })).toBeVisible({ timeout: 40_000 });
+  await expect(page.locator('.final-cert-modal')).toHaveCount(0);
 
-  await page.getByRole('button', { name: /물리 최적 자동 적재/ }).click();
-  await expect(page.locator('.final-cert-modal')).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator('.final-cert-modal')).toContainText('PALLET');
+  const popupPromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: '작업지시서 열기' }).click();
+  const popup = await popupPromise;
+  await expect(popup).toHaveTitle(/팔레트 적재 작업지시서/);
 });
 
-test('result gate distinguishes direct-box and pallet certification modes', async ({ page }) => {
-  test.setTimeout(60_000);
-  await page.goto('/');
-  await restoreSample(page);
-
-  await page.locator('.viewer-bottom-actions .result-open-action').click();
-  await expect(page.locator('.final-cert-modal')).toContainText('DIRECT BOX');
-
-  await page.reload();
-  await restoreSample(page);
-  await page.getByRole('button', { name: '팔레트', exact: true }).click();
-  await expect(page.locator('.pallet-preview canvas')).toBeVisible({ timeout: 20_000 });
-  await page.locator('.viewer-bottom-actions .result-open-action').click();
-  await expect(page.locator('.final-cert-modal')).toContainText('PALLET');
-});
-
-test('results pallet settings keep the seven-level range and close certified results after edits', async ({ page }) => {
-  await page.goto('/');
-  await page.evaluate(() => {
-    const spec = {
-      length: 1.1,
-      width: 1.1,
-      height: 0.15,
-      tareWeightKg: 25,
-      maxLoadKg: 1000,
-      maxStackLevels: 6,
-      maxSupportedTopWeightKg: 1000,
-      useCornerGuards: false,
-      cornerGuardWeightKg: 2,
-      cornerGuardExtraHeightM: 0.03,
-      useWrapping: false,
-      wrappingWeightKg: 1.5,
-      wrappingExtraHeightM: 0.01,
-      minimizePackaging: true,
-    };
-    const palletResult = {
-      pallets: [], placements: [], remaining: [], palletCount: 0,
-      loadedCargoWeightKg: 0, totalPackagingWeightKg: 0, avoidedPackagingWeightKg: 0,
-      packagedPalletCount: 0, totalPalletizedWeightKg: 0, consolidatedPallets: 0,
-      lateralImbalanceKg: 0, stackedPallets: 0, maxUsedStackLevel: 0,
-      optimization: { selectedStackTarget: 6, candidateCount: 1, floorPositions: 0, redistributedForLowUtilization: false, consolidationPasses: 0 },
-    };
-    (window as typeof window & { __containerLoadingPalletSnapshot?: unknown }).__containerLoadingPalletSnapshot = { spec, result: palletResult };
-    const detail = {
-      container: { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 },
-      cargo: [{ id: 'INACTIVE', name: 'Inactive', length: 0.5, width: 0.4, height: 0.3, weightKg: 10, quantity: 0 }],
-      result: { placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0, validationIssues: [] },
-    };
-    window.dispatchEvent(new CustomEvent('container-loading-open-results-modal', { detail }));
-  });
-
-  const modal = page.locator('.results-modal');
-  await expect(modal).toBeVisible();
-  const stackInput = modal.getByLabel('최대 적층단');
-  await expect(stackInput).toHaveValue('6');
-  await expect(stackInput).toHaveAttribute('max', '7');
-  await modal.getByLabel('길이(m)').fill('1.2');
-  await expect(page.locator('.results-modal')).toHaveCount(0);
-});
-
-test('mobile dashboard remains usable without horizontal overflow', async ({ page }) => {
+test('mobile workflow has no horizontal page overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await seedCargo(page, 1);
   await page.goto('/');
   await expect(page.getByText('컨테이너 적재 시뮬레이터')).toBeVisible();
-  await expect(page.locator('.viewer-host')).toBeVisible();
-  await restoreSample(page);
-  await expect(page.getByRole('button', { name: /물리 최적 자동 적재/ })).toBeVisible();
-  await expect(page.locator('.viewer-bottom-actions .result-open-action')).toBeVisible();
-
+  await page.getByRole('button', { name: '화물 선택으로' }).click();
+  await expect(page.getByRole('heading', { name: '화물을 선택하세요' })).toBeVisible();
   const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
   const viewportWidth = await page.evaluate(() => window.innerWidth);
   expect(bodyWidth).toBeLessThanOrEqual(viewportWidth + 2);
