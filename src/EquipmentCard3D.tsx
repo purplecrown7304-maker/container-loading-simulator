@@ -26,8 +26,11 @@ const EQUIPMENT_ATLAS_CELLS: Record<string, readonly [number, number]> = {
 
 const ATLAS_COLUMNS = 5;
 const ATLAS_ROWS = 4;
-const BACKGROUND_SCALE_X = 4.5;
-const BACKGROUND_SCALE_Y = 3.6;
+// Exact cell scale is 5x4. We intentionally zoom out uniformly so each card
+// includes extra whitespace above/below the equipment and never crops the
+// lower frame/shadow at the atlas-cell boundary.
+const BACKGROUND_SCALE_X = 4.05;
+const BACKGROUND_SCALE_Y = 3.24;
 
 function centeredBackgroundPosition(index: number, count: number, scale: number) {
   const cellCenter = (index + 0.5) / count;
@@ -46,6 +49,7 @@ export default function EquipmentCard3D({ item }: Props) {
         style={{
           backgroundImage: `url(${EQUIPMENT_PHOTO_ATLAS_DATA_URI})`,
           backgroundPosition: `${positionX}% ${positionY}%`,
+          backgroundSize: `${BACKGROUND_SCALE_X * 100}% ${BACKGROUND_SCALE_Y * 100}%`,
         }}
       />
     </span>
