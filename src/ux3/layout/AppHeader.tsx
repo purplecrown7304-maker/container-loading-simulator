@@ -2,11 +2,12 @@ type Props = {
   adminMode: boolean;
   onLoad: () => void;
   onSave: () => void;
+  onExport: () => void;
   onAdminLogin: () => void;
   onAdminLogout: () => void;
 };
 
-export default function AppHeader({ adminMode, onLoad, onSave, onAdminLogin, onAdminLogout }: Props) {
+export default function AppHeader({ adminMode, onLoad, onSave, onExport, onAdminLogin, onAdminLogout }: Props) {
   return <header className="ux3-header">
     <div className="ux3-brand">
       <span className="ux3-brand-mark">CL</span>
@@ -15,6 +16,7 @@ export default function AppHeader({ adminMode, onLoad, onSave, onAdminLogin, onA
     <div className="ux3-header-actions">
       <button type="button" className="ux3-secondary-button" onClick={onLoad}>불러오기</button>
       <button type="button" className="ux3-secondary-button" onClick={onSave}>저장</button>
+      <button type="button" className="ux3-secondary-button" onClick={onExport}>Excel 내보내기</button>
       {adminMode
         ? <button type="button" className="ux3-secondary-button" onClick={onAdminLogout}>관리자 로그아웃</button>
         : <button type="button" className="ux3-secondary-button" onClick={onAdminLogin}>관리자</button>}
