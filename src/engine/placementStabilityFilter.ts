@@ -137,9 +137,43 @@ function topCargoId(column: Column) {
   return column.placements[column.placements.length - 1]?.cargoId ?? '';
 }
 
+function homogeneousCargoId(column: Column) {
+  const first = column.placements[0]?.cargoId;
+  if (!first) return '';
+  return column.placements.every(item => item.cargoId === first) ? first : '';
+}
+
 function countSameSkuNeighbours(column: Column, columns: Column[]) {
   const cargoId = topCargoId(column);
   return columns.filter(other => other !== column && topCargoId(other) === cargoId && areSideAdjacent(column, other)).length;
+}
+
+function sameSkuComponent(column: Column, columns: Column[]) {
+  const cargoId = homogeneousCargoId(column);
+  if (!cargoId) return [];
+  const component: Column[] = [];
+  const queue = [column];
+  const visited = new Set<string>();
+
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (visited.has(current.key) || !current.placements.length || homogeneousCargoId(current) !== cargoId) continue;
+    visited.add(current.key);
+    component.push(current);
+    for (const other of columns) {
+      if (visited.has(other.key) || !other.placements.length || homogeneousCargoId(other) !== cargoId) continue;
+      if (areSideAdjacent(current, other)) queue.push(other);
+    }
+  }
+  return component;
+}
+
+function isCompactTwoDimensionalSameSkuBlock(column: Column, columns: Column[]) {
+  const component = sameSkuComponent(column, columns);
+  if (component.length < 4) return false;
+  const xPositions = new Set(component.map(item => roundKey(item.x)));
+  const yPositions = new Set(component.map(item => roundKey(item.y)));
+  return xPositions.size >= 2 && yPositions.size >= 2;
 }
 
 function trimTop(column: Column, removed: Placement[]) {
@@ -150,13 +184,17 @@ function trimTop(column: Column, removed: Placement[]) {
 /**
  * Operational shape guard applied after the geometric packer.
  *
- * Fall and overturn prevention is a hard constraint and outranks CG centering / fill rate.
- * Every horizontal face is checked independently, so same-height neighbours on the left/right
- * cannot hide a dangerous height cliff or a large open fall zone in front/behind the stack.
+ * Fall and overturn prevention remains a hard constraint for isolated towers and narrow exposed walls.
+ * A compact homogeneous same-SKU block with at least two rows in both horizontal directions is treated
+ * as a mutually restrained block, so its exposed outer face is not forced down to an arbitrary 2-layer cap.
+ * It may use maxStackLayers up to the actual container-height, payload, support and cumulative top-load
+ * limits that the packing/stacking engine already enforces.
  *
  * Rules:
- * - a stack facing a sufficiently large open interior gap may expose at most two layers;
- * - adjacent stacks may rise by at most roughly one box layer at a time, producing a staircase;
+ * - isolated towers are trimmed;
+ * - narrow stacks facing a sufficiently large open interior gap may expose at most two layers;
+ * - compact 2D homogeneous same-SKU blocks may keep their configured physically valid height;
+ * - adjacent non-block stacks may rise by at most roughly one box layer at a time;
  * - container walls count as restraint;
  * - only top boxes are removed, so retained boxes never lose vertical support.
  */
@@ -171,7 +209,6 @@ export function filterOperationallyUnsafeShape(
   const columns = buildColumns(placements);
   const removed: Placement[] = [];
 
-  // Repeat because trimming one edge can expose the next row and must create a gradual staircase.
   for (let pass = 0; pass < 24; pass += 1) {
     let changed = false;
 
@@ -182,22 +219,20 @@ export function filterOperationallyUnsafeShape(
       const top = column.placements[column.placements.length - 1];
       const item = cargoById.get(top.cargoId);
       const sameSkuNeighbours = countSameSkuNeighbours(column, columns);
+      const compactSameSkuBlock = isCompactTwoDimensionalSameSkuBlock(column, columns);
 
-      // A vertical stack standing completely by itself is never allowed to become a tower.
       if (layers > 1 && neighbours.length === 0) {
         trimTop(column, removed);
         changed = true;
         continue;
       }
 
-      // Three or more layers need a same-SKU footprint at least two boxes wide.
-      // Five or more layers need a wider block, not a 1x1 / 1x2 chimney.
       if (layers >= 3 && sameSkuNeighbours < 1) {
         trimTop(column, removed);
         changed = true;
         continue;
       }
-      if (layers >= 5 && sameSkuNeighbours < 2) {
+      if (layers >= 5 && !compactSameSkuBlock && sameSkuNeighbours < 2) {
         trimTop(column, removed);
         changed = true;
         continue;
@@ -209,12 +244,10 @@ export function filterOperationallyUnsafeShape(
         const facing = faceNeighbours(column, columns, face);
 
         if (facing.length > 0) {
-          // Use the lowest significant facing neighbour. A tall neighbour elsewhere on another
-          // face must not mask a low row directly in front of this stack.
           const facingTop = Math.min(...facing.map(columnTop));
           const tallestFacingLayer = Math.max(...facing.map(n => n.placements[n.placements.length - 1]?.height ?? 0));
           const allowedCliff = Math.max(top.height, tallestFacingLayer, item?.height ?? 0, 0.25);
-          if (columnTop(column) - facingTop > allowedCliff + TOUCH) {
+          if (!compactSameSkuBlock && columnTop(column) - facingTop > allowedCliff + TOUCH) {
             trimTop(column, removed);
             changed = true;
             directionalRisk = true;
@@ -223,10 +256,8 @@ export function filterOperationallyUnsafeShape(
           continue;
         }
 
-        // No touching restraint on this face. A tiny seam is tolerated, but a gap large enough
-        // for a box/stack to rotate into is treated as a fall zone. Open edges stay low (<= 2 layers).
         const gap = nearestFacingGap(column, columns, face);
-        if (gap > dangerousOpenClearance(column, face) + TOUCH && layers > MAX_EXPOSED_LAYERS) {
+        if (!compactSameSkuBlock && gap > dangerousOpenClearance(column, face) + TOUCH && layers > MAX_EXPOSED_LAYERS) {
           trimTop(column, removed);
           changed = true;
           directionalRisk = true;
@@ -239,8 +270,6 @@ export function filterOperationallyUnsafeShape(
     if (!changed) break;
   }
 
-  // Remove isolated single-box islands when the rest of the load already forms a block.
-  // A small end gap is tolerated, but a visibly detached box is not.
   const nonEmpty = columns.filter(column => column.placements.length);
   if (nonEmpty.length >= 4) {
     for (const column of nonEmpty) {
@@ -248,9 +277,7 @@ export function filterOperationallyUnsafeShape(
       const nearest = Math.min(...nonEmpty.filter(other => other !== column).map(other => gapBetween(column, other)));
       const p = column.placements[0];
       const touchesBoundary = p.x <= TOUCH || p.y <= TOUCH || p.x + p.length >= container.length - TOUCH || p.y + p.width >= container.width - TOUCH;
-      if (nearest > GAP && !touchesBoundary) {
-        trimTop(column, removed);
-      }
+      if (nearest > GAP && !touchesBoundary) trimTop(column, removed);
     }
   }
 
