@@ -29,12 +29,14 @@ export default function EquipmentCard3D({ item }: Props) {
 
   return (
     <span className="equipment-card-photo" aria-hidden="true">
-      <img
-        src={EQUIPMENT_PHOTO_ATLAS_DATA_URI}
-        alt=""
-        draggable={false}
-        style={{ left: `-${column * 100}%`, top: `-${row * 100}%` }}
-      />
+      <span className="equipment-card-photo-crop">
+        <img
+          src={EQUIPMENT_PHOTO_ATLAS_DATA_URI}
+          alt=""
+          draggable={false}
+          style={{ left: `-${column * 100}%`, top: `-${row * 100}%` }}
+        />
+      </span>
     </span>
   );
 }
