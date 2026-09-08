@@ -73,9 +73,9 @@ function scoreCandidate(container: ContainerSpec, cargo: CargoItem[], result: Lo
   const movingPenalty = physics.settled ? 0 : 12;
 
   const score = clamp(
-    physics.score * 0.75 +
-    completionScore * 0.10 +
-    balanceScore * 0.06 +
+    physics.score * 0.72 +
+    completionScore * 0.15 +
+    balanceScore * 0.04 +
     groupingScore * 0.05 +
     utilizationScore * 0.04 -
     geometryPenalty -
@@ -92,11 +92,14 @@ export function comparePhysicsOptimizationCandidates(a: PhysicsOptimizationCandi
   const unstableDiff = totalUnstable(a.physics) - totalUnstable(b.physics);
   if (unstableDiff !== 0) return unstableDiff;
 
-  if (a.physicsScore !== b.physicsScore) return b.physicsScore - a.physicsScore;
+  // 같은 안전 등급에서는 가능한 화물을 더 많이 싣는 후보를 먼저 선택한다.
+  // 무게중심/분포 품질은 적재 차단 조건이 아니라 후순위 품질 평가 항목이다.
   if (a.completionScore !== b.completionScore) return b.completionScore - a.completionScore;
+  if (a.physicsScore !== b.physicsScore) return b.physicsScore - a.physicsScore;
+  if (a.result.placements.length !== b.result.placements.length) return b.result.placements.length - a.result.placements.length;
   if (a.score !== b.score) return b.score - a.score;
   if (a.balanceScore !== b.balanceScore) return b.balanceScore - a.balanceScore;
-  return b.result.placements.length - a.result.placements.length;
+  return b.utilizationScore - a.utilizationScore;
 }
 
 /**
