@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { preflightCargoInput } from './engine/inputPreflight';
 import type { CargoItem } from './engine/types';
 
@@ -51,7 +50,6 @@ function mergeWorkbookDuplicates(items: CargoItem[], firstRowById: Map<string, n
   for (const [id, group] of grouped) {
     const active = group.filter((item) => item.quantity > 0);
     if (!active.length) {
-      // Zero quantity is a valid inactive SKU. Keep one row visible in the imported list.
       merged.push(group[0]);
       continue;
     }
@@ -75,6 +73,7 @@ function mergeWorkbookDuplicates(items: CargoItem[], firstRowById: Map<string, n
 }
 
 export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
+  const XLSX = await import('xlsx');
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
   const firstSheetName = workbook.SheetNames[0];
@@ -156,7 +155,8 @@ export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
   };
 }
 
-export function downloadCargoTemplate() {
+export async function downloadCargoTemplate() {
+  const XLSX = await import('xlsx');
   const worksheet = XLSX.utils.aoa_to_sheet([
     headers,
     ['BOX-A', 'BOX A', 0.6, 0.4, 0.35, 18, 70, 7, 100, 'Y', 2],
