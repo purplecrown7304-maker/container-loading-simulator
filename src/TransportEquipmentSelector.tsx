@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import containerEquipmentAtlas from './assets/container-equipment-atlas.png';
-import './transport-equipment-3d.css';
+import EquipmentCard3D from './EquipmentCard3D';
 import { STORAGE_UPDATED_EVENT } from './storage';
 import {
   CONTAINER_EQUIPMENT,
@@ -32,26 +31,6 @@ type EditableSpec = {
   height: number;
   maxPayloadKg: number;
   floorLoadLimitKgPerM2: number;
-};
-
-const CONTAINER_ATLAS_CELLS: Record<string, readonly [number, number]> = {
-  '20-standard': [0, 0],
-  '40-standard': [1, 0],
-  '40-high-cube': [2, 0],
-  '45-high-cube': [3, 0],
-  '20-open-top': [0, 1],
-  '40-open-top': [1, 1],
-  '20-flatrack': [2, 1],
-  '40-flatrack': [3, 1],
-  '20-flatrack-collapsible': [0, 2],
-  '40-flatrack-collapsible': [1, 2],
-  '20-platform': [2, 2],
-  '40-platform': [3, 2],
-  '20-reefer': [0, 3],
-  '40-reefer': [1, 3],
-  '20-bulk': [2, 3],
-  '20-tank': [3, 3],
-  'custom-container': [2, 0],
 };
 
 function nativeValueSetter(input: HTMLInputElement, value: number) {
@@ -127,17 +106,7 @@ function EquipmentIcon({ geometry, truck }: { geometry: EquipmentGeometry; truck
 }
 
 function EquipmentVisual({ item }: { item: TransportEquipment }) {
-  if (item.category === 'container') {
-    const [column, row] = CONTAINER_ATLAS_CELLS[item.id] ?? CONTAINER_ATLAS_CELLS['40-high-cube'];
-    return <span className="transport-equipment-3d" aria-hidden="true">
-      <img
-        src={containerEquipmentAtlas}
-        alt=""
-        draggable={false}
-        style={{ left: `-${column * 100}%`, top: `-${row * 100}%` }}
-      />
-    </span>;
-  }
+  if (item.category === 'container') return <EquipmentCard3D item={item} />;
   return <EquipmentIcon geometry={item.geometry} truck />;
 }
 
