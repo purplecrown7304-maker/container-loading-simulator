@@ -1,123 +1,24 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import AppV3 from './AppV3';
 import ErrorBoundary from './ErrorBoundary';
-import AdminAccessControl from './AdminAccessControl';
-import ExcelImportActions from './ExcelImportActions';
-import ExcelExportActions from './ExcelExportActions';
-import ResultsOverlay from './ResultsOverlay';
-import CertificationInvalidationBridge from './CertificationInvalidationBridge';
-import './certifiedExportConsistency';
-import FinalCertificationGate from './FinalCertificationGate';
-import FinalWorkflowRecoveryBridge from './FinalWorkflowRecoveryBridge';
-import FinalWorkOrderOptimizer from './FinalWorkOrderOptimizer';
-import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
-import PalletResultsOptimizer from './PalletResultsOptimizer';
-import PalletWeightDistributionDock from './PalletWeightDistributionDock';
-import PalletWeightDistributionLauncher from './PalletWeightDistributionLauncher';
-import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
-import EnterprisePackagingPlannerHost from './EnterprisePackagingPlannerHost';
-import EnterpriseTransportEquipmentAdapter from './EnterpriseTransportEquipmentAdapter';
-import ProductPackagingExcelActions from './ProductPackagingExcelActions';
-import EnterprisePackagingOutputActions from './EnterprisePackagingOutputActions';
-import EnterprisePackagingStrategyExplorer from './EnterprisePackagingStrategyExplorer';
-import EnterpriseCartonApprovalCenter from './EnterpriseCartonApprovalCenter';
-import EnterpriseManufacturingSettings from './EnterpriseManufacturingSettings';
-import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
-import HeaderLoadingStatusBoard from './HeaderLoadingStatusBoard';
-import RemainingLengthIndicator from './RemainingLengthIndicator';
-import OperationalRightSummary from './OperationalRightSummary';
-import DashboardCommandDock from './DashboardCommandDock';
-import TransportEquipmentSelector from './TransportEquipmentSelector';
-import TransportEquipmentDashboardSummary from './TransportEquipmentDashboardSummary';
-import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
-import TransportEquipmentRecalculationNotice from './TransportEquipmentRecalculationNotice';
-import PhysicsValidationTool from './PhysicsValidationTool';
-import InertiaTestTool from './InertiaTestTool';
-import InspectionStatusPanel from './InspectionStatusPanel';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
-import './error.css';
 import './selection.css';
-import './cargo-filter.css';
-import './layer-slicer.css';
-import './minimap.css';
-import './zone-utilization.css';
-import './auto-correction.css';
-import './dashboard-mockup.css';
-import './cargo-form-compact.css';
-import './inspection-flow.css';
-import './strategy-comparison.css';
-import './spare-capacity.css';
-import './manual-editor.css';
-import './group-suggestion.css';
-import './work-sequence.css';
-import './ergonomic-panel.css';
-import './results-modal.css';
-import './performance-overrides.css';
-import './workspace-tools.css';
 import './reference-layout.css';
 import './reference-viewer.css';
 import './pallet-inspector.css';
-import './physics-validation.css';
 import './physics-pallet.css';
+import './performance-overrides.css';
 import './ui-layout-fixes.css';
-import './inertia-test.css';
-import './inertia-launcher.css';
-import './pallet-footer-summary.css';
-import './final-certification.css';
-import './securing-material-settings.css';
-import './product-packaging.css';
-import './enterprise-packaging.css';
-import './enterprise-strategy.css';
-import './enterprise-approval.css';
-import './enterprise-manufacturing.css';
 import './transport-equipment.css';
-import './topbar-cleanup.css';
-import './pallet-weight-distribution.css';
-import './header-loading-status.css';
-import './pallet-weight-launcher.css';
-import './remaining-length.css';
-import './operational-right-summary.css';
-import './ux-polish.css';
+import './ux-v3.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <AdminAccessControl />
-      <ReferenceWorkspaceBar />
-      <HeaderLoadingStatusBoard />
-      <TransportEquipmentSelector />
-      <TransportEquipmentSafetyGuard />
-      <TransportEquipmentRecalculationNotice />
-      <ResultsOverlay />
-      <CertificationInvalidationBridge />
-      <FinalCertificationGate />
-      <FinalWorkflowRecoveryBridge />
-      <FinalWorkOrderOptimizer />
-      <DirectWorkOrderOptimizer />
-      <PalletResultsOptimizer />
-      <App />
-      <RemainingLengthIndicator />
-      <PalletWeightDistributionDock />
-      <PalletWeightDistributionLauncher />
-      <InspectionStatusPanel />
-      <OperationalRightSummary />
-      <DashboardCommandDock />
-      <TransportEquipmentDashboardSummary />
-      <EnterprisePackagingPlannerHost />
-      <EnterpriseTransportEquipmentAdapter />
-      <ProductPackagingExcelActions />
-      <EnterprisePackagingOutputActions />
-      <EnterpriseManufacturingSettings />
-      <EnterprisePackagingStrategyExplorer />
-      <EnterpriseCartonApprovalCenter />
-      <SecuringMaterialSettingsPanel />
-      <PhysicsValidationTool />
-      <InertiaTestTool />
-      <ExcelImportActions />
-      <ExcelExportActions />
+      <AppV3 />
     </ErrorBoundary>
   </React.StrictMode>,
 );
