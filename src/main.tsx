@@ -24,7 +24,6 @@ import EnterprisePackagingStrategyExplorer from './EnterprisePackagingStrategyEx
 import EnterpriseCartonApprovalCenter from './EnterpriseCartonApprovalCenter';
 import EnterpriseManufacturingSettings from './EnterpriseManufacturingSettings';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
-import HeaderActionBridge from './HeaderActionBridge';
 import HeaderLoadingStatusBoard from './HeaderLoadingStatusBoard';
 import RemainingLengthIndicator from './RemainingLengthIndicator';
 import OperationalRightSummary from './OperationalRightSummary';
@@ -88,7 +87,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <AdminAccessControl />
       <ReferenceWorkspaceBar />
-      <HeaderActionBridge />
       <HeaderLoadingStatusBoard />
       <TransportEquipmentSelector />
       <TransportEquipmentSafetyGuard />
