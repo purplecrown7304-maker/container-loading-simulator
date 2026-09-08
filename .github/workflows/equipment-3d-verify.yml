@@ -1,0 +1,23 @@
+name: Equipment 3D Verify
+
+on:
+  push:
+    branches: [ui/3d-equipment-cards-20260908]
+
+jobs:
+  verify-equipment-3d:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Upgrade npm
+        run: npm install -g npm@11
+      - name: Install dependencies
+        run: npm install
+      - name: Production build
+        run: npm run build
