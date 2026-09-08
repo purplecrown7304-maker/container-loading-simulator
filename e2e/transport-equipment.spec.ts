@@ -23,8 +23,9 @@ test('selecting a different container preserves the current cargo list', async (
   await expect(page.locator('.ux3-current-job')).toContainText('20FT Standard');
 
   await page.getByRole('button', { name: '화물 선택으로' }).click();
-  await expect(page.getByText('KEEP-A · Keep A')).toBeVisible();
-  await expect(page.getByLabel('KEEP-A 적재 수량')).toHaveValue('3');
+  const selectedPanel = page.locator('.ux3-selected-panel');
+  await expect(selectedPanel.getByText('KEEP-A · Keep A')).toBeVisible();
+  await expect(selectedPanel.getByLabel('KEEP-A 적재 수량')).toHaveValue('3');
 });
 
 test('truck tab exposes road equipment and custom values can be applied', async ({ page }) => {
