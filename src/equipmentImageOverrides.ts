@@ -1,3 +1,5 @@
+import { isAdminSession } from './adminAccess';
+
 const STORAGE_KEY = 'container-loading:equipment-image-overrides:v1';
 export const EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT = 'equipment-image-overrides-updated';
 
@@ -19,18 +21,25 @@ export function readEquipmentImageOverrides(): EquipmentImageOverrides {
   }
 }
 
+function assertAdminImageAccess() {
+  if (!isAdminSession()) throw new Error('관리자 계정으로 로그인한 경우에만 장비 이미지를 수정할 수 있습니다.');
+}
+
 function writeEquipmentImageOverrides(next: EquipmentImageOverrides) {
+  assertAdminImageAccess();
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   window.dispatchEvent(new Event(EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT));
 }
 
 export function setEquipmentImageOverride(equipmentId: string, dataUrl: string) {
+  assertAdminImageAccess();
   const next = { ...readEquipmentImageOverrides(), [equipmentId]: dataUrl };
   writeEquipmentImageOverrides(next);
   return next;
 }
 
 export function removeEquipmentImageOverride(equipmentId: string) {
+  assertAdminImageAccess();
   const next = { ...readEquipmentImageOverrides() };
   delete next[equipmentId];
   writeEquipmentImageOverrides(next);
