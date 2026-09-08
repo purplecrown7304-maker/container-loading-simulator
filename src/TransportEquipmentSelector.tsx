@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import containerEquipmentAtlas from './assets/container-equipment-atlas.png';
+import './transport-equipment-3d.css';
 import { STORAGE_UPDATED_EVENT } from './storage';
 import {
   CONTAINER_EQUIPMENT,
@@ -30,6 +32,26 @@ type EditableSpec = {
   height: number;
   maxPayloadKg: number;
   floorLoadLimitKgPerM2: number;
+};
+
+const CONTAINER_ATLAS_CELLS: Record<string, readonly [number, number]> = {
+  '20-standard': [0, 0],
+  '40-standard': [1, 0],
+  '40-high-cube': [2, 0],
+  '45-high-cube': [3, 0],
+  '20-open-top': [0, 1],
+  '40-open-top': [1, 1],
+  '20-flatrack': [2, 1],
+  '40-flatrack': [3, 1],
+  '20-flatrack-collapsible': [0, 2],
+  '40-flatrack-collapsible': [1, 2],
+  '20-platform': [2, 2],
+  '40-platform': [3, 2],
+  '20-reefer': [0, 3],
+  '40-reefer': [1, 3],
+  '20-bulk': [2, 3],
+  '20-tank': [3, 3],
+  'custom-container': [2, 0],
 };
 
 function nativeValueSetter(input: HTMLInputElement, value: number) {
@@ -104,10 +126,25 @@ function EquipmentIcon({ geometry, truck }: { geometry: EquipmentGeometry; truck
   return <svg viewBox="0 0 180 100" aria-hidden="true"><path d="M26 35l96-18 34 9v49L59 88 26 73z" className="eq-fill"/><path d="M26 35l96-18 34 9-97 18-33-9zm0 0v38l33 15V44m97-18v49L59 88" className="eq-line"/>{geometry !== 'open-top' && <path d="M59 44l97-18" className="eq-line"/>}{geometry === 'reefer' && <text x="110" y="62" className="eq-snow">❄</text>}{geometry === 'bulk' && <><circle cx="92" cy="31" r="5" className="eq-dark"/><circle cx="118" cy="27" r="5" className="eq-dark"/></>}</svg>;
 }
 
+function EquipmentVisual({ item }: { item: TransportEquipment }) {
+  if (item.category === 'container') {
+    const [column, row] = CONTAINER_ATLAS_CELLS[item.id] ?? CONTAINER_ATLAS_CELLS['40-high-cube'];
+    return <span className="transport-equipment-3d" aria-hidden="true">
+      <img
+        src={containerEquipmentAtlas}
+        alt=""
+        draggable={false}
+        style={{ left: `-${column * 100}%`, top: `-${row * 100}%` }}
+      />
+    </span>;
+  }
+  return <EquipmentIcon geometry={item.geometry} truck />;
+}
+
 function EquipmentCard({ item, active, onSelect }: { item: TransportEquipment; active: boolean; onSelect: (value: TransportEquipment) => void }) {
-  return <button type="button" className={`transport-equipment-card ${active ? 'active' : ''}`} onClick={() => onSelect(item)}>
+  return <button type="button" data-category={item.category} data-equipment-id={item.id} className={`transport-equipment-card ${active ? 'active' : ''}`} onClick={() => onSelect(item)}>
     <span className="transport-equipment-card-name">{item.name}</span>
-    <EquipmentIcon geometry={item.geometry} truck={item.category === 'truck'} />
+    <EquipmentVisual item={item} />
     <span className="transport-equipment-spec">{item.length.toFixed(2)} × {item.width.toFixed(2)} × {item.height.toFixed(2)} m</span>
     <span className="transport-equipment-payload">적재 {item.maxPayloadKg.toLocaleString()} kg</span>
   </button>;
