@@ -1,0 +1,26 @@
+name: Box Master Verify
+
+on:
+  push:
+    branches: [feat/box-master-admin-stability-20260908]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: npm install
+      - name: Verify WorkspaceTools TypeScript diagnostics
+        shell: bash
+        run: |
+          set +e
+          npm run typecheck 2>&1 | tee /tmp/typecheck.log
+          if grep -E 'src/WorkspaceTools\.tsx\(' /tmp/typecheck.log; then
+            echo 'WorkspaceTools contains TypeScript diagnostics.'
+            exit 1
+          fi
+      - run: npm run build
