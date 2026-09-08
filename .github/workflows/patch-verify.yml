@@ -33,6 +33,7 @@ jobs:
           src/certifiedExport.test.ts
           src/workOrderAccessPolicy.test.ts
           src/engine/fallPreventionRegression.test.ts
+          src/engine/directBoxConfiguredStackHeightRegression.test.ts
           src/engine/directBoxInputPreflightRegression.test.ts
           src/engine/directBoxOversizeRegression.test.ts
           src/engine/directBoxTailRegression.test.ts
