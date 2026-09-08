@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { cargoColor } from './cargoColors';
+import { parseCargoWorkbook } from './excel';
 import { readStoredState, writeStoredState, type StoredState } from './storage';
 import { EXCEL_IMPORT_EVENT, OPEN_WORKSPACE_EVENT, type WorkspaceOpenDetail } from './uiEvents';
 
 const BOX_KEY = 'container-loading-workspace-boxes-v1';
 const VEHICLE_KEY = 'container-loading-workspace-vehicles-v1';
 const SAFETY_KEY = 'container-loading-workspace-safety-v1';
+const CATALOG_KEY = 'container-loading-box-catalog-v1';
 
 type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type LoadingWindow = Window & { __containerLoadingLatestResult?: LoadingDetail };
@@ -55,6 +57,7 @@ function viewTitle(view: Exclude<View, null>) {
 }
 
 export default function WorkspaceTools({ showNav = true }: Props) {
+  const catalogInputRef = useRef<HTMLInputElement>(null);
   const [view, setView] = useState<View>(null);
   const [boxes, setBoxes] = useState<DataBox[]>(() => readJson(BOX_KEY, []));
   const [customVehicles, setCustomVehicles] = useState<VehiclePreset[]>(() => readJson(VEHICLE_KEY, []));
@@ -62,7 +65,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
   const [vehicleName, setVehicleName] = useState('내 차량');
   const [vehicleSpec, setVehicleSpec] = useState<ContainerSpec>({ length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 });
   const [message, setMessage] = useState('');
-  const [catalog, setCatalog] = useState<CargoItem[]>(catalogSeed);
+  const [catalog, setCatalog] = useState<CargoItem[]>(() => readJson(CATALOG_KEY, catalogSeed));
   const [selected, setSelected] = useState<Record<string, number>>({});
   const [query, setQuery] = useState('');
   const [registerOpen, setRegisterOpen] = useState(false);
@@ -71,6 +74,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
 
   useEffect(() => localStorage.setItem(BOX_KEY, JSON.stringify(boxes)), [boxes]);
   useEffect(() => localStorage.setItem(VEHICLE_KEY, JSON.stringify(customVehicles)), [customVehicles]);
+  useEffect(() => localStorage.setItem(CATALOG_KEY, JSON.stringify(catalog)), [catalog]);
 
   useEffect(() => {
     const onOpen = (event: Event) => {
@@ -104,6 +108,39 @@ export default function WorkspaceTools({ showNav = true }: Props) {
     const cargo = chosen.map(x => ({ ...x, quantity: selected[x.id] }));
     writeStoredState({ container: state?.container ?? builtInVehicles[2].spec, cargo }, true);
     setView(null);
+  };
+
+  const importCatalogWorkbook = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const result = await parseCargoWorkbook(file);
+      if (!result.items.length) {
+        const firstIssue = result.issues[0]?.message;
+        setMessage(`추가 가능한 박스가 없습니다.${firstIssue ? ` ${firstIssue}` : ''}`);
+        return;
+      }
+
+      const map = new Map(catalog.map(item => [item.id, item]));
+      let newCount = 0;
+      let updatedCount = 0;
+      for (const item of result.items) {
+        if (map.has(item.id)) updatedCount += 1;
+        else newCount += 1;
+        map.set(item.id, item);
+      }
+      setCatalog([...map.values()]);
+      setSelected(current => {
+        const next = { ...current };
+        for (const item of result.items) delete next[item.id];
+        return next;
+      });
+      const issueText = result.issues.length ? ` · 오류 제외 ${result.issues.length}건` : '';
+      setMessage(`기초 엑셀 반영 완료 · 신규 ${newCount}종 · 기존 갱신 ${updatedCount}종${issueText}`);
+    } catch {
+      setMessage('기초 엑셀 파일을 읽지 못했습니다. 다운로드한 양식의 열 이름과 파일 형식을 확인하세요.');
+    } finally {
+      if (catalogInputRef.current) catalogInputRef.current.value = '';
+    }
   };
 
   const saveBox = () => {
@@ -166,8 +203,12 @@ export default function WorkspaceTools({ showNav = true }: Props) {
             </div>
             {registerOpen && <div className="box-register">
               <b>신규 박스 일괄 등록</b>
-              <span>샘플 항목을 추가한 뒤 값과 수량을 수정할 수 있습니다.</span>
-              <button onClick={() => setCatalog(previous => [...previous, { id: `BOX-${String(previous.length + 1).padStart(3, '0')}`, name: `신규 화물 ${previous.length + 1}`, length: .5, width: .4, height: .3, weightKg: 10, quantity: 0, maxStackLayers: 5, maxTopLoadKg: 80, allowRotation: true }])}>신규 박스 추가</button>
+              <span>직접 신규 박스를 만들거나, 기초 엑셀 양식을 작성해 업로드하면 등록된 박스 목록에 추가됩니다. 같은 박스코드는 최신 엑셀 정보로 갱신됩니다.</span>
+              <div className="box-register-actions">
+                <button onClick={() => setCatalog(previous => [...previous, { id: `BOX-${String(previous.length + 1).padStart(3, '0')}`, name: `신규 화물 ${previous.length + 1}`, length: .5, width: .4, height: .3, weightKg: 10, quantity: 0, maxStackLayers: 5, maxTopLoadKg: 80, allowRotation: true }])}>신규 박스 추가</button>
+                <button onClick={() => catalogInputRef.current?.click()}>기초 엑셀 업로드</button>
+                <input ref={catalogInputRef} className="hidden-file-input" type="file" accept=".xlsx,.xls" onChange={event => void importCatalogWorkbook(event.target.files?.[0])} />
+              </div>
             </div>}
             <label className="box-search-label">박스 검색</label>
             <div className="box-search"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="박스코드, 내용물 검색" /><button onClick={() => setQuery('')}>검색 초기화</button></div>
