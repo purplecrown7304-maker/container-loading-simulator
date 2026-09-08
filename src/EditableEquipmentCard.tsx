@@ -1,6 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type MouseEvent } from 'react';
 import EquipmentCard3D from './EquipmentCard3D';
 import './equipment-image-editor.css';
+import { ADMIN_ACCESS_EVENT, isAdminSession } from './adminAccess';
 import {
   EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT,
   prepareEquipmentImage,
@@ -39,6 +40,7 @@ function DefaultVisual({ item }: { item: TransportEquipment }) {
 export default function EditableEquipmentCard({ item, active, onSelect, onMessage }: Props) {
   const [imageSrc, setImageSrc] = useState(() => readEquipmentImageOverrides()[item.id] ?? '');
   const [busy, setBusy] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(() => isAdminSession());
 
   useEffect(() => {
     const sync = () => setImageSrc(readEquipmentImageOverrides()[item.id] ?? '');
@@ -46,12 +48,21 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
     return () => window.removeEventListener(EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT, sync);
   }, [item.id]);
 
+  useEffect(() => {
+    const sync = () => setIsAdmin(isAdminSession());
+    window.addEventListener(ADMIN_ACCESS_EVENT, sync);
+    return () => window.removeEventListener(ADMIN_ACCESS_EVENT, sync);
+  }, []);
+
   const stopCardSelection = (event: MouseEvent<HTMLElement>) => event.stopPropagation();
 
   const changeImage = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (!file) return;
+    if (!file || !isAdminSession()) {
+      if (file) onMessage?.('관리자 계정으로 로그인한 경우에만 장비 이미지를 수정할 수 있습니다.');
+      return;
+    }
     setBusy(true);
     try {
       const dataUrl = await prepareEquipmentImage(file);
@@ -68,6 +79,10 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
 
   const resetImage = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
+    if (!isAdminSession()) {
+      onMessage?.('관리자 계정으로 로그인한 경우에만 장비 이미지를 복원할 수 있습니다.');
+      return;
+    }
     removeEquipmentImageOverride(item.id);
     setImageSrc('');
     onMessage?.(`${item.shortName} 이미지를 기본 이미지로 복원했습니다.`);
@@ -86,12 +101,12 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
       <span className="transport-equipment-spec">{item.length.toFixed(2)} × {item.width.toFixed(2)} × {item.height.toFixed(2)} m</span>
       <span className="transport-equipment-payload">적재 {item.maxPayloadKg.toLocaleString()} kg</span>
     </button>
-    <div className="transport-equipment-image-actions" onClick={stopCardSelection}>
+    {isAdmin && <div className="transport-equipment-image-actions" onClick={stopCardSelection}>
       <label className={`transport-image-edit ${busy ? 'busy' : ''}`} title={`${item.shortName} 이미지 변경`}>
         {busy ? '처리중…' : '이미지 수정'}
         <input type="file" accept="image/png,image/jpeg,image/webp" onChange={changeImage} disabled={busy} />
       </label>
       {imageSrc && <button type="button" className="transport-image-reset" onClick={resetImage}>원본</button>}
-    </div>
+    </div>}
   </div>;
 }
