@@ -141,10 +141,10 @@ export default function App() {
     const name = draft.name.trim();
     const valid = Boolean(id && name)
       && [draft.length, draft.width, draft.height, draft.weightKg].every(value => Number.isFinite(value) && value > 0)
-      && Number.isInteger(draft.quantity) && draft.quantity >= 1
+      && Number.isInteger(draft.quantity) && draft.quantity >= 0
       && (draft.maxStackLayers == null || (Number.isInteger(draft.maxStackLayers) && draft.maxStackLayers >= 1))
       && (draft.maxTopLoadKg == null || (Number.isFinite(draft.maxTopLoadKg) && draft.maxTopLoadKg >= 0));
-    if (!valid) return announce('error', '박스 코드·이름·치수·중량·수량·적층조건을 확인하세요. 수량은 1 이상의 정수이고 상부 허용중량은 0 이상이어야 합니다.');
+    if (!valid) return announce('error', '박스 코드·이름·치수·중량·수량·적층조건을 확인하세요. 수량은 0 이상의 정수이고 상부 허용중량은 0 이상이어야 합니다.');
     if (!editingId && cargo.some(item => item.id === id)) return announce('error', `이미 등록된 박스 코드입니다: ${id}`);
     const next: CargoItem = {
       ...draft,
@@ -332,7 +332,7 @@ export default function App() {
               <label>폭(m)<input type="number" min="0.01" step="0.01" value={draft.width} onChange={e => updateDraft('width', e.target.value)} /></label>
               <label>높이(m)<input type="number" min="0.01" step="0.01" value={draft.height} onChange={e => updateDraft('height', e.target.value)} /></label>
               <label>중량(kg)<input type="number" min="0.01" step="0.01" value={draft.weightKg} onChange={e => updateDraft('weightKg', e.target.value)} /></label>
-              <label>수량<input type="number" min="1" step="1" value={draft.quantity} onChange={e => updateDraft('quantity', e.target.value)} /></label>
+              <label>수량<input type="number" min="0" step="1" value={draft.quantity} onChange={e => updateDraft('quantity', e.target.value)} /></label>
               <label>최대 적층단<input type="number" min="1" step="1" value={draft.maxStackLayers ?? 1} onChange={e => updateDraft('maxStackLayers', e.target.value)} /></label>
               <label>상부 허용중량(kg)<input type="number" min="0" step="0.1" value={draft.maxTopLoadKg ?? ''} placeholder="제한 없음" onChange={e => updateDraft('maxTopLoadKg', e.target.value)} /></label>
               <label><input type="checkbox" checked={draft.allowRotation !== false} onChange={e => updateDraft('allowRotation', e.target.checked)} /> 회전 허용</label>

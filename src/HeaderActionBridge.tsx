@@ -1,16 +1,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT,
-  readFinalPhysicsValidation,
-} from './autoCertification';
+import { FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT } from './autoCertification';
 import { FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
-import {
-  INERTIA_CERTIFICATION_EVENT,
-  createPhysicsTargetSignature,
-  readLatestInertiaCertification,
-} from './inertiaCertification';
-import { canCreateWorkOrder } from './inertiaWorkOrderPolicy';
+import { INERTIA_CERTIFICATION_EVENT } from './inertiaCertification';
 import { PHYSICS_TARGET_EVENT, readPhysicsTarget } from './physicsTarget';
 import { APP_ACTION_EVENT, dispatchAppAction, type AppActionDetail } from './uiEvents';
 import './viewer-final-actions.css';
@@ -33,16 +25,7 @@ function workflowBusy() {
 
 function finalWorkOrderReady() {
   const target = readPhysicsTarget();
-  if (!target?.result.placements.length) return false;
-  const signature = createPhysicsTargetSignature(target);
-  const finalPhysics = readFinalPhysicsValidation();
-  if (!finalPhysics || finalPhysics.signature !== signature) return false;
-  const certification = readLatestInertiaCertification();
-  return Boolean(
-    certification
-    && certification.targetSignature === signature
-    && canCreateWorkOrder(certification),
-  );
+  return Boolean(target?.result.placements.length);
 }
 
 export default function HeaderActionBridge() {

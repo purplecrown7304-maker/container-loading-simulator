@@ -272,7 +272,7 @@ export function buildPalletAdaptiveCandidates(
   for (const { variant, heightRatio, maxStackLevels } of sampleCombinations(combinations, combinationBudget)) {
     const spec = { ...snapshot.spec, maxStackLevels };
     const cargo = cappedCargo(variant.cargo, spec, heightRatio);
-    const packed = restoreRotationFlags(centerPalletCargo(packOnPallets(current.container, cargo, spec)), variant.forcedRotatedIds);
+    const packed = restoreRotationFlags(centerPalletCargo(packOnPallets(current.container, cargo, spec), current.container), variant.forcedRotatedIds);
     const baseLabel = `${variant.label} · 높이 ${Math.round(heightRatio * 100)}% · ${maxStackLevels}단 제한`;
     addCandidate(list, seen, current, spec, packed, `팔레트 위 재배치 · ${baseLabel}`);
     addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, false), `안쪽 밀착 2열 · ${baseLabel}`);
