@@ -46,7 +46,7 @@ function horizontalCg(placements: Placement[]) {
 }
 
 describe('fall / overturn prevention with fixed container-center target', () => {
-  it('turns a tall wall facing a large empty fall zone into a low edge and staircase', () => {
+  it('keeps a narrow tall wall facing a large empty fall zone at a low exposed edge', () => {
     const container: ContainerSpec = { length: 2.5, width: 1.2, height: 2.4, maxPayloadKg: 10000 };
     const green = cargo('GREEN');
     const brown = cargo('BROWN');
@@ -54,15 +54,30 @@ describe('fall / overturn prevention with fixed container-center target', () => 
 
     for (const y of [0, 0.4, 0.8]) placements.push(...column(brown, 0.5, y, 2));
     for (const y of [0, 0.4, 0.8]) placements.push(...column(green, 1.5, y, 5));
-    for (const y of [0, 0.4, 0.8]) placements.push(...column(green, 2.0, y, 5));
 
     const result = filterOperationallyUnsafeShape(container, [green, brown], placements);
 
     for (const y of [0, 0.4, 0.8]) {
       expect(layerCountAt(result.placements, 1.5, y)).toBeLessThanOrEqual(2);
-      expect(layerCountAt(result.placements, 2.0, y)).toBeLessThanOrEqual(3);
     }
     expect(result.removedByCargo.get('GREEN')).toBeGreaterThan(0);
+  });
+
+  it('keeps a tall compact 2D same-SKU block even when its outer faces are open', () => {
+    const container: ContainerSpec = { length: 3, width: 1.2, height: 2.4, maxPayloadKg: 10000 };
+    const item = cargo('BLOCK', { height: 0.4, maxStackLayers: 6, maxTopLoadKg: 500 });
+    const placements: Placement[] = [];
+
+    for (const x of [0.5, 1.0]) {
+      for (const y of [0, 0.4, 0.8]) placements.push(...column(item, x, y, 6));
+    }
+
+    const result = filterOperationallyUnsafeShape(container, [item], placements);
+    expect(result.placements).toHaveLength(placements.length);
+    expect(result.removedByCargo.size).toBe(0);
+    for (const x of [0.5, 1.0]) {
+      for (const y of [0, 0.4, 0.8]) expect(layerCountAt(result.placements, x, y)).toBe(6);
+    }
   });
 
   it('keeps a tall compact block when every exposed face is restrained by a wall or equal-height neighbour', () => {
