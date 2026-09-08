@@ -28,13 +28,13 @@ jobs:
       - name: Security audit
         run: npm audit --audit-level=high
 
-      - name: Predeploy verification
-        run: npm run verify:predeploy
+      - name: UX v3 verification
+        run: npm run verify:ux3
 
       - name: Install Chromium for E2E
         run: npx playwright install --with-deps chromium
 
-      - name: Browser smoke tests
+      - name: Browser UX v3 tests
         run: npm run test:e2e
 
       - name: Upload build artifact for verification only
