@@ -28,6 +28,7 @@ import AdminLoginModal from '../admin/AdminLoginModal';
 import CargoEditorModal, { EMPTY_CARGO_DRAFT, type CargoDraft } from '../cargo/CargoEditorModal';
 import CargoStep from '../cargo/CargoStep';
 import EquipmentStep from '../equipment/EquipmentStep';
+import { exportUx3Workbook } from '../exportWorkbook';
 import LoadingStep from '../loading/LoadingStep';
 import ResultStep from '../results/ResultStep';
 import Modal from '../shared/Modal';
@@ -159,7 +160,7 @@ export default function AppShell() {
     setCategory(item.category);
     setContainer(nextContainer);
     invalidateEquipmentPlan(nextContainer);
-    announce('success', `${item.shortName} 규격을 적용했습니다.`);
+    announce(item.specializedCargo ? 'warning' : 'success', item.specializedCargo ? `${item.shortName}은 특수화물 전용 장비입니다. 일반 박스/팔레트 자동 적재는 실행하지 않습니다.` : `${item.shortName} 규격을 적용했습니다.`);
   };
 
   const updateContainer = (field: keyof ContainerSpec, value: string) => {
@@ -265,6 +266,10 @@ export default function AppShell() {
     setStep(1); setFurthestStep(1);
     announce('success', '저장된 작업을 불러왔습니다. 자동 적재는 다시 실행하세요.');
   };
+  const exportCurrent = () => {
+    exportUx3Workbook(container, equipment, cargo, activeResult);
+    announce('success', '현재 적재 결과를 Excel로 내보냈습니다.');
+  };
   const loadSample = () => {
     const sample = normalizeCargo(createRandomSampleCargo());
     const item = CONTAINER_EQUIPMENT.find(candidate => candidate.id === '40-high-cube') ?? equipment;
@@ -277,7 +282,8 @@ export default function AppShell() {
     setPalletResult(null);
     setPhysics(null);
     setMode('boxes');
-    setFurthestStep(current => Math.max(current, 2) as WorkflowStep);
+    setStep(2);
+    setFurthestStep(2);
     announce('info', `샘플 화물 ${sample.length}종을 불러왔습니다.`);
   };
 
@@ -296,6 +302,7 @@ export default function AppShell() {
     if (running) return;
     const invalidContainer = containerInputError(container);
     if (invalidContainer) return announce('error', invalidContainer);
+    if (equipment.specializedCargo) return announce('error', `${equipment.shortName}은 특수화물 전용 장비라 일반 박스/팔레트 자동 적재 대상이 아닙니다. 일반 화물용 장비를 선택하세요.`);
     const preflight = preflightCargoInput(cargo);
     if (preflight.rejected.length) {
       const first = preflight.rejected[0];
@@ -359,7 +366,7 @@ export default function AppShell() {
   const adminLogout = () => { logoutAdmin(); setAdminMode(false); setCargoEditorOpen(false); announce('info', '관리자 모드를 종료했습니다.'); };
 
   return <main className="ux3-app-shell">
-    <AppHeader adminMode={adminMode} onLoad={loadLocal} onSave={saveLocal} onAdminLogin={() => { setAdminError(''); setAdminLoginOpen(true); }} onAdminLogout={adminLogout} />
+    <AppHeader adminMode={adminMode} onLoad={loadLocal} onSave={saveLocal} onExport={exportCurrent} onAdminLogin={() => { setAdminError(''); setAdminLoginOpen(true); }} onAdminLogout={adminLogout} />
     <div className="ux3-workspace">
       <WorkflowSidebar step={step} furthestStep={furthestStep} equipmentName={equipment.shortName} loadingModeLabel={mode === 'boxes' ? '박스 직접 적재' : '팔레트 적재'} selectedKinds={selectedCargo.length} requestedQty={totalQty} loadedQty={activeResult.placements.length} onStep={goStep} onReset={() => setResetOpen(true)} />
       <section className="ux3-content">
