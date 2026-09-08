@@ -1,5 +1,6 @@
 import { useEffect, useState, type ChangeEvent, type MouseEvent } from 'react';
 import EquipmentCard3D from './EquipmentCard3D';
+import './equipment-image-editor.css';
 import {
   EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT,
   prepareEquipmentImage,
