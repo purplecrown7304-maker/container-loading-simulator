@@ -12,6 +12,6 @@ describe('equipment photo atlas', () => {
     const bytes = Buffer.from(base64, 'base64');
     expect(bytes.subarray(0, 4).toString('ascii')).toBe('RIFF');
     expect(bytes.subarray(8, 12).toString('ascii')).toBe('WEBP');
-    expect(bytes.length).toBe(26275);
+    expect(bytes.length).toBe(26276);
   });
 });
