@@ -18,6 +18,17 @@ type PalletSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult }
 type ExportWindow = Window & { __containerLoadingLatestResult?: Detail; __containerLoadingPalletSnapshot?: PalletSnapshot };
 type CurrentTarget = NonNullable<ReturnType<typeof readPhysicsTarget>>;
 
+type InertiaHistoryRow = {
+  순서: number;
+  단계: string;
+  시나리오: string;
+  전체수평이동_mm: string | number;
+  화물팔레트미끄럼_mm: string | number;
+  팔레트상대이동_mm: string | number;
+  기울기_deg: string | number;
+  판정: string;
+};
+
 function matchingBoxCertification(detail: Detail): InertiaCertification | undefined {
   const target = readPhysicsTarget();
   const certification = readLatestInertiaCertification();
@@ -64,7 +75,7 @@ function appendInertiaMetricsSheet(wb: XLSX.WorkBook, certification: InertiaCert
 }
 
 function appendInertiaHistorySheet(wb: XLSX.WorkBook, certification: InertiaCertification) {
-  const rows = (certification.attempts ?? []).flatMap((attempt, attemptIndex) => {
+  const rows = (certification.attempts ?? []).flatMap<InertiaHistoryRow>((attempt, attemptIndex) => {
     if (!attempt.scenarios.length) return [{
       순서: attemptIndex + 1,
       단계: attempt.level === 0 ? '기본 적재안' : attempt.levelLabel,
