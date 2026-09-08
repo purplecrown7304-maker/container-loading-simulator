@@ -5,11 +5,13 @@ const container = { length: 12.032, width: 2.35, height: 2.7, maxPayloadKg: 2860
 
 async function seedCargo(page: Page) {
   await page.addInitScript(({ key, containerSpec }) => {
+    if (sessionStorage.getItem('ux3-e2e-seeded') === '1') return;
     localStorage.clear();
     localStorage.setItem(key, JSON.stringify({
       container: containerSpec,
       cargo: [{ id: 'KEEP-A', name: 'Keep A', length: 0.5, width: 0.4, height: 0.3, weightKg: 10, quantity: 3, maxStackLayers: 7, allowRotation: true }],
     }));
+    sessionStorage.setItem('ux3-e2e-seeded', '1');
   }, { key: STORAGE_KEY, containerSpec: container });
 }
 
