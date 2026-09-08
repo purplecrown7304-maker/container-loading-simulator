@@ -28,10 +28,11 @@ test('UX v3 mounts as a four-step loading workflow', async ({ page }) => {
   await page.goto('/');
 
   await expect(page.getByText('컨테이너 적재 시뮬레이터')).toBeVisible();
-  await expect(page.getByText('장비 선택', { exact: true })).toBeVisible();
-  await expect(page.getByText('화물 선택', { exact: true })).toBeVisible();
-  await expect(page.getByText('자동 적재', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('결과 확인', { exact: true })).toBeVisible();
+  const steps = page.locator('.ux3-step-list');
+  await expect(steps.getByText('장비 선택', { exact: true })).toBeVisible();
+  await expect(steps.getByText('화물 선택', { exact: true })).toBeVisible();
+  await expect(steps.getByText('자동 적재', { exact: true })).toBeVisible();
+  await expect(steps.getByText('결과 확인', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Excel 내보내기' })).toBeVisible();
   await expect(page.getByRole('button', { name: '화물 선택으로' })).toBeEnabled();
 });
