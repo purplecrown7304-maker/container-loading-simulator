@@ -26,11 +26,10 @@ const EQUIPMENT_ATLAS_CELLS: Record<string, readonly [number, number]> = {
 
 const ATLAS_COLUMNS = 5;
 const ATLAS_ROWS = 4;
-// Exact cell scale is 5x4. We intentionally zoom out uniformly so each card
-// includes extra whitespace above/below the equipment and never crops the
-// lower frame/shadow at the atlas-cell boundary.
-const BACKGROUND_SCALE_X = 4.05;
-const BACKGROUND_SCALE_Y = 3.24;
+// Exact atlas cell scale is 5x4. Render each cell at 75% of that scale
+// so the equipment itself is zoomed out by 25% while staying centered.
+const BACKGROUND_SCALE_X = 3.75;
+const BACKGROUND_SCALE_Y = 3.0;
 
 function centeredBackgroundPosition(index: number, count: number, scale: number) {
   const cellCenter = (index + 0.5) / count;
