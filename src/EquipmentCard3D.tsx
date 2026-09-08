@@ -24,19 +24,30 @@ const EQUIPMENT_ATLAS_CELLS: Record<string, readonly [number, number]> = {
   'custom-container': [1, 3],
 };
 
+const ATLAS_COLUMNS = 5;
+const ATLAS_ROWS = 4;
+const BACKGROUND_SCALE_X = 4.5;
+const BACKGROUND_SCALE_Y = 3.6;
+
+function centeredBackgroundPosition(index: number, count: number, scale: number) {
+  const cellCenter = (index + 0.5) / count;
+  return ((0.5 - scale * cellCenter) / (1 - scale)) * 100;
+}
+
 export default function EquipmentCard3D({ item }: Props) {
   const [column, row] = EQUIPMENT_ATLAS_CELLS[item.id] ?? EQUIPMENT_ATLAS_CELLS['40-high-cube'];
+  const positionX = centeredBackgroundPosition(column, ATLAS_COLUMNS, BACKGROUND_SCALE_X);
+  const positionY = centeredBackgroundPosition(row, ATLAS_ROWS, BACKGROUND_SCALE_Y);
 
   return (
     <span className="equipment-card-photo" aria-hidden="true">
-      <span className="equipment-card-photo-crop">
-        <img
-          src={EQUIPMENT_PHOTO_ATLAS_DATA_URI}
-          alt=""
-          draggable={false}
-          style={{ left: `-${column * 100}%`, top: `-${row * 100}%` }}
-        />
-      </span>
+      <span
+        className="equipment-card-photo-sprite"
+        style={{
+          backgroundImage: `url(${EQUIPMENT_PHOTO_ATLAS_DATA_URI})`,
+          backgroundPosition: `${positionX}% ${positionY}%`,
+        }}
+      />
     </span>
   );
 }
