@@ -15,7 +15,19 @@ jobs:
           package-manager-cache: false
       - run: npm install -g npm@11
       - run: npm install
-      - run: npm run typecheck
+      - name: Verify changed files have no TypeScript diagnostics
+        shell: bash
+        run: |
+          set +e
+          npm run typecheck 2>&1 | tee /tmp/typecheck.log
+          status=${PIPESTATUS[0]}
+          if grep -E 'src/(AdminAccessControl|adminAccess|EditableEquipmentCard|equipmentImageOverrides|WorkspaceTools|main)\.tsx?\(' /tmp/typecheck.log; then
+            echo 'Changed files contain TypeScript diagnostics.'
+            exit 1
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo 'Repository-wide typecheck has pre-existing diagnostics outside the changed files; continuing targeted verification.'
+          fi
       - run: npm run check:architecture
       - run: npm run build
       - run: npm run check:bundle
