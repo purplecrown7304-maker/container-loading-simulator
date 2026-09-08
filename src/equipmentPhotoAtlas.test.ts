@@ -9,9 +9,9 @@ describe('equipment photo atlas', () => {
     const base64 = EQUIPMENT_PHOTO_ATLAS_DATA_URI.slice(prefix.length);
     expect(base64.length).toBe(35036);
 
-    const bytes = Buffer.from(base64, 'base64');
-    expect(bytes.subarray(0, 4).toString('ascii')).toBe('RIFF');
-    expect(bytes.subarray(8, 12).toString('ascii')).toBe('WEBP');
-    expect(bytes.length).toBe(26276);
+    const binary = atob(base64);
+    expect(binary.slice(0, 4)).toBe('RIFF');
+    expect(binary.slice(8, 12)).toBe('WEBP');
+    expect(binary.length).toBe(26276);
   });
 });
