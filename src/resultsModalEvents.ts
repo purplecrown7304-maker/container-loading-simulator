@@ -17,9 +17,14 @@ export type ResultsModalDetail = {
   certification?: InertiaCertification;
 };
 
+/**
+ * 최종 결과 공개 여부와 안전 PASS 여부를 분리한다.
+ * 현재 적재안과 정확히 일치하는 관성 결과라면 PASS/실패 모두 결과 화면을 열 수 있고,
+ * 결과 화면 안에서 해당 상태를 경고로 표시한다. 오래된 다른 적재안의 인증 결과는 계속 거부한다.
+ */
 export function certificationMatchesTarget(certification: InertiaCertification | undefined, target: PhysicsTarget | undefined) {
   return Boolean(
-    certification?.status === 'passed'
+    certification
     && target
     && certification.mode === target.mode
     && certification.targetSignature === createPhysicsTargetSignature(target),

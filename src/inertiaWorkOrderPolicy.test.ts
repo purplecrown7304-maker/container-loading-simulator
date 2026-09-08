@@ -5,6 +5,7 @@ import {
   assessWorkOrderCertification,
   buildWorkOrderRecommendations,
   canCreateWorkOrder,
+  isWorkOrderSafetyApproved,
 } from './inertiaWorkOrderPolicy';
 
 const scenarios: InertiaScenario[] = ['acceleration', 'braking', 'cornering'];
@@ -69,32 +70,38 @@ function threeResults(overrides: Partial<InertiaAnimationResult> = {}) {
   return Object.fromEntries(scenarios.map(scenario => [scenario, result({ ...overrides, scenario })])) as Record<InertiaScenario, InertiaAnimationResult>;
 }
 
-describe('work order inertia approval policy', () => {
-  it('allows a completed caution result that is above PASS but below danger', () => {
+describe('work order inertia reporting policy', () => {
+  it('allows a completed caution result and keeps it safety-approved', () => {
     const cert = certification('boxes', threeResults({ maxHorizontalShiftM: 0.02 }));
     expect(assessWorkOrderCertification(cert)).toBe('caution');
     expect(canCreateWorkOrder(cert)).toBe(true);
+    expect(isWorkOrderSafetyApproved(cert)).toBe(true);
     expect(buildWorkOrderRecommendations(cert).some(item => item.includes('미끄럼방지재'))).toBe(true);
   });
 
-  it('blocks a box result above the danger movement threshold', () => {
+  it('still creates a work order above the danger movement threshold but does not safety-approve it', () => {
     const cert = certification('boxes', threeResults({ maxHorizontalShiftM: 0.031 }));
     expect(assessWorkOrderCertification(cert)).toBe('danger');
-    expect(canCreateWorkOrder(cert)).toBe(false);
+    expect(canCreateWorkOrder(cert)).toBe(true);
+    expect(isWorkOrderSafetyApproved(cert)).toBe(false);
+    expect(buildWorkOrderRecommendations(cert).some(item => item.includes('배치·수량 확인용'))).toBe(true);
   });
 
-  it('blocks dangerous pallet-relative cargo slip even when box movement is small', () => {
+  it('still creates a pallet work order for dangerous relative slip but does not safety-approve it', () => {
     const cert = certification('pallets', threeResults({ maxHorizontalShiftM: 0.006, maxCargoRelativeSlipM: 0.021 }));
     expect(assessWorkOrderCertification(cert)).toBe('danger');
-    expect(canCreateWorkOrder(cert)).toBe(false);
+    expect(canCreateWorkOrder(cert)).toBe(true);
+    expect(isWorkOrderSafetyApproved(cert)).toBe(false);
   });
 
-  it('does not approve an incomplete three-scenario test', () => {
+  it('creates an incomplete work order as a warning document without safety approval', () => {
     const cert = certification('boxes', {
       acceleration: result({ scenario: 'acceleration', maxHorizontalShiftM: 0.02 }),
       braking: result({ scenario: 'braking', maxHorizontalShiftM: 0.01 }),
     });
     expect(assessWorkOrderCertification(cert)).toBe('incomplete');
-    expect(canCreateWorkOrder(cert)).toBe(false);
+    expect(canCreateWorkOrder(cert)).toBe(true);
+    expect(isWorkOrderSafetyApproved(cert)).toBe(false);
+    expect(buildWorkOrderRecommendations(cert).some(item => item.includes('검증이 완료되지 않은'))).toBe(true);
   });
 });

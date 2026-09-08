@@ -1,5 +1,5 @@
 import { createPhysicsTargetSignature, readLatestInertiaCertification } from './inertiaCertification';
-import { assessWorkOrderCertification, canCreateWorkOrder } from './inertiaWorkOrderPolicy';
+import { assessWorkOrderCertification, isWorkOrderSafetyApproved } from './inertiaWorkOrderPolicy';
 import { readPhysicsTarget } from './physicsTarget';
 
 export function hasCurrentInertiaVerification(): boolean {
@@ -8,13 +8,12 @@ export function hasCurrentInertiaVerification(): boolean {
   const certification = readLatestInertiaCertification();
   if (!target || !certification) return false;
   if (certification.targetSignature !== createPhysicsTargetSignature(target)) return false;
-  return canCreateWorkOrder(certification);
+  return isWorkOrderSafetyApproved(certification);
 }
 
 /**
- * The exact current target must complete all three inertia scenarios. Strict PASS
- * and CAUTION (below DANGER thresholds) are accepted for an operational work
- * order; DANGER or incomplete testing remains fail-closed.
+ * 물리검증 완료 표시는 PASS/주의 승인에만 사용한다.
+ * 위험/미완료 결과도 작업지시서 자체는 출력할 수 있지만 검증 완료로 표시하지 않는다.
  */
 export function hasCurrentPhysicsVerification(): boolean {
   return hasCurrentInertiaVerification();
@@ -22,6 +21,11 @@ export function hasCurrentPhysicsVerification(): boolean {
 
 export function confirmUnverifiedExport(kind: string): boolean {
   if (hasCurrentInertiaVerification()) return true;
+
+  // 작업지시서는 검증 상태와 관계없이 항상 생성한다.
+  // 위험/미완료 여부는 보고서의 배지·워터마크·권장사항으로 명확히 남긴다.
+  if (kind.includes('작업지시서')) return true;
+
   if (typeof window !== 'undefined') {
     const target = readPhysicsTarget();
     const certification = readLatestInertiaCertification();

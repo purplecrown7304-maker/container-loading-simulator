@@ -1,16 +1,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT,
-  readFinalPhysicsValidation,
-} from './autoCertification';
+import { FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT } from './autoCertification';
 import { FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
-import {
-  INERTIA_CERTIFICATION_EVENT,
-  createPhysicsTargetSignature,
-  readLatestInertiaCertification,
-} from './inertiaCertification';
-import { canCreateWorkOrder } from './inertiaWorkOrderPolicy';
+import { INERTIA_CERTIFICATION_EVENT } from './inertiaCertification';
 import { PHYSICS_TARGET_EVENT, readPhysicsTarget } from './physicsTarget';
 import { APP_ACTION_EVENT, dispatchAppAction, type AppActionDetail } from './uiEvents';
 import './viewer-final-actions.css';
@@ -31,18 +23,14 @@ function workflowBusy() {
     || Boolean(document.querySelector('.final-cert-backdrop .physics-spinner'));
 }
 
+/**
+ * 작업지시서 생성 가능 여부는 안전 승인 여부와 분리한다.
+ * 적재 결과가 하나라도 있으면 작업지시서를 열 수 있고, 미검증/주의/위험 상태는
+ * 작업지시서 내부의 배지·워터마크·권장사항으로 표시한다.
+ */
 function finalWorkOrderReady() {
   const target = readPhysicsTarget();
-  if (!target?.result.placements.length) return false;
-  const signature = createPhysicsTargetSignature(target);
-  const finalPhysics = readFinalPhysicsValidation();
-  if (!finalPhysics || finalPhysics.signature !== signature) return false;
-  const certification = readLatestInertiaCertification();
-  return Boolean(
-    certification
-    && certification.targetSignature === signature
-    && canCreateWorkOrder(certification),
-  );
+  return Boolean(target?.result.placements.length);
 }
 
 export default function HeaderActionBridge() {
@@ -73,8 +61,6 @@ export default function HeaderActionBridge() {
         return;
       }
       if (action === 'print-report') {
-        // 작업지시서는 검사를 시작하는 기능이 아니다.
-        // 최종 적재 + Rapier + 관성 3종까지 끝난 결과를 열기만 한다.
         if (!finalWorkOrderReady()) return;
         clickButton('.mockup-topbar .top-actions.compact button', '작업지시서');
         return;
@@ -144,10 +130,10 @@ export default function HeaderActionBridge() {
         type="button"
         className="viewer-final-action report"
         disabled={running || !reportReady}
-        title={reportReady ? '완료된 최종 적재 작업지시서를 봅니다.' : '최종 적재와 모든 검사가 완료되면 볼 수 있습니다.'}
+        title={reportReady ? '현재 적재 결과로 작업지시서를 봅니다. 검증 상태는 문서에 별도 표시됩니다.' : '적재 결과가 생성되면 작업지시서를 볼 수 있습니다.'}
         onClick={() => dispatchAppAction('print-report')}
       >
-        {reportReady ? '작업지시서 보기' : '검사 완료 후 보기'}
+        {reportReady ? '작업지시서 보기' : '적재 후 보기'}
       </button>
       <button
         type="button"

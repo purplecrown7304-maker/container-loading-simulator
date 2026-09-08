@@ -44,7 +44,19 @@ export function assessWorkOrderCertification(certification: InertiaCertification
   return certification.status === 'passed' ? 'pass' : 'caution';
 }
 
-export function canCreateWorkOrder(certification: InertiaCertification) {
+/**
+ * 작업지시서 문서 생성 가능 여부와 운송 안전 승인 여부를 분리한다.
+ * 작업지시서는 PASS/주의/위험/미완료와 관계없이 생성하고, 판정은 문서 안에 그대로 표시한다.
+ */
+export function canCreateWorkOrder(_certification: InertiaCertification) {
+  return true;
+}
+
+/**
+ * 물리검증 완료/승인 표시는 기존의 엄격한 의미를 유지한다.
+ * 위험 또는 미완료 작업지시서는 생성되지만 안전 승인으로 취급하지 않는다.
+ */
+export function isWorkOrderSafetyApproved(certification: InertiaCertification) {
   const level = assessWorkOrderCertification(certification);
   return level === 'pass' || level === 'caution';
 }
@@ -67,7 +79,11 @@ export function buildWorkOrderRecommendations(certification: InertiaCertificatio
   const items: string[] = [];
   const level = assessWorkOrderCertification(certification);
 
-  if (level === 'caution') {
+  if (level === 'danger') {
+    items.push('위험 기준을 초과한 적재안입니다. 작업지시서는 배치·수량 확인용으로 생성되며, 실제 출고 전 재배치·보강과 현장 안전 확인이 필요합니다.');
+  } else if (level === 'incomplete') {
+    items.push('관성 3종 검증이 완료되지 않은 적재안입니다. 작업지시서는 배치·수량 확인용으로 생성되며, 출고 전 미완료 검증과 현장 안전 확인이 필요합니다.');
+  } else if (level === 'caution') {
     items.push('내부 PASS 기준을 일부 초과했지만 위험 기준 이내입니다. 아래 보완사항을 적용하고 출고 전 현장 흔들림·간섭 상태를 재확인하세요.');
   } else if (level === 'pass') {
     items.push('관성 3종 내부 PASS 조건을 충족했습니다. 작업지시서에 표시된 보강자재 수량과 설치 위치를 그대로 적용하세요.');
@@ -77,7 +93,7 @@ export function buildWorkOrderRecommendations(certification: InertiaCertificatio
     items.push('수평 이동이 내부 PASS 기준보다 큽니다. 미끄럼방지재와 빈 공간 블로킹 상태를 강화하고 화물 사이 유격을 줄이세요.');
   }
   if (certification.maxTiltDeg > INERTIA_PASS_TILT_DEG) {
-    items.push('기울기가 내부 PASS 기준보다 큽니다. 높은 적층을 낮추고 무거운 화물을 하부에 유지해 무게중심을 낮추세요.');
+    items.push('기울기가 내부 PASS 기준보다 큽니다. 가능한 범위에서 무거운 화물을 하부에 유지하고 결박·블로킹을 강화하세요. 적재 수량은 무게중심 보정만을 이유로 줄이지 않습니다.');
   }
   if (certification.mode === 'pallets' && (certification.maxCargoRelativeSlipM ?? 0) > INERTIA_PASS_PALLET_CARGO_SLIP_M) {
     items.push('화물-팔레트 상대 미끄럼이 내부 PASS 기준보다 큽니다. 밴딩·랩핑·미끄럼방지재가 화물과 팔레트를 함께 구속하는지 확인하세요.');
@@ -112,9 +128,9 @@ function attemptScenarios(results: Partial<Record<InertiaScenario, InertiaAnimat
 
 /**
  * Normal certification stops a securing level as soon as strict PASS fails.
- * Work-order approval needs a different answer: whether all three scenarios are
- * below the DANGER limits. This fills only the missing scenarios at the final
- * securing level and keeps the stricter PASS/FAIL status unchanged.
+ * Work-order reporting still records the current safety result. This fills only
+ * the missing scenarios while they remain below DANGER limits and keeps the
+ * stricter PASS/FAIL status unchanged.
  */
 export async function completeCertificationForWorkOrder(
   target: PhysicsTarget,

@@ -82,8 +82,9 @@ function mergeSafetyRemoved(
  *
  * 모든 수평 무게중심 기준점은 적재물 자체의 외곽/중점이 아니라 컨테이너 기하학적 중심
  * (length / 2, width / 2)이다. 화물 CG는 이 기준점과의 편차를 계산하기 위한 측정값일 뿐이다.
- * 중앙 이동으로 새 낙하 위험이 생기면 원래 한쪽 벽 배치로 되돌리지 않고, 위험한 상단 박스만
- * 제거한 뒤 다시 컨테이너 중심으로 보정한다. Z는 낮은 무게중심 원칙을 유지한다.
+ * 무게중심 보정은 적재 차단 조건이 아니다. 이미 하드 안전조건을 통과한 배치에서 중앙 이동이
+ * 박스를 제거해야만 가능하다면 중앙 보정을 포기하고 기존 적재 수량을 유지한다.
+ * Z는 가능한 범위에서 낮은 무게중심 원칙을 유지하되, 그 이유만으로 적재 완료 수량을 줄이지 않는다.
  *
  * 경계, 충돌, 낙하·전도 형상, 최대 적층단, 누적 상부 허용중량, 최대 payload는 hard constraint다.
  */
@@ -125,8 +126,12 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   const packed = packByStrictWalls(container, normalizedCargo, strategy);
   const filtered = filterOperationallyUnsafeShape(container, normalizedCargo, packed.placements);
   const centered = centerPlacementsWithFallSafety(container, normalizedCargo, filtered.placements);
-  const finalPlacements = centered.placements;
-  const safetyRemoved = combineRemoved(filtered.removedByCargo, centered.removedByCargo);
+  const useCentered = centered.placements.length >= filtered.placements.length;
+  const finalPlacements = useCentered ? centered.placements : filtered.placements;
+  const safetyRemoved = combineRemoved(
+    filtered.removedByCargo,
+    useCentered ? centered.removedByCargo : new Map<string, number>(),
+  );
   const loadedWeightKg = finalPlacements.reduce((sum, placement) => sum + placement.weightKg, 0);
   const usedVolumeM3 = finalPlacements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0);
   const result: LoadingResult = {

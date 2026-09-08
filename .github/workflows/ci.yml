@@ -1,9 +1,12 @@
 name: CI
 
-# GitHub Actions billing is unavailable until September 2026.
-# Keep this workflow manual-only during August development.
-# Re-enable push/pull_request triggers when Actions usage resumes.
+# August development used manual-only runs while Actions usage was unavailable.
+# September development restores automatic validation for PRs and main pushes.
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -18,6 +21,9 @@ jobs:
         with:
           node-version: 22
           package-manager-cache: false
+
+      - name: Upgrade npm
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: npm install

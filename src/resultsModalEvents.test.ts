@@ -50,21 +50,24 @@ function certification(overrides: Partial<InertiaCertification> = {}): InertiaCe
   };
 }
 
-describe('final results certification gate', () => {
-  it('accepts only a passed certification for the exact current target', () => {
+describe('final results certification state', () => {
+  it('accepts a passed certification for the exact current target', () => {
     expect(certificationMatchesTarget(certification(), target)).toBe(true);
+  });
+
+  it('also exposes an exact failed certification so the result can show warnings instead of staying locked', () => {
+    expect(certificationMatchesTarget(certification({ status: 'failed', passedScenarios: 1 }), target)).toBe(true);
   });
 
   it('rejects a stale signature even when status is passed', () => {
     expect(certificationMatchesTarget(certification({ targetSignature: 'stale' }), target)).toBe(false);
   });
 
-  it('rejects a passed certification from a different mode', () => {
+  it('rejects a certification from a different mode', () => {
     expect(certificationMatchesTarget(certification({ mode: 'pallets' }), target)).toBe(false);
   });
 
-  it('rejects missing target or failed certification', () => {
+  it('rejects a missing target', () => {
     expect(certificationMatchesTarget(certification(), undefined)).toBe(false);
-    expect(certificationMatchesTarget(certification({ status: 'failed' }), target)).toBe(false);
   });
 });
