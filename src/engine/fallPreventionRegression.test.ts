@@ -95,7 +95,7 @@ describe('fall / overturn prevention with fixed container-center target', () => 
     expect(result.removedByCargo.size).toBe(0);
   });
 
-  it('does not revert to the inner wall when centering exposes a fall edge', () => {
+  it('centers a compact staircase block without removing cargo only because its outer edge becomes open', () => {
     const container: ContainerSpec = { length: 4, width: 1, height: 2, maxPayloadKg: 10000 };
     const item = cargo('STAIR', { width: 0.5, height: 0.5 });
     const wallAnchored = [
@@ -109,7 +109,8 @@ describe('fall / overturn prevention with fixed container-center target', () => 
     const cg = horizontalCg(result.placements);
 
     expect(Math.min(...result.placements.map((p) => p.x))).toBeGreaterThan(0);
-    expect(result.removedByCargo.get('STAIR')).toBeGreaterThan(0);
+    expect(result.placements).toHaveLength(wallAnchored.length);
+    expect(result.removedByCargo.size).toBe(0);
     expect(cg.x).toBeCloseTo(container.length / 2, 6);
     expect(cg.y).toBeCloseTo(container.width / 2, 6);
   });
