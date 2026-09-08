@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { ADMIN_ACCESS_EVENT, isAdminSession } from './adminAccess';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { cargoColor } from './cargoColors';
 import { parseCargoWorkbook } from './excel';
@@ -16,6 +17,7 @@ type LoadingWindow = Window & { __containerLoadingLatestResult?: LoadingDetail }
 type DataBox = { id: string; name: string; savedAt: string; state: StoredState };
 type VehiclePreset = { id: string; name: string; spec: ContainerSpec };
 type View = null | 'boxes' | 'vehicles' | 'safety' | 'data';
+type CatalogDraft = CargoItem & { originalId?: string };
 
 type Props = { showNav?: boolean };
 
@@ -56,6 +58,27 @@ function viewTitle(view: Exclude<View, null>) {
   return '계획 관리';
 }
 
+function nextCatalogId(catalog: CargoItem[]) {
+  const existing = new Set(catalog.map(item => item.id));
+  let index = catalog.length + 1;
+  let id = `BOX-${String(index).padStart(3, '0')}`;
+  while (existing.has(id)) {
+    index += 1;
+    id = `BOX-${String(index).padStart(3, '0')}`;
+  }
+  return id;
+}
+
+function validateCatalogDraft(draft: CatalogDraft): string | null {
+  if (!draft.id.trim()) return '박스 코드를 입력하세요.';
+  if (!draft.name.trim()) return '내용물 이름을 입력하세요.';
+  if (![draft.length, draft.width, draft.height, draft.weightKg].every(value => Number.isFinite(value) && value > 0)) return '길이·폭·높이·중량은 0보다 커야 합니다.';
+  if (!Number.isInteger(draft.quantity) || draft.quantity < 0) return '기본 수량은 0 이상의 정수여야 합니다.';
+  if (draft.maxStackLayers != null && (!Number.isInteger(draft.maxStackLayers) || draft.maxStackLayers < 1)) return '최대 적층단은 1 이상의 정수여야 합니다.';
+  if (draft.maxTopLoadKg != null && (!Number.isFinite(draft.maxTopLoadKg) || draft.maxTopLoadKg < 0)) return '최대 보관중량은 0 이상이어야 합니다.';
+  return null;
+}
+
 export default function WorkspaceTools({ showNav = true }: Props) {
   const catalogInputRef = useRef<HTMLInputElement>(null);
   const [view, setView] = useState<View>(null);
@@ -69,12 +92,28 @@ export default function WorkspaceTools({ showNav = true }: Props) {
   const [selected, setSelected] = useState<Record<string, number>>({});
   const [query, setQuery] = useState('');
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [catalogDraft, setCatalogDraft] = useState<CatalogDraft | null>(null);
+  const [catalogBackup, setCatalogBackup] = useState<CargoItem[] | null>(null);
+  const [isAdmin, setIsAdmin] = useState(() => isAdminSession());
 
   const safetyDone = readJson<{ date?: string }>(SAFETY_KEY, {}).date === todayKey();
 
   useEffect(() => localStorage.setItem(BOX_KEY, JSON.stringify(boxes)), [boxes]);
   useEffect(() => localStorage.setItem(VEHICLE_KEY, JSON.stringify(customVehicles)), [customVehicles]);
   useEffect(() => localStorage.setItem(CATALOG_KEY, JSON.stringify(catalog)), [catalog]);
+
+  useEffect(() => {
+    const onAccess = () => {
+      const next = isAdminSession();
+      setIsAdmin(next);
+      if (!next) {
+        setRegisterOpen(false);
+        setCatalogDraft(null);
+      }
+    };
+    window.addEventListener(ADMIN_ACCESS_EVENT, onAccess);
+    return () => window.removeEventListener(ADMIN_ACCESS_EVENT, onAccess);
+  }, []);
 
   useEffect(() => {
     const onOpen = (event: Event) => {
@@ -110,8 +149,14 @@ export default function WorkspaceTools({ showNav = true }: Props) {
     setView(null);
   };
 
+  const requireAdmin = () => {
+    if (isAdminSession()) return true;
+    setMessage('박스 마스터 수정은 관리자 로그인 후 사용할 수 있습니다.');
+    return false;
+  };
+
   const importCatalogWorkbook = async (file: File | undefined) => {
-    if (!file) return;
+    if (!file || !requireAdmin()) return;
     try {
       const result = await parseCargoWorkbook(file);
       if (!result.items.length) {
@@ -120,6 +165,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
         return;
       }
 
+      setCatalogBackup(catalog.map(item => ({ ...item })));
       const map = new Map(catalog.map(item => [item.id, item]));
       let newCount = 0;
       let updatedCount = 0;
@@ -141,6 +187,93 @@ export default function WorkspaceTools({ showNav = true }: Props) {
     } finally {
       if (catalogInputRef.current) catalogInputRef.current.value = '';
     }
+  };
+
+  const startNewCatalogItem = () => {
+    if (!requireAdmin()) return;
+    setRegisterOpen(true);
+    setCatalogDraft({
+      id: nextCatalogId(catalog),
+      name: '',
+      length: .5,
+      width: .4,
+      height: .3,
+      weightKg: 10,
+      quantity: 0,
+      maxStackLayers: 5,
+      maxTopLoadKg: 80,
+      allowRotation: true,
+    });
+  };
+
+  const editCatalogItem = (item: CargoItem) => {
+    if (!requireAdmin()) return;
+    setRegisterOpen(true);
+    setCatalogDraft({ ...item, originalId: item.id });
+  };
+
+  const updateCatalogDraft = (field: keyof CargoItem, value: string | boolean) => {
+    setCatalogDraft(current => {
+      if (!current) return current;
+      if (field === 'id' || field === 'name') return { ...current, [field]: String(value) };
+      if (field === 'allowRotation') return { ...current, allowRotation: Boolean(value) };
+      if (field === 'maxTopLoadKg' && String(value).trim() === '') return { ...current, maxTopLoadKg: undefined };
+      return { ...current, [field]: Number(value) };
+    });
+  };
+
+  const saveCatalogDraft = () => {
+    if (!catalogDraft || !requireAdmin()) return;
+    const normalized: CatalogDraft = {
+      ...catalogDraft,
+      id: catalogDraft.id.trim(),
+      name: catalogDraft.name.trim(),
+    };
+    const error = validateCatalogDraft(normalized);
+    if (error) return setMessage(error);
+    const originalId = normalized.originalId;
+    if (catalog.some(item => item.id === normalized.id && item.id !== originalId)) return setMessage(`이미 등록된 박스 코드입니다: ${normalized.id}`);
+
+    const { originalId: _ignored, ...nextItem } = normalized;
+    setCatalogBackup(catalog.map(item => ({ ...item })));
+    setCatalog(previous => {
+      if (!originalId) return [...previous, nextItem];
+      return previous.map(item => item.id === originalId ? nextItem : item);
+    });
+    if (originalId && originalId !== nextItem.id) {
+      setSelected(current => {
+        const next = { ...current };
+        const quantity = next[originalId];
+        delete next[originalId];
+        if (quantity != null) next[nextItem.id] = quantity;
+        return next;
+      });
+    }
+    setCatalogDraft(null);
+    setMessage(originalId ? `${nextItem.id} 박스 정보를 수정했습니다.` : `${nextItem.id} 신규 박스를 등록했습니다.`);
+  };
+
+  const deleteCatalogItem = (item: CargoItem) => {
+    if (!requireAdmin()) return;
+    if (!window.confirm(`${item.id} ${item.name} 박스를 마스터 목록에서 삭제할까요?`)) return;
+    setCatalogBackup(catalog.map(current => ({ ...current })));
+    setCatalog(previous => previous.filter(current => current.id !== item.id));
+    setSelected(current => {
+      const next = { ...current };
+      delete next[item.id];
+      return next;
+    });
+    if (catalogDraft?.originalId === item.id || catalogDraft?.id === item.id) setCatalogDraft(null);
+    setMessage(`${item.id} 박스를 삭제했습니다.`);
+  };
+
+  const restoreCatalogBackup = () => {
+    if (!catalogBackup || !requireAdmin()) return;
+    const current = catalog.map(item => ({ ...item }));
+    setCatalog(catalogBackup);
+    setCatalogBackup(current);
+    setCatalogDraft(null);
+    setMessage('직전 박스 마스터 변경을 되돌렸습니다. 다시 누르면 현재 상태로 되돌아갑니다.');
   };
 
   const saveBox = () => {
@@ -196,28 +329,46 @@ export default function WorkspaceTools({ showNav = true }: Props) {
           {view === 'boxes' && <div className="box-selector-body">
             <div className="box-selector-actions">
               <div>
-                <button onClick={() => setRegisterOpen(value => !value)}>신규 박스 정보 등록</button>
+                {isAdmin ? <button onClick={() => setRegisterOpen(value => !value)}>신규 박스 정보 등록</button> : <button disabled title="관리자 로그인 후 박스 마스터를 수정할 수 있습니다.">박스 마스터 수정 · 관리자 전용</button>}
                 <button onClick={() => window.dispatchEvent(new CustomEvent(EXCEL_IMPORT_EVENT, { detail: { action: 'template' } }))}>기초 엑셀 다운로드</button>
+                {isAdmin && catalogBackup && <button onClick={restoreCatalogBackup}>직전 변경 되돌리기</button>}
               </div>
               <button className="blue" onClick={importSelected}>수량 입력 박스 적재 투입</button>
             </div>
-            {registerOpen && <div className="box-register">
-              <b>신규 박스 일괄 등록</b>
-              <span>직접 신규 박스를 만들거나, 기초 엑셀 양식을 작성해 업로드하면 등록된 박스 목록에 추가됩니다. 같은 박스코드는 최신 엑셀 정보로 갱신됩니다.</span>
+            {registerOpen && isAdmin && <div className="box-register">
+              <b>박스 마스터 등록 / 수정</b>
+              <span>관리자만 박스 마스터를 변경할 수 있습니다. 직접 등록하거나 기초 엑셀을 업로드하면 신규 코드는 추가되고 기존 코드는 최신 값으로 갱신됩니다.</span>
               <div className="box-register-actions">
-                <button onClick={() => setCatalog(previous => [...previous, { id: `BOX-${String(previous.length + 1).padStart(3, '0')}`, name: `신규 화물 ${previous.length + 1}`, length: .5, width: .4, height: .3, weightKg: 10, quantity: 0, maxStackLayers: 5, maxTopLoadKg: 80, allowRotation: true }])}>신규 박스 추가</button>
+                <button onClick={startNewCatalogItem}>직접 신규 박스 등록</button>
                 <button onClick={() => catalogInputRef.current?.click()}>기초 엑셀 업로드</button>
                 <input ref={catalogInputRef} className="hidden-file-input" type="file" accept=".xlsx,.xls" onChange={event => void importCatalogWorkbook(event.target.files?.[0])} />
               </div>
+              {catalogDraft && <div className="vehicle-form">
+                <h3>{catalogDraft.originalId ? `${catalogDraft.originalId} 수정` : '신규 박스 등록'}</h3>
+                <div className="vehicle-fields">
+                  <label>박스코드<input value={catalogDraft.id} onChange={event => updateCatalogDraft('id', event.target.value)} /></label>
+                  <label>내용물<input value={catalogDraft.name} onChange={event => updateCatalogDraft('name', event.target.value)} /></label>
+                  <label>길이(m)<input type="number" min="0.001" step="0.001" value={catalogDraft.length} onChange={event => updateCatalogDraft('length', event.target.value)} /></label>
+                  <label>폭(m)<input type="number" min="0.001" step="0.001" value={catalogDraft.width} onChange={event => updateCatalogDraft('width', event.target.value)} /></label>
+                  <label>높이(m)<input type="number" min="0.001" step="0.001" value={catalogDraft.height} onChange={event => updateCatalogDraft('height', event.target.value)} /></label>
+                  <label>중량(kg)<input type="number" min="0.001" step="0.01" value={catalogDraft.weightKg} onChange={event => updateCatalogDraft('weightKg', event.target.value)} /></label>
+                  <label>기본수량<input type="number" min="0" step="1" value={catalogDraft.quantity} onChange={event => updateCatalogDraft('quantity', event.target.value)} /></label>
+                  <label>최대적층단<input type="number" min="1" step="1" value={catalogDraft.maxStackLayers ?? 1} onChange={event => updateCatalogDraft('maxStackLayers', event.target.value)} /></label>
+                  <label>최대보관중량(kg)<input type="number" min="0" step="0.1" value={catalogDraft.maxTopLoadKg ?? ''} onChange={event => updateCatalogDraft('maxTopLoadKg', event.target.value)} /></label>
+                  <label><input type="checkbox" checked={catalogDraft.allowRotation !== false} onChange={event => updateCatalogDraft('allowRotation', event.target.checked)} /> 90도 회전 허용</label>
+                </div>
+                <div className="box-register-actions"><button className="blue" onClick={saveCatalogDraft}>저장</button><button onClick={() => setCatalogDraft(null)}>취소</button></div>
+              </div>}
             </div>}
             <label className="box-search-label">박스 검색</label>
             <div className="box-search"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="박스코드, 내용물 검색" /><button onClick={() => setQuery('')}>검색 초기화</button></div>
             <div className="selected-boxes"><b>선택된 박스</b><small>{chosen.length}종 선택</small><div>{chosen.length ? chosen.map(x => <span key={x.id} style={{ borderLeftColor: cargoColor(x.id) }}>{x.id} · {x.name} <b>{selected[x.id]}EA</b></span>) : '아래 목록에서 박스를 선택하면 이곳에 표시됩니다.'}</div></div>
-            <div className="catalog-wrap"><table><caption>등록된 박스 목록</caption><thead><tr><th>선택</th><th>NO</th><th>박스코드</th><th>내용물</th><th>L</th><th>W</th><th>T</th><th>중량</th><th>CBM</th><th>재질</th><th>최대보관중량</th><th>최대적층단</th><th>취급주의</th><th>색상</th><th>회전허용</th><th>적재 수량</th></tr></thead><tbody>
+            <div className="catalog-wrap"><table><caption>등록된 박스 목록</caption><thead><tr><th>선택</th><th>NO</th><th>박스코드</th><th>내용물</th><th>L</th><th>W</th><th>T</th><th>중량</th><th>CBM</th><th>재질</th><th>최대보관중량</th><th>최대적층단</th><th>취급주의</th><th>색상</th><th>회전허용</th><th>적재 수량</th>{isAdmin && <th>관리</th>}</tr></thead><tbody>
               {filtered.map((x, i) => <tr key={x.id}>
                 <td><input type="checkbox" checked={(selected[x.id] ?? 0) > 0} onChange={event => setSelected(state => ({ ...state, [x.id]: event.target.checked ? Math.max(1, x.quantity) : 0 }))} /></td>
-                <td>{i + 1}</td><td>{x.id}</td><td>{x.name}</td><td>{Math.round(x.length * 1000)}</td><td>{Math.round(x.width * 1000)}</td><td>{Math.round(x.height * 1000)}</td><td>{x.weightKg}</td><td>{(x.length * x.width * x.height).toFixed(3)}</td><td>{['골판지', '이중 골판지', '플라스틱', '합판', '완충재 포함'][i % 5]}</td><td>{x.maxTopLoadKg}</td><td>{x.maxStackLayers}</td><td>일반</td><td><i className="catalog-color" style={{ background: cargoColor(x.id) }} /></td><td>{x.allowRotation ? '허용' : '금지'}</td>
-                <td><input className="qty-input" type="number" min="0" value={selected[x.id] ?? x.quantity} onChange={event => setSelected(state => ({ ...state, [x.id]: Math.max(0, Number(event.target.value)) }))} /></td>
+                <td>{i + 1}</td><td>{x.id}</td><td>{x.name}</td><td>{Math.round(x.length * 1000)}</td><td>{Math.round(x.width * 1000)}</td><td>{Math.round(x.height * 1000)}</td><td>{x.weightKg}</td><td>{(x.length * x.width * x.height).toFixed(3)}</td><td>{['골판지', '이중 골판지', '플라스틱', '합판', '완충재 포함'][i % 5]}</td><td>{x.maxTopLoadKg ?? '제한없음'}</td><td>{x.maxStackLayers ?? '제한없음'}</td><td>일반</td><td><i className="catalog-color" style={{ background: cargoColor(x.id) }} /></td><td>{x.allowRotation !== false ? '허용' : '금지'}</td>
+                <td><input className="qty-input" type="number" min="0" step="1" value={selected[x.id] ?? x.quantity} onChange={event => setSelected(state => ({ ...state, [x.id]: Math.max(0, Math.floor(Number(event.target.value) || 0)) }))} /></td>
+                {isAdmin && <td><div className="box-register-actions"><button onClick={() => editCatalogItem(x)}>수정</button><button className="danger" onClick={() => deleteCatalogItem(x)}>삭제</button></div></td>}
               </tr>)}
             </tbody></table></div>
           </div>}
