@@ -31,7 +31,7 @@ export default function LoadingStep({ mode, container, cargo, boxResult, palletR
       <div className="ux3-viewer-host">
         <Suspense fallback={<ViewerFallback />}>
           {mode === 'boxes'
-            ? <BoxLoadingViewerEquipment result={boxResult} container={container} />
+            ? <BoxLoadingViewerEquipment result={boxResult} container={container} cargo={cargo} />
             : <PalletModePanel container={container} cargo={cargo} runToken={palletRunToken} />}
         </Suspense>
       </div>
