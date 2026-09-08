@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import ErrorBoundary from './ErrorBoundary';
+import AdminAccessControl from './AdminAccessControl';
 import ExcelImportActions from './ExcelImportActions';
 import ExcelExportActions from './ExcelExportActions';
 import ResultsOverlay from './ResultsOverlay';
@@ -85,6 +86,7 @@ import './ux-polish.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
+      <AdminAccessControl />
       <ReferenceWorkspaceBar />
       <HeaderActionBridge />
       <HeaderLoadingStatusBoard />
