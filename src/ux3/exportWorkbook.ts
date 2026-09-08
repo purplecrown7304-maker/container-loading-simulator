@@ -1,8 +1,8 @@
-import * as XLSX from 'xlsx';
 import type { CargoItem, ContainerSpec, LoadingResult } from '../engine/types';
 import type { TransportEquipment } from '../transportEquipment';
 
-export function exportUx3Workbook(container: ContainerSpec, equipment: TransportEquipment, cargo: CargoItem[], result: LoadingResult) {
+export async function exportUx3Workbook(container: ContainerSpec, equipment: TransportEquipment, cargo: CargoItem[], result: LoadingResult) {
+  const XLSX = await import('xlsx');
   const loadedByCargo = new Map<string, number>();
   result.placements.forEach(item => loadedByCargo.set(item.cargoId, (loadedByCargo.get(item.cargoId) ?? 0) + 1));
 
