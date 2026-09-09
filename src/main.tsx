@@ -28,6 +28,7 @@ import HeaderLoadingStatusBoard from './HeaderLoadingStatusBoard';
 import RemainingLengthIndicator from './RemainingLengthIndicator';
 import OperationalRightSummary from './OperationalRightSummary';
 import DashboardCommandDock from './DashboardCommandDock';
+import GuidedWorkflowShell from './GuidedWorkflowShell';
 import TransportEquipmentSelector from './TransportEquipmentSelector';
 import TransportEquipmentDashboardSummary from './TransportEquipmentDashboardSummary';
 import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
@@ -81,6 +82,7 @@ import './pallet-weight-launcher.css';
 import './remaining-length.css';
 import './operational-right-summary.css';
 import './ux-polish.css';
+import './guided-workflow.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -106,6 +108,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <OperationalRightSummary />
       <DashboardCommandDock />
       <TransportEquipmentDashboardSummary />
+      <GuidedWorkflowShell />
       <EnterprisePackagingPlannerHost />
       <EnterpriseTransportEquipmentAdapter />
       <ProductPackagingExcelActions />
