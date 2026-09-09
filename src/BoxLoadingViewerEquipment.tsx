@@ -60,8 +60,6 @@ function CargoGroup({
         (placement.z + placement.height / 2) * scale + 0.03,
         (placement.y + placement.width / 2) * scale - container.width * scale / 2,
       );
-      // 안전 검토용 뷰어는 실제 placement 치수를 그대로 렌더링한다.
-      // 이전 0.985 축소는 맞닿은 박스 사이에 존재하지 않는 시각적 간극을 만들었다.
       object.scale.set(placement.length * scale, placement.height * scale, placement.width * scale);
       object.updateMatrix();
       mesh.setMatrixAt(instanceIndex, object.matrix);
@@ -81,13 +79,7 @@ function CargoGroup({
     if (value) onSelect(value.index);
   }}>
     <boxGeometry />
-    <meshStandardMaterial
-      roughness={0.58}
-      metalness={0.01}
-      transparent={dimmed}
-      opacity={dimmed ? 0.2 : 1}
-      depthWrite={!dimmed}
-    />
+    <meshStandardMaterial roughness={0.58} metalness={0.01} transparent={dimmed} opacity={dimmed ? 0.2 : 1} depthWrite={!dimmed} />
   </instancedMesh>;
 }
 
@@ -190,7 +182,7 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
         showWeightCenter={showWeightCenter}
         onToggleWeightCenter={toggleWeightCenter}
       />
-      <Canvas shadows camera={{ position: [7.6, 4.8, 7.2], fov: 46 }} dpr={[1, 1.25]} gl={{ antialias: true, powerPreference: 'high-performance' }} onPointerMissed={() => change(null)}>
+      <Canvas shadows camera={{ position: [7.6, 4.8, 7.2], fov: 46 }} dpr={[1, 1.25]} gl={{ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true }} onPointerMissed={() => change(null)}>
         <color attach="background" args={['#edf3f9']} />
         <ambientLight intensity={2.1} />
         <directionalLight castShadow position={[3, 7, 5]} intensity={2.5} />
