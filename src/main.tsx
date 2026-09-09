@@ -31,6 +31,7 @@ import DashboardCommandDock from './DashboardCommandDock';
 import GuidedWorkflowShell from './GuidedWorkflowShell';
 import GuidedResultTabsEnhancer from './GuidedResultTabsEnhancer';
 import UserBoxExcelAccess from './UserBoxExcelAccess';
+import DiagnosticExportResultButton from './DiagnosticExportResultButton';
 import TransportEquipmentSelector from './TransportEquipmentSelector';
 import TransportEquipmentDashboardSummary from './TransportEquipmentDashboardSummary';
 import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
@@ -113,6 +114,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <TransportEquipmentDashboardSummary />
       <GuidedWorkflowShell />
       <GuidedResultTabsEnhancer />
+      <DiagnosticExportResultButton />
       <UserBoxExcelAccess />
       <EnterprisePackagingPlannerHost />
       <EnterpriseTransportEquipmentAdapter />
