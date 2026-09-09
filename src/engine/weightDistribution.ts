@@ -1,8 +1,19 @@
-import { analyzeFloorLoad, type FloorLoadAnalysis, type FloorLoadCell } from './floorLoad';
+import {
+  analyzeFloorLoad,
+  analyzeFloorLoadFootprints,
+  type FloorLoadAnalysis,
+  type FloorLoadCell,
+  type FloorLoadFootprint,
+} from './floorLoad';
 import type { ContainerSpec, LoadingResult } from './types';
-import { assessWeightBalance } from './weightBalance';
+import { assessWeightBalance, type BalanceMassBody } from './weightBalance';
 
 export type WeightDistributionStatus = 'empty' | 'balanced' | 'caution';
+
+export type WeightDistributionOptions = {
+  floorFootprints?: FloorLoadFootprint[];
+  massBodies?: BalanceMassBody[];
+};
 
 export type WeightDistributionAnalysis = {
   floor: FloorLoadAnalysis;
@@ -56,9 +67,12 @@ export function analyzeWeightDistribution(
   result: LoadingResult,
   columns = 20,
   rows = 8,
+  options: WeightDistributionOptions = {},
 ): WeightDistributionAnalysis {
-  const floor = analyzeFloorLoad(container, result, columns, rows);
-  const balance = assessWeightBalance(container, result);
+  const floor = options.floorFootprints
+    ? analyzeFloorLoadFootprints(container, options.floorFootprints, columns, rows)
+    : analyzeFloorLoad(container, result, columns, rows);
+  const balance = assessWeightBalance(container, result, options.massBodies);
   const totalWeightKg = floor.totalProjectedKg;
   const [innerWeightKg, doorWeightKg] = splitAlongAxis(floor.cells, container.length / 2, 'x');
   const [leftWeightKg, rightWeightKg] = splitAlongAxis(floor.cells, container.width / 2, 'y');
