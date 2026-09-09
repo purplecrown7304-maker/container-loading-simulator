@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
+import { exportLoadingDiagnostics } from './diagnosticExport';
 import { OPEN_TRANSPORT_SELECTOR_EVENT, useTransportEquipment } from './transportEquipment';
 import { dispatchAppAction, openWorkspace } from './uiEvents';
 import './final-workflow-cleanup.css';
@@ -35,6 +36,12 @@ export default function ReferenceWorkspaceBar() {
   const runAndClose = (run: () => void) => {
     run();
     setMenuOpen(false);
+  };
+
+  const exportDiagnostics = async () => {
+    setMenuOpen(false);
+    const exported = await exportLoadingDiagnostics();
+    if (!exported.ok) window.alert(exported.message);
   };
 
   useEffect(() => {
@@ -117,6 +124,9 @@ export default function ReferenceWorkspaceBar() {
               </button>
               <button type="button" onClick={() => runAndClose(() => dispatchAppAction('show-results'))}>
                 <span>◎</span><div><b>결과 확인</b><small>적재 · 미적재 · 무게분포 · 안전검사 결과 확인</small></div>
+              </button>
+              <button type="button" onClick={() => void exportDiagnostics()}>
+                <span>⌁</span><div><b>점검 파일 내보내기</b><small>최종 배치 · 미적재 · 무게중심 · 물리/관성 결과를 ZIP으로 저장</small></div>
               </button>
               <button type="button" onClick={() => runAndClose(() => dispatchAppAction('print-report'))}>
                 <span>▤</span><div><b>작업지시서 보기</b><small>최종 적재가 완료된 결과를 작업지시서로 확인</small></div>
