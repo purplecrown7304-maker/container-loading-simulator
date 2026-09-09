@@ -1,6 +1,13 @@
 import type { ContainerSpec, LoadingResult, Placement } from './types';
 import { assessShapeQuality } from './shapeQuality';
 
+export type BalanceMassBody = {
+  weightKg: number;
+  x: number;
+  y: number;
+  z: number;
+};
+
 export type BalanceAssessment = {
   centerOfGravity: { x: number; y: number; z: number };
   normalized: { x: number; y: number; z: number };
@@ -17,19 +24,40 @@ export type BalanceAssessment = {
   messages: string[];
 };
 
-function weightedAverage(placements: Placement[], coordinate: (p: Placement) => number) {
-  const total = placements.reduce((sum, p) => sum + p.weightKg, 0);
+function placementMassBodies(placements: Placement[]): BalanceMassBody[] {
+  return placements.map((placement) => ({
+    weightKg: placement.weightKg,
+    x: placement.x + placement.length / 2,
+    y: placement.y + placement.width / 2,
+    z: placement.z + placement.height / 2,
+  }));
+}
+
+function weightedAverage(bodies: BalanceMassBody[], coordinate: (body: BalanceMassBody) => number) {
+  const total = bodies.reduce((sum, body) => sum + body.weightKg, 0);
   if (total <= 0) return 0;
-  return placements.reduce((sum, p) => sum + coordinate(p) * p.weightKg, 0) / total;
+  return bodies.reduce((sum, body) => sum + coordinate(body) * body.weightKg, 0) / total;
 }
 
 function clampScore(value: number) {
   return Math.max(0, Math.min(100, value));
 }
 
-export function assessWeightBalance(container: ContainerSpec, result: LoadingResult): BalanceAssessment {
+/**
+ * 기본은 박스 placement의 실제 질량 중심을 사용한다.
+ * 팔레트 모드는 PalletLoad.centerOfGravity + totalWeightKg를 massBodies로 넘겨
+ * 팔레트 자중과 포장재까지 포함한 적재계 전체 무게중심을 평가한다.
+ */
+export function assessWeightBalance(
+  container: ContainerSpec,
+  result: LoadingResult,
+  massBodies?: BalanceMassBody[],
+): BalanceAssessment {
   const placements = result.placements;
-  if (placements.length === 0 || result.loadedWeightKg <= 0) {
+  const bodies = (massBodies ?? placementMassBodies(placements)).filter((body) => Number.isFinite(body.weightKg) && body.weightKg > 0);
+  const totalWeight = bodies.reduce((sum, body) => sum + body.weightKg, 0);
+
+  if (placements.length === 0 || totalWeight <= 0) {
     return {
       centerOfGravity: { x: 0, y: 0, z: 0 }, normalized: { x: 0, y: 0, z: 0 },
       longitudinalDeviationPct: 0, lateralDeviationPct: 0, verticalCenterPct: 0,
@@ -38,22 +66,21 @@ export function assessWeightBalance(container: ContainerSpec, result: LoadingRes
     };
   }
 
-  const cogX = weightedAverage(placements, (p) => p.x + p.length / 2);
-  const cogY = weightedAverage(placements, (p) => p.y + p.width / 2);
-  const cogZ = weightedAverage(placements, (p) => p.z + p.height / 2);
+  const cogX = weightedAverage(bodies, (body) => body.x);
+  const cogY = weightedAverage(bodies, (body) => body.y);
+  const cogZ = weightedAverage(bodies, (body) => body.z);
   const nx = container.length > 0 ? cogX / container.length : 0;
   const ny = container.width > 0 ? cogY / container.width : 0;
   const nz = container.height > 0 ? cogZ / container.height : 0;
   const longitudinalDeviationPct = Math.abs(nx - 0.5) * 200;
   const lateralDeviationPct = Math.abs(ny - 0.5) * 200;
   const verticalCenterPct = nz * 100;
-  const totalWeight = result.loadedWeightKg;
-  const lowerHalfWeight = placements
-    .filter((p) => p.z + p.height / 2 <= container.height / 2)
-    .reduce((sum, p) => sum + p.weightKg, 0);
-  const innerHalfWeight = placements
-    .filter((p) => p.x + p.length / 2 <= container.length / 2)
-    .reduce((sum, p) => sum + p.weightKg, 0);
+  const lowerHalfWeight = bodies
+    .filter((body) => body.z <= container.height / 2)
+    .reduce((sum, body) => sum + body.weightKg, 0);
+  const innerHalfWeight = bodies
+    .filter((body) => body.x <= container.length / 2)
+    .reduce((sum, body) => sum + body.weightKg, 0);
   const lowerHeavyRatio = totalWeight > 0 ? lowerHalfWeight / totalWeight : 0;
   const innerHeavyRatio = totalWeight > 0 ? innerHalfWeight / totalWeight : 0;
   const maxLongitudinalHalfRatio = Math.max(innerHeavyRatio, 1 - innerHeavyRatio);
