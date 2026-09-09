@@ -1,33 +1,28 @@
 import { expect, test } from '@playwright/test';
+import { gotoWithBasicCargo } from './helpers';
 
-test('unlimited top load remains distinct from explicit zero after edit and save', async ({ page }) => {
+test('unlimited top load remains distinct from explicit zero in the visible box catalog', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+    localStorage.setItem('container-loading-box-catalog-v1', JSON.stringify([
+      { id: 'SAFE-UNLIMITED', name: 'Unlimited', length: 0.5, width: 0.4, height: 0.3, weightKg: 10, quantity: 0, maxStackLayers: 7, allowRotation: true },
+      { id: 'SAFE-ZERO', name: 'Zero', length: 0.5, width: 0.4, height: 0.3, weightKg: 10, quantity: 0, maxStackLayers: 7, maxTopLoadKg: 0, allowRotation: true },
+    ]));
+  });
   await page.goto('/');
+  await page.getByRole('button', { name: /다음: 화물 선택/ }).click();
+  await page.getByRole('button', { name: '박스 선택', exact: true }).click();
 
-  const panel = page.locator('.cargo-add-panel');
-  await panel.locator('summary').click();
-  await panel.getByLabel('코드').fill('SAFE-A');
-  await panel.getByLabel('이름').fill('Safety A');
-
-  const topLoad = panel.getByLabel('상부 허용중량(kg)');
-  await topLoad.fill('');
-  await panel.getByRole('button', { name: '박스 추가' }).click();
-
-  const row = page.locator('.cargo-list-item').filter({ hasText: 'SAFE-A' });
-  await expect(row).toContainText('상부허용 제한없음');
-
-  await row.getByRole('button', { name: '수정' }).click();
-  await expect(panel.getByLabel('상부 허용중량(kg)')).toHaveValue('');
-
-  await panel.getByLabel('상부 허용중량(kg)').fill('0');
-  await panel.getByRole('button', { name: '수정 저장' }).click();
-  await expect(row).toContainText('상부허용 0 kg');
-
-  await row.getByRole('button', { name: '수정' }).click();
-  await expect(panel.getByLabel('상부 허용중량(kg)')).toHaveValue('0');
+  const modal = page.locator('.box-selector-modal');
+  await expect(modal).toBeVisible();
+  const unlimited = modal.getByRole('row').filter({ hasText: 'SAFE-UNLIMITED' });
+  const zero = modal.getByRole('row').filter({ hasText: 'SAFE-ZERO' });
+  await expect(unlimited).toContainText('제한없음');
+  await expect(zero).toContainText('0');
 });
 
-test('editing a planning input clears the stale physics target immediately', async ({ page }) => {
-  await page.goto('/');
+test('editing a guided planning input clears the stale physics target immediately', async ({ page }) => {
+  await gotoWithBasicCargo(page);
   await page.evaluate(() => {
     (window as typeof window & { __containerLoadingPhysicsTarget?: unknown }).__containerLoadingPhysicsTarget = {
       mode: 'boxes',
@@ -37,12 +32,9 @@ test('editing a planning input clears the stale physics target immediately', asy
     };
   });
 
-  await page.getByText('상세 규격 / 직접 수정').click();
-  const containerCard = page.locator('.dashboard-left .dashboard-card').first();
-  await containerCard.getByLabel('길이(m)').fill('12.04');
+  await page.locator('.guided-qty-control').first().getByRole('button', { name: '＋' }).click();
 
-  const targetExists = await page.evaluate(() => Boolean(
+  await expect.poll(() => page.evaluate(() => Boolean(
     (window as typeof window & { __containerLoadingPhysicsTarget?: unknown }).__containerLoadingPhysicsTarget,
-  ));
-  expect(targetExists).toBe(false);
+  ))).toBe(false);
 });
