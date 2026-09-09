@@ -348,7 +348,9 @@ function timestampName(date: Date) {
 }
 
 function downloadBytes(data: Uint8Array, filename: string) {
-  const blob = new Blob([data], { type: 'application/zip' });
+  const blobBytes = new Uint8Array(data.byteLength);
+  blobBytes.set(data);
+  const blob = new Blob([blobBytes.buffer], { type: 'application/zip' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
