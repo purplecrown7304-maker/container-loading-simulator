@@ -29,6 +29,8 @@ import RemainingLengthIndicator from './RemainingLengthIndicator';
 import OperationalRightSummary from './OperationalRightSummary';
 import DashboardCommandDock from './DashboardCommandDock';
 import GuidedWorkflowShell from './GuidedWorkflowShell';
+import GuidedResultTabsEnhancer from './GuidedResultTabsEnhancer';
+import UserBoxExcelAccess from './UserBoxExcelAccess';
 import TransportEquipmentSelector from './TransportEquipmentSelector';
 import TransportEquipmentDashboardSummary from './TransportEquipmentDashboardSummary';
 import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
@@ -83,6 +85,7 @@ import './remaining-length.css';
 import './operational-right-summary.css';
 import './ux-polish.css';
 import './guided-workflow.css';
+import './guided-result-tabs-enhancer.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -109,6 +112,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <DashboardCommandDock />
       <TransportEquipmentDashboardSummary />
       <GuidedWorkflowShell />
+      <GuidedResultTabsEnhancer />
+      <UserBoxExcelAccess />
       <EnterprisePackagingPlannerHost />
       <EnterpriseTransportEquipmentAdapter />
       <ProductPackagingExcelActions />
