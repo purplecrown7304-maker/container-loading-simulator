@@ -8,6 +8,7 @@ on:
 jobs:
   verify-audit-patches:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -50,7 +51,8 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Browser E2E
-        run: npm run test:e2e
+        timeout-minutes: 25
+        run: npx playwright test --workers=2
 
       - name: Upload verified production build
         uses: actions/upload-artifact@v6
