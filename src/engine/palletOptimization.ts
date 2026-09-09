@@ -294,12 +294,11 @@ function redistributeForLowUtilization(
 function candidateScoreTuple(result: PalletPackingResult) {
   return {
     loaded: loadedCount(result),
-    stacked: result.stackedPallets,
-    maxStackLevel: result.maxUsedStackLevel,
     maxUnitHeight: maxUnitLoadHeight(result),
-    imbalance: result.lateralImbalanceKg,
     floorPositions: floorPositionCount(result),
+    imbalance: result.lateralImbalanceKg,
     pallets: result.palletCount,
+    maxStackLevel: result.maxUsedStackLevel,
   };
 }
 
@@ -307,12 +306,11 @@ function betterCandidate(a: PalletPackingResult, b: PalletPackingResult) {
   const A = candidateScoreTuple(a);
   const B = candidateScoreTuple(b);
   if (A.loaded !== B.loaded) return A.loaded > B.loaded;
-  if (A.stacked !== B.stacked) return A.stacked < B.stacked;
-  if (A.maxStackLevel !== B.maxStackLevel) return A.maxStackLevel < B.maxStackLevel;
   if (Math.abs(A.maxUnitHeight - B.maxUnitHeight) > EPS) return A.maxUnitHeight < B.maxUnitHeight;
+  if (A.floorPositions !== B.floorPositions) return A.floorPositions < B.floorPositions;
   if (A.imbalance !== B.imbalance) return A.imbalance < B.imbalance;
-  if (A.floorPositions !== B.floorPositions) return A.floorPositions > B.floorPositions;
-  return A.pallets < B.pallets;
+  if (A.pallets !== B.pallets) return A.pallets < B.pallets;
+  return A.maxStackLevel < B.maxStackLevel;
 }
 
 export function packOnPallets(
@@ -352,9 +350,8 @@ export function packOnPallets(
   }
 
   // packOnPalletsBase가 실제 팔레트 높이, 상부 허용중량, 상단 박스 지지,
-  // 컨테이너 높이를 모두 통과시켜 만든 적층은 그대로 보존한다.
-  // 이전 후처리는 빈 바닥이 있다는 이유만으로 안전하게 선택된 2단 팔레트를 다시 1단으로 풀어
-  // selectedStackTarget과 실제 stackedPallets가 서로 다른 결과를 만들었다.
+  // 컨테이너 높이를 통과시킨 적층만 후보에 남긴다. 이후 단계에서는 안전하게
+  // 선택된 적층을 빈 바닥이 있다는 이유만으로 다시 1단으로 풀지 않는다.
   const redistributed = redistributeForLowUtilization(selected.result, container, pallet);
   return {
     ...redistributed.result,
