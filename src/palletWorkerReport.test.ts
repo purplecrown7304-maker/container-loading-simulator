@@ -94,7 +94,7 @@ describe('pallet worker report', () => {
     expect(html).toContain('각대 4EA 설치');
     expect(html).toContain('밴딩 3줄 결속');
     expect(html).toContain('자동 보강 이력');
-    expect(html).toContain('급정거 FAIL');
+    expect(html).toContain('급정거 PASS 기준 초과');
     expect(html).toContain('화물↔팔레트 14.0mm');
     expect(html).toContain('팔레트 13.0mm');
   });
