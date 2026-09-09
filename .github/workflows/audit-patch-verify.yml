@@ -1,0 +1,63 @@
+name: Audit Patch Verify
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify-audit-patches:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Security audit high severity
+        run: npm audit --audit-level=high
+
+      - name: Audit patch regression tests
+        run: >-
+          npx vitest run
+          src/inertiaWorkOrderPolicy.test.ts
+          src/palletWorkerReport.test.ts
+          src/report.test.ts
+          src/engine/floorLoad.test.ts
+          src/engine/weightDistribution.test.ts
+          src/engine/palletSafeStackPreservationRegression.test.ts
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Architecture check
+        run: npm run check:architecture
+
+      - name: Production build
+        run: npm run build
+
+      - name: Bundle check
+        run: npm run check:bundle
+
+      - name: Install Chromium for E2E
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser E2E
+        timeout-minutes: 25
+        run: npx playwright test --workers=2
+
+      - name: Upload verified production build
+        uses: actions/upload-artifact@v6
+        with:
+          name: container-loading-simulator-audit-patch-dist
+          path: dist
+          if-no-files-found: error
+          retention-days: 14

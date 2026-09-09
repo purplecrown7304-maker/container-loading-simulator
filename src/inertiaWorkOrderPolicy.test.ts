@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import type { InertiaCertification, InertiaScenario } from './inertiaCertification';
+import { classifyInertiaScenarios } from './inertiaScenarioStatus';
 import {
   assessWorkOrderCertification,
   buildWorkOrderRecommendations,
@@ -77,24 +78,30 @@ describe('work order inertia approval policy', () => {
     expect(buildWorkOrderRecommendations(cert).some(item => item.includes('미끄럼방지재'))).toBe(true);
   });
 
-  it('blocks a box result above the danger movement threshold', () => {
+  it('still generates a work order for a dangerous result while keeping danger status', () => {
     const cert = certification('boxes', threeResults({ maxHorizontalShiftM: 0.031 }));
     expect(assessWorkOrderCertification(cert)).toBe('danger');
-    expect(canCreateWorkOrder(cert)).toBe(false);
+    expect(canCreateWorkOrder(cert)).toBe(true);
+    expect(buildWorkOrderRecommendations(cert).some(item => item.includes('안전 승인서가 아닙니다'))).toBe(true);
   });
 
-  it('blocks dangerous pallet-relative cargo slip even when box movement is small', () => {
+  it('keeps dangerous pallet-relative cargo slip visible without blocking document creation', () => {
     const cert = certification('pallets', threeResults({ maxHorizontalShiftM: 0.006, maxCargoRelativeSlipM: 0.021 }));
     expect(assessWorkOrderCertification(cert)).toBe('danger');
-    expect(canCreateWorkOrder(cert)).toBe(false);
+    expect(canCreateWorkOrder(cert)).toBe(true);
   });
 
-  it('does not approve an incomplete three-scenario test', () => {
+  it('classifies missing scenarios as pending instead of failed', () => {
     const cert = certification('boxes', {
       acceleration: result({ scenario: 'acceleration', maxHorizontalShiftM: 0.02 }),
       braking: result({ scenario: 'braking', maxHorizontalShiftM: 0.01 }),
     });
+    const status = classifyInertiaScenarios(cert);
+    expect(status.tested).toEqual(['acceleration', 'braking']);
+    expect(status.failed).toEqual(['acceleration']);
+    expect(status.pending).toEqual(['cornering']);
     expect(assessWorkOrderCertification(cert)).toBe('incomplete');
-    expect(canCreateWorkOrder(cert)).toBe(false);
+    expect(canCreateWorkOrder(cert)).toBe(true);
+    expect(buildWorkOrderRecommendations(cert).some(item => item.includes('급회전'))).toBe(true);
   });
 });

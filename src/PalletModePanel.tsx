@@ -259,13 +259,7 @@ function PalletMiniPreview({ pallet }: { pallet: PalletLoad }) {
             <Edges color="#16324f" />
           </mesh>
         ))}
-        <OrbitControls
-          makeDefault
-          target={[0, targetY, 0]}
-          enablePan={false}
-          minDistance={0.7}
-          maxDistance={distance * 2.8}
-        />
+        <OrbitControls makeDefault target={[0, targetY, 0]} enablePan={false} minDistance={0.7} maxDistance={distance * 2.8} />
       </Canvas>
       <span className="pallet-mini-hint">드래그 회전 · 휠 확대/축소</span>
     </div>
@@ -404,6 +398,9 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
     saveBoxLabelPreference(next);
     return next;
   });
+  const palletAndPackagingKg = Math.max(0, result.totalPalletizedWeightKg - result.loadedCargoWeightKg);
+  const transportSecuringKg = securingUsage?.estimatedAddedWeightKg ?? 0;
+  const finalTransportWeightKg = result.totalPalletizedWeightKg + transportSecuringKg;
 
   return (
     <div className="pallet-inline-workspace">
@@ -411,7 +408,7 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
         <div className="pallet-view-stack">
           <div className="pallet-preview">
             <PreviewViewControls view={view} onViewChange={setView} showLabels={showLabels} onToggleLabels={toggleLabels} />
-            <Canvas camera={{ position: [6.2, 4.8, 6.6], fov: 46 }} dpr={[1, 1.25]} gl={{ antialias: true, powerPreference: 'high-performance' }} onContextMenu={(event) => event.nativeEvent.preventDefault()}>
+            <Canvas camera={{ position: [6.2, 4.8, 6.6], fov: 46 }} dpr={[1, 1.25]} gl={{ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true }} onContextMenu={(event) => event.nativeEvent.preventDefault()}>
               <color attach="background" args={['#edf3f9']} />
               <PalletScene container={container} result={result} spec={spec} cargo={cargo} onOpen={setOpened} view={view} showLabels={showLabels} securingUsage={securingUsage} />
             </Canvas>
@@ -439,11 +436,14 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
           <div><span>사용 팔레트</span><strong>{result.palletCount}</strong></div>
           <div><span>적재 화물</span><strong>{result.placements.length} EA</strong></div>
           <div><span>적층 팔레트</span><strong>{result.stackedPallets}</strong></div>
-          <div><span>총 팔레트화 중량</span><strong>{result.totalPalletizedWeightKg.toFixed(0)} kg</strong></div>
+          <div><span>화물 중량</span><strong>{result.loadedCargoWeightKg.toFixed(0)} kg</strong></div>
+          <div><span>팔레트/포장 중량</span><strong>{palletAndPackagingKg.toFixed(1)} kg</strong></div>
+          <div><span>팔레트화 중량</span><strong>{result.totalPalletizedWeightKg.toFixed(1)} kg</strong></div>
+          <div><span>운송 보강재</span><strong>{transportSecuringKg > 0 ? `약 ${transportSecuringKg.toFixed(1)} kg` : '-'}</strong></div>
+          <div><span>최종 운송중량</span><strong>{finalTransportWeightKg.toFixed(1)} kg</strong></div>
           <div><span>전역 최적화</span><strong>{result.optimization.selectedStackTarget}단 후보 · 바닥 {result.optimization.floorPositions}열</strong></div>
           <div><span>재배치 / 병합</span><strong>{result.optimization.redistributedForLowUtilization ? '균등분산' : '기본배치'} · {result.optimization.consolidationPasses}회</strong></div>
           <div><span>관성 보강</span><strong>{securingUsage?.levelLabel ?? '결과 보기 전 검증'}</strong></div>
-          <div><span>보조자재 중량</span><strong>{securingUsage ? `약 ${securingUsage.estimatedNonCargoWeightKg.toFixed(1)} kg` : '-'}</strong></div>
         </div>
       </section>
     </div>

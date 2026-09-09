@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { cargoColor } from './cargoColors';
 import { analyzeWeightDistribution } from './engine/weightDistribution';
+import { usePalletSnapshot } from './palletSnapshotStore';
 import {
   PreviewCameraController,
   readWeightCgPreference,
@@ -44,7 +45,6 @@ function PalletAnalysisScene({
       <Edges color="#64748b" />
     </mesh>
 
-    {/* 팔레트는 위치 확인용 구조물이다. 무게분포 계산에는 포함하지 않는다. */}
     {supports.map((support) => <mesh
       key={support.id}
       position={[
@@ -61,7 +61,6 @@ function PalletAnalysisScene({
       <Edges color="#7a5a33" />
     </mesh>)}
 
-    {/* 박스 모드와 동일하게 실제 placement 치수를 그대로 보여주고 분석 중에는 희미하게 표시한다. */}
     {cargoPlacements.map((box, index) => <mesh
       key={`${box.cargoId}-${index}`}
       position={[
@@ -97,6 +96,7 @@ function PalletAnalysisScene({
 
 export default function PalletWeightDistributionDock() {
   const target = usePhysicsTarget();
+  const snapshot = usePalletSnapshot();
   const [portalTarget, setPortalTarget] = useState<Element | null>(null);
   const [view, setView] = useState<PreviewView>('free');
   const [showGraph, setShowGraph] = useState(readWeightGraphPreference);
@@ -110,11 +110,40 @@ export default function PalletWeightDistributionDock() {
     return () => observer.disconnect();
   }, []);
 
-  // BOX 모드와 같은 기준: 팔레트 tare/support 중량을 섞지 않고 박스 placement만 분석한다.
   const analysis = useMemo(() => {
     if (!target || target.mode !== 'pallets') return null;
-    return analyzeWeightDistribution(target.container, target.result, 20, 8);
-  }, [target]);
+    const snapshotMatchesTarget = Boolean(snapshot
+      && snapshot.result.placements.length === target.result.placements.length
+      && Math.abs(snapshot.result.totalPalletizedWeightKg - target.result.loadedWeightKg) <= 1e-6);
+    if (!snapshotMatchesTarget || !snapshot) return analyzeWeightDistribution(target.container, target.result, 20, 8);
+
+    const columns = new Map<number, typeof snapshot.result.pallets>();
+    snapshot.result.pallets.forEach((pallet) => {
+      const loads = columns.get(pallet.stackColumn) ?? [];
+      loads.push(pallet);
+      columns.set(pallet.stackColumn, loads);
+    });
+    const floorFootprints = [...columns.values()].flatMap((loads) => {
+      const sorted = [...loads].sort((a, b) => a.stackLevel - b.stackLevel);
+      const base = sorted[0];
+      if (!base) return [];
+      return [{
+        x: base.x,
+        y: base.y,
+        length: base.length,
+        width: base.width,
+        weightKg: sorted.reduce((sum, pallet) => sum + pallet.totalWeightKg, 0),
+      }];
+    });
+    const massBodies = snapshot.result.pallets.map((pallet) => ({
+      weightKg: pallet.totalWeightKg,
+      x: pallet.centerOfGravity.x,
+      y: pallet.centerOfGravity.y,
+      z: pallet.centerOfGravity.z,
+    }));
+
+    return analyzeWeightDistribution(target.container, target.result, 20, 8, { floorFootprints, massBodies });
+  }, [target, snapshot]);
 
   if (!portalTarget || !target || target.mode !== 'pallets') return null;
 
@@ -156,7 +185,7 @@ export default function PalletWeightDistributionDock() {
         </button>}
       </div>
 
-      {showGraph && <section className="pallet-weight-card" aria-label="박스 기준 팔레트 3D 무게 분포">
+      {showGraph && <section className="pallet-weight-card" aria-label="팔레트 포함 3D 무게 분포">
         {analysis && analysis.totalWeightKg > 0 ? <>
           <div className="pallet-weight-canvas">
             <Canvas
@@ -175,12 +204,12 @@ export default function PalletWeightDistributionDock() {
           </div>
           <WeightDistributionPanel analysis={analysis} />
           <div className="pallet-weight-basis">
-            <b>박스 기준 무게분포</b>
-            <span>팔레트 자체중량 제외 · 실제 박스 중량/위치 · 20×8 바닥 격자</span>
+            <b>팔레트 포함 무게분포</b>
+            <span>박스 + 팔레트 + 포장재 중량 · 바닥 팔레트 접촉면으로 하중 전달 · 20×8 격자</span>
           </div>
         </> : <div className="pallet-weight-empty">
-          <b>팔레트 위 박스 적재 결과가 없습니다.</b>
-          <span>화물을 등록한 뒤 자동 적재를 실행하면 박스 기준 무게분포가 표시됩니다.</span>
+          <b>팔레트 적재 결과가 없습니다.</b>
+          <span>화물을 등록한 뒤 자동 적재를 실행하면 팔레트 포함 무게분포가 표시됩니다.</span>
         </div>}
       </section>}
     </div>,

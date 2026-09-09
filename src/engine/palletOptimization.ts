@@ -252,54 +252,6 @@ function consolidateUntilStable(
   return { result: rebuildMetrics(input, pallets, passes, container), passes };
 }
 
-function floorSlots(container: ContainerSpec, pallet: PalletSpec) {
-  const bands = Math.max(1, Math.floor((container.length + EPS) / pallet.length));
-  const lanes = Math.max(1, Math.floor((container.width + EPS) / pallet.width));
-  const groupWidth = lanes * pallet.width;
-  const yOffset = Math.max(0, (container.width - groupWidth) / 2);
-  const slots: Array<{ x: number; y: number }> = [];
-  for (let band = 0; band < bands; band += 1) {
-    for (let lane = 0; lane < lanes; lane += 1) {
-      slots.push({ x: band * pallet.length, y: yOffset + lane * pallet.width });
-    }
-  }
-  return slots;
-}
-
-function footprintsOverlap(a: { x: number; y: number }, b: PalletLoad, pallet: PalletSpec) {
-  return a.x < b.x + pallet.length - EPS && a.x + pallet.length > b.x + EPS
-    && a.y < b.y + pallet.width - EPS && a.y + pallet.width > b.y + EPS;
-}
-
-function spreadStacksToFreeFloor(
-  input: PalletPackingResult,
-  container: ContainerSpec,
-  pallet: PalletSpec,
-) {
-  if (!input.pallets.some((load) => load.stackLevel > 1)) return input;
-  const slots = floorSlots(container, pallet);
-  const pallets = input.pallets.map(cloneLoad);
-  const floorLoads = pallets.filter((load) => load.stackLevel === 1);
-  let nextColumn = pallets.reduce((max, load) => Math.max(max, load.stackColumn), 0) + 1;
-
-  const upperIndexes = pallets
-    .map((load, index) => ({ load, index }))
-    .filter(({ load }) => load.stackLevel > 1)
-    .sort((a, b) => a.load.stackLevel - b.load.stackLevel || b.load.totalWeightKg - a.load.totalWeightKg);
-
-  for (const { index } of upperIndexes) {
-    const slot = slots.find((candidate) => !floorLoads.some((floor) => footprintsOverlap(candidate, floor, pallet)));
-    if (!slot) break;
-    const moved = moveLoad(pallets[index], slot.x, slot.y, 0);
-    moved.stackLevel = 1;
-    moved.stackColumn = nextColumn++;
-    pallets[index] = moved;
-    floorLoads.push(moved);
-  }
-
-  return rebuildMetrics(input, pallets, 0, container);
-}
-
 function redistributeForLowUtilization(
   input: PalletPackingResult,
   container: ContainerSpec,
@@ -342,12 +294,11 @@ function redistributeForLowUtilization(
 function candidateScoreTuple(result: PalletPackingResult) {
   return {
     loaded: loadedCount(result),
-    stacked: result.stackedPallets,
-    maxStackLevel: result.maxUsedStackLevel,
     maxUnitHeight: maxUnitLoadHeight(result),
-    imbalance: result.lateralImbalanceKg,
     floorPositions: floorPositionCount(result),
+    imbalance: result.lateralImbalanceKg,
     pallets: result.palletCount,
+    maxStackLevel: result.maxUsedStackLevel,
   };
 }
 
@@ -355,12 +306,11 @@ function betterCandidate(a: PalletPackingResult, b: PalletPackingResult) {
   const A = candidateScoreTuple(a);
   const B = candidateScoreTuple(b);
   if (A.loaded !== B.loaded) return A.loaded > B.loaded;
-  if (A.stacked !== B.stacked) return A.stacked < B.stacked;
-  if (A.maxStackLevel !== B.maxStackLevel) return A.maxStackLevel < B.maxStackLevel;
   if (Math.abs(A.maxUnitHeight - B.maxUnitHeight) > EPS) return A.maxUnitHeight < B.maxUnitHeight;
+  if (A.floorPositions !== B.floorPositions) return A.floorPositions < B.floorPositions;
   if (A.imbalance !== B.imbalance) return A.imbalance < B.imbalance;
-  if (A.floorPositions !== B.floorPositions) return A.floorPositions > B.floorPositions;
-  return A.pallets < B.pallets;
+  if (A.pallets !== B.pallets) return A.pallets < B.pallets;
+  return A.maxStackLevel < B.maxStackLevel;
 }
 
 export function packOnPallets(
@@ -399,8 +349,10 @@ export function packOnPallets(
     if (betterCandidate(candidate.result, selected.result)) selected = candidate;
   }
 
-  const floorSpread = spreadStacksToFreeFloor(selected.result, container, pallet);
-  const redistributed = redistributeForLowUtilization(floorSpread, container, pallet);
+  // packOnPalletsBase가 실제 팔레트 높이, 상부 허용중량, 상단 박스 지지,
+  // 컨테이너 높이를 통과시킨 적층만 후보에 남긴다. 이후 단계에서는 안전하게
+  // 선택된 적층을 빈 바닥이 있다는 이유만으로 다시 1단으로 풀지 않는다.
+  const redistributed = redistributeForLowUtilization(selected.result, container, pallet);
   return {
     ...redistributed.result,
     remaining: [...preflight.rejected, ...redistributed.result.remaining],

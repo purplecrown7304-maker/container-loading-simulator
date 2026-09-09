@@ -1,40 +1,24 @@
 import { expect, test } from '@playwright/test';
+import { advanceToLoading, gotoWithBasicCargo, openHeaderMenuAction } from './helpers';
 
-async function restoreSample(page: import('@playwright/test').Page) {
-  const empty = page.locator('.empty-cargo');
-  if (await empty.isVisible().catch(() => false)) {
-    await empty.getByRole('button', { name: '샘플 복원' }).click();
-  } else {
-    const cargoItems = page.locator('.cargo-list-item');
-    if (await cargoItems.count() === 0) await page.getByRole('button', { name: '샘플 복원' }).first().click();
-  }
-  await expect(page.locator('.cargo-list-item').first()).toBeVisible();
-}
-
-test('current dashboard and field material settings mount correctly', async ({ page }) => {
+test('guided workflow and current equipment mount correctly', async ({ page }) => {
+  await page.addInitScript(() => localStorage.clear());
   await page.goto('/');
 
-  await expect(page.getByText('컨테이너 적재 시뮬레이터')).toBeVisible();
-  await expect(page.getByText('1. 컨테이너 정보')).toBeVisible();
-  await expect(page.getByText('2. 적재할 화물')).toBeVisible();
-  await expect(page.getByText('3. 적재 옵션')).toBeVisible();
-  await expect(page.getByText('4. 적재 요약')).toBeVisible();
-  await expect(page.getByText('5. 제약 조건 체크')).toBeVisible();
-  await expect(page.locator('.viewer-host canvas')).toBeVisible({ timeout: 20_000 });
-
-  await restoreSample(page);
-  await expect(page.locator('.cargo-list-item')).not.toHaveCount(0);
-  await expect(page.getByRole('button', { name: /물리 최적 자동 적재/ })).toBeEnabled();
-  await expect(page.getByRole('button', { name: /Excel 내보내기/ })).toBeVisible();
-  await expect(page.getByText('적재 보조자재 실제 중량 설정')).toBeVisible();
+  await expect(page.getByRole('button', { name: '대시보드로 이동' })).toBeVisible();
+  await expect(page.getByText('작업 준비', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '장비 선택', exact: true })).toBeVisible();
+  await expect(page.locator('.guided-equipment-card')).toBeVisible();
+  await expect(page.locator('.guided-job-summary')).toContainText('현재 작업');
+  await expect(page.getByRole('button', { name: /다음: 화물 선택/ })).toBeEnabled();
 });
 
 test('box optimization automatically continues into final inertia certification', async ({ page }) => {
   test.setTimeout(90_000);
-  await page.goto('/');
-  await restoreSample(page);
+  await gotoWithBasicCargo(page);
+  await advanceToLoading(page, 'boxes');
 
-  await page.getByRole('button', { name: /물리 최적 자동 적재/ }).click();
+  await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   const gate = page.locator('.final-cert-modal');
   await expect(gate).toBeVisible({ timeout: 70_000 });
   await expect(gate.getByRole('heading', { name: '최종 적재 결과 전 관성 검증' })).toBeVisible();
@@ -46,72 +30,45 @@ test('box optimization automatically continues into final inertia certification'
 });
 
 test('manual result view remains gated before a certified result exists', async ({ page }) => {
-  test.setTimeout(60_000);
-  await page.goto('/');
-  await restoreSample(page);
+  await gotoWithBasicCargo(page);
 
-  await page.locator('.viewer-bottom-actions .result-open-action').click();
+  await openHeaderMenuAction(page, /결과 확인/);
   const gate = page.locator('.final-cert-modal');
   await expect(gate).toBeVisible({ timeout: 10_000 });
   await expect(gate).toContainText('DIRECT BOX');
   await expect(page.locator('.results-modal')).toHaveCount(0);
 });
 
-test('Excel export remains blocked until the current box plan has a matching inertia PASS', async ({ page }) => {
-  await page.goto('/');
-  await page.evaluate(() => {
-    const detail = {
-      container: { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 },
-      cargo: [{ id: 'E2E-A', name: 'E2E A', length: 0.5, width: 0.4, height: 0.3, weightKg: 10, quantity: 1 }],
-      result: {
-        placements: [{ cargoId: 'E2E-A', x: 0, y: 0, z: 0, length: 0.5, width: 0.4, height: 0.3, weightKg: 10 }],
-        remaining: [],
-        loadedWeightKg: 10,
-        usedVolumeM3: 0.06,
-        validationIssues: [],
-      },
-    };
-    window.dispatchEvent(new CustomEvent('container-loading:result', { detail }));
-  });
+test('work order remains available before inertia certification', async ({ page }) => {
+  await gotoWithBasicCargo(page);
 
-  const exportButton = page.getByRole('button', { name: /Excel 내보내기/ });
-  await expect(exportButton).toBeEnabled();
-  const dialogPromise = page.waitForEvent('dialog');
-  await exportButton.click();
-  const dialog = await dialogPromise;
-  expect(dialog.message()).toContain('관성 시뮬레이션 3종');
-  await dialog.accept();
+  const popupPromise = page.waitForEvent('popup');
+  await openHeaderMenuAction(page, /작업지시서 보기/);
+  const popup = await popupPromise;
+  await popup.waitForLoadState('domcontentloaded');
+  await expect(popup.locator('body')).toContainText(/작업|적재/);
 });
 
 test('pallet optimization automatically requests pallet inertia certification', async ({ page }) => {
-  test.setTimeout(70_000);
-  await page.goto('/');
-  await restoreSample(page);
-
-  await page.getByRole('button', { name: '팔레트', exact: true }).click();
+  test.setTimeout(90_000);
+  await gotoWithBasicCargo(page);
+  await advanceToLoading(page, 'pallets');
   await expect(page.locator('.pallet-preview canvas')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText('사용 팔레트', { exact: true })).toBeVisible();
-  await expect(page.getByText('관성 보강', { exact: true })).toBeVisible();
-  await expect(page.getByText('보조자재 중량', { exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: /물리 최적 자동 적재/ }).click();
-  await expect(page.locator('.final-cert-modal')).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('button', { name: /최종 적재 진행/ }).click();
+  await expect(page.locator('.final-cert-modal')).toBeVisible({ timeout: 45_000 });
   await expect(page.locator('.final-cert-modal')).toContainText('PALLET');
 });
 
 test('result gate distinguishes direct-box and pallet certification modes', async ({ page }) => {
-  test.setTimeout(60_000);
-  await page.goto('/');
-  await restoreSample(page);
-
-  await page.locator('.viewer-bottom-actions .result-open-action').click();
+  await gotoWithBasicCargo(page);
+  await openHeaderMenuAction(page, /결과 확인/);
   await expect(page.locator('.final-cert-modal')).toContainText('DIRECT BOX');
 
   await page.reload();
-  await restoreSample(page);
-  await page.getByRole('button', { name: '팔레트', exact: true }).click();
-  await expect(page.locator('.pallet-preview canvas')).toBeVisible({ timeout: 20_000 });
-  await page.locator('.viewer-bottom-actions .result-open-action').click();
+  await expect(page.getByRole('heading', { name: '화물 선택', exact: true })).toBeVisible();
+  await page.locator('.guided-mode-segment').getByRole('button', { name: '팔레트', exact: true }).click();
+  await openHeaderMenuAction(page, /결과 확인/);
   await expect(page.locator('.final-cert-modal')).toContainText('PALLET');
 });
 
@@ -159,14 +116,13 @@ test('results pallet settings keep the seven-level range and close certified res
   await expect(page.locator('.results-modal')).toHaveCount(0);
 });
 
-test('mobile dashboard remains usable without horizontal overflow', async ({ page }) => {
+test('mobile guided workflow remains usable without horizontal overflow', async ({ page }) => {
+  await page.addInitScript(() => localStorage.clear());
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  await expect(page.getByText('컨테이너 적재 시뮬레이터')).toBeVisible();
-  await expect(page.locator('.viewer-host')).toBeVisible();
-  await restoreSample(page);
-  await expect(page.getByRole('button', { name: /물리 최적 자동 적재/ })).toBeVisible();
-  await expect(page.locator('.viewer-bottom-actions .result-open-action')).toBeVisible();
+  await expect(page.getByRole('button', { name: '대시보드로 이동' })).toBeVisible();
+  await expect(page.locator('.guided-stage-panel')).toBeVisible();
+  await expect(page.locator('.guided-bottom-bar')).toBeVisible();
 
   const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
   const viewportWidth = await page.evaluate(() => window.innerWidth);
