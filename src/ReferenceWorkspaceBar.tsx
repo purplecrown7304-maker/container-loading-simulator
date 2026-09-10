@@ -1,12 +1,23 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { ADMIN_ACCESS_EVENT, isAdminSession, loginAdmin, logoutAdmin } from './adminAccess';
 import { exportLoadingDiagnostics } from './diagnosticExport';
-import { LOCAL_OPERATOR_EVENT, loginLocalOperator, logoutLocalOperator, readLocalOperator, type LocalOperator } from './localOperator';
+import { LOCAL_OPERATOR_EVENT, logoutLocalOperator, readLocalOperator, type LocalOperator } from './localOperator';
+import {
+  MEMBER_AUTH_EVENT,
+  hasSupabaseMemberSession,
+  loginMember,
+  logoutMember,
+  readSupabaseMember,
+  restoreMemberSession,
+  signUpMember,
+} from './memberAuth';
 import { OPEN_TRANSPORT_SELECTOR_EVENT, useTransportEquipment } from './transportEquipment';
 import { dispatchAppAction, openWorkspace } from './uiEvents';
 import './final-workflow-cleanup.css';
+import './member-auth.css';
 
 type LoginRole = 'member' | 'admin';
+type MemberMode = 'login' | 'signup';
 
 export default function ReferenceWorkspaceBar() {
   const equipment = useTransportEquipment();
@@ -14,9 +25,12 @@ export default function ReferenceWorkspaceBar() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginRole, setLoginRole] = useState<LoginRole>('member');
-  const [operator, setOperator] = useState<LocalOperator | null>(() => readLocalOperator());
+  const [memberMode, setMemberMode] = useState<MemberMode>('login');
+  const [operator, setOperator] = useState<LocalOperator | null>(() => readSupabaseMember());
   const [isAdmin, setIsAdmin] = useState(() => isAdminSession());
   const [operatorName, setOperatorName] = useState('');
+  const [memberEmail, setMemberEmail] = useState('');
+  const [memberPassword, setMemberPassword] = useState('');
   const [adminId, setAdminId] = useState('admin');
   const [adminPassword, setAdminPassword] = useState('');
   const [loginMessage, setLoginMessage] = useState('');
@@ -62,12 +76,15 @@ export default function ReferenceWorkspaceBar() {
   }, []);
 
   useEffect(() => {
-    const syncOperator = () => setOperator(readLocalOperator());
+    void restoreMemberSession().then(member => setOperator(member));
+    const syncOperator = () => setOperator(readSupabaseMember());
     const syncAdmin = () => setIsAdmin(isAdminSession());
     window.addEventListener(LOCAL_OPERATOR_EVENT, syncOperator);
+    window.addEventListener(MEMBER_AUTH_EVENT, syncOperator);
     window.addEventListener(ADMIN_ACCESS_EVENT, syncAdmin);
     return () => {
       window.removeEventListener(LOCAL_OPERATOR_EVENT, syncOperator);
+      window.removeEventListener(MEMBER_AUTH_EVENT, syncOperator);
       window.removeEventListener(ADMIN_ACCESS_EVENT, syncAdmin);
     };
   }, []);
@@ -78,8 +95,12 @@ export default function ReferenceWorkspaceBar() {
   };
 
   const openLogin = () => {
+    const legacy = readLocalOperator();
+    if (!hasSupabaseMemberSession() && legacy?.name) setOperatorName(legacy.name);
     setLoginRole('member');
+    setMemberMode('login');
     setLoginMessage('');
+    setMemberPassword('');
     setAdminPassword('');
     setLoginOpen(true);
     setMenuOpen(false);
@@ -88,30 +109,44 @@ export default function ReferenceWorkspaceBar() {
   const submitLogin = async (event: FormEvent) => {
     event.preventDefault();
     if (loginBusy) return;
+    setLoginBusy(true);
 
-    if (loginRole === 'member') {
-      const next = loginLocalOperator(operatorName);
-      if (!next) {
-        setLoginMessage('회원 이름을 입력하세요.');
+    try {
+      if (loginRole === 'member') {
+        const result = memberMode === 'signup'
+          ? await signUpMember(operatorName, memberEmail, memberPassword)
+          : await loginMember(memberEmail, memberPassword);
+        if (!result.ok) {
+          setLoginMessage(result.message || '회원 인증에 실패했습니다.');
+          return;
+        }
+        if (result.pendingEmailConfirmation) {
+          setMemberMode('login');
+          setMemberPassword('');
+          setLoginMessage(result.message || '이메일 확인 후 로그인하세요.');
+          return;
+        }
+        if (!result.member) {
+          setLoginMessage('회원 프로필을 불러오지 못했습니다.');
+          return;
+        }
+        logoutAdmin();
+        setIsAdmin(false);
+        setOperator(result.member);
+        setOperatorName('');
+        setMemberPassword('');
+        setLoginMessage('');
+        setLoginOpen(false);
         return;
       }
-      logoutAdmin();
-      setOperator(next);
-      setIsAdmin(false);
-      setOperatorName('');
-      setLoginMessage('');
-      setLoginOpen(false);
-      return;
-    }
 
-    setLoginBusy(true);
-    try {
       const ok = await loginAdmin(adminId, adminPassword);
       if (!ok) {
         setLoginMessage('관리자 ID 또는 비밀번호가 올바르지 않습니다.');
         return;
       }
-      logoutLocalOperator();
+      if (hasSupabaseMemberSession()) await logoutMember();
+      else logoutLocalOperator();
       setOperator(null);
       setIsAdmin(true);
       setAdminPassword('');
@@ -124,7 +159,7 @@ export default function ReferenceWorkspaceBar() {
 
   const logout = () => {
     if (isAdmin) logoutAdmin();
-    if (operator) logoutLocalOperator();
+    if (operator) void logoutMember();
     setIsAdmin(false);
     setOperator(null);
     setAccountOpen(false);
@@ -133,6 +168,9 @@ export default function ReferenceWorkspaceBar() {
   const accountName = isAdmin ? '관리자' : operator?.name ?? '';
   const accountInitial = isAdmin ? 'A' : operator?.name.slice(0, 1).toUpperCase() || 'M';
   const signedIn = isAdmin || Boolean(operator);
+  const memberSubmitDisabled = memberMode === 'signup'
+    ? !operatorName.trim() || !memberEmail.trim() || memberPassword.length < 6
+    : !memberEmail.trim() || !memberPassword;
 
   return <>
     <header className="reference-utility clean-single-header">
@@ -155,7 +193,8 @@ export default function ReferenceWorkspaceBar() {
               <span className="header-avatar">{accountInitial}</span><span className="header-user-name">{accountName}</span>
             </button>
             {accountOpen && <div className="header-account-menu" role="menu">
-              <div className="account-summary"><b>{accountName}</b><small>{isAdmin ? '관리자 권한' : '개인 박스 회원'}</small></div>
+              <div className="account-summary"><b>{accountName}</b><small>{isAdmin ? '관리자 권한' : 'Supabase 회원'}</small></div>
+              {!isAdmin && operator?.email && <div className="member-account-email">{operator.email}</div>}
               {!isAdmin && <button type="button" onClick={() => { openWorkspace('data'); setAccountOpen(false); }}>저장한 계획</button>}
               <button type="button" onClick={logout}>로그아웃</button>
             </div>}
@@ -233,8 +272,14 @@ export default function ReferenceWorkspaceBar() {
         </div>
 
         {loginRole === 'member' ? <>
-          <label>회원 이름<input autoFocus value={operatorName} onChange={event => setOperatorName(event.target.value)} placeholder="예: 박 작업자" maxLength={30} /></label>
-          <p>로그인한 회원 이름별로 개인 박스 목록이 분리됩니다. 현재 회원 로그인은 이 브라우저의 로컬 프로필 방식입니다.</p>
+          <div className="member-auth-mode" role="tablist" aria-label="회원 인증 방식">
+            <button type="button" className={memberMode === 'login' ? 'active' : ''} onClick={() => { setMemberMode('login'); setLoginMessage(''); }}>로그인</button>
+            <button type="button" className={memberMode === 'signup' ? 'active' : ''} onClick={() => { setMemberMode('signup'); setLoginMessage(''); }}>회원가입</button>
+          </div>
+          {memberMode === 'signup' && <label>회원 이름<input autoFocus value={operatorName} onChange={event => setOperatorName(event.target.value)} placeholder="예: 박 작업자" maxLength={30} /></label>}
+          <label>이메일<input type="email" autoFocus={memberMode === 'login'} autoComplete="email" value={memberEmail} onChange={event => setMemberEmail(event.target.value)} placeholder="name@example.com" /></label>
+          <label>비밀번호<input type="password" autoComplete={memberMode === 'signup' ? 'new-password' : 'current-password'} value={memberPassword} onChange={event => setMemberPassword(event.target.value)} minLength={6} /></label>
+          <p>{memberMode === 'signup' ? '회원정보는 Supabase Auth와 전용 회원 프로필에 저장됩니다. 기존 로컬 회원 데이터는 첫 로그인 때 새 계정 범위로 복사합니다.' : 'Supabase 계정으로 로그인하면 같은 회원정보를 다른 기기에서도 사용할 수 있습니다.'}</p>
         </> : <>
           <label>관리자 ID<input autoComplete="username" value={adminId} onChange={event => setAdminId(event.target.value)} /></label>
           <label>비밀번호<input type="password" autoComplete="current-password" value={adminPassword} onChange={event => setAdminPassword(event.target.value)} autoFocus /></label>
@@ -242,8 +287,8 @@ export default function ReferenceWorkspaceBar() {
         </>}
 
         {loginMessage && <div className="unified-login-error" role="alert">{loginMessage}</div>}
-        <button className="local-login-submit" type="submit" disabled={loginBusy || (loginRole === 'member' ? !operatorName.trim() : !adminId.trim() || !adminPassword)}>
-          {loginBusy ? '확인 중…' : loginRole === 'member' ? '회원 로그인' : '관리자 로그인'}
+        <button className="local-login-submit" type="submit" disabled={loginBusy || (loginRole === 'member' ? memberSubmitDisabled : !adminId.trim() || !adminPassword)}>
+          {loginBusy ? '확인 중…' : loginRole === 'member' ? (memberMode === 'signup' ? '회원가입' : '회원 로그인') : '관리자 로그인'}
         </button>
       </form>
     </div>}
