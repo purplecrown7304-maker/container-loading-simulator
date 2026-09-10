@@ -190,7 +190,7 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
         showWeightCenter={showWeightCenter}
         onToggleWeightCenter={toggleWeightCenter}
       />
-      <Canvas shadows camera={{ position: [7.6, 4.8, 7.2], fov: 46 }} dpr={[1, 1.25]} gl={{ antialias: true, powerPreference: 'high-performance' }} onPointerMissed={() => change(null)}>
+      <Canvas shadows camera={{ position: [7.6, 4.8, 7.2], fov: 46 }} dpr={[1, 1.25]} gl={{ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true }} onPointerMissed={() => change(null)}>
         <color attach="background" args={['#edf3f9']} />
         <ambientLight intensity={2.1} />
         <directionalLight castShadow position={[3, 7, 5]} intensity={2.5} />
