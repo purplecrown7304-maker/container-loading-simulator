@@ -2,7 +2,6 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import ErrorBoundary from './ErrorBoundary';
-import AdminAccessControl from './AdminAccessControl';
 import ExcelImportActions from './ExcelImportActions';
 import ExcelExportActions from './ExcelExportActions';
 import ResultsOverlay from './ResultsOverlay';
@@ -30,7 +29,6 @@ import OperationalRightSummary from './OperationalRightSummary';
 import DashboardCommandDock from './DashboardCommandDock';
 import GuidedWorkflowShell from './GuidedWorkflowShell';
 import GuidedResultTabsEnhancer from './GuidedResultTabsEnhancer';
-import UserBoxExcelAccess from './UserBoxExcelAccess';
 import DiagnosticExportResultButton from './DiagnosticExportResultButton';
 import TransportEquipmentSelector from './TransportEquipmentSelector';
 import TransportEquipmentDashboardSummary from './TransportEquipmentDashboardSummary';
@@ -79,6 +77,7 @@ import './enterprise-approval.css';
 import './enterprise-manufacturing.css';
 import './transport-equipment.css';
 import './topbar-cleanup.css';
+import './login-segmented.css';
 import './pallet-weight-distribution.css';
 import './header-loading-status.css';
 import './pallet-weight-launcher.css';
@@ -91,7 +90,6 @@ import './guided-result-tabs-enhancer.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <AdminAccessControl />
       <ReferenceWorkspaceBar />
       <HeaderLoadingStatusBoard />
       <TransportEquipmentSelector />
@@ -115,7 +113,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <GuidedWorkflowShell />
       <GuidedResultTabsEnhancer />
       <DiagnosticExportResultButton />
-      <UserBoxExcelAccess />
       <EnterprisePackagingPlannerHost />
       <EnterpriseTransportEquipmentAdapter />
       <ProductPackagingExcelActions />
