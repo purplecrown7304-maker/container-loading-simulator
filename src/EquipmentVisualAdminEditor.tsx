@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT, isAdminSession } from './adminAccess';
 import { TRANSPORT_EQUIPMENT_EVENT, useTransportEquipment } from './transportEquipment';
-import './equipment-visual-admin.css';
 
 const STORAGE_KEY = 'container-loading-equipment-visual-images-v1';
+const VISUAL_EVENT = 'container-loading:equipment-visual-image-updated';
 
 type EquipmentVisualMap = Record<string, string>;
 
@@ -20,7 +20,7 @@ function readVisuals(): EquipmentVisualMap {
 
 function writeVisuals(value: EquipmentVisualMap) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
-  window.dispatchEvent(new CustomEvent('container-loading:equipment-visual-image-updated'));
+  window.dispatchEvent(new CustomEvent(VISUAL_EVENT));
 }
 
 function resizeImage(file: File): Promise<string> {
@@ -66,11 +66,11 @@ export default function EquipmentVisualAdminEditor() {
     const refresh = () => setRevision(value => value + 1);
     window.addEventListener(ADMIN_ACCESS_EVENT, syncAdmin);
     window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
-    window.addEventListener('container-loading:equipment-visual-image-updated', refresh);
+    window.addEventListener(VISUAL_EVENT, refresh);
     return () => {
       window.removeEventListener(ADMIN_ACCESS_EVENT, syncAdmin);
       window.removeEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
-      window.removeEventListener('container-loading:equipment-visual-image-updated', refresh);
+      window.removeEventListener(VISUAL_EVENT, refresh);
     };
   }, []);
 
@@ -78,10 +78,18 @@ export default function EquipmentVisualAdminEditor() {
     let frame = 0;
     let currentVisual: HTMLButtonElement | null = null;
     let currentToolbar: HTMLElement | null = null;
+    let hiddenCard: HTMLElement | null = null;
 
     const sync = () => {
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
+        const card = document.querySelector<HTMLElement>('.guided-equipment-stage>.guided-equipment-card.selected');
+        if (card && card !== hiddenCard) {
+          if (hiddenCard) hiddenCard.style.display = '';
+          hiddenCard = card;
+          hiddenCard.style.display = 'none';
+        }
+
         const next = document.querySelector<HTMLButtonElement>('.guided-equipment-stage .guided-equipment-visual');
         if (next === currentVisual) return;
         currentToolbar?.remove();
@@ -89,8 +97,9 @@ export default function EquipmentVisualAdminEditor() {
         currentToolbar = null;
         setVisualHost(next);
         if (next) {
+          next.style.position = 'relative';
           const toolbar = document.createElement('div');
-          toolbar.className = 'equipment-visual-admin-toolbar-host';
+          toolbar.style.margin = '-8px 0 16px';
           next.insertAdjacentElement('afterend', toolbar);
           currentToolbar = toolbar;
           setToolbarHost(toolbar);
@@ -107,6 +116,7 @@ export default function EquipmentVisualAdminEditor() {
       window.cancelAnimationFrame(frame);
       observer.disconnect();
       currentToolbar?.remove();
+      if (hiddenCard) hiddenCard.style.display = '';
     };
   }, []);
 
@@ -121,6 +131,11 @@ export default function EquipmentVisualAdminEditor() {
       if (!image) {
         image = document.createElement('img');
         image.className = 'equipment-custom-visual';
+        image.style.display = 'block';
+        image.style.width = '100%';
+        image.style.aspectRatio = '760 / 260';
+        image.style.objectFit = 'contain';
+        image.style.background = '#f7f8fa';
         visualHost.prepend(image);
       }
       image.src = custom;
@@ -138,8 +153,7 @@ export default function EquipmentVisualAdminEditor() {
     if (file.size > 10 * 1024 * 1024) return setMessage('이미지는 10MB 이하 파일을 사용하세요.');
     try {
       const dataUrl = await resizeImage(file);
-      const visuals = readVisuals();
-      writeVisuals({ ...visuals, [equipment.id]: dataUrl });
+      writeVisuals({ ...readVisuals(), [equipment.id]: dataUrl });
       setMessage(`${equipment.shortName} 이미지를 변경했습니다.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '이미지를 변경하지 못했습니다.');
@@ -160,13 +174,24 @@ export default function EquipmentVisualAdminEditor() {
 
   if (!toolbarHost || !isAdmin) return null;
 
+  const buttonStyle = {
+    padding: '6px 10px',
+    border: '1px solid #cfd5dc',
+    borderRadius: 8,
+    background: '#fff',
+    color: '#313841',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+  } as const;
+
   return createPortal(
-    <div className="equipment-visual-admin-toolbar" aria-label="관리자 적재공간 이미지 관리">
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', padding: '8px 10px', border: '1px dashed #c9d0d8', borderRadius: 10, background: '#fafbfc' }} aria-label="관리자 적재공간 이미지 관리">
       <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={event => void upload(event.target.files?.[0])} />
-      <span>관리자 이미지 관리</span>
-      <button type="button" onClick={() => inputRef.current?.click()}>이미지 변경</button>
-      <button type="button" onClick={restore}>기본 그림 복원</button>
-      {message && <small>{message}</small>}
+      <span style={{ marginRight: 'auto', color: '#6f7781', fontSize: 11, fontWeight: 700 }}>관리자 이미지 관리</span>
+      <button type="button" style={buttonStyle} onClick={() => inputRef.current?.click()}>이미지 변경</button>
+      <button type="button" style={buttonStyle} onClick={restore}>기본 그림 복원</button>
+      {message && <small style={{ flexBasis: '100%', color: '#66707a', fontSize: 10.5, textAlign: 'right' }}>{message}</small>}
     </div>,
     toolbarHost,
   );
