@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { optimizeCommonCartonFamily, type CommonCartonFamilyPlan } from './engine/commonCartonFamilyOptimizer';
 import type { BoxCatalogItem, ProductItem } from './engine/productPackagingOptimizer';
 import type { ContainerSpec } from './engine/types';
@@ -17,6 +17,11 @@ const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
 export default function CommonCartonRecommendations({ container, products, boxes }: Props) {
   const [plan, setPlan] = useState<CommonCartonFamilyPlan | null>(null);
   const [message, setMessage] = useState('제품이 2종 이상이면 여러 SKU에 공용으로 쓸 수 있는 범용 박스 규격을 계산할 수 있습니다.');
+
+  useEffect(() => {
+    setPlan(null);
+    setMessage('제품 또는 회사 박스 조건이 변경되었습니다. 범용 상자 추천을 다시 계산하세요.');
+  }, [container, products, boxes]);
 
   const universalBoxes = useMemo(() => {
     if (!plan) return [];
