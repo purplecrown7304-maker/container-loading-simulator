@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import CompanyProductLoadingFlow from './CompanyProductLoadingFlow';
 import EnterprisePackagingPlanner from './EnterprisePackagingPlanner';
 import { ENTERPRISE_PACKAGING_PLANNER_EVENT } from './enterprisePackagingPlannerStore';
+import './guided-company-product-portal.css';
 
 const PLANNER_VIEW_STATE = 'enterprise-packaging';
 
