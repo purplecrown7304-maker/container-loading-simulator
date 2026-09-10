@@ -34,9 +34,21 @@ export type EnterprisePackagingPlannerState = {
   settings?: EnterprisePackagingPlannerSettings;
 };
 
-function removeLegacyVirtualProducts(state: EnterprisePackagingPlannerState) {
-  const products = state.products.filter(product => !isLegacyVirtualCompanyProduct(product));
-  return products.length === state.products.length ? state : { ...state, products };
+function cleanPlannerState(state: EnterprisePackagingPlannerState) {
+  let changed = false;
+  const products = state.products.flatMap(product => {
+    if (isLegacyVirtualCompanyProduct(product)) {
+      changed = true;
+      return [];
+    }
+    if ('maxUnitsPerBox' in product) {
+      const { maxUnitsPerBox: _legacyMaxUnitsPerBox, ...cleaned } = product;
+      changed = true;
+      return [cleaned as ProductItem];
+    }
+    return [product];
+  });
+  return changed ? { ...state, products } : state;
 }
 
 export function readEnterprisePackagingPlannerState(): EnterprisePackagingPlannerState | null {
@@ -46,7 +58,7 @@ export function readEnterprisePackagingPlannerState(): EnterprisePackagingPlanne
     if (!raw) return null;
     const parsed = JSON.parse(raw) as EnterprisePackagingPlannerState;
     if (!parsed?.container || !Array.isArray(parsed.products) || !Array.isArray(parsed.boxes)) return null;
-    const cleaned = removeLegacyVirtualProducts(parsed);
+    const cleaned = cleanPlannerState(parsed);
     if (cleaned !== parsed) window.localStorage.setItem(ENTERPRISE_PACKAGING_PLANNER_KEY, JSON.stringify(cleaned));
     return cleaned;
   } catch {
@@ -56,7 +68,7 @@ export function readEnterprisePackagingPlannerState(): EnterprisePackagingPlanne
 
 export function writeEnterprisePackagingPlannerState(state: EnterprisePackagingPlannerState, notify = true) {
   if (typeof window === 'undefined') return;
-  const cleaned = removeLegacyVirtualProducts(state);
+  const cleaned = cleanPlannerState(state);
   window.localStorage.setItem(ENTERPRISE_PACKAGING_PLANNER_KEY, JSON.stringify(cleaned));
   if (notify) window.dispatchEvent(new CustomEvent<EnterprisePackagingPlannerState>(ENTERPRISE_PACKAGING_PLANNER_EVENT, { detail: cleaned }));
 }
@@ -74,6 +86,8 @@ export function enterprisePackagingOptionsFromPlanner(
       ...defaultEnterprisePackagingOptions.packaging,
       allowCustomBoxDesign: settings.allowCustom ?? true,
       maxGeneratedGrossWeightKg: Math.max(1, settings.maxGrossKg ?? 22),
+      // 박스당 최대 EA는 사람이 입력하지 않는다. 규격·중량·내부 배치로 자동 산출한다.
+      maxGeneratedUnitsPerBox: Number.MAX_SAFE_INTEGER,
       generatedDimensionStepM: dimensionStepMm / 1000,
       generatedBoxUnitCost: (settings.generatedBoxUnitCost ?? 0) > 0 ? settings.generatedBoxUnitCost : undefined,
     },
@@ -98,7 +112,7 @@ export function enterprisePackagingOptionsFromPlanner(
 export function buildEnterprisePackagingPlanFromPlanner(
   state: EnterprisePackagingPlannerState,
 ): EnterprisePackagingPlan {
-  const cleaned = removeLegacyVirtualProducts(state);
+  const cleaned = cleanPlannerState(state);
   return optimizeEnterprisePackaging(
     cleaned.container,
     cleaned.products,
