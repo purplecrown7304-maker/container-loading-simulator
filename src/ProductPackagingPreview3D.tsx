@@ -12,8 +12,6 @@ type Props = {
 
 type PreviewBox = {
   key: string;
-  cargoId: string;
-  name: string;
   x: number;
   y: number;
   z: number;
@@ -44,8 +42,6 @@ function floorPreview(container: ContainerSpec, cargo: CargoItem[]) {
       if (x + length > container.length - 0.04) break outer;
       placed.push({
         key: `${item.id}-${index}`,
-        cargoId: item.id,
-        name: item.name,
         x: x + length / 2,
         y: y + width / 2,
         z: height / 2,
@@ -83,9 +79,6 @@ function Scene({ container, cargo }: Props) {
         <meshStandardMaterial color={box.color} roughness={.56} />
         <Edges color="#374151" threshold={15} />
       </mesh>)}
-      <lineSegments position={[centerX, centerY, container.height / 2]}>
-        <edgesGeometry args={[undefined]} />
-      </lineSegments>
     </group>
     <OrbitControls makeDefault target={[0, 0, 0]} minDistance={2} maxDistance={Math.max(8, container.length * 1.8)} />
   </>;
