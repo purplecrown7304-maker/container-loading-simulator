@@ -1,5 +1,5 @@
 import { adoptRemoteOperator, logoutLocalOperator, type LocalOperator } from './localOperator';
-import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabasePublicHeaders } from './supabaseConfig';
+import { SUPABASE_URL, supabasePublicHeaders } from './supabaseConfig';
 
 const MEMBER_SESSION_KEY = 'container-loading:supabase-member-session:v1';
 export const MEMBER_AUTH_EVENT = 'container-loading:supabase-member-auth-updated';
@@ -64,7 +64,7 @@ function authError(data: AuthResponse, fallback: string) {
   return data.error_description || data.message || data.error || fallback;
 }
 
-function authHeaders(extra?: HeadersInit) {
+function authHeaders(extra: Record<string, string> = {}) {
   return supabasePublicHeaders({ 'Content-Type': 'application/json', ...extra });
 }
 
@@ -232,11 +232,7 @@ export async function logoutMember(): Promise<void> {
   try {
     await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
       method: 'POST',
-      headers: {
-        ...supabasePublicHeaders(),
-        Authorization: `Bearer ${session.accessToken}`,
-        apikey: SUPABASE_PUBLISHABLE_KEY,
-      },
+      headers: supabasePublicHeaders({ Authorization: `Bearer ${session.accessToken}` }),
     });
   } catch {
     // 로컬 세션은 이미 제거했으므로 네트워크 로그아웃 실패가 UI를 막지 않는다.
