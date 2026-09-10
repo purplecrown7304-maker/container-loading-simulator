@@ -3,7 +3,7 @@ export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_dxh4pjf_jPwJYGnbCwqPZA_x
 
 export const CONTAINER_ADMIN_API_URL = `${SUPABASE_URL}/functions/v1/container-admin-api`;
 
-export function supabasePublicHeaders(extra?: HeadersInit): HeadersInit {
+export function supabasePublicHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return {
     apikey: SUPABASE_PUBLISHABLE_KEY,
     ...extra,
