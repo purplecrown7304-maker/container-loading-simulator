@@ -1,30 +1,26 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
+import { ADMIN_ACCESS_EVENT, isAdminSession, loginAdmin, logoutAdmin } from './adminAccess';
 import { exportLoadingDiagnostics } from './diagnosticExport';
+import { LOCAL_OPERATOR_EVENT, loginLocalOperator, logoutLocalOperator, readLocalOperator, type LocalOperator } from './localOperator';
 import { OPEN_TRANSPORT_SELECTOR_EVENT, useTransportEquipment } from './transportEquipment';
 import { dispatchAppAction, openWorkspace } from './uiEvents';
 import './final-workflow-cleanup.css';
 
-const LOCAL_SESSION_KEY = 'container-loading-local-operator-v1';
-
-type LocalOperator = { name: string };
-
-function readLocalOperator(): LocalOperator | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const parsed = JSON.parse(localStorage.getItem(LOCAL_SESSION_KEY) || 'null') as LocalOperator | null;
-    return parsed?.name?.trim() ? { name: parsed.name.trim() } : null;
-  } catch {
-    return null;
-  }
-}
+type LoginRole = 'member' | 'admin';
 
 export default function ReferenceWorkspaceBar() {
   const equipment = useTransportEquipment();
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [loginRole, setLoginRole] = useState<LoginRole>('member');
   const [operator, setOperator] = useState<LocalOperator | null>(() => readLocalOperator());
+  const [isAdmin, setIsAdmin] = useState(() => isAdminSession());
   const [operatorName, setOperatorName] = useState('');
+  const [adminId, setAdminId] = useState('admin');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [loginMessage, setLoginMessage] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const accountRef = useRef<HTMLDivElement>(null);
 
@@ -65,24 +61,78 @@ export default function ReferenceWorkspaceBar() {
     return () => document.removeEventListener('keydown', closeOnEscape);
   }, []);
 
-  const submitLocalLogin = (event: FormEvent) => {
+  useEffect(() => {
+    const syncOperator = () => setOperator(readLocalOperator());
+    const syncAdmin = () => setIsAdmin(isAdminSession());
+    window.addEventListener(LOCAL_OPERATOR_EVENT, syncOperator);
+    window.addEventListener(ADMIN_ACCESS_EVENT, syncAdmin);
+    return () => {
+      window.removeEventListener(LOCAL_OPERATOR_EVENT, syncOperator);
+      window.removeEventListener(ADMIN_ACCESS_EVENT, syncAdmin);
+    };
+  }, []);
+
+  const changeLoginRole = (role: LoginRole) => {
+    setLoginRole(role);
+    setLoginMessage('');
+  };
+
+  const openLogin = () => {
+    setLoginRole('member');
+    setLoginMessage('');
+    setAdminPassword('');
+    setLoginOpen(true);
+    setMenuOpen(false);
+  };
+
+  const submitLogin = async (event: FormEvent) => {
     event.preventDefault();
-    const name = operatorName.trim();
-    if (!name) return;
-    const next = { name };
-    localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(next));
-    setOperator(next);
-    setOperatorName('');
-    setLoginOpen(false);
+    if (loginBusy) return;
+
+    if (loginRole === 'member') {
+      const next = loginLocalOperator(operatorName);
+      if (!next) {
+        setLoginMessage('회원 이름을 입력하세요.');
+        return;
+      }
+      logoutAdmin();
+      setOperator(next);
+      setIsAdmin(false);
+      setOperatorName('');
+      setLoginMessage('');
+      setLoginOpen(false);
+      return;
+    }
+
+    setLoginBusy(true);
+    try {
+      const ok = await loginAdmin(adminId, adminPassword);
+      if (!ok) {
+        setLoginMessage('관리자 ID 또는 비밀번호가 올바르지 않습니다.');
+        return;
+      }
+      logoutLocalOperator();
+      setOperator(null);
+      setIsAdmin(true);
+      setAdminPassword('');
+      setLoginMessage('');
+      setLoginOpen(false);
+    } finally {
+      setLoginBusy(false);
+    }
   };
 
   const logout = () => {
-    localStorage.removeItem(LOCAL_SESSION_KEY);
+    if (isAdmin) logoutAdmin();
+    if (operator) logoutLocalOperator();
+    setIsAdmin(false);
     setOperator(null);
     setAccountOpen(false);
   };
 
-  const operatorInitial = operator?.name.slice(0, 1).toUpperCase() || 'L';
+  const accountName = isAdmin ? '관리자' : operator?.name ?? '';
+  const accountInitial = isAdmin ? 'A' : operator?.name.slice(0, 1).toUpperCase() || 'M';
+  const signedIn = isAdmin || Boolean(operator);
 
   return <>
     <header className="reference-utility clean-single-header">
@@ -100,16 +150,16 @@ export default function ReferenceWorkspaceBar() {
 
       <div className="header-right-actions">
         <div className="header-account-wrap" ref={accountRef}>
-          {operator ? <>
+          {signedIn ? <>
             <button className="header-login-button signed-in" type="button" onClick={() => { setAccountOpen(v => !v); setMenuOpen(false); }} aria-expanded={accountOpen}>
-              <span className="header-avatar">{operatorInitial}</span><span className="header-user-name">{operator.name}</span>
+              <span className="header-avatar">{accountInitial}</span><span className="header-user-name">{accountName}</span>
             </button>
             {accountOpen && <div className="header-account-menu" role="menu">
-              <div className="account-summary"><b>{operator.name}</b><small>이 기기 작업자</small></div>
-              <button type="button" onClick={() => { openWorkspace('data'); setAccountOpen(false); }}>저장한 계획</button>
+              <div className="account-summary"><b>{accountName}</b><small>{isAdmin ? '관리자 권한' : '개인 박스 회원'}</small></div>
+              {!isAdmin && <button type="button" onClick={() => { openWorkspace('data'); setAccountOpen(false); }}>저장한 계획</button>}
               <button type="button" onClick={logout}>로그아웃</button>
             </div>}
-          </> : <button className="header-login-button" type="button" onClick={() => { setLoginOpen(true); setMenuOpen(false); }}>로그인</button>}
+          </> : <button className="header-login-button" type="button" onClick={openLogin}>로그인</button>}
         </div>
 
         <div className="header-menu-wrap" ref={menuRef}>
@@ -142,7 +192,7 @@ export default function ReferenceWorkspaceBar() {
                 <span>▥</span><div><b>컨테이너 · 차량 선택</b><small>현재 작업에 사용할 운송 장비를 직접 선택</small></div>
               </button>
               <button type="button" onClick={() => runAndClose(() => openWorkspace('boxes'))}>
-                <span>□</span><div><b>박스 · 화물 선택</b><small>등록 박스 선택, 수량 입력, 신규 박스 Excel 추가</small></div>
+                <span>□</span><div><b>박스 · 화물 선택</b><small>개인 등록 박스 선택, 수량 입력, 신규 박스 Excel 추가</small></div>
               </button>
               <button type="button" onClick={() => runAndClose(() => openWorkspace('safety'))}>
                 <span>✓</span><div><b>안전 점검</b><small>규격 · 충돌 · 중량 · 미적재 상태 점검</small></div>
@@ -173,11 +223,28 @@ export default function ReferenceWorkspaceBar() {
     </header>
 
     {loginOpen && <div className="local-login-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setLoginOpen(false); }}>
-      <form className="local-login-dialog" onSubmit={submitLocalLogin} aria-label="작업자 로그인">
-        <div className="local-login-head"><div><b>작업자 로그인</b><small>이 기기에서 사용할 작업자 이름을 표시합니다.</small></div><button type="button" onClick={() => setLoginOpen(false)} aria-label="로그인 창 닫기">×</button></div>
-        <label>작업자 이름<input autoFocus value={operatorName} onChange={event => setOperatorName(event.target.value)} placeholder="예: 박 작업자" maxLength={30} /></label>
-        <p>현재 로그인은 브라우저 로컬 작업자 표시용입니다. 서버 계정 인증이나 권한 관리를 대신하지 않습니다.</p>
-        <button className="local-login-submit" type="submit" disabled={!operatorName.trim()}>로그인</button>
+      <form className="local-login-dialog unified-login-dialog" onSubmit={event => void submitLogin(event)} aria-label="로그인">
+        <div className="local-login-head"><div><b>로그인</b><small>회원 또는 관리자 유형을 선택하세요.</small></div><button type="button" onClick={() => setLoginOpen(false)} aria-label="로그인 창 닫기">×</button></div>
+
+        <div className={`login-segmented-control role-${loginRole}`} role="tablist" aria-label="로그인 유형">
+          <span className="login-segment-slider" aria-hidden="true" />
+          <button type="button" role="tab" aria-selected={loginRole === 'member'} className={loginRole === 'member' ? 'active' : ''} onClick={() => changeLoginRole('member')}>회원</button>
+          <button type="button" role="tab" aria-selected={loginRole === 'admin'} className={loginRole === 'admin' ? 'active' : ''} onClick={() => changeLoginRole('admin')}>관리자</button>
+        </div>
+
+        {loginRole === 'member' ? <>
+          <label>회원 이름<input autoFocus value={operatorName} onChange={event => setOperatorName(event.target.value)} placeholder="예: 박 작업자" maxLength={30} /></label>
+          <p>로그인한 회원 이름별로 개인 박스 목록이 분리됩니다. 현재 회원 로그인은 이 브라우저의 로컬 프로필 방식입니다.</p>
+        </> : <>
+          <label>관리자 ID<input autoComplete="username" value={adminId} onChange={event => setAdminId(event.target.value)} /></label>
+          <label>비밀번호<input type="password" autoComplete="current-password" value={adminPassword} onChange={event => setAdminPassword(event.target.value)} autoFocus /></label>
+          <p>관리자 로그인 시 관리자 전용 설정과 관리 기능을 사용할 수 있습니다.</p>
+        </>}
+
+        {loginMessage && <div className="unified-login-error" role="alert">{loginMessage}</div>}
+        <button className="local-login-submit" type="submit" disabled={loginBusy || (loginRole === 'member' ? !operatorName.trim() : !adminId.trim() || !adminPassword)}>
+          {loginBusy ? '확인 중…' : loginRole === 'member' ? '회원 로그인' : '관리자 로그인'}
+        </button>
       </form>
     </div>}
   </>;
