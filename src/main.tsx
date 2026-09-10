@@ -79,6 +79,7 @@ import './enterprise-strategy.css';
 import './enterprise-approval.css';
 import './enterprise-manufacturing.css';
 import './transport-equipment.css';
+import './transport-equipment-scroll-fix.css';
 import './topbar-cleanup.css';
 import './login-segmented.css';
 import './pallet-weight-distribution.css';
