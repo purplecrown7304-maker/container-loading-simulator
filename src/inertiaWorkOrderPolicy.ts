@@ -44,9 +44,13 @@ export function assessWorkOrderCertification(certification: InertiaCertification
   return certification.status === 'passed' ? 'pass' : 'caution';
 }
 
-export function canCreateWorkOrder(certification: InertiaCertification) {
-  const level = assessWorkOrderCertification(certification);
-  return level === 'pass' || level === 'caution';
+/**
+ * Work-order creation is never a safety gate. PASS / caution / danger / incomplete
+ * remain visible classifications on the generated document, but they must not stop
+ * the operator from receiving a work instruction for the current loading result.
+ */
+export function canCreateWorkOrder(_certification: InertiaCertification) {
+  return true;
 }
 
 export function workOrderApprovalLabel(certification: InertiaCertification) {
@@ -67,9 +71,13 @@ export function buildWorkOrderRecommendations(certification: InertiaCertificatio
   const items: string[] = [];
   const level = assessWorkOrderCertification(certification);
 
-  if (level === 'caution') {
+  if (level === 'danger') {
+    items.push('관성 결과가 위험 기준을 초과했습니다. 작업지시서는 현장 참고용으로 발급되며 출고 전 재배치·고정 보강과 책임자 확인이 필요합니다.');
+  } else if (level === 'incomplete') {
+    items.push('관성 3종 검증이 모두 끝나지 않았습니다. 작업지시서는 현재 적재 결과 기준으로 발급되며 미검증 항목을 현장에서 추가 확인하세요.');
+  } else if (level === 'caution') {
     items.push('내부 PASS 기준을 일부 초과했지만 위험 기준 이내입니다. 아래 보완사항을 적용하고 출고 전 현장 흔들림·간섭 상태를 재확인하세요.');
-  } else if (level === 'pass') {
+  } else {
     items.push('관성 3종 내부 PASS 조건을 충족했습니다. 작업지시서에 표시된 보강자재 수량과 설치 위치를 그대로 적용하세요.');
   }
 
@@ -111,10 +119,9 @@ function attemptScenarios(results: Partial<Record<InertiaScenario, InertiaAnimat
 }
 
 /**
- * Normal certification stops a securing level as soon as strict PASS fails.
- * Work-order approval needs a different answer: whether all three scenarios are
- * below the DANGER limits. This fills only the missing scenarios at the final
- * securing level and keeps the stricter PASS/FAIL status unchanged.
+ * Fill every missing inertia scenario for the work-order snapshot whenever payload is
+ * within the equipment limit. A dangerous first scenario is recorded as danger, not
+ * used as an excuse to stop the remaining tests or suppress the document.
  */
 export async function completeCertificationForWorkOrder(
   target: PhysicsTarget,
@@ -124,7 +131,6 @@ export async function completeCertificationForWorkOrder(
   shouldCancel?: () => boolean,
 ): Promise<InertiaCertification> {
   if (!certification.payloadWithinLimit || certification.status === 'passed') return certification;
-  if (assessWorkOrderCertification(certification) === 'danger') return certification;
 
   const level = certification.securing.level;
   const profile = securingProfileForUsage(target.mode, certification.securing);
@@ -152,7 +158,6 @@ export async function completeCertificationForWorkOrder(
     );
     results[scenario] = result;
     onScenarioResult?.(result, level);
-    if (isInertiaResultDangerous(result, target.mode)) break;
   }
 
   const values = SCENARIOS.flatMap(scenario => results[scenario] ? [results[scenario]!] : []);
