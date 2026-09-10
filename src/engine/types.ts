@@ -21,6 +21,14 @@ export type CargoItem = {
   maxTopLoadKg?: number;
   /** 사용자 목록/엑셀 등록 시 부여되는 화면 표시용 고유 색상. */
   displayColor?: string;
+  /** 제품 포장 흐름에서 생성된 화물의 원 제품 코드. */
+  productId?: string;
+  /** 제품 포장 흐름에서 생성된 화물의 원 제품명. */
+  productName?: string;
+  /** 이 적재단위(박스/직접적재) 1개 안에 실제 들어 있는 제품 EA. */
+  unitsPerPackage?: number;
+  /** 박스 자중을 제외한, 이 적재단위 안 제품들의 실제 총중량. */
+  contentWeightKg?: number;
   /** 바닥면 기준 90도 회전 허용. 생략 시 허용으로 간주한다. */
   allowRotation?: boolean;
   /** 하역 순서. 1이 가장 먼저 하역되며 큰 숫자일수록 컨테이너 안쪽에 배치하는 것을 우선한다. */
