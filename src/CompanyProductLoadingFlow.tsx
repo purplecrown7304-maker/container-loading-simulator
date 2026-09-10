@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { randomUniqueCargoColor } from './cargoColors';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import {
@@ -15,6 +15,8 @@ import {
   writeEnterprisePackagingPlannerState,
   type EnterprisePackagingPlannerState,
 } from './enterprisePackagingPlannerStore';
+import { downloadProductTemplate, parseProductWorkbook } from './productExcel';
+import { writeShipmentInstructionSnapshot } from './shipmentInstruction';
 import { writeStoredState } from './storage';
 import { useTransportEquipment } from './transportEquipment';
 import { dispatchAppAction } from './uiEvents';
@@ -124,6 +126,7 @@ function cargoFromAssignments(assignments: ProductPackagingAssignment[]): CargoI
 }
 
 export default function CompanyProductLoadingFlow() {
+  const productInputRef = useRef<HTMLInputElement>(null);
   const equipment = useTransportEquipment();
   const container = useMemo(() => equipmentContainer(equipment), [equipment]);
   const stored = useMemo(() => readEnterprisePackagingPlannerState(), []);
@@ -147,7 +150,7 @@ export default function CompanyProductLoadingFlow() {
       const detail = (event as CustomEvent<LoadingDetail>).detail;
       if (!detail?.result?.placements?.length) return;
       setRunningFinal(false);
-      setMessage(`최종 적재 완료 · ${detail.result.placements.length}박스 적재 · 미적재 ${detail.result.remaining.reduce((sum, item) => sum + item.quantity, 0)}박스`);
+      setMessage(`최종 적재 완료 · ${detail.result.placements.length}박스 적재 · 미적재 ${detail.result.remaining.reduce((sum, item) => sum + item.quantity, 0)}박스 · 통합 출하·적재 작업지시서에 결과가 연결됩니다.`);
       window.setTimeout(() => dispatchAppAction('show-results'), 0);
       window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
     };
@@ -173,6 +176,7 @@ export default function CompanyProductLoadingFlow() {
     if ([draft.lengthMm, draft.widthMm, draft.heightMm, draft.weightKg].some((value) => !Number.isFinite(value) || value <= 0)) return setMessage('제품 크기와 중량은 0보다 커야 합니다.');
     if (!Number.isInteger(draft.quantity) || draft.quantity < 1) return setMessage('출하 수량은 1 이상의 정수여야 합니다.');
 
+    const previous = editingId ? products.find(item => item.id === editingId) : undefined;
     const nextItem: ProductItem = {
       id,
       name,
@@ -181,11 +185,13 @@ export default function CompanyProductLoadingFlow() {
       height: draft.heightMm / 1000,
       weightKg: draft.weightKg,
       quantity: draft.quantity,
-      maxUnitsPerBox: 24,
-      orientationPolicy: 'base-rotation',
-      allowRotation: true,
-      cushioningM: 0.005,
-      allowMixedCarton: true,
+      maxUnitsPerBox: previous?.maxUnitsPerBox ?? 24,
+      orientationPolicy: previous?.orientationPolicy ?? 'base-rotation',
+      allowRotation: previous?.allowRotation ?? true,
+      cushioningM: previous?.cushioningM ?? 0.005,
+      maxInternalLayers: previous?.maxInternalLayers,
+      fragile: previous?.fragile,
+      allowMixedCarton: previous?.allowMixedCarton ?? true,
     };
     const next = editingId
       ? products.map((item) => item.id === editingId ? nextItem : item)
@@ -195,6 +201,49 @@ export default function CompanyProductLoadingFlow() {
     setDraft(emptyDraft);
     setEditingId(null);
     invalidateRecommendations(`${id} 제품을 저장했습니다. 출하 제품이 모두 준비되면 박스 추천을 실행하세요.`);
+  };
+
+  const importProductWorkbook = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const result = await parseProductWorkbook(file);
+      if (!result.items.length) {
+        const firstIssue = result.issues[0]?.message;
+        setMessage(`등록 가능한 제품이 없습니다.${firstIssue ? ` ${firstIssue}` : ''}`);
+        return;
+      }
+
+      const map = new Map(products.map(item => [item.id, item]));
+      let newCount = 0;
+      let updatedCount = 0;
+      for (const imported of result.items) {
+        const previous = map.get(imported.id);
+        if (previous) updatedCount += 1;
+        else newCount += 1;
+        map.set(imported.id, {
+          ...previous,
+          ...imported,
+          orientationPolicy: previous?.orientationPolicy ?? imported.orientationPolicy,
+          allowRotation: previous?.allowRotation ?? imported.allowRotation,
+          cushioningM: previous?.cushioningM ?? imported.cushioningM,
+          maxInternalLayers: previous?.maxInternalLayers,
+          fragile: previous?.fragile,
+          allowMixedCarton: previous?.allowMixedCarton ?? imported.allowMixedCarton,
+        });
+      }
+
+      const next = [...map.values()];
+      setProducts(next);
+      persist(next);
+      setDraft(emptyDraft);
+      setEditingId(null);
+      const issueText = result.issues.length ? ` · 확인 ${result.issues.length}건` : '';
+      invalidateRecommendations(`제품 엑셀 반영 완료 · 신규 ${newCount}종 · 기존 갱신 ${updatedCount}종${issueText}`);
+    } catch {
+      setMessage('제품 엑셀 파일을 읽지 못했습니다. 기초 엑셀 양식의 열 이름과 파일 형식을 확인하세요.');
+    } finally {
+      if (productInputRef.current) productInputRef.current.value = '';
+    }
   };
 
   const editProduct = (item: ProductItem) => {
@@ -269,8 +318,9 @@ export default function CompanyProductLoadingFlow() {
     if (!canExecute) return setMessage('모든 제품의 추천 박스를 하나씩 선택하세요.');
     const cargo = cargoFromAssignments(selectedAssignments);
     const totalBoxes = cargo.reduce((sum, item) => sum + item.quantity, 0);
+    writeShipmentInstructionSnapshot(products, selectedAssignments, cargo);
     writeStoredState({ container, cargo }, true);
-    setMessage(`선택 완료 · ${products.length}개 제품을 ${totalBoxes}박스로 변환했습니다. 최종 적재 계산을 시작합니다.`);
+    setMessage(`선택 완료 · ${products.length}개 제품을 ${totalBoxes}박스로 변환했습니다. 출하정보를 저장하고 최종 적재 계산을 시작합니다.`);
     window.setTimeout(() => {
       setRunningFinal(true);
       dispatchAppAction('run-loading');
@@ -297,6 +347,12 @@ export default function CompanyProductLoadingFlow() {
     <div className="company-product-layout">
       <article className="company-product-card">
         <div className="company-card-title"><div><h3>1. 회사 제품 등록</h3><p>한 번 등록한 제품은 다음 출하에서도 수량만 바꿔 재사용합니다.</p></div><strong>{products.length}종</strong></div>
+        <input ref={productInputRef} type="file" accept=".xlsx,.xls" hidden onChange={(event) => void importProductWorkbook(event.target.files?.[0])} />
+        <div className="company-excel-actions">
+          <button onClick={downloadProductTemplate}>기초 엑셀 양식 다운로드</button>
+          <button className="excel-primary" onClick={() => productInputRef.current?.click()}>제품 엑셀 업로드</button>
+          <span>제품코드 · 제품명 · L/W/H · 중량 · 출하수량 · 박스당 최대EA</span>
+        </div>
         <div className="company-product-form">
           <label>제품코드<input value={draft.id} disabled={Boolean(editingId)} onChange={(e) => setDraft((value) => ({ ...value, id: e.target.value }))} placeholder="PRD-001" /></label>
           <label>제품명<input value={draft.name} onChange={(e) => setDraft((value) => ({ ...value, name: e.target.value }))} placeholder="회사 제품명" /></label>
@@ -313,7 +369,7 @@ export default function CompanyProductLoadingFlow() {
 
         <div className="company-product-list">
           {products.length ? products.map((item) => <div key={item.id} className="company-product-row">
-            <div><b>{item.id} · {item.name}</b><span>{mm(item.length)}×{mm(item.width)}×{mm(item.height)} mm · {item.weightKg}kg</span></div>
+            <div><b>{item.id} · {item.name}</b><span>{mm(item.length)}×{mm(item.width)}×{mm(item.height)} mm · {item.weightKg}kg · 박스당 최대 {item.maxUnitsPerBox ?? 24}EA</span></div>
             <label>출하수량<input type="number" min="1" step="1" value={item.quantity} onChange={(e) => changeQuantity(item.id, Number(e.target.value))} /></label>
             <button onClick={() => editProduct(item)}>수정</button>
             <button onClick={() => removeProduct(item.id)}>삭제</button>
@@ -350,7 +406,7 @@ export default function CompanyProductLoadingFlow() {
     </div>
 
     <div className="company-final-bar">
-      <div><b>3. 선택 완료 → 최종 적재 실행</b><span>{selectedAssignments.length}/{products.length}개 제품 박스 선택 · 선택 박스 총 {selectedAssignments.reduce((sum, item) => sum + item.boxesNeeded, 0)}EA</span></div>
+      <div><b>3. 선택 완료 → 최종 적재 실행</b><span>{selectedAssignments.length}/{products.length}개 제품 박스 선택 · 선택 박스 총 {selectedAssignments.reduce((sum, item) => sum + item.boxesNeeded, 0)}EA · 출하정보 자동 연결</span></div>
       <button className="primary" disabled={!canExecute} onClick={executeFinal}>{runningFinal ? '최종 적재 계산 중…' : '선택 완료 · 최종 적재 실행'}</button>
     </div>
     <p className={`company-flow-message ${runningFinal ? 'running' : ''}`} aria-live="polite">{message}</p>
