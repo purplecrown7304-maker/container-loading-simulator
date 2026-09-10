@@ -1,0 +1,13 @@
+.guided-company-product-portal{margin-top:24px;padding-top:20px;border-top:1px solid var(--gw-border,#e5e5ea)}
+.guided-company-product-intro{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:12px;padding:14px 16px;border:1px solid #bfdbfe;border-radius:14px;background:#eff6ff}
+.guided-company-product-intro>div{display:flex;flex-direction:column;gap:3px}.guided-company-product-intro span{font-size:11px;font-weight:800;letter-spacing:.08em;color:#2563eb}.guided-company-product-intro b{font-size:15px;color:#172033}.guided-company-product-intro small{font-size:11px;line-height:1.45;color:#64748b}
+.guided-company-product-portal .company-product-flow{max-width:none;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+.guided-company-product-portal .company-product-flow-head{display:none}
+.guided-company-product-portal .company-flow-steps{margin:10px 0 14px}
+.guided-company-product-portal .company-product-layout{grid-template-columns:1fr;gap:12px}
+.guided-company-product-portal .company-product-card{background:#fff}
+.guided-company-product-portal .company-product-form{grid-template-columns:repeat(4,minmax(0,1fr))}
+.guided-company-product-portal .company-product-form label:nth-child(1),.guided-company-product-portal .company-product-form label:nth-child(2){grid-column:span 2}
+.guided-company-product-portal .common-carton-recommendations{margin-left:0;margin-right:0}
+.guided-company-product-portal .company-final-bar{position:relative;margin-bottom:6px}
+@media(max-width:900px){.guided-company-product-portal .company-product-form{grid-template-columns:repeat(2,minmax(0,1fr))}.guided-company-product-portal .company-product-form label:nth-child(1),.guided-company-product-portal .company-product-form label:nth-child(2){grid-column:span 1}}
