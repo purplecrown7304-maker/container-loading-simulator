@@ -1,7 +1,10 @@
 import { isAdminSession } from './adminAccess';
 import { CONTAINER_ADMIN_API_URL, supabasePublicHeaders } from './supabaseConfig';
 
-const LEGACY_STORAGE_KEY = 'container-loading:equipment-image-overrides:v1';
+const LEGACY_STORAGE_KEYS = [
+  'container-loading-equipment-visual-images-v1',
+  'container-loading:equipment-image-overrides:v1',
+] as const;
 const CACHE_KEY = 'container-loading:equipment-image-overrides-cache:v2';
 export const EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT = 'equipment-image-overrides-updated';
 
@@ -30,6 +33,10 @@ function readMap(key: string, allowDataUrl: boolean): EquipmentImageOverrides {
   }
 }
 
+function readLegacyMap(): EquipmentImageOverrides {
+  return LEGACY_STORAGE_KEYS.reduce<EquipmentImageOverrides>((all, key) => ({ ...all, ...readMap(key, true) }), {});
+}
+
 function writeCache(next: EquipmentImageOverrides) {
   serverCache = next;
   try { window.localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* cache is optional */ }
@@ -48,7 +55,7 @@ export function clearEquipmentAdminCredential() {
 }
 
 export function readEquipmentImageOverrides(): EquipmentImageOverrides {
-  const legacy = readMap(LEGACY_STORAGE_KEY, true);
+  const legacy = readLegacyMap();
   const remote = serverCache ?? readMap(CACHE_KEY, false);
   return { ...legacy, ...remote };
 }
@@ -100,13 +107,15 @@ async function adminMutation(payload: Record<string, unknown>) {
 }
 
 function removeLegacyEntry(equipmentId: string) {
-  const legacy = readMap(LEGACY_STORAGE_KEY, true);
-  if (!legacy[equipmentId]) return;
-  delete legacy[equipmentId];
-  try {
-    if (Object.keys(legacy).length) window.localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(legacy));
-    else window.localStorage.removeItem(LEGACY_STORAGE_KEY);
-  } catch { /* legacy cleanup is optional */ }
+  for (const key of LEGACY_STORAGE_KEYS) {
+    const legacy = readMap(key, true);
+    if (!legacy[equipmentId]) continue;
+    delete legacy[equipmentId];
+    try {
+      if (Object.keys(legacy).length) window.localStorage.setItem(key, JSON.stringify(legacy));
+      else window.localStorage.removeItem(key);
+    } catch { /* legacy cleanup is optional */ }
+  }
 }
 
 export async function setEquipmentImageOverride(equipmentId: string, dataUrl: string) {
@@ -133,7 +142,7 @@ export async function removeEquipmentImageOverride(equipmentId: string) {
 
 export async function migrateLegacyEquipmentImagesToServer() {
   if (!isAdminSession()) return { migrated: 0, failed: 0 };
-  const legacy = readMap(LEGACY_STORAGE_KEY, true);
+  const legacy = readLegacyMap();
   const entries = Object.entries(legacy).filter((entry): entry is [string, string] => entry[1].startsWith('data:image/'));
   if (!entries.length) return { migrated: 0, failed: 0 };
   ensureAdminImageAccess();
