@@ -17,7 +17,7 @@ export function loadedCargoCounts(placements: Array<Pick<Placement, 'cargoId'>>)
 }
 
 function boxSvg(item: CargoItem) {
-  const color = cargoColor(item.id);
+  const color = cargoColor(item.id, item.displayColor);
   const max = Math.max(item.length, item.width, item.height, 0.001);
   const frontW = 50 + 22 * (item.length / max);
   const frontH = 28 + 20 * (item.height / max);
@@ -26,7 +26,7 @@ function boxSvg(item: CargoItem) {
   const y = 18 + depth;
   const top = `${x},${y} ${x + depth},${y - depth} ${x + frontW + depth},${y - depth} ${x + frontW},${y}`;
   const side = `${x + frontW},${y} ${x + frontW + depth},${y - depth} ${x + frontW + depth},${y + frontH - depth} ${x + frontW},${y + frontH}`;
-  return `<svg viewBox="0 0 112 82" aria-label="${escapeHtml(item.id)} 상자 이미지" role="img">
+  return `<svg viewBox="0 0 112 82" aria-label="${escapeHtml(item.id)} 적재단위 이미지" role="img">
     <polygon points="${top}" fill="${color}" fill-opacity=".72" stroke="#475569" stroke-width="1.4"/>
     <polygon points="${side}" fill="${color}" fill-opacity=".50" stroke="#475569" stroke-width="1.4"/>
     <rect x="${x}" y="${y}" width="${frontW}" height="${frontH}" rx="2" fill="${color}" stroke="#475569" stroke-width="1.4"/>
@@ -46,7 +46,7 @@ export function buildWorkOrderCargoSummary(cargo: CargoItem[], counts: Map<strin
       <div class="cargo-intake-info"><b>${escapeHtml(item.id)}</b><span>${escapeHtml(item.name)}</span><strong>${quantity.toLocaleString()} EA</strong><small>${escapeHtml(size)}</small></div>
     </article>`;
   }).join('');
-  return `<section class="cargo-intake"><div class="cargo-intake-title"><h2>투입 상자</h2><span>실제 최종 적재 수량 기준</span></div><div class="cargo-intake-grid">${cards}</div></section>`;
+  return `<section class="cargo-intake"><div class="cargo-intake-title"><h2>투입 적재단위</h2><span>실제 최종 적재 수량 기준</span></div><div class="cargo-intake-grid">${cards}</div></section>`;
 }
 
 export const WORK_ORDER_CARGO_SUMMARY_CSS = `
