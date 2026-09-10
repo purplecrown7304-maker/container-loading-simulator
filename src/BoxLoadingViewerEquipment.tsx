@@ -38,6 +38,7 @@ function CargoGroup({
   selectedIndex,
   onSelect,
   dimmed,
+  assignedColor,
 }: {
   items: IndexedPlacement[];
   container: ContainerSpec;
@@ -45,10 +46,11 @@ function CargoGroup({
   selectedIndex: number | null;
   onSelect: (index: number) => void;
   dimmed: boolean;
+  assignedColor?: string;
 }) {
   const ref = useRef<THREE.InstancedMesh>(null);
   const cargoId = items[0]?.placement.cargoId ?? '';
-  const base = useMemo(() => new THREE.Color(cargoColor(cargoId)), [cargoId]);
+  const base = useMemo(() => new THREE.Color(cargoColor(cargoId, assignedColor)), [cargoId, assignedColor]);
 
   useLayoutEffect(() => {
     const mesh = ref.current;
@@ -60,8 +62,6 @@ function CargoGroup({
         (placement.z + placement.height / 2) * scale + 0.03,
         (placement.y + placement.width / 2) * scale - container.width * scale / 2,
       );
-      // 안전 검토용 뷰어는 실제 placement 치수를 그대로 렌더링한다.
-      // 이전 0.985 축소는 맞닿은 박스 사이에 존재하지 않는 시각적 간극을 만들었다.
       object.scale.set(placement.length * scale, placement.height * scale, placement.width * scale);
       object.updateMatrix();
       mesh.setMatrixAt(instanceIndex, object.matrix);
@@ -198,7 +198,7 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
         <AxisGuide container={container} scale={scale} />
         <ClearanceGuide container={container} placements={result.placements} scale={scale} />
         {groups.map(([id, items]) => <group key={id}>
-          <CargoGroup items={items} container={container} scale={scale} selectedIndex={selectedIndex} onSelect={(index) => change(index)} dimmed={showWeightGraph} />
+          <CargoGroup items={items} container={container} scale={scale} selectedIndex={selectedIndex} onSelect={(index) => change(index)} dimmed={showWeightGraph} assignedColor={cargoMap.get(id)?.displayColor} />
           <CargoEdges items={items} container={container} scale={scale} dimmed={showWeightGraph} />
           {showLabels && !showWeightGraph && <CargoFaceInfoLabels placements={items.map(({ placement }) => placement)} container={container} scale={scale} displayName={cargoMap.get(id)?.name ?? id} verticalOffset={0.03} />}
         </group>)}
@@ -212,7 +212,7 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
       {equipment.specializedCargo && <div className="equipment-special-warning">특수화물 전용 장비 · 박스 적재 결과는 참고용</div>}
       {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip"><b>관성 보강 적용</b><span>미끄럼방지 {securingUsage.antiSlipMats}EA</span><span>블로킹재 {securingUsage.dunnageBlocks}EA</span>{securingUsage.loadBars > 0 && <span>고정바 {securingUsage.loadBars}EA</span>}</div>}
       {clearances && !showWeightGraph && <div className="reference-clearance-strip"><span>안쪽 <b>{clearances.back}</b></span><span>문쪽 <b>{clearances.door}</b></span><span>좌측 <b>{clearances.left}</b></span><span>우측 <b>{clearances.right}</b></span><span>천장 <b>{clearances.top}</b></span></div>}
-      {selected && !showWeightGraph && <div className="reference-selected"><i style={{ background: cargoColor(selected.cargoId) }} /><b>{cargoMap.get(selected.cargoId)?.name || selected.cargoId}</b><span>{selected.weightKg}kg · {(selected.length * selected.width * selected.height).toFixed(3)} CBM · R{addresses[selectedIndex!]?.row} C{addresses[selectedIndex!]?.column} L{addresses[selectedIndex!]?.layer}</span></div>}
+      {selected && !showWeightGraph && <div className="reference-selected"><i style={{ background: cargoColor(selected.cargoId, cargoMap.get(selected.cargoId)?.displayColor) }} /><b>{cargoMap.get(selected.cargoId)?.name || selected.cargoId}</b><span>{selected.weightKg}kg · {(selected.length * selected.width * selected.height).toFixed(3)} CBM · R{addresses[selectedIndex!]?.row} C{addresses[selectedIndex!]?.column} L{addresses[selectedIndex!]?.layer}</span></div>}
     </div>
   </section>;
 }
