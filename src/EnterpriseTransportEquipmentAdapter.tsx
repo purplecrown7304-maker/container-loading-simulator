@@ -20,10 +20,9 @@ function setNativeInput(input: HTMLInputElement, value: number) {
   return true;
 }
 
-function inputFor(planner: Element, labelText: string) {
-  const firstPanel = planner.querySelector('.enterprise-settings-grid .packaging-panel');
-  if (!firstPanel) return null;
-  for (const label of Array.from(firstPanel.querySelectorAll('label'))) {
+function matchingInput(panel: Element | null, labelText: string) {
+  if (!panel) return null;
+  for (const label of Array.from(panel.querySelectorAll('label'))) {
     const text = (label.textContent ?? '').replace(/\s+/g, '').trim();
     if (!text.startsWith(labelText.replace(/\s+/g, ''))) continue;
     const input = label.querySelector('input');
@@ -32,20 +31,37 @@ function inputFor(planner: Element, labelText: string) {
   return null;
 }
 
+function mainContainerPanel() {
+  for (const panel of Array.from(document.querySelectorAll('.dashboard-left .dashboard-card'))) {
+    const heading = panel.querySelector('h2')?.textContent ?? '';
+    if (heading.includes('컨테이너 정보')) return panel;
+  }
+  return null;
+}
+
+function inputsFor(labelText: string) {
+  const inputs: HTMLInputElement[] = [];
+  const main = matchingInput(mainContainerPanel(), labelText);
+  if (main) inputs.push(main);
+
+  const planner = document.getElementById('product-packaging-planner');
+  const enterprisePanel = planner?.querySelector('.enterprise-settings-grid .packaging-panel') ?? null;
+  const enterprise = matchingInput(enterprisePanel, labelText);
+  if (enterprise && enterprise !== main) inputs.push(enterprise);
+  return inputs;
+}
+
 /**
- * The transport selector and App historically kept separate container state. That
- * allowed the equipment badge to say 20FT Standard while the loading result still
- * used an older Flatrack ContainerSpec. Keep the editable App fields synchronized
- * with the selected equipment, including the floor-load limit, and then force a
- * fresh loading calculation after React has committed the changed inputs.
+ * Transport equipment is the master geometry. Keep both the main loading App and the
+ * enterprise packaging planner synchronized with the selected equipment, including
+ * floor load. React receives normal input/change events, then the main loading result
+ * is recalculated so the equipment badge and the actual ContainerSpec cannot diverge.
  */
 export default function EnterpriseTransportEquipmentAdapter() {
   const equipment = useTransportEquipment();
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const planner = document.getElementById('product-packaging-planner');
-      if (!planner) return;
       const values = {
         length: equipment.length,
         width: equipment.width,
@@ -53,16 +69,19 @@ export default function EnterpriseTransportEquipmentAdapter() {
         maxPayloadKg: equipment.maxPayloadKg,
         floorLoadLimitKgPerM2: equipment.floorLoadLimitKgPerM2,
       };
-      let changed = false;
+      let changedMain = false;
       labels.forEach(([label, key]) => {
-        const input = inputFor(planner, label);
-        if (input) changed = setNativeInput(input, values[key]) || changed;
+        for (const input of inputsFor(label)) {
+          const isMain = Boolean(input.closest('.dashboard-left'));
+          const changed = setNativeInput(input, values[key]);
+          changedMain = changedMain || (isMain && changed);
+        }
       });
 
-      if (changed) {
+      if (changedMain) {
         window.setTimeout(() => {
           window.dispatchEvent(new CustomEvent(APP_ACTION_EVENT, { detail: { action: 'run-loading' } }));
-        }, 40);
+        }, 50);
       }
     }, 0);
     return () => window.clearTimeout(timer);
