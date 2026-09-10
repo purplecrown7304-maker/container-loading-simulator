@@ -50,7 +50,6 @@ function latestBoxTarget(): PhysicsTarget | undefined {
 
 function currentTarget(): PhysicsTarget | undefined {
   if (typeof window === 'undefined') return undefined;
-  // 최종 후보가 재배치되면 physicsTarget이 App의 이전 result보다 최신이다.
   return readPhysicsTarget() ?? latestBoxTarget();
 }
 
@@ -193,8 +192,6 @@ export default function InspectionStatusPanel() {
 
       const finalPhysics = readFinalPhysicsValidation();
       if (!finalPhysics || finalPhysics.signature !== targetSignature) {
-        // 관성검사 도중 더 안전한 재배치 후보로 바뀐 경우,
-        // 새 최종 배치도 반드시 Rapier를 다시 통과시킨 뒤 관성 3종을 재실행한다.
         setTarget(nextTarget);
         setCertification(undefined);
         setFinalPhysicsSignature('');
@@ -329,16 +326,16 @@ export default function InspectionStatusPanel() {
         note: approval === 'caution'
           ? '주의사항 포함 발급 가능'
           : approval === 'pass'
-            ? '최종 물리·관성 검사 완료'
+            ? '최종 물리·관성 검사 완료 · 발급 가능'
             : approval === 'danger'
-              ? '재배치/보강 후 다시 검사'
-              : '모든 검사가 끝난 뒤 발급 판정',
+              ? '위험 경고·보강 권장사항 포함 발급 가능'
+              : '검증 미완료 경고를 포함해 발급 가능',
         status: !acceptedCertification
-          ? '검사 전'
+          ? '경고 발급 가능'
           : approval === 'danger'
-            ? '발급 차단'
+            ? '경고 발급'
             : approval === 'incomplete'
-              ? '검사 필요'
+              ? '미검증 발급'
               : '발급 가능',
         tone: workTone,
       },
