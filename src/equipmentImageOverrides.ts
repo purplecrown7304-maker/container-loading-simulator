@@ -75,13 +75,17 @@ export async function refreshEquipmentImageOverrides(): Promise<EquipmentImageOv
   return refreshPromise;
 }
 
-function assertAdminImageAccess() {
+function ensureAdminImageAccess() {
   if (!isAdminSession()) throw new Error('관리자 계정으로 로그인한 경우에만 장비 이미지를 수정할 수 있습니다.');
-  if (!runtimeAdminPassword) throw new Error('서버 저장을 위해 관리자 로그인을 다시 해주세요.');
+  if (!runtimeAdminPassword) {
+    const entered = window.prompt('Supabase에 장비 이미지를 저장하려면 관리자 비밀번호를 한 번 더 입력하세요.') ?? '';
+    runtimeAdminPassword = entered;
+  }
+  if (!runtimeAdminPassword) throw new Error('관리자 비밀번호 확인이 필요합니다.');
 }
 
 async function adminMutation(payload: Record<string, unknown>) {
-  assertAdminImageAccess();
+  ensureAdminImageAccess();
   const response = await fetch(CONTAINER_ADMIN_API_URL, {
     method: 'POST',
     headers: supabasePublicHeaders({ 'Content-Type': 'application/json' }),
@@ -90,7 +94,7 @@ async function adminMutation(payload: Record<string, unknown>) {
   const data = await response.json().catch(() => ({})) as { error?: string; publicUrl?: string };
   if (!response.ok) {
     if (response.status === 401) runtimeAdminPassword = '';
-    throw new Error(response.status === 401 ? '관리자 인증이 만료되었습니다. 다시 로그인하세요.' : data.error || 'Supabase 서버 저장에 실패했습니다.');
+    throw new Error(response.status === 401 ? '관리자 비밀번호가 올바르지 않습니다. 다시 시도하세요.' : data.error || 'Supabase 서버 저장에 실패했습니다.');
   }
   return data;
 }
@@ -128,10 +132,11 @@ export async function removeEquipmentImageOverride(equipmentId: string) {
 }
 
 export async function migrateLegacyEquipmentImagesToServer() {
-  if (!isAdminSession() || !runtimeAdminPassword) return { migrated: 0, failed: 0 };
+  if (!isAdminSession()) return { migrated: 0, failed: 0 };
   const legacy = readMap(LEGACY_STORAGE_KEY, true);
   const entries = Object.entries(legacy).filter((entry): entry is [string, string] => entry[1].startsWith('data:image/'));
   if (!entries.length) return { migrated: 0, failed: 0 };
+  ensureAdminImageAccess();
   await refreshEquipmentImageOverrides();
   let migrated = 0;
   let failed = 0;
