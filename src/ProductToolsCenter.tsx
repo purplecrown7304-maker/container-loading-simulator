@@ -27,7 +27,6 @@ type ProductDraft = {
   widthMm: number;
   heightMm: number;
   weightKg: number;
-  maxUnitsPerBox: number;
   requiresBoxPackaging: boolean;
 };
 
@@ -40,7 +39,7 @@ type SuggestedBox = {
 
 const emptyDraft: ProductDraft = {
   id: '', name: '', lengthMm: 200, widthMm: 150, heightMm: 100,
-  weightKg: 1, maxUnitsPerBox: 24, requiresBoxPackaging: true,
+  weightKg: 1, requiresBoxPackaging: true,
 };
 const mm = (value: number) => Math.round(value * 1000);
 
@@ -112,7 +111,6 @@ export default function ProductToolsCenter() {
     const name = draft.name.trim();
     if (!id || !name) return setMessage('제품코드와 제품명을 입력하세요.');
     if ([draft.lengthMm, draft.widthMm, draft.heightMm, draft.weightKg].some(value => !Number.isFinite(value) || value <= 0)) return setMessage('제품 크기와 중량은 0보다 커야 합니다.');
-    if (!Number.isInteger(draft.maxUnitsPerBox) || draft.maxUnitsPerBox < 1) return setMessage('박스당 최대 EA는 1 이상의 정수여야 합니다.');
     if (!editingId && products.some(product => product.id === id)) return setMessage(`이미 등록된 제품코드입니다: ${id}`);
     const previous = editingId ? products.find(product => product.id === editingId) : undefined;
     const nextProduct: CompanyProductItem = {
@@ -124,13 +122,13 @@ export default function ProductToolsCenter() {
       height: draft.heightMm / 1000,
       weightKg: draft.weightKg,
       quantity: Math.max(1, previous?.quantity ?? 1),
-      maxUnitsPerBox: draft.maxUnitsPerBox,
       requiresBoxPackaging: draft.requiresBoxPackaging,
       orientationPolicy: previous?.orientationPolicy ?? 'base-rotation',
       allowRotation: previous?.allowRotation ?? true,
       cushioningM: previous?.cushioningM ?? 0.005,
       allowMixedCarton: previous?.allowMixedCarton ?? true,
     };
+    delete nextProduct.maxUnitsPerBox;
     const next = editingId ? products.map(product => product.id === editingId ? nextProduct : product) : [...products, nextProduct];
     saveState(next);
     setDraft(emptyDraft);
@@ -147,7 +145,6 @@ export default function ProductToolsCenter() {
       widthMm: mm(product.width),
       heightMm: mm(product.height),
       weightKg: product.weightKg,
-      maxUnitsPerBox: product.maxUnitsPerBox ?? 24,
       requiresBoxPackaging: requiresBoxPackaging(product),
     });
   };
@@ -166,7 +163,7 @@ export default function ProductToolsCenter() {
       const map = new Map(products.map(product => [product.id, product]));
       for (const imported of result.items) {
         const previous = map.get(imported.id);
-        map.set(imported.id, {
+        const merged: CompanyProductItem = {
           ...previous,
           ...imported,
           quantity: Math.max(1, previous?.quantity ?? imported.quantity ?? 1),
@@ -176,7 +173,9 @@ export default function ProductToolsCenter() {
           maxInternalLayers: previous?.maxInternalLayers,
           fragile: previous?.fragile,
           allowMixedCarton: previous?.allowMixedCarton ?? imported.allowMixedCarton,
-        });
+        };
+        delete merged.maxUnitsPerBox;
+        map.set(imported.id, merged);
       }
       saveState([...map.values()]);
       setMessage(`제품 엑셀 반영 완료 · ${result.items.length}종 · 확인 필요 ${result.issues.length}건`);
@@ -277,7 +276,6 @@ export default function ProductToolsCenter() {
           <label>폭 mm<input type="number" min="1" value={draft.widthMm} onChange={event => setDraft(value => ({ ...value, widthMm: Number(event.target.value) }))}/></label>
           <label>높이 mm<input type="number" min="1" value={draft.heightMm} onChange={event => setDraft(value => ({ ...value, heightMm: Number(event.target.value) }))}/></label>
           <label>중량 kg<input type="number" min=".001" step=".1" value={draft.weightKg} onChange={event => setDraft(value => ({ ...value, weightKg: Number(event.target.value) }))}/></label>
-          <label>박스당 최대 EA<input type="number" min="1" step="1" value={draft.maxUnitsPerBox} onChange={event => setDraft(value => ({ ...value, maxUnitsPerBox: Number(event.target.value) }))}/></label>
           <label>박스 적재<select value={draft.requiresBoxPackaging ? 'yes' : 'no'} onChange={event => setDraft(value => ({ ...value, requiresBoxPackaging: event.target.value === 'yes' }))}><option value="yes">필요</option><option value="no">불필요 · 직접 적재</option></select></label>
           <div className="product-master-form-buttons"><button className="primary" onClick={saveProduct}>{editingId ? '제품 수정 저장' : '제품 등록'}</button>{editingId && <button onClick={() => { setEditingId(null); setDraft(emptyDraft); }}>취소</button>}</div>
         </div>
