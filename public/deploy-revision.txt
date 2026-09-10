@@ -1,0 +1,3 @@
+Production redeploy trigger
+Requested: 2026-09-10 18:59 KST
+Includes latest loading UI, product search, product-weight carton logic, and carton face product labels.
