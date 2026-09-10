@@ -19,6 +19,8 @@ export type CargoItem = {
   quantity: number;
   maxStackLayers?: number;
   maxTopLoadKg?: number;
+  /** 사용자 목록/엑셀 등록 시 부여되는 화면 표시용 고유 색상. */
+  displayColor?: string;
   /** 바닥면 기준 90도 회전 허용. 생략 시 허용으로 간주한다. */
   allowRotation?: boolean;
   /** 하역 순서. 1이 가장 먼저 하역되며 큰 숫자일수록 컨테이너 안쪽에 배치하는 것을 우선한다. */
