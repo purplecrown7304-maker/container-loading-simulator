@@ -120,12 +120,6 @@ export default function ReferenceWorkspaceBar() {
           setLoginMessage(result.message || '회원 인증에 실패했습니다.');
           return;
         }
-        if (result.pendingEmailConfirmation) {
-          setMemberMode('login');
-          setMemberPassword('');
-          setLoginMessage(result.message || '이메일 확인 후 로그인하세요.');
-          return;
-        }
         if (!result.member) {
           setLoginMessage('회원 프로필을 불러오지 못했습니다.');
           return;
@@ -169,7 +163,7 @@ export default function ReferenceWorkspaceBar() {
   const accountInitial = isAdmin ? 'A' : operator?.name.slice(0, 1).toUpperCase() || 'M';
   const signedIn = isAdmin || Boolean(operator);
   const memberSubmitDisabled = memberMode === 'signup'
-    ? !operatorName.trim() || !memberEmail.trim() || memberPassword.length < 6
+    ? !operatorName.trim() || !memberEmail.trim() || memberPassword.length < 8
     : !memberEmail.trim() || !memberPassword;
 
   return <>
@@ -278,8 +272,8 @@ export default function ReferenceWorkspaceBar() {
           </div>
           {memberMode === 'signup' && <label>회원 이름<input autoFocus value={operatorName} onChange={event => setOperatorName(event.target.value)} placeholder="예: 박 작업자" maxLength={30} /></label>}
           <label>이메일<input type="email" autoFocus={memberMode === 'login'} autoComplete="email" value={memberEmail} onChange={event => setMemberEmail(event.target.value)} placeholder="name@example.com" /></label>
-          <label>비밀번호<input type="password" autoComplete={memberMode === 'signup' ? 'new-password' : 'current-password'} value={memberPassword} onChange={event => setMemberPassword(event.target.value)} minLength={6} /></label>
-          <p>{memberMode === 'signup' ? '회원정보는 Supabase Auth와 전용 회원 프로필에 저장됩니다. 기존 로컬 회원 데이터는 첫 로그인 때 새 계정 범위로 복사합니다.' : 'Supabase 계정으로 로그인하면 같은 회원정보를 다른 기기에서도 사용할 수 있습니다.'}</p>
+          <label>비밀번호<input type="password" autoComplete={memberMode === 'signup' ? 'new-password' : 'current-password'} value={memberPassword} onChange={event => setMemberPassword(event.target.value)} minLength={8} /></label>
+          <p>{memberMode === 'signup' ? '회원정보는 이 적재 시스템 전용 Supabase 회원 DB에 저장됩니다. 기존 로컬 회원 데이터는 첫 로그인 때 새 계정 범위로 복사합니다.' : 'Supabase 회원 계정으로 로그인하면 같은 회원정보를 다른 기기에서도 사용할 수 있습니다.'}</p>
         </> : <>
           <label>관리자 ID<input autoComplete="username" value={adminId} onChange={event => setAdminId(event.target.value)} /></label>
           <label>비밀번호<input type="password" autoComplete="current-password" value={adminPassword} onChange={event => setAdminPassword(event.target.value)} autoFocus /></label>
