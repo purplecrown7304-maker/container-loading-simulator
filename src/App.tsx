@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { requestExactCertification, requestNextPalletCertification } from './autoCertification';
-import { cargoColor, cargoTint } from './cargoColors';
+import { cargoColor, cargoTint, randomUniqueCargoColor } from './cargoColors';
 import { analyzeConstraints } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
 import { buildPlacementAddresses } from './engine/locationGrid';
@@ -15,7 +15,6 @@ import PalletFooterSummary from './PalletFooterSummary';
 import { clearPhysicsTarget } from './physicsTarget';
 import { openLoadingReport } from './report';
 import { openResultsModal } from './resultsModalEvents';
-import { createRandomSampleCargo } from './sampleCargo';
 import { normalizeCargo, readStoredState, STORAGE_KEY, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
 import WorkspaceTools from './WorkspaceTools';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
@@ -64,7 +63,7 @@ export default function App() {
   const [palletRunToken, setPalletRunToken] = useState(0);
   const [result, setResult] = useState<LoadingResult>(() => loadContainer(stored?.container ?? defaultContainer, startingCargo));
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(
-    stored ? null : { tone: 'info', text: '처음 시작합니다. 컨테이너를 확인한 뒤 화물을 등록하거나 샘플 복원을 사용하세요.' },
+    stored ? null : { tone: 'info', text: '처음 시작합니다. 컨테이너를 확인한 뒤 본인이 사용할 화물을 등록하세요.' },
   );
   const [isRunning, setIsRunning] = useState(false);
   const [optimizationMessage, setOptimizationMessage] = useState('');
@@ -154,6 +153,7 @@ export default function App() {
       quantity: draft.quantity,
       maxStackLayers: draft.maxStackLayers,
       maxTopLoadKg: draft.maxTopLoadKg,
+      displayColor: draft.displayColor ?? randomUniqueCargoColor(cargo.map(item => cargoColor(item.id, item.displayColor))),
       allowRotation: draft.allowRotation !== false,
     };
     invalidatePhysics();
@@ -185,7 +185,7 @@ export default function App() {
       return announce('error', `${first.cargoId}: ${first.reason}${preflight.rejected.length > 1 ? ` 외 ${preflight.rejected.length - 1}건` : ''}`);
     }
     const activeCargo = preflight.cargo;
-    if (!activeCargo.length) return announce('warning', '적재할 화물이 없습니다. 화물을 등록하거나 샘플 복원을 사용하세요.');
+    if (!activeCargo.length) return announce('warning', '적재할 화물이 없습니다. 본인의 박스 목록에서 화물을 등록하거나 선택하세요.');
     if (mode === 'pallets') {
       invalidatePhysics();
       requestNextPalletCertification();
@@ -240,17 +240,6 @@ export default function App() {
     invalidatePhysics();
     announce('success', '저장된 데이터를 불러왔습니다.');
   };
-  const loadSampleData = () => {
-    const sample = normalizeCargo(createRandomSampleCargo());
-    const sampleResult = loadContainer(defaultContainer, sample);
-    setContainer(defaultContainer);
-    setCargo(sample);
-    setMode('boxes');
-    setResult(sampleResult);
-    invalidatePhysics();
-    announce('info', `예시 데이터 · 랜덤 샘플 ${sample.length}종 · ${sample.map(item => `${item.id} ${item.quantity}EA`).join(' / ')}`);
-    resetDraft();
-  };
   const resetAll = () => {
     if (!window.confirm('등록된 화물과 저장 데이터를 모두 초기화할까요?')) return;
     setContainer(defaultContainer);
@@ -258,7 +247,7 @@ export default function App() {
     setResult(loadContainer(defaultContainer, []));
     localStorage.removeItem(STORAGE_KEY);
     invalidatePhysics();
-    announce('success', '모든 화물 데이터를 초기화했습니다. 샘플 복원으로 언제든 예시 데이터를 만들 수 있습니다.');
+    announce('success', '현재 작업의 화물 데이터를 모두 초기화했습니다.');
     resetDraft();
   };
 
@@ -296,8 +285,7 @@ export default function App() {
     </header>
 
     {!stored && cargo.length === 0 && <section className="onboarding-banner" aria-label="처음 사용 안내">
-      <div><b>처음 사용하시나요?</b><span>① 컨테이너 규격 확인 → ② 화물 등록 또는 샘플 복원 → ③ 물리 최적 자동 적재</span></div>
-      <button onClick={loadSampleData}>예시 데이터로 시작</button>
+      <div><b>처음 사용하시나요?</b><span>① 컨테이너 규격 확인 → ② 로그인 후 개인 박스 등록/선택 → ③ 물리 최적 자동 적재</span></div>
     </section>}
 
     <section className="dashboard-grid">
@@ -329,9 +317,9 @@ export default function App() {
             <button className={mode === 'boxes' ? 'active' : ''} onClick={() => switchMode('boxes')}>박스</button>
             <button className={mode === 'pallets' ? 'active' : ''} onClick={() => switchMode('pallets')}>팔레트</button>
           </div>
-          {cargo.length === 0 ? <div className="empty-cargo"><b>등록된 화물이 없습니다.</b><span>새 화물을 추가하거나 랜덤 샘플로 시작하세요.</span><button onClick={loadSampleData}>샘플 복원</button></div> : <div className="cargo-scroll">
-            {cargo.map(item => <article className="cargo-list-item" key={item.id} style={{ borderLeft: `3px solid ${cargoColor(item.id)}`, paddingLeft: 8 }}>
-              <div className="cargo-icon" style={{ background: cargoTint(item.id), color: cargoColor(item.id), border: `1px solid ${cargoColor(item.id)}55` }}>■</div>
+          {cargo.length === 0 ? <div className="empty-cargo"><b>등록된 화물이 없습니다.</b><span>로그인 후 본인의 박스 목록에서 화물을 선택하거나 새 박스를 등록하세요.</span></div> : <div className="cargo-scroll">
+            {cargo.map(item => <article className="cargo-list-item" key={item.id} style={{ borderLeft: `3px solid ${cargoColor(item.id, item.displayColor)}`, paddingLeft: 8 }}>
+              <div className="cargo-icon" style={{ background: cargoTint(item.id, item.displayColor), color: cargoColor(item.id, item.displayColor), border: `1px solid ${cargoColor(item.id, item.displayColor)}55` }}>■</div>
               <div><b>{item.id} {item.name}</b><span>{Math.round(item.length * 1000)} × {Math.round(item.width * 1000)} × {Math.round(item.height * 1000)} mm</span><small>{item.weightKg} kg · {item.maxTopLoadKg == null ? '상부허용 제한없음' : `상부허용 ${item.maxTopLoadKg} kg`}</small></div>
               <strong>{item.quantity}</strong>
               <div className="cargo-inline-actions">
@@ -413,7 +401,6 @@ export default function App() {
           <button className="primary-action" onClick={() => void runLoading()} disabled={isRunning}>{isRunning ? '물리 검증 중…' : '물리 최적 자동 적재'}</button>
           <button className="result-open-action" onClick={showResults} disabled={isRunning}>결과 보기</button>
           <div className="quick-row"><button onClick={printReport}>작업 지시서</button><button onClick={saveLocal}>저장</button></div>
-          <div className="quick-row"><span className="quick-spacer" /><button onClick={loadSampleData}>샘플 복원</button></div>
           <button className="danger ghost" onClick={resetAll}>전체 초기화</button>
         </section>
       </aside>
