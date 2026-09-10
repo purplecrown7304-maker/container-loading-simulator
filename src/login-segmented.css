@@ -1,0 +1,78 @@
+.unified-login-dialog {
+  overflow: hidden;
+}
+
+.login-segmented-control {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  height: 42px;
+  margin: 2px 0 16px;
+  padding: 4px;
+  border: 1px solid #dbe4ee;
+  border-radius: 12px;
+  background: #f1f5f9;
+  isolation: isolate;
+}
+
+.login-segment-slider {
+  position: absolute;
+  z-index: 0;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  border: 1px solid rgba(148, 163, 184, .24);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, .12);
+  transform: translateX(0);
+  transition: transform .28s cubic-bezier(.22, 1, .36, 1), box-shadow .28s ease;
+  will-change: transform;
+}
+
+.login-segmented-control.role-admin .login-segment-slider {
+  transform: translateX(100%);
+}
+
+.login-segmented-control > button {
+  position: relative;
+  z-index: 1;
+  height: 32px;
+  padding: 0 12px;
+  border: 0 !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: #64748b !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  cursor: pointer;
+  transition: color .2s ease, transform .2s ease;
+}
+
+.login-segmented-control > button.active {
+  color: #1d4ed8 !important;
+}
+
+.login-segmented-control > button:active {
+  transform: scale(.98);
+}
+
+.unified-login-error {
+  margin: 0 0 10px;
+  padding: 9px 10px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-segment-slider,
+  .login-segmented-control > button {
+    transition: none;
+  }
+}
