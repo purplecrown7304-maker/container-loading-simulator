@@ -1,13 +1,29 @@
 export * from './palletWorkerReportV2';
 
 import type { CargoItem, ContainerSpec } from './engine/types';
+import { createPhysicsTargetSignature, readLatestInertiaCertification } from './inertiaCertification';
+import { requestFinalWorkOrder } from './finalWorkOrderEvents';
+import { readPhysicsTarget } from './physicsTarget';
 import { openPalletLoadingReport as openPalletLoadingReportV2 } from './palletWorkerReportV2';
 
 /**
- * 작업지시서는 최종 적재/검증을 시작하는 기능이 아니다.
- * 최종 적재 진행에서 만들어진 완료 결과를 그대로 열어 보는 전용 출력물이다.
- * 검증 미완료 여부는 V2의 현재 적재안 인증 일치 검사에서 차단한다.
+ * A work-order request must always lead to a document for an existing pallet loading
+ * result. When the current pallet target already has a matching inertia snapshot we
+ * open it immediately. Otherwise start the final work-order certification flow; the
+ * optimizer will record the available PASS/caution/danger result and open the report
+ * without using that safety grade as an output gate.
  */
 export function openPalletLoadingReport(container: ContainerSpec, cargo: CargoItem[]): boolean {
-  return openPalletLoadingReportV2(container, cargo);
+  const target = readPhysicsTarget();
+  const certification = readLatestInertiaCertification();
+  const matches = Boolean(
+    target
+    && target.mode === 'pallets'
+    && certification?.mode === 'pallets'
+    && certification.targetSignature === createPhysicsTargetSignature(target),
+  );
+
+  if (matches) return openPalletLoadingReportV2(container, cargo);
+  requestFinalWorkOrder(container, cargo);
+  return true;
 }
