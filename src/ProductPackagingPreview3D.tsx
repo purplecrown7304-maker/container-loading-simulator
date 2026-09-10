@@ -2,11 +2,17 @@ import { Canvas } from '@react-three/fiber';
 import { Edges, OrbitControls } from '@react-three/drei';
 import { useMemo } from 'react';
 import { cargoColor } from './cargoColors';
-import type { CargoItem, ContainerSpec } from './engine/types';
+import { CargoFaceInfoLabels } from './CargoFaceInfoLabels';
+import type { CargoItem, ContainerSpec, Placement } from './engine/types';
 import './product-packaging-preview.css';
 
 type Props = { container: ContainerSpec; cargo: CargoItem[] };
-type PreviewBox = { key: string; x: number; y: number; length: number; width: number; height: number; color: string };
+type PreviewBox = {
+  key: string;
+  cargo: CargoItem;
+  placement: Placement;
+  color: string;
+};
 
 function floorPreview(container: ContainerSpec, cargo: CargoItem[]) {
   const placed: PreviewBox[] = [];
@@ -27,7 +33,21 @@ function floorPreview(container: ContainerSpec, cargo: CargoItem[]) {
         rowLength = 0;
       }
       if (x + length > container.length - 0.04) break outer;
-      placed.push({ key: `${item.id}-${index}`, x: x + length / 2, y: y + width / 2, length, width, height, color: cargoColor(item.id, item.displayColor) });
+      placed.push({
+        key: `${item.id}-${index}`,
+        cargo: item,
+        placement: {
+          cargoId: item.id,
+          x,
+          y,
+          z: 0,
+          length,
+          width,
+          height,
+          weightKg: item.weightKg,
+        },
+        color: cargoColor(item.id, item.displayColor),
+      });
       y += width + 0.025;
       rowLength = Math.max(rowLength, length);
       shown += 1;
@@ -39,6 +59,15 @@ function floorPreview(container: ContainerSpec, cargo: CargoItem[]) {
 
 function Scene({ container, cargo }: Props) {
   const preview = useMemo(() => floorPreview(container, cargo), [container, cargo]);
+  const groupedLabels = useMemo(() => {
+    const groups = new Map<string, { cargo: CargoItem; placements: Placement[] }>();
+    for (const box of preview.placed) {
+      const group = groups.get(box.cargo.id) ?? { cargo: box.cargo, placements: [] };
+      group.placements.push(box.placement);
+      groups.set(box.cargo.id, group);
+    }
+    return [...groups.values()];
+  }, [preview.placed]);
   const cx = container.length / 2;
   const cz = container.width / 2;
   return <>
@@ -49,11 +78,28 @@ function Scene({ container, cargo }: Props) {
       <meshStandardMaterial color="#e8ebef" roughness={.82} />
       <Edges color="#9aa3ad" />
     </mesh>
-    {preview.placed.map(box => <mesh key={box.key} position={[box.x - cx, box.height / 2, box.y - cz]} castShadow receiveShadow>
-      <boxGeometry args={[box.length, box.height, box.width]} />
-      <meshStandardMaterial color={box.color} roughness={.56} />
-      <Edges color="#374151" threshold={15} />
-    </mesh>)}
+    {preview.placed.map(box => {
+      const p = box.placement;
+      return <mesh key={box.key} position={[p.x + p.length / 2 - cx, p.height / 2, p.y + p.width / 2 - cz]} castShadow receiveShadow>
+        <boxGeometry args={[p.length, p.height, p.width]} />
+        <meshStandardMaterial color={box.color} roughness={.56} />
+        <Edges color="#374151" threshold={15} />
+      </mesh>;
+    })}
+    {groupedLabels.map(({ cargo: item, placements }) => <CargoFaceInfoLabels
+      key={`label-${item.id}`}
+      placements={placements}
+      container={container}
+      scale={1}
+      bodyScale={1}
+      displayName={item.name}
+      productInfo={{
+        productId: item.productId,
+        productName: item.productName,
+        unitsPerPackage: item.unitsPerPackage,
+        contentWeightKg: item.contentWeightKg ?? item.weightKg,
+      }}
+    />)}
     <gridHelper args={[Math.max(container.length, container.width) * 1.15, 24, '#b9c2cb', '#d7dde3']} position={[0, 0.002, 0]} />
     <OrbitControls makeDefault target={[0, Math.min(.8, container.height * .25), 0]} minDistance={2} maxDistance={Math.max(8, container.length * 1.8)} />
   </>;
@@ -68,7 +114,7 @@ export default function ProductPackagingPreview3D({ container, cargo }: Props) {
       <Canvas shadows camera={{ position: [cameraDistance * .7, cameraDistance * .62, cameraDistance], fov: 42, near: .05, far: 200 }} gl={{ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true }}>
         <Scene container={container} cargo={cargo} />
       </Canvas>
-      <div className="product-packaging-canvas-legend"><span>드래그: 회전</span><span>휠: 확대/축소</span><span>1단 펼침 검수</span></div>
+      <div className="product-packaging-canvas-legend"><span>드래그: 회전</span><span>휠: 확대/축소</span><span>박스 옆면: 제품 정보</span></div>
     </div>
     {preview.shown < preview.requested && <p className="product-packaging-overflow">바닥에 한 번에 펼칠 수 있는 수량을 초과했습니다. 화면에는 {preview.shown.toLocaleString()}개만 표시하며 실제 자동 적재 단계에서는 전체 {preview.requested.toLocaleString()}개를 계산합니다.</p>}
   </section>;
