@@ -3,8 +3,10 @@ import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT, isAdminSession } from './adminAccess';
 import {
   EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT,
+  migrateLegacyEquipmentImagesToServer,
   prepareEquipmentImage,
   readEquipmentImageOverrides,
+  refreshEquipmentImageOverrides,
   removeEquipmentImageOverride,
   setEquipmentImageOverride,
 } from './equipmentImageOverrides';
@@ -20,7 +22,24 @@ export default function EquipmentVisualAdminEditor() {
   const [message, setMessage] = useState('');
 
   useEffect(() => {
-    const syncAdmin = () => setIsAdmin(isAdminSession());
+    void refreshEquipmentImageOverrides();
+    if (isAdminSession()) {
+      void migrateLegacyEquipmentImagesToServer().then(result => {
+        if (result.migrated > 0) setMessage(`기존 로컬 이미지 ${result.migrated}개를 Supabase로 이전했습니다.`);
+      }).catch(error => setMessage(error instanceof Error ? error.message : '기존 이미지를 서버로 이전하지 못했습니다.'));
+    }
+  }, []);
+
+  useEffect(() => {
+    const syncAdmin = () => {
+      const active = isAdminSession();
+      setIsAdmin(active);
+      if (active) {
+        void migrateLegacyEquipmentImagesToServer().then(result => {
+          if (result.migrated > 0) setMessage(`기존 로컬 이미지 ${result.migrated}개를 Supabase로 이전했습니다.`);
+        }).catch(error => setMessage(error instanceof Error ? error.message : '기존 이미지를 서버로 이전하지 못했습니다.'));
+      }
+    };
     const refresh = () => setRevision(value => value + 1);
     window.addEventListener(ADMIN_ACCESS_EVENT, syncAdmin);
     window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
@@ -108,8 +127,8 @@ export default function EquipmentVisualAdminEditor() {
     if (!file || !isAdmin) return;
     try {
       const dataUrl = await prepareEquipmentImage(file);
-      setEquipmentImageOverride(equipment.id, dataUrl);
-      setMessage(`${equipment.shortName} 이미지를 변경했습니다. 유형 선택창과 적재공간 화면에 함께 적용됩니다.`);
+      await setEquipmentImageOverride(equipment.id, dataUrl);
+      setMessage(`${equipment.shortName} 이미지를 Supabase에 저장했습니다. 유형 선택창과 적재공간 화면에 함께 적용됩니다.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '이미지를 변경하지 못했습니다.');
     } finally {
@@ -117,12 +136,16 @@ export default function EquipmentVisualAdminEditor() {
     }
   };
 
-  const restore = () => {
+  const restore = async () => {
     if (!isAdmin) return;
     const current = readEquipmentImageOverrides();
     if (!current[equipment.id]) return setMessage('현재 기본 그림을 사용 중입니다.');
-    removeEquipmentImageOverride(equipment.id);
-    setMessage(`${equipment.shortName} 기본 그림으로 복원했습니다. 유형 선택창과 적재공간 화면에 함께 적용됩니다.`);
+    try {
+      await removeEquipmentImageOverride(equipment.id);
+      setMessage(`${equipment.shortName} 서버 이미지를 삭제하고 기본 그림으로 복원했습니다.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '기본 그림으로 복원하지 못했습니다.');
+    }
   };
 
   if (!toolbarHost || !isAdmin) return null;
@@ -141,9 +164,9 @@ export default function EquipmentVisualAdminEditor() {
   return createPortal(
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', padding: '8px 10px', border: '1px dashed #c9d0d8', borderRadius: 10, background: '#fafbfc' }} aria-label="관리자 적재공간 이미지 관리">
       <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={event => void upload(event.target.files?.[0])} />
-      <span style={{ marginRight: 'auto', color: '#6f7781', fontSize: 11, fontWeight: 700 }}>관리자 이미지 관리 · 유형 선택창과 동기화</span>
+      <span style={{ marginRight: 'auto', color: '#6f7781', fontSize: 11, fontWeight: 700 }}>관리자 이미지 관리 · Supabase 서버 저장</span>
       <button type="button" style={buttonStyle} onClick={() => inputRef.current?.click()}>이미지 변경</button>
-      <button type="button" style={buttonStyle} onClick={restore}>기본 그림 복원</button>
+      <button type="button" style={buttonStyle} onClick={() => void restore()}>기본 그림 복원</button>
       {message && <small style={{ flexBasis: '100%', color: '#66707a', fontSize: 10.5, textAlign: 'right' }}>{message}</small>}
     </div>,
     toolbarHost,
