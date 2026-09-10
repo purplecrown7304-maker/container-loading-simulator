@@ -39,6 +39,7 @@ import InertiaTestTool from './InertiaTestTool';
 import InspectionStatusPanel from './InspectionStatusPanel';
 import ProductToolsCenter from './ProductToolsCenter';
 import ProductMenuActions from './ProductMenuActions';
+import EquipmentVisualAdminEditor from './EquipmentVisualAdminEditor';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -116,6 +117,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <DashboardCommandDock />
       <TransportEquipmentDashboardSummary />
       <GuidedWorkflowShell />
+      <EquipmentVisualAdminEditor />
       <GuidedResultTabsEnhancer />
       <DiagnosticExportResultButton />
       <EnterprisePackagingPlannerHost />
