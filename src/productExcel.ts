@@ -13,7 +13,6 @@ const HEADERS = [
   '높이(mm)',
   '중량(kg)',
   '박스적재필요',
-  '박스당최대EA',
 ];
 
 function toNumber(value: unknown) {
@@ -64,15 +63,13 @@ export async function parseProductWorkbook(file: File): Promise<ProductImportRes
     const heightMm = toNumber(first(row, ['높이(mm)', '높이', 'H(mm)', 'Height(mm)', 'Height']));
     const weightKg = toNumber(first(row, ['중량(kg)', '중량', 'Weight(kg)', 'Weight']));
     const packaging = parseYesNo(first(row, ['박스적재필요', '박스 적재 필요', '박스포장필요', 'BoxRequired', 'RequiresBoxPackaging']));
-    const rawMaxUnits = first(row, ['박스당최대EA', '박스당 최대EA', 'MaxUnitsPerBox']);
-    const maxUnitsPerBox = String(rawMaxUnits).trim() === '' ? 24 : toNumber(rawMaxUnits);
 
     if (!id || !name) {
       issues.push({ row: excelRow, code: id || undefined, message: '제품코드 또는 제품명이 비어 있습니다.' });
       return;
     }
-    if (![lengthMm, widthMm, heightMm, weightKg, maxUnitsPerBox].every(Number.isFinite)) {
-      issues.push({ row: excelRow, code: id, message: '치수·중량·박스당 최대EA 중 숫자가 아닌 값이 있습니다.' });
+    if (![lengthMm, widthMm, heightMm, weightKg].every(Number.isFinite)) {
+      issues.push({ row: excelRow, code: id, message: '치수 또는 중량에 숫자가 아닌 값이 있습니다.' });
       return;
     }
     if (!packaging.valid) {
@@ -81,10 +78,6 @@ export async function parseProductWorkbook(file: File): Promise<ProductImportRes
     }
     if (lengthMm <= 0 || widthMm <= 0 || heightMm <= 0 || weightKg <= 0) {
       issues.push({ row: excelRow, code: id, message: '제품 치수와 중량은 0보다 커야 합니다.' });
-      return;
-    }
-    if (!Number.isInteger(maxUnitsPerBox) || maxUnitsPerBox < 1) {
-      issues.push({ row: excelRow, code: id, message: '박스당 최대EA는 1 이상의 정수여야 합니다.' });
       return;
     }
 
@@ -102,11 +95,10 @@ export async function parseProductWorkbook(file: File): Promise<ProductImportRes
       width: widthMm / 1000,
       height: heightMm / 1000,
       weightKg,
-      // 제품 마스터에는 출하수량을 저장하지 않는다. 실제 수량은 메인 '제품 선택' 단계에서 결정한다.
-      // ProductItem 호환을 위한 내부 기본값일 뿐이며, 업로드 파일의 수량 열은 읽지 않는다.
+      // 제품 마스터에는 출하수량/박스당 최대EA를 저장하지 않는다.
+      // 실제 출하 수량은 메인 제품 선택에서, 박스당 입수는 포장 추천에서 규격/중량으로 자동 계산한다.
       quantity: 1,
       requiresBoxPackaging: packaging.value,
-      maxUnitsPerBox,
       orientationPolicy,
       allowRotation: true,
       cushioningM: 0.005,
@@ -120,10 +112,10 @@ export async function parseProductWorkbook(file: File): Promise<ProductImportRes
 export function downloadProductTemplate() {
   const worksheet = XLSX.utils.aoa_to_sheet([
     HEADERS,
-    ['PRD-001', '제품 A', 220, 150, 100, 1.2, 'Y', 24],
-    ['PRD-002', '제품 B', 310, 180, 120, 2.5, 'N', 1],
+    ['PRD-001', '제품 A', 220, 150, 100, 1.2, 'Y'],
+    ['PRD-002', '제품 B', 310, 180, 120, 2.5, 'N'],
   ]);
-  worksheet['!cols'] = [16, 24, 13, 13, 13, 13, 16, 17].map((wch) => ({ wch }));
+  worksheet['!cols'] = [16, 24, 13, 13, 13, 13, 16].map((wch) => ({ wch }));
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Products');
   XLSX.writeFile(workbook, 'company-product-base-template.xlsx');
