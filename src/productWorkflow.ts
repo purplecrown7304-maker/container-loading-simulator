@@ -132,6 +132,10 @@ export function cargoFromProductPackaging(
         quantity: product.quantity,
         maxStackLayers: 1,
         maxTopLoadKg: 0,
+        productId: product.id,
+        productName: product.name,
+        unitsPerPackage: 1,
+        contentWeightKg: product.weightKg,
         allowRotation: product.allowRotation !== false,
         displayColor,
       });
@@ -140,19 +144,45 @@ export function cargoFromProductPackaging(
 
     const assignment = byProduct.get(product.id);
     if (!assignment) continue;
-    cargo.push({
-      id: `PKG-${product.id}`,
-      name: `${product.name} · ${assignment.boxName}`,
-      length: assignment.outerLength,
-      width: assignment.outerWidth,
-      height: assignment.outerHeight,
-      weightKg: assignment.grossWeightKg,
-      quantity: assignment.boxesNeeded,
-      maxStackLayers: assignment.maxStackLayers,
-      maxTopLoadKg: assignment.maxTopLoadKg,
-      allowRotation: true,
-      displayColor,
-    });
+
+    const unitsPerBox = Math.max(1, assignment.unitsPerBox);
+    const fullBoxCount = Math.floor(product.quantity / unitsPerBox);
+    const remainingUnits = product.quantity % unitsPerBox;
+    const addPackedBoxes = (id: string, quantity: number, unitsInBox: number, suffix = '') => {
+      if (quantity <= 0 || unitsInBox <= 0) return;
+      const contentWeightKg = product.weightKg * unitsInBox;
+      cargo.push({
+        id,
+        name: `${product.name} · ${assignment.boxName}${suffix}`,
+        length: assignment.outerLength,
+        width: assignment.outerWidth,
+        height: assignment.outerHeight,
+        // 적재 화물의 박스 무게는 빈 박스 자중이 아니라 실제 담긴 제품들의 총중량으로 사용한다.
+        weightKg: contentWeightKg,
+        quantity,
+        maxStackLayers: assignment.maxStackLayers,
+        maxTopLoadKg: assignment.maxTopLoadKg,
+        productId: product.id,
+        productName: product.name,
+        unitsPerPackage: unitsInBox,
+        contentWeightKg,
+        allowRotation: true,
+        displayColor,
+      });
+    };
+
+    if (fullBoxCount > 0) {
+      addPackedBoxes(`PKG-${product.id}`, fullBoxCount, unitsPerBox);
+    }
+    if (remainingUnits > 0) {
+      // 마지막 박스는 실제 잔량 EA와 실제 제품 총중량을 별도 적재단위로 만들어 과대 중량 계산을 막는다.
+      addPackedBoxes(
+        fullBoxCount > 0 ? `PKG-${product.id}-PARTIAL` : `PKG-${product.id}`,
+        1,
+        remainingUnits,
+        ' · 잔량박스',
+      );
+    }
   }
 
   return cargo;
