@@ -12,7 +12,7 @@ import {
   type InertiaCertification,
 } from './inertiaCertification';
 import {
-  canCreateWorkOrder,
+  assessWorkOrderCertification,
   completeCertificationForWorkOrder,
   workOrderApprovalLabel,
 } from './inertiaWorkOrderPolicy';
@@ -97,7 +97,7 @@ export default function DirectWorkOrderOptimizer() {
     const alternatives = buildDirectResultReoptimizationCandidates(current, MAX_DIRECT_WORK_ORDER_CANDIDATES - 1);
     const candidates = [baseline, ...alternatives];
     setAttempt({ index: 0, total: candidates.length, label: '' });
-    let bestFailed: Evaluated | null = null;
+    let bestWarning: Evaluated | null = null;
 
     try {
       for (let index = 0; index < candidates.length; index += 1) {
@@ -120,8 +120,6 @@ export default function DirectWorkOrderOptimizer() {
         );
         if (cancelled()) return;
 
-        // 일반 관성 검증은 strict PASS 실패 시 해당 보강 단계에서 중간 종료될 수 있다.
-        // 최종 적재 흐름에서는 작업지시서 버튼을 누르지 않아도 빠진 시나리오까지 자동으로 끝까지 계산한다.
         const certification = await completeCertificationForWorkOrder(
           candidate.target,
           initialCertification,
@@ -132,12 +130,12 @@ export default function DirectWorkOrderOptimizer() {
         if (cancelled()) return;
 
         const evaluated: Evaluated = { ...candidate, certification, risk: certificationRisk(certification) };
-        if (canCreateWorkOrder(certification)) {
+        const approval = assessWorkOrderCertification(certification);
+        if (approval === 'pass' || approval === 'caution') {
           applyCandidate(candidate, certification);
           setRunning(false);
           setMessage(`최종 관성검증 ${workOrderApprovalLabel(certification)} · ${candidate.label}`);
 
-          // 최종 적재 진행에서 호출된 경우 검증만 끝내고 작업지시서는 사용자가 별도 버튼으로 발급한다.
           if (automatic) {
             setOpen(false);
             return;
@@ -148,28 +146,33 @@ export default function DirectWorkOrderOptimizer() {
           else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
           return;
         }
-        if (!bestFailed || better(evaluated, bestFailed)) bestFailed = evaluated;
+        if (!bestWarning || better(evaluated, bestWarning)) bestWarning = evaluated;
       }
 
       if (cancelled()) return;
       setRunning(false);
-      if (bestFailed) {
-        applyCandidate(bestFailed, bestFailed.certification);
-        setMessage(`상위 안전 후보 비교 완료 · 가장 낮은 위험안 적용 · ${bestFailed.label}`);
-        if (automatic) {
-          // 위험/미완료 결과도 검사 흐름에는 확정 결과로 전달해 4단계에서 무한 대기하지 않게 한다.
-          setOpen(false);
-        }
+      if (!bestWarning) {
+        setError('관성 결과를 만들지 못했습니다. 현재 적재안을 유지합니다.');
+        if (!automatic) setOpen(true);
+        return;
       }
-      const failureMessage = `현재 적재안과 상위 ${Math.max(0, candidates.length - 1)}개 재배치를 확인했지만 모두 위험 기준을 넘었거나 3종 검증을 완료하지 못했습니다. 위험 판정에서는 작업지시서를 생성하지 않습니다.`;
-      setError(failureMessage);
-      if (!automatic) setOpen(true);
+
+      applyCandidate(bestWarning, bestWarning.certification);
+      setMessage(`안전 후보 비교 완료 · 가장 낮은 위험안 적용 · ${bestWarning.label}`);
+      if (automatic) {
+        setOpen(false);
+        return;
+      }
+
+      const opened = openLoadingReport(bestWarning.target.container, bestWarning.target.cargo, bestWarning.target.result);
+      if (opened) setOpen(false);
+      else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
     } catch (reason) {
       if (cancelled()) return;
       console.error('Direct work-order inertia search failed', reason);
       setRunning(false);
       setOpen(true);
-      setError('직접 적재 관성 검증을 완료하지 못했습니다. 현재 적재안을 유지한 채 다시 실행할 수 있습니다.');
+      setError('직접 적재 관성 검증을 완료하지 못했습니다. 현재 적재안을 유지합니다.');
     }
   }, []);
 
@@ -192,7 +195,7 @@ export default function DirectWorkOrderOptimizer() {
         <div>
           <span>FINAL WORK ORDER OPTIMIZER · DIRECT BOX</span>
           <h2 id="direct-work-order-title">작업지시서 전 상자 안전 후보 비교</h2>
-          <p>출발 가속 · 급정거 · 급회전 3종이 모두 위험 기준 이내이면 작업지시서를 생성합니다. 내부 PASS 기준을 조금 넘는 경우에는 주의 승인으로 처리하고 권장 보완사항을 작업지시서에 자동 기입합니다.</p>
+          <p>출발 가속 · 급정거 · 급회전 3종을 비교해 더 안전한 배치를 우선합니다. 모든 후보가 위험이어도 가장 낮은 위험안을 적용하고 위험 경고·보강 권장사항을 포함한 작업지시서를 생성합니다.</p>
         </div>
         {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
       </header>
@@ -207,7 +210,7 @@ export default function DirectWorkOrderOptimizer() {
         <span>현재 보강 <b>{progress.levelLabel}</b></span>
         <span>관성 시나리오 <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
         <span>현재 계산 <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
-        <span>승인 기준 <b>3종 모두 위험 아님</b></span>
+        <span>출력 정책 <b>등급과 무관하게 발급</b></span>
       </div>}
 
       <article className="final-cert-materials">
@@ -216,13 +219,13 @@ export default function DirectWorkOrderOptimizer() {
           <div><span>상자 배치</span><b>안정성/적재율/하역</b><small>전략별 고유 배치만 비교</small></div>
           <div><span>적재 높이</span><b>저중심 후보 우선</b><small>정적 안전점수로 선별</small></div>
           <div><span>후보 수</span><b>최대 {MAX_DIRECT_WORK_ORDER_CANDIDATES}개</b><small>무제한 반복 없음</small></div>
-          <div><span>관성 검증</span><b>출발·급정거·급회전</b><small>3종 모두 확인</small></div>
+          <div><span>관성 검증</span><b>출발·급정거·급회전</b><small>가능한 3종 모두 확인</small></div>
           <div><span>주의 결과</span><b>작업지시서 생성</b><small>권장사항 자동 기입</small></div>
-          <div><span>위험 결과</span><b>출력 차단</b><small>재배치/보강 후 재검증</small></div>
+          <div><span>위험 결과</span><b>경고 포함 생성</b><small>가장 낮은 위험안 + 보강 권장</small></div>
         </div>
       </article>
 
-      {error && <div className="final-cert-error"><b>작업지시서 생성 불가</b><span>{error}</span></div>}
+      {error && <div className="final-cert-error"><b>검증 처리 확인</b><span>{error}</span></div>}
     </section>
   </div>;
 }
