@@ -34,6 +34,7 @@ import TransportEquipmentSelector from './TransportEquipmentSelector';
 import TransportEquipmentDashboardSummary from './TransportEquipmentDashboardSummary';
 import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
 import TransportEquipmentRecalculationNotice from './TransportEquipmentRecalculationNotice';
+import TransportEquipmentSelectionUxBridge from './TransportEquipmentSelectionUxBridge';
 import PhysicsValidationTool from './PhysicsValidationTool';
 import InertiaTestTool from './InertiaTestTool';
 import InspectionStatusPanel from './InspectionStatusPanel';
@@ -80,6 +81,7 @@ import './enterprise-approval.css';
 import './enterprise-manufacturing.css';
 import './transport-equipment.css';
 import './transport-equipment-scroll-fix.css';
+import './transport-equipment-selection-ux.css';
 import './topbar-cleanup.css';
 import './login-segmented.css';
 import './pallet-weight-distribution.css';
@@ -100,6 +102,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ProductToolsCenter />
       <HeaderLoadingStatusBoard />
       <TransportEquipmentSelector />
+      <TransportEquipmentSelectionUxBridge />
       <TransportEquipmentSafetyGuard />
       <TransportEquipmentRecalculationNotice />
       <ResultsOverlay />
