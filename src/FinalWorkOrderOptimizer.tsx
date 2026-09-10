@@ -10,7 +10,7 @@ import {
 } from './engine/palletAdaptiveSearch';
 import { createPhysicsTargetSignature, runInertiaCertification, type CertificationProgress } from './inertiaCertification';
 import {
-  canCreateWorkOrder,
+  assessWorkOrderCertification,
   completeCertificationForWorkOrder,
   workOrderApprovalLabel,
 } from './inertiaWorkOrderPolicy';
@@ -50,7 +50,7 @@ export default function FinalWorkOrderOptimizer() {
     const alternatives = buildPalletAdaptiveCandidates(current, snapshot, MAX_PALLET_WORK_ORDER_CANDIDATES - 1);
     const candidates = [baselinePalletCandidate(current, snapshot), ...alternatives];
     setAttempt({ index: 0, total: candidates.length, label: '' });
-    let bestFailed: EvaluatedPalletCandidate | null = null;
+    let bestWarning: EvaluatedPalletCandidate | null = null;
 
     try {
       for (let index = 0; index < candidates.length; index += 1) {
@@ -82,7 +82,8 @@ export default function FinalWorkOrderOptimizer() {
         if (cancelled()) return;
 
         const evaluated: EvaluatedPalletCandidate = { ...candidate, certification, risk: palletCertificationRisk(certification) };
-        if (canCreateWorkOrder(certification)) {
+        const approval = assessWorkOrderCertification(certification);
+        if (approval === 'pass' || approval === 'caution') {
           applyPalletAdaptiveCandidate(candidate, certification);
           setRunning(false);
           setMessage(`작업지시서 ${workOrderApprovalLabel(certification)} · ${candidate.label}`);
@@ -91,21 +92,26 @@ export default function FinalWorkOrderOptimizer() {
           else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
           return;
         }
-        if (!bestFailed || betterPalletEvaluation(evaluated, bestFailed)) bestFailed = evaluated;
+        if (!bestWarning || betterPalletEvaluation(evaluated, bestWarning)) bestWarning = evaluated;
       }
 
       if (cancelled()) return;
       setRunning(false);
-      if (bestFailed) {
-        applyPalletAdaptiveCandidate(bestFailed, bestFailed.certification);
-        setMessage(`상위 안전 후보 비교 완료 · 가장 낮은 위험안 적용 · ${bestFailed.label}`);
+      if (!bestWarning) {
+        setError('관성 결과를 만들지 못했습니다. 현재 팔레트 적재안을 유지합니다.');
+        return;
       }
-      setError(`현재 팔레트안과 상위 ${candidates.length - 1}개 후보를 확인했지만 모두 위험 기준을 넘었거나 3종 검증을 완료하지 못했습니다. 위험 판정에서는 작업지시서를 생성하지 않습니다.`);
+
+      applyPalletAdaptiveCandidate(bestWarning, bestWarning.certification);
+      setMessage(`안전 후보 비교 완료 · 가장 낮은 위험안 적용 · ${bestWarning.label}`);
+      const opened = openPalletLoadingReportV2(bestWarning.target.container, bestWarning.target.cargo);
+      if (opened) setOpen(false);
+      else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
     } catch (reason) {
       if (cancelled()) return;
       console.error('Pallet work-order inertia search failed', reason);
       setRunning(false);
-      setError('팔레트 관성 검증을 완료하지 못했습니다. 현재 적재안을 유지한 채 다시 실행할 수 있습니다.');
+      setError('팔레트 관성 검증을 완료하지 못했습니다. 현재 적재안을 유지합니다.');
     }
   }, []);
 
@@ -128,7 +134,7 @@ export default function FinalWorkOrderOptimizer() {
         <div>
           <span>ADAPTIVE WORK ORDER OPTIMIZER · PALLET</span>
           <h2 id="final-work-order-title">작업지시서 전 팔레트 안전 후보 비교</h2>
-          <p>출발 가속 · 급정거 · 급회전 3종이 모두 위험 기준 이내이면 작업지시서를 생성합니다. PASS 기준을 조금 넘은 경우에는 주의 승인으로 처리하고 팔레트 고정 권장사항을 작업지시서에 자동 기입합니다.</p>
+          <p>출발 가속 · 급정거 · 급회전 3종을 비교해 더 안전한 팔레트안을 우선합니다. 모든 후보가 위험이어도 가장 낮은 위험안을 적용하고 위험 경고·고정 권장사항을 포함한 작업지시서를 생성합니다.</p>
         </div>
         {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
       </header>
@@ -143,7 +149,7 @@ export default function FinalWorkOrderOptimizer() {
         <span>현재 보강 <b>{progress.levelLabel}</b></span>
         <span>관성 시나리오 <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
         <span>현재 계산 <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
-        <span>승인 기준 <b>3종 모두 위험 아님</b></span>
+        <span>출력 정책 <b>등급과 무관하게 발급</b></span>
       </div>}
 
       <article className="final-cert-materials">
@@ -152,13 +158,13 @@ export default function FinalWorkOrderOptimizer() {
           <div><span>팔레트 위 상자</span><b>방향 변경</b><small>자동/정방향/90도/교차 후보</small></div>
           <div><span>유닛 높이</span><b>저중심 후보 우선</b><small>정적 안전점수로 선별</small></div>
           <div><span>팔레트 적층</span><b>안전한 층수 비교</b><small>높은 위험 후보 후순위</small></div>
-          <div><span>3종 검증</span><b>모두 위험 아님</b><small>전체 이동·기울기·상대이동 확인</small></div>
+          <div><span>3종 검증</span><b>가능한 모두 확인</b><small>전체 이동·기울기·상대이동 확인</small></div>
           <div><span>주의 결과</span><b>작업지시서 생성</b><small>권장사항 자동 기입</small></div>
-          <div><span>위험 결과</span><b>출력 차단</b><small>재배치/보강 후 재검증</small></div>
+          <div><span>위험 결과</span><b>경고 포함 생성</b><small>가장 낮은 위험안 + 보강 권장</small></div>
         </div>
       </article>
 
-      {error && <div className="final-cert-error"><b>작업지시서 생성 불가</b><span>{error}</span></div>}
+      {error && <div className="final-cert-error"><b>검증 처리 확인</b><span>{error}</span></div>}
     </section>
   </div>;
 }
