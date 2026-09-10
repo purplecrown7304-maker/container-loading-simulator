@@ -37,6 +37,8 @@ import TransportEquipmentRecalculationNotice from './TransportEquipmentRecalcula
 import PhysicsValidationTool from './PhysicsValidationTool';
 import InertiaTestTool from './InertiaTestTool';
 import InspectionStatusPanel from './InspectionStatusPanel';
+import ProductToolsCenter from './ProductToolsCenter';
+import ProductMenuActions from './ProductMenuActions';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -85,12 +87,15 @@ import './remaining-length.css';
 import './operational-right-summary.css';
 import './ux-polish.css';
 import './guided-workflow.css';
+import './guided-workflow-v2.css';
 import './guided-result-tabs-enhancer.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <ReferenceWorkspaceBar />
+      <ProductMenuActions />
+      <ProductToolsCenter />
       <HeaderLoadingStatusBoard />
       <TransportEquipmentSelector />
       <TransportEquipmentSafetyGuard />
