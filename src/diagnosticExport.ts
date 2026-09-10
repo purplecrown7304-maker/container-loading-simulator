@@ -125,10 +125,37 @@ function readInspectionStages() {
   });
 }
 
+function equipmentConsistency(container: ContainerSpec) {
+  const equipment = readTransportEquipment();
+  const mismatches: Array<{ field: string; selected: number; engine: number }> = [];
+  const compare = (field: string, selected: number, engine: number, tolerance: number) => {
+    if (Math.abs(selected - engine) > tolerance) mismatches.push({ field, selected, engine });
+  };
+  compare('length', equipment.length, container.length, 0.001);
+  compare('width', equipment.width, container.width, 0.001);
+  compare('height', equipment.height, container.height, 0.001);
+  compare('maxPayloadKg', equipment.maxPayloadKg, container.maxPayloadKg, 1);
+  compare('floorLoadLimitKgPerM2', equipment.floorLoadLimitKgPerM2, container.floorLoadLimitKgPerM2 ?? equipment.floorLoadLimitKgPerM2, 1);
+  return {
+    severity: mismatches.length ? 'CRITICAL' : 'OK',
+    selectedEquipmentId: equipment.id,
+    selectedEquipmentName: equipment.shortName,
+    mismatches,
+  };
+}
+
+function nextFrame() {
+  return new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+}
+
 async function captureViewerPng() {
-  const canvas = document.querySelector<HTMLCanvasElement>('.viewer-host canvas, .pallet-viewer canvas, canvas');
+  const canvas = document.querySelector<HTMLCanvasElement>(
+    '.reference-3d canvas, .pallet-preview canvas, .viewer-host canvas, .pallet-viewer canvas, canvas',
+  );
   if (!canvas || canvas.width <= 0 || canvas.height <= 0) return undefined;
   try {
+    await nextFrame();
+    await nextFrame();
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
     if (!blob || blob.size < 100) return undefined;
     return new Uint8Array(await blob.arrayBuffer());
@@ -280,6 +307,7 @@ export async function exportLoadingDiagnostics(): Promise<{ ok: boolean; message
   const certification = readLatestInertiaCertification();
   const inspectionStages = readInspectionStages();
   const equipment = readTransportEquipment();
+  const equipmentAudit = equipmentConsistency(container);
   const appResult = latest?.result;
 
   const inspection = {
@@ -287,6 +315,7 @@ export async function exportLoadingDiagnostics(): Promise<{ ok: boolean; message
     generatedAt: generatedAt.toISOString(),
     mode,
     equipment,
+    equipmentConsistency: equipmentAudit,
     input: { container, cargo },
     finalResult: result ?? null,
     currentAppResult: appResult ?? null,
@@ -319,6 +348,7 @@ export async function exportLoadingDiagnostics(): Promise<{ ok: boolean; message
       url: window.location.href,
     },
     selectedEquipment: equipment,
+    equipmentConsistency: equipmentAudit,
     workflow: {
       mode,
       inspectionStages,
@@ -347,15 +377,17 @@ export async function exportLoadingDiagnostics(): Promise<{ ok: boolean; message
     `생성 시각: ${generatedAt.toLocaleString()}`,
     `모드: ${mode === 'pallets' ? '팔레트' : '박스 직접 적재'}`,
     `장비: ${equipment.shortName}`,
+    `장비/엔진 제원 일치: ${equipmentAudit.severity}${equipmentAudit.mismatches.length ? ` (${equipmentAudit.mismatches.map(item => item.field).join(', ')})` : ''}`,
     '',
     '파일 구성',
     '- inspection.json: 입력값, 최종 배치, 미적재 사유, 무게중심, 바닥하중, 제약조건, 물리/관성 결과',
-    '- system.json: 앱/브라우저/작업흐름 상태',
+    '- system.json: 앱/브라우저/작업흐름 상태 및 선택 장비-엔진 제원 일치 검사',
     '- cargo.csv: 품목별 요청/적재/미적재 수량과 규격',
     '- placements.csv: 최종 개별 화물 배치 좌표',
     palletSnapshot ? '- pallets.csv: 팔레트별 위치, 적층단, 중량, 포함 화물' : '',
     preview ? '- preview.png: 생성 시점의 3D 캔버스 화면' : '- preview.png: 현재 브라우저에서 3D 캔버스 캡처를 만들지 못해 포함되지 않음',
     '',
+    equipmentAudit.severity === 'CRITICAL' ? 'CRITICAL: 선택 장비 제원과 실제 계산 ContainerSpec이 다릅니다. 이 결과는 적재 판단에 사용하지 마세요.' : '',
     '이 ZIP 파일을 ChatGPT 대화에 업로드하고 적재 시스템 점검을 요청하면 됩니다.',
     '점검 권장 항목: 적재 형상, 공간 활용, 적층 안전, 무게중심, 바닥하중, 미적재 원인, 물리/관성 검증, 알고리즘 이상 징후.',
   ].filter(Boolean).join('\r\n');
