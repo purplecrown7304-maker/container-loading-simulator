@@ -1,3 +1,4 @@
+import { isLegacyVirtualCompanyProduct } from './companyProduct';
 import {
   defaultEnterprisePackagingOptions,
   optimizeEnterprisePackaging,
@@ -33,6 +34,11 @@ export type EnterprisePackagingPlannerState = {
   settings?: EnterprisePackagingPlannerSettings;
 };
 
+function removeLegacyVirtualProducts(state: EnterprisePackagingPlannerState) {
+  const products = state.products.filter(product => !isLegacyVirtualCompanyProduct(product));
+  return products.length === state.products.length ? state : { ...state, products };
+}
+
 export function readEnterprisePackagingPlannerState(): EnterprisePackagingPlannerState | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -40,7 +46,9 @@ export function readEnterprisePackagingPlannerState(): EnterprisePackagingPlanne
     if (!raw) return null;
     const parsed = JSON.parse(raw) as EnterprisePackagingPlannerState;
     if (!parsed?.container || !Array.isArray(parsed.products) || !Array.isArray(parsed.boxes)) return null;
-    return parsed;
+    const cleaned = removeLegacyVirtualProducts(parsed);
+    if (cleaned !== parsed) window.localStorage.setItem(ENTERPRISE_PACKAGING_PLANNER_KEY, JSON.stringify(cleaned));
+    return cleaned;
   } catch {
     return null;
   }
@@ -48,8 +56,9 @@ export function readEnterprisePackagingPlannerState(): EnterprisePackagingPlanne
 
 export function writeEnterprisePackagingPlannerState(state: EnterprisePackagingPlannerState, notify = true) {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(ENTERPRISE_PACKAGING_PLANNER_KEY, JSON.stringify(state));
-  if (notify) window.dispatchEvent(new CustomEvent<EnterprisePackagingPlannerState>(ENTERPRISE_PACKAGING_PLANNER_EVENT, { detail: state }));
+  const cleaned = removeLegacyVirtualProducts(state);
+  window.localStorage.setItem(ENTERPRISE_PACKAGING_PLANNER_KEY, JSON.stringify(cleaned));
+  if (notify) window.dispatchEvent(new CustomEvent<EnterprisePackagingPlannerState>(ENTERPRISE_PACKAGING_PLANNER_EVENT, { detail: cleaned }));
 }
 
 export function enterprisePackagingOptionsFromPlanner(
@@ -89,10 +98,11 @@ export function enterprisePackagingOptionsFromPlanner(
 export function buildEnterprisePackagingPlanFromPlanner(
   state: EnterprisePackagingPlannerState,
 ): EnterprisePackagingPlan {
+  const cleaned = removeLegacyVirtualProducts(state);
   return optimizeEnterprisePackaging(
-    state.container,
-    state.products,
-    state.boxes ?? [],
-    enterprisePackagingOptionsFromPlanner(state),
+    cleaned.container,
+    cleaned.products,
+    cleaned.boxes ?? [],
+    enterprisePackagingOptionsFromPlanner(cleaned),
   );
 }
