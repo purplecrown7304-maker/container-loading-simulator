@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import CompanyProductLoadingFlow from './CompanyProductLoadingFlow';
 import EnterprisePackagingPlanner from './EnterprisePackagingPlanner';
 import { ENTERPRISE_PACKAGING_PLANNER_EVENT } from './enterprisePackagingPlannerStore';
 
@@ -45,13 +46,16 @@ export default function EnterprisePackagingPlannerHost() {
     const onShortcutClick = (event: MouseEvent) => {
       const target = event.target;
       if (!(target instanceof Element) || !target.closest('.product-packaging-shortcut')) return;
-      if (isPlannerHistoryEntry()) return;
-
-      window.history.pushState(
-        { ...currentHistoryState(), containerLoadingView: PLANNER_VIEW_STATE },
-        '',
-        `${window.location.pathname}${window.location.search}#product-packaging-planner`,
-      );
+      event.preventDefault();
+      event.stopPropagation();
+      if (!isPlannerHistoryEntry()) {
+        window.history.pushState(
+          { ...currentHistoryState(), containerLoadingView: PLANNER_VIEW_STATE },
+          '',
+          `${window.location.pathname}${window.location.search}#product-packaging-planner`,
+        );
+      }
+      document.querySelector('.company-product-flow')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
 
     const onPopState = () => {
@@ -81,7 +85,11 @@ export default function EnterprisePackagingPlannerHost() {
   }, []);
 
   return <div className="enterprise-packaging-host">
-    <EnterprisePackagingPlanner key={revision} />
+    <CompanyProductLoadingFlow />
+    <details className="enterprise-advanced-details">
+      <summary>고급 포장 설정 / 회사 박스 관리 / 비용 최적화</summary>
+      <EnterprisePackagingPlanner key={revision} />
+    </details>
     {actionsTarget && createPortal(
       <button
         type="button"
