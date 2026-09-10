@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import type { CargoItem, ContainerSpec, Placement } from './engine/types';
+import { readStoredState } from './storage';
 
 export const CARTON_VISUAL_SCALE = 0.985;
 
@@ -115,14 +116,26 @@ export function CargoFaceInfoLabels({
   bodyScale?: number;
 }) {
   const sample = placements[0];
+  const storedProductInfo = useMemo<ProductLabelInfo | undefined>(() => {
+    if (!sample) return undefined;
+    const item = readStoredState()?.cargo?.find(cargo => cargo.id === sample.cargoId);
+    if (!item?.productId && !item?.productName) return undefined;
+    return {
+      productId: item.productId,
+      productName: item.productName,
+      unitsPerPackage: item.unitsPerPackage,
+      contentWeightKg: item.contentWeightKg ?? item.weightKg,
+    };
+  }, [sample?.cargoId, sample?.weightKg]);
+  const resolvedProductInfo = productInfo ?? storedProductInfo;
   const texture = useMemo(
-    () => (sample ? makeInfoTexture(sample, displayName, productInfo) : null),
+    () => (sample ? makeInfoTexture(sample, displayName, resolvedProductInfo) : null),
     [
       displayName,
-      productInfo?.productId,
-      productInfo?.productName,
-      productInfo?.unitsPerPackage,
-      productInfo?.contentWeightKg,
+      resolvedProductInfo?.productId,
+      resolvedProductInfo?.productName,
+      resolvedProductInfo?.unitsPerPackage,
+      resolvedProductInfo?.contentWeightKg,
       sample?.cargoId,
       sample?.length,
       sample?.width,
