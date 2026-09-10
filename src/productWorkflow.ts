@@ -23,7 +23,15 @@ export function readProductSelection(): ProductSelectionMap {
   if (typeof window === 'undefined') return {};
   try {
     const parsed = JSON.parse(window.localStorage.getItem(PRODUCT_SELECTION_KEY) || '{}') as ProductSelectionMap;
-    return Object.fromEntries(Object.entries(parsed).filter(([, quantity]) => Number.isInteger(quantity) && quantity > 0));
+    const planner = readEnterprisePackagingPlannerState();
+    const validProductIds = new Set((planner?.products ?? []).map(product => product.id));
+    const clean = Object.fromEntries(
+      Object.entries(parsed).filter(([id, quantity]) => validProductIds.has(id) && Number.isInteger(quantity) && quantity > 0),
+    );
+    if (Object.keys(clean).length !== Object.keys(parsed).length) {
+      window.localStorage.setItem(PRODUCT_SELECTION_KEY, JSON.stringify(clean));
+    }
+    return clean;
   } catch {
     return {};
   }
@@ -31,7 +39,10 @@ export function readProductSelection(): ProductSelectionMap {
 
 export function writeProductSelection(selection: ProductSelectionMap) {
   if (typeof window === 'undefined') return;
-  const clean = Object.fromEntries(Object.entries(selection).filter(([, quantity]) => Number.isInteger(quantity) && quantity > 0));
+  const validProductIds = new Set((readEnterprisePackagingPlannerState()?.products ?? []).map(product => product.id));
+  const clean = Object.fromEntries(
+    Object.entries(selection).filter(([id, quantity]) => validProductIds.has(id) && Number.isInteger(quantity) && quantity > 0),
+  );
   window.localStorage.setItem(PRODUCT_SELECTION_KEY, JSON.stringify(clean));
   window.dispatchEvent(new CustomEvent<ProductSelectionMap>(PRODUCT_SELECTION_EVENT, { detail: clean }));
 }
