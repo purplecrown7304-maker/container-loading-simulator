@@ -69,7 +69,7 @@ function threeResults(overrides: Partial<InertiaAnimationResult> = {}) {
   return Object.fromEntries(scenarios.map(scenario => [scenario, result({ ...overrides, scenario })])) as Record<InertiaScenario, InertiaAnimationResult>;
 }
 
-describe('work order inertia approval policy', () => {
+describe('work order inertia warning policy', () => {
   it('allows a completed caution result that is above PASS but below danger', () => {
     const cert = certification('boxes', threeResults({ maxHorizontalShiftM: 0.02 }));
     expect(assessWorkOrderCertification(cert)).toBe('caution');
@@ -77,24 +77,26 @@ describe('work order inertia approval policy', () => {
     expect(buildWorkOrderRecommendations(cert).some(item => item.includes('미끄럼방지재'))).toBe(true);
   });
 
-  it('blocks a box result above the danger movement threshold', () => {
+  it('keeps danger classification but still allows a box work order', () => {
     const cert = certification('boxes', threeResults({ maxHorizontalShiftM: 0.031 }));
     expect(assessWorkOrderCertification(cert)).toBe('danger');
-    expect(canCreateWorkOrder(cert)).toBe(false);
+    expect(canCreateWorkOrder(cert)).toBe(true);
+    expect(buildWorkOrderRecommendations(cert).some(item => item.includes('위험 기준'))).toBe(true);
   });
 
-  it('blocks dangerous pallet-relative cargo slip even when box movement is small', () => {
+  it('keeps dangerous pallet-relative cargo slip visible without blocking output', () => {
     const cert = certification('pallets', threeResults({ maxHorizontalShiftM: 0.006, maxCargoRelativeSlipM: 0.021 }));
     expect(assessWorkOrderCertification(cert)).toBe('danger');
-    expect(canCreateWorkOrder(cert)).toBe(false);
+    expect(canCreateWorkOrder(cert)).toBe(true);
   });
 
-  it('does not approve an incomplete three-scenario test', () => {
+  it('allows an incomplete result as a warning-grade work order', () => {
     const cert = certification('boxes', {
       acceleration: result({ scenario: 'acceleration', maxHorizontalShiftM: 0.02 }),
       braking: result({ scenario: 'braking', maxHorizontalShiftM: 0.01 }),
     });
     expect(assessWorkOrderCertification(cert)).toBe('incomplete');
-    expect(canCreateWorkOrder(cert)).toBe(false);
+    expect(canCreateWorkOrder(cert)).toBe(true);
+    expect(buildWorkOrderRecommendations(cert).some(item => item.includes('미검증'))).toBe(true);
   });
 });
