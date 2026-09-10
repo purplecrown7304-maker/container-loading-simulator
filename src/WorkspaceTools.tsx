@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
-import { cargoColor } from './cargoColors';
+import { cargoColor, randomUniqueCargoColor } from './cargoColors';
 import { parseCargoWorkbook } from './excel';
 import { operatorScopedStorageKey, readLocalOperator, type LocalOperator } from './localOperator';
 import { readStoredState, writeStoredState, type StoredState } from './storage';
@@ -32,12 +32,23 @@ function readJson<T>(key: string, fallback: T): T {
   try { return JSON.parse(localStorage.getItem(key) || '') as T; } catch { return fallback; }
 }
 
+function ensureCatalogColors(items: CargoItem[]): CargoItem[] {
+  const used = new Set<string>();
+  return items.map((item) => {
+    const candidate = item.displayColor?.trim().toLowerCase();
+    const valid = Boolean(candidate && /^#[0-9a-f]{6}$/.test(candidate) && !used.has(candidate));
+    const displayColor = valid ? candidate! : randomUniqueCargoColor(used);
+    used.add(displayColor);
+    return { ...item, displayColor };
+  });
+}
+
 function catalogKey(operator: LocalOperator) {
   return operatorScopedStorageKey(USER_CATALOG_KEY, operator);
 }
 
 function readCatalog(operator: LocalOperator | null): CargoItem[] {
-  return operator ? readJson<CargoItem[]>(catalogKey(operator), []) : [];
+  return operator ? ensureCatalogColors(readJson<CargoItem[]>(catalogKey(operator), [])) : [];
 }
 
 function todayKey() { return new Date().toISOString().slice(0, 10); }
@@ -172,11 +183,12 @@ export default function WorkspaceTools({ showNav = true }: Props) {
       let newCount = 0;
       let updatedCount = 0;
       for (const item of result.items) {
-        if (map.has(item.id)) updatedCount += 1;
+        const previous = map.get(item.id);
+        if (previous) updatedCount += 1;
         else newCount += 1;
-        map.set(item.id, item);
+        map.set(item.id, { ...item, displayColor: previous?.displayColor });
       }
-      setCatalog([...map.values()]);
+      setCatalog(ensureCatalogColors([...map.values()]));
       setSelected(current => {
         const next = { ...current };
         for (const item of result.items) delete next[item.id];
@@ -238,10 +250,9 @@ export default function WorkspaceTools({ showNav = true }: Props) {
 
     const { originalId: _ignored, ...nextItem } = normalized;
     setCatalogBackup(catalog.map(item => ({ ...item })));
-    setCatalog(previous => {
-      if (!originalId) return [...previous, nextItem];
-      return previous.map(item => item.id === originalId ? nextItem : item);
-    });
+    setCatalog(previous => ensureCatalogColors(!originalId
+      ? [...previous, nextItem]
+      : previous.map(item => item.id === originalId ? nextItem : item)));
     if (originalId && originalId !== nextItem.id) {
       setSelected(current => {
         const next = { ...current };
@@ -272,7 +283,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
   const restoreCatalogBackup = () => {
     if (!catalogBackup || !requireLogin()) return;
     const current = catalog.map(item => ({ ...item }));
-    setCatalog(catalogBackup);
+    setCatalog(ensureCatalogColors(catalogBackup));
     setCatalogBackup(current);
     setCatalogDraft(null);
     setMessage('직전 개인 박스 목록 변경을 되돌렸습니다. 다시 누르면 현재 상태로 되돌아갑니다.');
@@ -366,11 +377,11 @@ export default function WorkspaceTools({ showNav = true }: Props) {
             {operator && <>
               <label className="box-search-label">박스 검색</label>
               <div className="box-search"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="박스코드, 내용물 검색" /><button onClick={() => setQuery('')}>검색 초기화</button></div>
-              <div className="selected-boxes"><b>선택된 박스</b><small>{chosen.length}종 선택</small><div>{chosen.length ? chosen.map(x => <span key={x.id} style={{ borderLeftColor: cargoColor(x.id) }}>{x.id} · {x.name} <b>{selected[x.id]}EA</b></span>) : '아래 목록에서 박스를 선택하면 이곳에 표시됩니다.'}</div></div>
+              <div className="selected-boxes"><b>선택된 박스</b><small>{chosen.length}종 선택</small><div>{chosen.length ? chosen.map(x => <span key={x.id} style={{ borderLeftColor: cargoColor(x.id, x.displayColor) }}>{x.id} · {x.name} <b>{selected[x.id]}EA</b></span>) : '아래 목록에서 박스를 선택하면 이곳에 표시됩니다.'}</div></div>
               <div className="catalog-wrap"><table><caption>{operator.name} 개인 박스 목록</caption><thead><tr><th>선택</th><th>NO</th><th>박스코드</th><th>내용물</th><th>L</th><th>W</th><th>T</th><th>중량</th><th>CBM</th><th>재질</th><th>최대보관중량</th><th>최대적층단</th><th>취급주의</th><th>색상</th><th>회전허용</th><th>적재 수량</th><th>관리</th></tr></thead><tbody>
                 {filtered.map((x, i) => <tr key={x.id}>
                   <td><input type="checkbox" checked={(selected[x.id] ?? 0) > 0} onChange={event => setSelected(state => ({ ...state, [x.id]: event.target.checked ? Math.max(1, x.quantity) : 0 }))} /></td>
-                  <td>{i + 1}</td><td>{x.id}</td><td>{x.name}</td><td>{Math.round(x.length * 1000)}</td><td>{Math.round(x.width * 1000)}</td><td>{Math.round(x.height * 1000)}</td><td>{x.weightKg}</td><td>{(x.length * x.width * x.height).toFixed(3)}</td><td>-</td><td>{x.maxTopLoadKg ?? '제한없음'}</td><td>{x.maxStackLayers ?? '제한없음'}</td><td>-</td><td><i className="catalog-color" style={{ background: cargoColor(x.id) }} /></td><td>{x.allowRotation !== false ? '허용' : '금지'}</td>
+                  <td>{i + 1}</td><td>{x.id}</td><td>{x.name}</td><td>{Math.round(x.length * 1000)}</td><td>{Math.round(x.width * 1000)}</td><td>{Math.round(x.height * 1000)}</td><td>{x.weightKg}</td><td>{(x.length * x.width * x.height).toFixed(3)}</td><td>-</td><td>{x.maxTopLoadKg ?? '제한없음'}</td><td>{x.maxStackLayers ?? '제한없음'}</td><td>-</td><td><i className="catalog-color" style={{ background: cargoColor(x.id, x.displayColor) }} /></td><td>{x.allowRotation !== false ? '허용' : '금지'}</td>
                   <td><input className="qty-input" type="number" min="0" step="1" value={selected[x.id] ?? x.quantity} onChange={event => setSelected(state => ({ ...state, [x.id]: Math.max(0, Math.floor(Number(event.target.value) || 0)) }))} /></td>
                   <td><div className="box-register-actions"><button onClick={() => editCatalogItem(x)}>수정</button><button className="danger" onClick={() => deleteCatalogItem(x)}>삭제</button></div></td>
                 </tr>)}
