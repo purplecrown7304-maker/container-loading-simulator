@@ -6,6 +6,7 @@ import {
   EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT,
   prepareEquipmentImage,
   readEquipmentImageOverrides,
+  refreshEquipmentImageOverrides,
   removeEquipmentImageOverride,
   setEquipmentImageOverride,
 } from './equipmentImageOverrides';
@@ -43,6 +44,7 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
   const [isAdmin, setIsAdmin] = useState(() => isAdminSession());
 
   useEffect(() => {
+    void refreshEquipmentImageOverrides();
     const sync = () => setImageSrc(readEquipmentImageOverrides()[item.id] ?? '');
     window.addEventListener(EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT, sync);
     return () => window.removeEventListener(EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT, sync);
@@ -66,9 +68,9 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
     setBusy(true);
     try {
       const dataUrl = await prepareEquipmentImage(file);
-      setEquipmentImageOverride(item.id, dataUrl);
-      setImageSrc(dataUrl);
-      onMessage?.(`${item.shortName} 이미지를 변경했습니다. 이 브라우저에 저장됩니다.`);
+      const next = await setEquipmentImageOverride(item.id, dataUrl);
+      setImageSrc(next[item.id] ?? '');
+      onMessage?.(`${item.shortName} 이미지를 Supabase 서버에 저장했습니다.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : '이미지 변경에 실패했습니다.';
       onMessage?.(message);
@@ -77,15 +79,22 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
     }
   };
 
-  const resetImage = (event: MouseEvent<HTMLButtonElement>) => {
+  const resetImage = async (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     if (!isAdminSession()) {
       onMessage?.('관리자 계정으로 로그인한 경우에만 장비 이미지를 복원할 수 있습니다.');
       return;
     }
-    removeEquipmentImageOverride(item.id);
-    setImageSrc('');
-    onMessage?.(`${item.shortName} 이미지를 기본 이미지로 복원했습니다.`);
+    setBusy(true);
+    try {
+      await removeEquipmentImageOverride(item.id);
+      setImageSrc('');
+      onMessage?.(`${item.shortName} 서버 이미지를 삭제하고 기본 이미지로 복원했습니다.`);
+    } catch (error) {
+      onMessage?.(error instanceof Error ? error.message : '기본 이미지 복원에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return <div className="transport-equipment-card-wrap">
@@ -106,7 +115,7 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
         {busy ? '처리중…' : '이미지 수정'}
         <input type="file" accept="image/png,image/jpeg,image/webp" onChange={changeImage} disabled={busy} />
       </label>
-      {imageSrc && <button type="button" className="transport-image-reset" onClick={resetImage}>원본</button>}
+      {imageSrc && <button type="button" className="transport-image-reset" onClick={event => void resetImage(event)} disabled={busy}>원본</button>}
     </div>}
   </div>;
 }
