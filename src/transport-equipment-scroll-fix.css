@@ -1,0 +1,58 @@
+.transport-selector-backdrop{
+  align-items:center;
+  overflow:hidden;
+}
+
+.transport-selector-modal{
+  height:min(820px,calc(100dvh - 48px));
+  max-height:calc(100dvh - 48px);
+  margin:0;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+
+.transport-selector-head,
+.transport-category-tabs,
+.transport-custom-editor,
+.transport-selector-message,
+.transport-selector-foot{
+  flex:0 0 auto;
+}
+
+.transport-equipment-grid{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  align-content:start;
+  padding-right:6px;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+
+.transport-equipment-grid::-webkit-scrollbar{
+  width:10px;
+}
+
+.transport-equipment-grid::-webkit-scrollbar-track{
+  background:#eef3f8;
+  border-radius:999px;
+}
+
+.transport-equipment-grid::-webkit-scrollbar-thumb{
+  background:#b8c5d4;
+  border:2px solid #eef3f8;
+  border-radius:999px;
+}
+
+.transport-equipment-grid::-webkit-scrollbar-thumb:hover{
+  background:#8ea1b5;
+}
+
+@media(max-width:700px){
+  .transport-selector-modal{
+    height:calc(100dvh - 16px);
+    max-height:calc(100dvh - 16px);
+  }
+}
