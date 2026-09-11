@@ -2,7 +2,8 @@ import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult } fr
 import { validatePlacements } from './constraints';
 import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
-import { packByStrictWalls } from './strictWallPacker';
+import { packByBlockSpaceBeam } from './blockSpaceBeamPacker';
+import { centerPackedLayout } from './balanceLayout';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -37,16 +38,13 @@ function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], resu
 /**
  * DIRECT BOX loading policy.
  *
- * StrictWallPacker is the placement authority. It starts at x=0 (the inner wall) and
- * progresses toward the door while enforcing physical hard constraints: container
- * bounds, collision prevention, payload, configured stack layers, cumulative top-load
- * limits and full support for upper boxes.
+ * The deterministic block + maximal-empty-space + Beam Search engine is the placement
+ * authority. It evaluates competing layouts for utilization, compactness, low vertical
+ * center of gravity and longitudinal/lateral balance while preserving hard constraints.
  *
- * Operational shape quality, center-of-gravity deviation and inertia results are
- * evaluation/warning signals. They must never delete otherwise feasible cargo after
- * packing. In particular, do not center the whole cargo block merely to improve the
- * CG score, because that breaks the inner-wall -> door loading rule and can create a
- * false situation where cargo is removed only to obtain a prettier safety score.
+ * After packing, the complete safe layout may be translated as one rigid group toward
+ * the container mass center. Relative box geometry never changes, so collision, support,
+ * stacking, compression and payload decisions made by the packer remain intact.
  */
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
@@ -83,8 +81,8 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     }
   }
 
-  const packed = packByStrictWalls(container, normalizedCargo, strategy);
-  const finalPlacements = packed.placements;
+  const packed = packByBlockSpaceBeam(container, normalizedCargo, strategy);
+  const finalPlacements = centerPackedLayout(container, packed.placements);
   const result: LoadingResult = {
     placements: finalPlacements,
     remaining: [
