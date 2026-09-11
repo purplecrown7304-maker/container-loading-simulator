@@ -13,7 +13,6 @@ import {
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
-import { readPalletSnapshot } from './engine/palletAdaptiveSearch';
 import './loading-strategy.css';
 
 const MODES: Array<{ id: UserLoadingStrategy; icon: string }> = [
@@ -26,16 +25,23 @@ const MODES: Array<{ id: UserLoadingStrategy; icon: string }> = [
 ];
 
 type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
-type LoadingWindow = Window & { __containerLoadingLatestResult?: LoadingDetail };
+type LoadingWindow = Window & {
+  __containerLoadingLatestResult?: LoadingDetail;
+  __containerLoadingPalletSnapshot?: { result?: { palletCount?: number } };
+};
 
 function latestLoading(): LoadingDetail | undefined {
   return typeof window === 'undefined' ? undefined : (window as LoadingWindow).__containerLoadingLatestResult;
+}
+function palletCount() {
+  return typeof window === 'undefined' ? 0 : (window as LoadingWindow).__containerLoadingPalletSnapshot?.result?.palletCount ?? 0;
 }
 
 export default function LoadingStrategyDock() {
   const [strategy, setStrategy] = useState<UserLoadingStrategy>(() => readUserLoadingStrategy());
   const [decision, setDecision] = useState<StrategyDecision | undefined>(() => readStrategyDecision());
   const [loading, setLoading] = useState<LoadingDetail | undefined>(() => latestLoading());
+  const [palletRevision, setPalletRevision] = useState(0);
   const [selectorHost, setSelectorHost] = useState<HTMLElement | null>(null);
   const [resultHost, setResultHost] = useState<HTMLElement | null>(null);
 
@@ -50,7 +56,6 @@ export default function LoadingStrategyDock() {
           stage.classList.add('loading-strategy-stage-host');
           setSelectorHost(current => current === stage ? current : stage);
         } else setSelectorHost(null);
-
         const resultStage = document.querySelector<HTMLElement>('.guided-result-stage');
         if (!resultStage) { setResultHost(null); return; }
         let host = resultStage.querySelector<HTMLElement>(':scope > .loading-strategy-result-host');
@@ -74,21 +79,20 @@ export default function LoadingStrategyDock() {
     const onSelection = (event: Event) => setStrategy((event as CustomEvent<UserLoadingStrategy>).detail ?? readUserLoadingStrategy());
     const onDecision = (event: Event) => setDecision((event as CustomEvent<StrategyDecision>).detail ?? readStrategyDecision());
     const onResult = (event: Event) => setLoading((event as CustomEvent<LoadingDetail>).detail ?? latestLoading());
+    const onPallet = () => setPalletRevision(value => value + 1);
     window.addEventListener(LOADING_STRATEGY_SELECTION_EVENT, onSelection);
     window.addEventListener(LOADING_STRATEGY_DECISION_EVENT, onDecision);
     window.addEventListener(LOADING_RESULT_EVENT, onResult);
+    window.addEventListener('container-loading:pallet-snapshot-updated', onPallet);
     return () => {
       window.removeEventListener(LOADING_STRATEGY_SELECTION_EVENT, onSelection);
       window.removeEventListener(LOADING_STRATEGY_DECISION_EVENT, onDecision);
       window.removeEventListener(LOADING_RESULT_EVENT, onResult);
+      window.removeEventListener('container-loading:pallet-snapshot-updated', onPallet);
     };
   }, []);
 
-  const select = (id: UserLoadingStrategy) => {
-    setStrategy(id);
-    writeUserLoadingStrategy(id);
-  };
-
+  const select = (id: UserLoadingStrategy) => { setStrategy(id); writeUserLoadingStrategy(id); };
   const selector = selectorHost ? createPortal(
     <section className="loading-strategy-selector" aria-label="자동 적재 방식 선택">
       <div className="loading-strategy-title"><div><span>AUTO LOADING</span><h1>적재 방식 선택</h1></div><strong>{STRATEGY_LABELS[strategy]}</strong></div>
@@ -98,16 +102,13 @@ export default function LoadingStrategyDock() {
         </button>)}
       </div>
       {strategy === 'auto' && <div className="loading-strategy-auto-note">화물 특성 분석 후 공간·무게·안전·하차·그룹화 가중치를 자동 조정</div>}
-    </section>,
-    selectorHost,
-  ) : null;
+    </section>, selectorHost) : null;
 
   const metrics = useMemo(() => {
     if (!loading) return null;
     const { container, result } = loading;
     const volume = Math.max(0.001, container.length * container.width * container.height);
     const balance = assessWeightBalance(container, result);
-    const pallet = readPalletSnapshot();
     return {
       fill: result.usedVolumeM3 / volume * 100,
       used: result.usedVolumeM3,
@@ -117,10 +118,10 @@ export default function LoadingStrategyDock() {
       longitudinal: balance.longitudinalDeviationPct,
       cog: balance.centerOfGravity,
       boxes: result.placements.length,
-      pallets: pallet?.result?.palletCount ?? 0,
+      pallets: palletCount(),
       unloaded: result.remaining.reduce((sum, item) => sum + item.quantity, 0),
     };
-  }, [loading]);
+  }, [loading, palletRevision]);
 
   const resultPanel = resultHost && metrics ? createPortal(
     <section className="loading-strategy-result-summary">
@@ -137,9 +138,7 @@ export default function LoadingStrategyDock() {
         <div className={metrics.unloaded ? 'warn' : ''}><span>미적재</span><b>{metrics.unloaded.toLocaleString()}개</b></div>
       </div>
       {decision?.requestedStrategy === 'auto' && <div className="loading-strategy-reasons">{decision.reasons.slice(0, 3).map(reason => <span key={reason}>{reason}</span>)}</div>}
-    </section>,
-    resultHost,
-  ) : null;
+    </section>, resultHost) : null;
 
   return <>{selector}{resultPanel}</>;
 }
