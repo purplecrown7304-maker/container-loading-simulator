@@ -30,6 +30,7 @@ import DashboardCommandDock from './DashboardCommandDock';
 import GuidedWorkflowShell from './GuidedWorkflowShell';
 import GuidedResultTabsEnhancer from './GuidedResultTabsEnhancer';
 import DiagnosticExportResultButton from './DiagnosticExportResultButton';
+import DiagnosticAutoMailBridge from './DiagnosticAutoMailBridge';
 import TransportEquipmentSelector from './TransportEquipmentSelector';
 import TransportEquipmentDashboardSummary from './TransportEquipmentDashboardSummary';
 import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
@@ -126,6 +127,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <EquipmentVisualAdminEditor />
       <GuidedResultTabsEnhancer />
       <DiagnosticExportResultButton />
+      <DiagnosticAutoMailBridge />
       <EnterprisePackagingPlannerHost />
       <EnterpriseTransportEquipmentAdapter />
       <ProductPackagingExcelActions />
