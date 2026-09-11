@@ -15,7 +15,7 @@ const result: LoadingResult = {
 describe('loading work order', () => {
   it('renders only worker essentials with visual loading guides', () => {
     const html = buildLoadingReportHtml(container, cargo, result);
-    expect(html).toContain('컨테이너 적재 작업지시서');
+    expect(html).toContain('컨테이너 통합 출하·적재 작업지시서');
     expect(html).toContain('위에서 본 적재도');
     expect(html).toContain('옆에서 본 적재도');
     expect(html).toContain('3단계 진행 그림');
