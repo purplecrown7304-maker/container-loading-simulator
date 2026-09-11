@@ -20,23 +20,23 @@ jobs:
           node-version: 22
           package-manager-cache: false
 
-      - name: Pin npm
-        run: npm install --global npm@10.8.2
+      - name: Install pnpm
+        run: npm install --global pnpm@10.15.1
 
       - name: Install dependencies
-        run: npm install
+        run: pnpm install --no-frozen-lockfile
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm run typecheck
 
       - name: Unit tests
-        run: npm run test
+        run: pnpm run test
 
       - name: Architecture check
-        run: npm run check:architecture
+        run: pnpm run check:architecture
 
       - name: Production build
-        run: npm run build
+        run: pnpm run build
 
       - name: Bundle size check
-        run: npm run check:bundle
+        run: pnpm run check:bundle
