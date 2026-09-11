@@ -1,3 +1,4 @@
+import { isAdminSession } from './adminAccess';
 import { isLegacyVirtualCompanyProduct } from './companyProduct';
 import {
   defaultEnterprisePackagingOptions,
@@ -7,9 +8,13 @@ import {
 } from './engine/enterprisePackagingOptimizer';
 import type { BoxCatalogItem, ProductItem } from './engine/productPackagingOptimizer';
 import type { ContainerSpec } from './engine/types';
+import { operatorScopedStorageKey, readLocalOperator } from './localOperator';
 
 export const ENTERPRISE_PACKAGING_PLANNER_KEY = 'container-loading-product-packaging-v1';
 export const ENTERPRISE_PACKAGING_PLANNER_EVENT = 'container-loading:enterprise-packaging-planner-updated';
+
+const ADMIN_PLANNER_KEY = `${ENTERPRISE_PACKAGING_PLANNER_KEY}:admin`;
+const GUEST_PLANNER_KEY = `${ENTERPRISE_PACKAGING_PLANNER_KEY}:guest`;
 
 export type EnterprisePackagingPlannerSettings = {
   allowCustom?: boolean;
@@ -51,16 +56,41 @@ function cleanPlannerState(state: EnterprisePackagingPlannerState) {
   return changed ? { ...state, products } : state;
 }
 
-export function readEnterprisePackagingPlannerState(): EnterprisePackagingPlannerState | null {
-  if (typeof window === 'undefined') return null;
+function activePlannerKey() {
+  if (isAdminSession()) return ADMIN_PLANNER_KEY;
+  const operator = readLocalOperator();
+  if (operator) return operatorScopedStorageKey(ENTERPRISE_PACKAGING_PLANNER_KEY, operator);
+  return GUEST_PLANNER_KEY;
+}
+
+function parsePlannerState(raw: string | null): EnterprisePackagingPlannerState | null {
+  if (!raw) return null;
   try {
-    const raw = window.localStorage.getItem(ENTERPRISE_PACKAGING_PLANNER_KEY);
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as EnterprisePackagingPlannerState;
     if (!parsed?.container || !Array.isArray(parsed.products) || !Array.isArray(parsed.boxes)) return null;
-    const cleaned = cleanPlannerState(parsed);
-    if (cleaned !== parsed) window.localStorage.setItem(ENTERPRISE_PACKAGING_PLANNER_KEY, JSON.stringify(cleaned));
-    return cleaned;
+    return cleanPlannerState(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function migrateLegacyAdminPlannerIfNeeded(key: string) {
+  if (key !== ADMIN_PLANNER_KEY || window.localStorage.getItem(key)) return;
+  const legacy = parsePlannerState(window.localStorage.getItem(ENTERPRISE_PACKAGING_PLANNER_KEY));
+  if (legacy) window.localStorage.setItem(key, JSON.stringify(legacy));
+}
+
+export function readEnterprisePackagingPlannerState(): EnterprisePackagingPlannerState | null {
+  if (typeof window === 'undefined') return null;
+  const key = activePlannerKey();
+  try {
+    // 예전 공용 제품 데이터는 관리자 영역으로만 이전한다. 회원/게스트에게는 절대 상속하지 않는다.
+    migrateLegacyAdminPlannerIfNeeded(key);
+    const parsed = parsePlannerState(window.localStorage.getItem(key));
+    if (!parsed) return null;
+    const raw = window.localStorage.getItem(key);
+    if (raw !== JSON.stringify(parsed)) window.localStorage.setItem(key, JSON.stringify(parsed));
+    return parsed;
   } catch {
     return null;
   }
@@ -69,7 +99,8 @@ export function readEnterprisePackagingPlannerState(): EnterprisePackagingPlanne
 export function writeEnterprisePackagingPlannerState(state: EnterprisePackagingPlannerState, notify = true) {
   if (typeof window === 'undefined') return;
   const cleaned = cleanPlannerState(state);
-  window.localStorage.setItem(ENTERPRISE_PACKAGING_PLANNER_KEY, JSON.stringify(cleaned));
+  const key = activePlannerKey();
+  window.localStorage.setItem(key, JSON.stringify(cleaned));
   if (notify) window.dispatchEvent(new CustomEvent<EnterprisePackagingPlannerState>(ENTERPRISE_PACKAGING_PLANNER_EVENT, { detail: cleaned }));
 }
 
