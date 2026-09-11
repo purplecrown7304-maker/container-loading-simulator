@@ -133,14 +133,26 @@ export default function SavedWorkQuickList() {
       {visible.length ? <div className="saved-work-quick-items">
         {visible.map(work => {
           const stats = workStats(work);
-          return <article key={work.id}>
+          return <article
+            key={work.id}
+            role="button"
+            tabIndex={0}
+            aria-label={`${work.name} 계획 불러오기`}
+            onClick={() => restore(work)}
+            onKeyDown={event => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                restore(work);
+              }
+            }}
+          >
             <div className="saved-work-copy">
               <b>{work.name}</b>
               <small>{equipmentLabel(work.state.container)}</small>
               <span>제품 {stats.productTypes}종 / {stats.productUnits.toLocaleString()}EA · 박스 {stats.boxCount.toLocaleString()}개</span>
               <time>{savedAtLabel(work.savedAt)}</time>
             </div>
-            <button type="button" onClick={() => restore(work)}>불러오기</button>
+            <button type="button" onClick={event => { event.stopPropagation(); restore(work); }}>불러오기</button>
           </article>;
         })}
       </div> : <div className="saved-work-quick-empty">저장된 계획이 없습니다.</div>}
