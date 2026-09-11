@@ -3,8 +3,8 @@ import { validatePlacements } from './constraints';
 import { centerPlacementsOnContainer } from './containerCentering';
 import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
+import { safelyRebalanceStrictWallPlacements } from './safeWeightAwareWallReorder';
 import { packByStrictWalls } from './strictWallPacker';
-import { rebalanceStrictWallPlacements } from './weightAwareWallReorder';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -45,8 +45,8 @@ function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], resu
  * 2) Capacity/stability mode reorders only independently movable wall slices. A slice is
  *    cut only where no box crosses the boundary, so stacking/support geometry inside the
  *    slice remains unchanged. Heavy slices are placed closer to the horizontal target
- *    center without creating an internal corridor. Unloading mode skips this reorder so
- *    explicit unloading sequence remains authoritative.
+ *    center without creating an internal corridor. Any unsafe/worse result is rejected.
+ *    Unloading mode skips this reorder so explicit unloading sequence remains authoritative.
  * 3) The completed arrangement is translated as one rigid X/Y group so its weighted
  *    center of gravity is as close as possible to the container target center. Translation
  *    is clamped by container walls and Z is never raised.
@@ -89,7 +89,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   const packed = packByStrictWalls(container, normalizedCargo, strategy);
   const weightBalanced = strategy === 'unloading'
     ? packed.placements
-    : rebalanceStrictWallPlacements(container, packed.placements);
+    : safelyRebalanceStrictWallPlacements(container, packed.placements);
   const finalPlacements = centerPlacementsOnContainer(container, weightBalanced);
   const result: LoadingResult = {
     placements: finalPlacements,
