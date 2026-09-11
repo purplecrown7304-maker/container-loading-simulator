@@ -20,7 +20,7 @@ jobs:
           package-manager-cache: false
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Record dependency versions
         run: npm ls --depth=0
