@@ -59,6 +59,8 @@ function cargoRows(cargo: CargoItem[], result: LoadingResult) {
     cargoId: item.id,
     productId: item.productId ?? '',
     productName: item.productName ?? '',
+    boxId: item.boxId ?? '',
+    boxName: item.boxName ?? '',
     name: item.name,
     requestedQuantity: item.quantity,
     loadedQuantity: loaded.get(item.id) ?? 0,
@@ -84,6 +86,8 @@ function placementRows(result: LoadingResult, cargo: CargoItem[]) {
       cargoId: item.cargoId,
       productId: spec?.productId ?? '',
       productName: spec?.productName ?? '',
+      boxId: spec?.boxId ?? '',
+      boxName: spec?.boxName ?? '',
       unitsPerPackage: spec?.unitsPerPackage ?? '',
       xM: item.x,
       yM: item.y,
@@ -111,7 +115,11 @@ function floorRows(floor: { cells: Array<{ row: number; column: number; x: numbe
 }
 
 function stackRows(stack: { placements: Array<Record<string, unknown>> }) {
-  return stack.placements.map(item => ({ ...item, supporters: JSON.stringify(item.supporters ?? []) }));
+  return stack.placements.map(item => ({
+    ...item,
+    supporters: JSON.stringify(item.supporters ?? []),
+    overhang: JSON.stringify(item.overhang ?? {}),
+  }));
 }
 
 function palletRows(snapshot: PalletWorkSnapshot | undefined) {
@@ -205,7 +213,8 @@ function makeZip(entries: ZipInput[]) {
 
 async function sha256(data: Uint8Array) {
   if (!crypto?.subtle) return null;
-  const digest = await crypto.subtle.digest('SHA-256', data);
+  const copy = Uint8Array.from(data);
+  const digest = await crypto.subtle.digest('SHA-256', copy.buffer);
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
@@ -215,7 +224,8 @@ function timestampName(date: Date) {
 }
 
 function downloadBytes(data: Uint8Array, filename: string) {
-  const blob = new Blob([data], { type: 'application/zip' });
+  const copy = Uint8Array.from(data);
+  const blob = new Blob([copy.buffer], { type: 'application/zip' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove();
@@ -309,19 +319,6 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
   const topPreview = await captureCanvasPng('.minimap canvas, .pallet-minimap canvas');
   if (topPreview) entries.push({ name: 'preview-top.png', data: topPreview, modifiedAt: generatedAt });
 
-  const fileHashes = await Promise.all(entries.map(async entry => ({ name: entry.name, bytes: entry.data.length, sha256: await sha256(entry.data) })));
-  const manifest = {
-    schema: 'container-loading-blackbox-manifest-v2',
-    generatedAt: generatedAt.toISOString(),
-    appVersion: APP_VERSION,
-    gitCommit: system.build.gitCommit,
-    mode,
-    equipmentId: equipment.id,
-    consistencySeverity: snapshots.consistency.severity,
-    files: fileHashes,
-  };
-  entries.unshift({ name: 'manifest.json', data: textBytes(safeJson(manifest)), modifiedAt: generatedAt });
-
   const readme = [
     'Container Loading Simulator 블랙박스 점검 파일 v2',
     '',
@@ -331,21 +328,39 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
     `CRITICAL ${snapshots.consistency.counts.critical} / WARNING ${snapshots.consistency.counts.warning} / OK ${snapshots.consistency.counts.ok}`,
     '',
     '핵심 파일',
-    '- manifest.json: 버전/커밋/파일 SHA-256',
-    '- consistency-report.json: 적재공간↔엔진, 포장↔자동적재, 수량, 중량, 물리검증 signature 교차검사',
+    '- manifest.json: 버전/커밋/manifest를 제외한 모든 ZIP 파일 SHA-256',
+    '- consistency-report.json: 적재공간↔엔진, 포장↔자동적재, 수량, 중량, 적층지지, 물리검증 signature 교차검사',
     '- equipment.json: 선택 적재공간과 실제 엔진 ContainerSpec',
     '- products.json: 회원/관리자 데이터 영역과 선택 제품',
     '- packaging.json: 제품 포장 확정 스냅샷 및 등록 박스',
     '- loading-input.json: 자동 적재 엔진에 실제 전달된 CargoItem[]',
     '- placements.json/csv: 최종 개별 배치',
-    '- stack-analysis.json/csv: 지지율, 지지 박스, 상부하중',
+    '- stack-analysis.json/csv: 적층단, 지지율, 중심지지, 돌출, 상부하중, 전도 위험',
     '- weight-balance.json / floor-load.json,csv / constraint-checks.json',
     '- physics-validation.json / inertia-validation.json: 현재 배치 signature 일치 및 STALE 여부',
-    '- workflow-trace.json / runtime.json: 작업 이벤트와 브라우저 오류/성능 기록',
+    '- workflow-trace.json / runtime.json: 작업 이벤트, 자동적재 시간, 브라우저 오류/Long Task 기록',
     '',
     snapshots.consistency.severity === 'CRITICAL' ? 'CRITICAL: 데이터 일관성 오류가 있으므로 이 결과를 실제 작업 지시 기준으로 사용하기 전에 원인을 수정하세요.' : '',
   ].filter(Boolean).join('\r\n');
   entries.push({ name: 'README.txt', data: textBytes(readme), modifiedAt: generatedAt });
+
+  const fileHashes = await Promise.all(entries.map(async entry => ({
+    name: entry.name,
+    bytes: entry.data.length,
+    sha256: await sha256(entry.data),
+  })));
+  const manifest = {
+    schema: 'container-loading-blackbox-manifest-v2',
+    generatedAt: generatedAt.toISOString(),
+    appVersion: APP_VERSION,
+    gitCommit: system.build.gitCommit,
+    mode,
+    equipmentId: equipment.id,
+    consistencySeverity: snapshots.consistency.severity,
+    hashScope: 'all ZIP payload files except manifest.json itself',
+    files: fileHashes,
+  };
+  entries.unshift({ name: 'manifest.json', data: textBytes(safeJson(manifest)), modifiedAt: generatedAt });
 
   const filename = `loading-system-check-${timestampName(generatedAt)}.zip`;
   downloadBytes(makeZip(entries), filename);
