@@ -7,6 +7,14 @@ export type ContainerSpec = {
   floorLoadLimitKgPerM2?: number;
   /** 평균 바닥하중 대비 국부하중 경고 배수. 미입력 시 3배를 사용한다. */
   floorLoadWarningMultiplier?: number;
+  /** 트럭 적재공간 x=0 기준 앞축 작용점. 실제 차량 제원이 있을 때만 입력한다. */
+  frontAxleX?: number;
+  /** 트럭 적재공간 x=0 기준 뒤축 작용점. 실제 차량 제원이 있을 때만 입력한다. */
+  rearAxleX?: number;
+  /** 앞축 허용하중. 차체 자체 중량을 포함한 법정 축중이 아니라 적재 시뮬레이션에서 사용할 명시적 제원. */
+  frontAxleMaxKg?: number;
+  /** 뒤축 허용하중. 실제 차량 제원이 없으면 생략한다. */
+  rearAxleMaxKg?: number;
 };
 
 export type CargoItem = {
