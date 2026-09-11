@@ -10,6 +10,7 @@ import {
   type StrategyDecision,
   type UserLoadingStrategy,
 } from './engine/loadingStrategy';
+import { resolvePalletLoadingStrategy } from './engine/palletStrategy';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
@@ -28,7 +29,8 @@ type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: Loa
 type PalletSnapshotLite = {
   result?: {
     palletCount?: number;
-    placements?: unknown[];
+    placements?: Array<{ x: number; y: number; z: number; length: number; width: number; height: number }>;
+    pallets?: Array<{ centerOfGravity: { x: number; y: number; z: number }; totalWeightKg: number }>;
     remaining?: Array<{ cargoId: string; quantity: number; reason: string }>;
     totalPalletizedWeightKg?: number;
   };
@@ -48,6 +50,16 @@ function palletModeActive() {
   if (typeof document === 'undefined') return false;
   const active = document.querySelector<HTMLButtonElement>('.mode-tabs button.active');
   return (active?.textContent ?? '').includes('팔레트');
+}
+
+function palletCog(container: ContainerSpec, pallets: NonNullable<NonNullable<PalletSnapshotLite['result']>['pallets']>) {
+  const total = pallets.reduce((sum, item) => sum + Math.max(0, item.totalWeightKg), 0);
+  if (total <= 0) return { x: container.length / 2, y: container.width / 2, z: 0 };
+  return {
+    x: pallets.reduce((sum, item) => sum + item.centerOfGravity.x * Math.max(0, item.totalWeightKg), 0) / total,
+    y: pallets.reduce((sum, item) => sum + item.centerOfGravity.y * Math.max(0, item.totalWeightKg), 0) / total,
+    z: pallets.reduce((sum, item) => sum + item.centerOfGravity.z * Math.max(0, item.totalWeightKg), 0) / total,
+  };
 }
 
 export default function LoadingStrategyDock() {
@@ -119,30 +131,52 @@ export default function LoadingStrategyDock() {
 
   const metrics = useMemo(() => {
     if (!loading) return null;
-    const { container, result } = loading;
+    const { container, result, cargo } = loading;
     const volume = Math.max(0.001, container.length * container.width * container.height);
     const balance = assessWeightBalance(container, result);
     const pallet = palletSnapshot()?.result;
     const usePallet = palletModeActive() && (pallet?.palletCount ?? 0) > 0;
+    if (usePallet && pallet) {
+      const placements = pallet.placements ?? [];
+      const pallets = pallet.pallets ?? [];
+      const used = placements.reduce((sum, item) => sum + item.length * item.width * item.height, 0);
+      const cog = palletCog(container, pallets);
+      const lateral = Math.abs(cog.y - container.width / 2) / Math.max(0.001, container.width / 2) * 100;
+      const longitudinal = Math.abs(cog.x - container.length / 2) / Math.max(0.001, container.length / 2) * 100;
+      return {
+        usePallet,
+        displayStrategy: strategy === 'auto' ? resolvePalletLoadingStrategy(cargo) : strategy,
+        fill: used / volume * 100,
+        used,
+        remaining: Math.max(0, volume - used),
+        weight: pallet.totalPalletizedWeightKg ?? result.loadedWeightKg,
+        lateral,
+        longitudinal,
+        cog,
+        boxes: placements.length,
+        pallets: pallet.palletCount ?? 0,
+        unloaded: (pallet.remaining ?? []).reduce((sum, item) => sum + item.quantity, 0),
+      };
+    }
     return {
+      usePallet: false,
+      displayStrategy: decision?.selectedStrategy ?? strategy,
       fill: result.usedVolumeM3 / volume * 100,
       used: result.usedVolumeM3,
       remaining: Math.max(0, volume - result.usedVolumeM3),
-      weight: usePallet ? (pallet?.totalPalletizedWeightKg ?? result.loadedWeightKg) : result.loadedWeightKg,
+      weight: result.loadedWeightKg,
       lateral: balance.lateralDeviationPct,
       longitudinal: balance.longitudinalDeviationPct,
       cog: balance.centerOfGravity,
-      boxes: usePallet ? (pallet?.placements?.length ?? result.placements.length) : result.placements.length,
-      pallets: usePallet ? (pallet?.palletCount ?? 0) : 0,
-      unloaded: usePallet
-        ? (pallet?.remaining ?? []).reduce((sum, item) => sum + item.quantity, 0)
-        : result.remaining.reduce((sum, item) => sum + item.quantity, 0),
+      boxes: result.placements.length,
+      pallets: 0,
+      unloaded: result.remaining.reduce((sum, item) => sum + item.quantity, 0),
     };
-  }, [loading, palletRevision]);
+  }, [loading, palletRevision, strategy, decision]);
 
   const resultPanel = resultHost && metrics ? createPortal(
     <section className="loading-strategy-result-summary">
-      <div className="loading-strategy-result-head"><b>{decision ? STRATEGY_LABELS[decision.selectedStrategy] : STRATEGY_LABELS[strategy]}</b><span>{decision?.requestedStrategy === 'auto' ? `자동 종합점수 ${decision.totalScore.toFixed(1)}` : '선택 전략 적용'}</span></div>
+      <div className="loading-strategy-result-head"><b>{STRATEGY_LABELS[metrics.displayStrategy]}</b><span>{!metrics.usePallet && decision?.requestedStrategy === 'auto' ? `자동 종합점수 ${decision.totalScore.toFixed(1)}` : strategy === 'auto' ? '화물 특성 자동 분석 적용' : '선택 전략 적용'}</span></div>
       <div className="loading-strategy-result-grid">
         <div><span>전체 적재율</span><b>{metrics.fill.toFixed(1)}%</b></div>
         <div><span>사용 / 남은 CBM</span><b>{metrics.used.toFixed(2)} / {metrics.remaining.toFixed(2)}</b></div>
@@ -153,9 +187,9 @@ export default function LoadingStrategyDock() {
         <div><span>사용 박스</span><b>{metrics.boxes.toLocaleString()}개</b></div>
         <div><span>사용 파렛트</span><b>{metrics.pallets.toLocaleString()}개</b></div>
         <div className={metrics.unloaded ? 'warn' : ''}><span>미적재</span><b>{metrics.unloaded.toLocaleString()}개</b></div>
-        {decision?.axleLoads && <><div><span>앞축 적재하중</span><b>{decision.axleLoads.frontKg.toFixed(0)} kg</b></div><div><span>뒤축 적재하중</span><b>{decision.axleLoads.rearKg.toFixed(0)} kg</b></div></>}
+        {!metrics.usePallet && decision?.axleLoads && <><div><span>앞축 적재하중</span><b>{decision.axleLoads.frontKg.toFixed(0)} kg</b></div><div><span>뒤축 적재하중</span><b>{decision.axleLoads.rearKg.toFixed(0)} kg</b></div></>}
       </div>
-      {decision?.requestedStrategy === 'auto' && <div className="loading-strategy-reasons">{decision.reasons.slice(0, 3).map(reason => <span key={reason}>{reason}</span>)}</div>}
+      {!metrics.usePallet && decision?.requestedStrategy === 'auto' && <div className="loading-strategy-reasons">{decision.reasons.slice(0, 3).map(reason => <span key={reason}>{reason}</span>)}</div>}
     </section>, resultHost) : null;
 
   return <>{selector}{resultPanel}</>;
