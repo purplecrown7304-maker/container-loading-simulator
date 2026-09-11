@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const ciChrome = process.env.CI ? { channel: 'chrome' as const } : {};
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -10,8 +12,8 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'chromium-desktop', use: { ...devices['Desktop Chrome'] } },
-    { name: 'chromium-mobile', use: { ...devices['Pixel 7'] } },
+    { name: 'chromium-desktop', use: { ...devices['Desktop Chrome'], ...ciChrome } },
+    { name: 'chromium-mobile', use: { ...devices['Pixel 7'], ...ciChrome } },
   ],
   webServer: {
     command: 'npm run build && npm run preview -- --host 127.0.0.1 --port 4173',
