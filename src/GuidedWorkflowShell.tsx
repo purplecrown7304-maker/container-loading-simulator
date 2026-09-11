@@ -163,7 +163,13 @@ function ProductSelectionStage({ container, selection, onSelection }: {
   const state = useMemo(() => readEnterprisePackagingPlannerState(), [revision]);
   const products = (state?.products ?? []) as CompanyProductItem[];
   const boxes = state?.boxes ?? [];
-  const filtered = products.filter(product => `${product.id} ${product.name}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const normalizedQuery = query.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!normalizedQuery) return [];
+    return products
+      .filter(product => `${product.id} ${product.name}`.toLowerCase().includes(normalizedQuery))
+      .slice(0, 50);
+  }, [products, normalizedQuery]);
   const total = Object.values(selection).reduce((sum, value) => sum + value, 0);
 
   const updateQty = (id: string, quantity: number) => {
@@ -177,7 +183,7 @@ function ProductSelectionStage({ container, selection, onSelection }: {
   return <section className="guided-stage-panel guided-product-stage">
     <div className="guided-panel-title"><div><h1>제품 선택</h1><p>등록된 회사 제품에서 이름 또는 제품코드를 찾고 이번 출하 수량만 입력합니다.</p></div><span className="guided-selected-total">{Object.keys(selection).length}종 · {total.toLocaleString()} EA</span></div>
     <div className="guided-product-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="제품명 또는 제품코드 검색" /></div>
-    {!products.length ? <div className="guided-empty product-empty"><b>등록된 회사 제품이 없습니다.</b><span>제품 등록은 우측 상단 메뉴 → 회사 제품 관리에서 합니다.</span></div> : <div className="guided-product-table">
+    {!products.length ? <div className="guided-empty product-empty"><b>등록된 회사 제품이 없습니다.</b><span>제품 등록은 우측 상단 메뉴 → 회사 제품 관리에서 합니다.</span></div> : !normalizedQuery ? <div className="guided-empty product-empty"><b>제품을 검색하세요.</b><span>제품명 또는 제품코드를 입력하면 일치하는 제품만 표시합니다.</span></div> : <div className="guided-product-table">
       <div className="guided-product-table-head"><span>제품 정보</span><span>포장</span><span>자동 추천 상자</span><span>이번 출하 수량</span></div>
       {filtered.map(product => {
         const quantity = selection[product.id] ?? 0;
@@ -192,6 +198,7 @@ function ProductSelectionStage({ container, selection, onSelection }: {
         </article>;
       })}
       {!filtered.length && <div className="guided-empty">검색 결과가 없습니다.</div>}
+      {filtered.length === 50 && <div className="guided-empty">검색 결과가 많습니다. 제품명 또는 제품코드를 더 입력해 범위를 줄이세요.</div>}
     </div>}
     <p className="guided-stage-help">제품 규격이나 제품 자체 등록정보를 수정하려면 메뉴의 <b>회사 제품 관리</b>를 사용합니다.</p>
   </section>;
@@ -372,7 +379,17 @@ export default function GuidedWorkflowShell() {
 
   useEffect(() => {
     let frame = 0;
-    const syncHosts = () => { window.cancelAnimationFrame(frame); frame = window.requestAnimationFrame(() => setHosts({ left: document.querySelector<HTMLElement>('.dashboard-left'), center: document.querySelector<HTMLElement>('.dashboard-center'), right: document.querySelector<HTMLElement>('.dashboard-right') })); };
+    const syncHosts = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const next: HostSet = {
+          left: document.querySelector<HTMLElement>('.dashboard-left'),
+          center: document.querySelector<HTMLElement>('.dashboard-center'),
+          right: document.querySelector<HTMLElement>('.dashboard-right'),
+        };
+        setHosts(current => current.left === next.left && current.center === next.center && current.right === next.right ? current : next);
+      });
+    };
     syncHosts();
     const observer = new MutationObserver(syncHosts);
     observer.observe(document.body, { childList: true, subtree: true });
