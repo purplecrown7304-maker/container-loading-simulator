@@ -25,6 +25,8 @@ export function openTransportEquipmentSpecManager() {
 }
 
 function draftFrom(item: TransportEquipment): TransportEquipmentSpecOverride {
+  const extra = item as TransportEquipment & Partial<TransportEquipmentSpecOverride>;
+  const stored = readTransportEquipmentSpecOverrides()[item.id];
   return {
     length: item.length,
     width: item.width,
@@ -33,6 +35,10 @@ function draftFrom(item: TransportEquipment): TransportEquipmentSpecOverride {
     floorLoadLimitKgPerM2: item.floorLoadLimitKgPerM2,
     doorWidth: item.doorWidth,
     doorHeight: item.doorHeight,
+    frontAxleX: stored?.frontAxleX ?? extra.frontAxleX,
+    rearAxleX: stored?.rearAxleX ?? extra.rearAxleX,
+    frontAxleMaxKg: stored?.frontAxleMaxKg ?? extra.frontAxleMaxKg,
+    rearAxleMaxKg: stored?.rearAxleMaxKg ?? extra.rearAxleMaxKg,
   };
 }
 
@@ -133,7 +139,10 @@ export default function TransportEquipmentSpecManager() {
   };
 
   const update = (key: keyof TransportEquipmentSpecOverride, raw: string) => {
-    const value = raw.trim() === '' && (key === 'doorWidth' || key === 'doorHeight') ? undefined : Number(raw);
+    const optionalKeys: Array<keyof TransportEquipmentSpecOverride> = [
+      'doorWidth', 'doorHeight', 'frontAxleX', 'rearAxleX', 'frontAxleMaxKg', 'rearAxleMaxKg',
+    ];
+    const value = raw.trim() === '' && optionalKeys.includes(key) ? undefined : Number(raw);
     setDraft(current => ({ ...current, [key]: value }));
   };
 
@@ -189,6 +198,17 @@ export default function TransportEquipmentSpecManager() {
             <label>도어 폭(m)<input type="number" min="0" step="0.001" value={draft.doorWidth ?? ''} onChange={event => update('doorWidth', event.target.value)} placeholder="해당 없음" /></label>
             <label>도어 높이(m)<input type="number" min="0" step="0.001" value={draft.doorHeight ?? ''} onChange={event => update('doorHeight', event.target.value)} placeholder="해당 없음" /></label>
           </div>
+
+          {selectedBase.category === 'truck' && <>
+            <h3 className="transport-spec-section-title">차축 하중 제원</h3>
+            <div className="transport-spec-fields">
+              <label>앞축 위치 X(m)<input type="number" min="0" step="0.001" value={draft.frontAxleX ?? ''} onChange={event => update('frontAxleX', event.target.value)} placeholder="실제 제원 입력" /></label>
+              <label>뒤축 위치 X(m)<input type="number" min="0.001" step="0.001" value={draft.rearAxleX ?? ''} onChange={event => update('rearAxleX', event.target.value)} placeholder="앞축보다 큰 값" /></label>
+              <label>앞축 허용하중(kg)<input type="number" min="1" step="10" value={draft.frontAxleMaxKg ?? ''} onChange={event => update('frontAxleMaxKg', event.target.value)} placeholder="선택 입력" /></label>
+              <label>뒤축 허용하중(kg)<input type="number" min="1" step="10" value={draft.rearAxleMaxKg ?? ''} onChange={event => update('rearAxleMaxKg', event.target.value)} placeholder="선택 입력" /></label>
+            </div>
+          </>}
+
           <div className="transport-spec-summary"><span>계산 용적</span><b>{(draft.length * draft.width * draft.height).toFixed(2)} m³</b></div>
           <div className="transport-spec-actions"><button type="button" className="primary" onClick={save}>규격 저장</button><button type="button" onClick={reset} disabled={!hasOverride}>기본 규격 복원</button></div>
           {message && <p className="transport-spec-message">{message}</p>}
