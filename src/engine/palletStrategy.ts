@@ -161,6 +161,21 @@ function reorderColumns(
 }
 
 /**
+ * 이미 생성된 안전한 파렛트 결과를 선택 전략에 맞춰 기존 슬롯 사이에서만 재배열한다.
+ * 열 전체를 이동하므로 위/아래 파렛트와 그 위 화물의 상대 위치는 유지된다.
+ */
+export function applyPalletStrategyToResult(
+  input: OptimizedPalletPackingResult,
+  container: ContainerSpec,
+  cargo: CargoItem[],
+  spec: PalletSpec,
+): OptimizedPalletPackingResult {
+  const active = cargo.filter(item => item.quantity > 0);
+  const mode = resolvePalletLoadingStrategy(active);
+  return centerPalletCargo(reorderColumns(input, container, active, spec, mode), container);
+}
+
+/**
  * 기존 packOnPallets의 중량/충돌/적층 안전 규칙을 먼저 통과한 결과만 사용한다.
  * 이후 동일한 팔레트 슬롯 집합 안에서 '열 전체'를 교환하므로 파렛트 간 충돌과 적층 관계를 새로 만들지 않는다.
  * 마지막에 전체 그룹을 강체 이동해 무게중심을 컨테이너 중앙에 최대한 가깝게 맞춘다.
@@ -171,8 +186,5 @@ export function packPalletsForSelectedStrategy(
   spec: PalletSpec,
 ): OptimizedPalletPackingResult {
   const active = cargo.filter(item => item.quantity > 0);
-  const mode = resolvePalletLoadingStrategy(active);
-  const base = packOnPallets(container, active, spec);
-  const reordered = reorderColumns(base, container, active, spec, mode);
-  return centerPalletCargo(reordered, container);
+  return applyPalletStrategyToResult(packOnPallets(container, active, spec), container, active, spec);
 }
