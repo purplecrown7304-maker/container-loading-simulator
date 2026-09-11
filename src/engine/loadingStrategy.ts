@@ -1,6 +1,7 @@
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 import { assessShapeQuality } from './shapeQuality';
 import { assessWeightBalance } from './weightBalance';
+import { assessAxleLoads, type AxleLoadAssessment } from './axleLoad';
 
 export type UserLoadingStrategy = 'auto' | 'capacity' | 'balance' | 'safety' | 'unloading' | 'grouping';
 export type ConcreteLoadingStrategy = Exclude<UserLoadingStrategy, 'auto'>;
@@ -22,7 +23,7 @@ export type StrategyDecision = {
   reasons: string[];
   componentScores: StrategyWeights;
   totalScore: number;
-  axleLoads?: { frontKg: number; rearKg: number; frontRatePct?: number; rearRatePct?: number };
+  axleLoads?: Pick<AxleLoadAssessment, 'frontKg' | 'rearKg' | 'frontRatePct' | 'rearRatePct'>;
 };
 
 export const LOADING_STRATEGY_SELECTION_KEY = 'container-loading-user-strategy-v2';
@@ -172,7 +173,11 @@ export function scoreStrategyResult(container: ContainerSpec, cargo: CargoItem[]
   const volume = Math.max(0.001, container.length * container.width * container.height);
   const utilization = clamp(result.usedVolumeM3 / volume * 100);
   const balanceAssessment = assessWeightBalance(container, result);
-  const balance = balanceAssessment.balanceScore;
+  const axleLoads = assessAxleLoads(container, result);
+  // 실제 축 제원이 있을 때만 CG 균형 점수의 25%를 축 하중 분담 평가로 대체한다.
+  const balance = axleLoads
+    ? clamp(balanceAssessment.balanceScore * 0.75 + axleLoads.score * 0.25)
+    : balanceAssessment.balanceScore;
   const stability = clamp(balanceAssessment.stabilityScore * 0.55 + physicsScore * 0.45);
   const operations = unloadingScore(container, cargo, result);
   const grouping = groupingScore(container, result);
@@ -180,7 +185,7 @@ export function scoreStrategyResult(container: ContainerSpec, cargo: CargoItem[]
   const void = clamp(100 - shape.shapePenalty * 4 - Math.max(0, 70 - utilization) * 0.35);
   const componentScores: StrategyWeights = { utilization, balance, stability, operations, grouping, void };
   const totalScore = Object.entries(weights).reduce((sum, [key, weight]) => sum + componentScores[key as keyof StrategyWeights] * weight, 0);
-  return { componentScores, totalScore: clamp(totalScore) };
+  return { componentScores, totalScore: clamp(totalScore), axleLoads };
 }
 
 export function weightsForExplicitStrategy(strategy: ConcreteLoadingStrategy) { return MODE_WEIGHTS[strategy]; }
