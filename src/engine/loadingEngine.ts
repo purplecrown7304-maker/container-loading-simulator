@@ -5,6 +5,7 @@ import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
 import { safelyRebalanceStrictWallPlacements } from './safeWeightAwareWallReorder';
 import { packByStrictWalls } from './strictWallPacker';
+import { consumeNextStrategyResultOverride } from './strategyResultOverride';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -75,6 +76,18 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
       publishLoadingResult(container, normalizedCargo, result);
     }
     return result;
+  }
+
+  // Physics/strategy optimizer has already evaluated this exact layout. App performs one
+  // final publishing call afterwards; consume that result instead of silently re-running
+  // a different layout with the same legacy strategy name.
+  if (shouldPublish) {
+    const optimized = consumeNextStrategyResultOverride(container, normalizedCargo, strategy);
+    if (optimized) {
+      publishCorrections(optimized.autoCorrections ?? []);
+      publishLoadingResult(container, normalizedCargo, optimized);
+      return optimized;
+    }
   }
 
   if (preflight.rejected.length === 0 && shouldPublish && options.strategy === undefined) {
