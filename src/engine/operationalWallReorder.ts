@@ -2,10 +2,17 @@ import { validatePlacements } from './constraints';
 import type { CargoItem, ContainerSpec, Placement } from './types';
 
 const EPS = 1e-7;
-type Slice = { start: number; end: number; indexes: number[]; dominantSku: string; unloadRank: number };
+type Slice = {
+  start: number;
+  end: number;
+  indexes: number[];
+  dominantSku: string;
+  unloadRank: number;
+  weightKg: number;
+};
 
 function slicesOf(placements: Placement[], cargo: CargoItem[]): Slice[] {
-  if (placements.length < 2) return [];
+  if (placements.length < 1) return [];
   const min = Math.min(...placements.map(item => item.x));
   const max = Math.max(...placements.map(item => item.x + item.length));
   const boundaries = [...new Set(placements.flatMap(item => [item.x, item.x + item.length]).map(value => Math.round(value * 1e6) / 1e6))]
@@ -30,7 +37,7 @@ function slicesOf(placements: Placement[], cargo: CargoItem[]): Slice[] {
       unloadMoment += (priority.get(item.cargoId) ?? 0) * item.weightKg;
     }
     const dominantSku = [...weights.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? '';
-    slices.push({ start, end, indexes, dominantSku, unloadRank: totalWeight > EPS ? unloadMoment / totalWeight : 0 });
+    slices.push({ start, end, indexes, dominantSku, unloadRank: totalWeight > EPS ? unloadMoment / totalWeight : 0, weightKg: totalWeight });
   }
   const assigned = slices.flatMap(slice => slice.indexes);
   return assigned.length === placements.length && new Set(assigned).size === placements.length ? slices : [];
@@ -53,7 +60,7 @@ function rearrange(container: ContainerSpec, placements: Placement[], ordered: S
   return validatePlacements(container, next).length ? placements : next;
 }
 
-/** Later unloadPriority belongs deeper (x=0); priority 1 therefore naturally stays nearer the door. */
+/** Later unloadPriority belongs deeper (x=0); priority 1 therefore stays nearer the door. */
 export function reorderForUnloading(container: ContainerSpec, cargo: CargoItem[], placements: Placement[]) {
   const slices = slicesOf(placements, cargo);
   if (slices.length < 2 || !cargo.some(item => Number.isFinite(item.unloadPriority))) return placements;
@@ -69,4 +76,44 @@ export function reorderForSkuGrouping(container: ContainerSpec, cargo: CargoItem
   return rearrange(container, placements, [...slices].sort((a, b) =>
     (firstOrder.get(a.dominantSku) ?? 0) - (firstOrder.get(b.dominantSku) ?? 0) || a.start - b.start,
   ));
+}
+
+/**
+ * When the operational rule is simply "heavy cargo first", move heavier rigid walls toward
+ * the inside (x=0). Relative stacking/support inside every wall is untouched.
+ */
+export function reorderHeavyWallsInside(container: ContainerSpec, cargo: CargoItem[], placements: Placement[]) {
+  const slices = slicesOf(placements, cargo);
+  if (slices.length < 2) return placements;
+  return rearrange(container, placements, [...slices].sort((a, b) => b.weightKg - a.weightKg || a.start - b.start));
+}
+
+/**
+ * Center each independently movable X wall in the lateral direction. Walls do not overlap
+ * in X, so their Y translation cannot create inter-wall collisions. Each wall moves as one
+ * rigid body, preserving every vertical support/stacking relationship.
+ */
+export function centerSafeWallsLaterally(container: ContainerSpec, cargo: CargoItem[], placements: Placement[]) {
+  const slices = slicesOf(placements, cargo);
+  if (!slices.length) return placements;
+  const shifts = new Map<number, number>();
+
+  for (const slice of slices) {
+    const members = slice.indexes.map(index => placements[index]);
+    const minY = Math.min(...members.map(item => item.y));
+    const maxY = Math.max(...members.map(item => item.y + item.width));
+    const totalWeight = members.reduce((sum, item) => sum + Math.max(0, item.weightKg), 0);
+    const cogY = totalWeight > EPS
+      ? members.reduce((sum, item) => sum + (item.y + item.width / 2) * Math.max(0, item.weightKg), 0) / totalWeight
+      : (minY + maxY) / 2;
+    const desired = container.width / 2 - cogY;
+    const delta = Math.min(container.width - maxY, Math.max(-minY, desired));
+    slice.indexes.forEach(index => shifts.set(index, delta));
+  }
+
+  const next = placements.map((item, index) => {
+    const delta = shifts.get(index) ?? 0;
+    return Math.abs(delta) <= EPS ? item : { ...item, y: Math.round((item.y + delta) * 1e6) / 1e6 };
+  });
+  return validatePlacements(container, next).length ? placements : next;
 }
