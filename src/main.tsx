@@ -51,6 +51,7 @@ import ProductMenuActions from './ProductMenuActions';
 import EquipmentVisualAdminEditor from './EquipmentVisualAdminEditor';
 import WorkflowIntegrationBridge from './WorkflowIntegrationBridge';
 import LoadingStrategyDock from './LoadingStrategyDock';
+import PalletStrategyBridge from './PalletStrategyBridge';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -126,6 +127,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <FinalWorkOrderOptimizer />
       <DirectWorkOrderOptimizer />
       <PalletResultsOptimizer />
+      <PalletStrategyBridge />
       <EquipmentLoadingConsistencyGuard />
       <PackagingDataIntegrityGuard />
       <ConfirmedPackagingLoadingBridge />
