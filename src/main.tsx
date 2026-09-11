@@ -38,6 +38,8 @@ import TransportEquipmentRecalculationNotice from './TransportEquipmentRecalcula
 import TransportEquipmentSelectionUxBridge from './TransportEquipmentSelectionUxBridge';
 import TransportEquipmentSpecManager from './TransportEquipmentSpecManager';
 import ConfirmedPackagingLoadingBridge from './ConfirmedPackagingLoadingBridge';
+import EquipmentLoadingConsistencyGuard from './EquipmentLoadingConsistencyGuard';
+import RuntimeDiagnosticRecorder from './RuntimeDiagnosticRecorder';
 import PhysicsValidationTool from './PhysicsValidationTool';
 import InertiaTestTool from './InertiaTestTool';
 import SafetyInspectionCenter from './SafetyInspectionCenter';
@@ -102,6 +104,7 @@ import './guided-result-tabs-enhancer.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
+      <RuntimeDiagnosticRecorder />
       <ReferenceWorkspaceBar />
       <ProductMenuActions />
       <ProductToolsCenter />
@@ -118,6 +121,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <FinalWorkOrderOptimizer />
       <DirectWorkOrderOptimizer />
       <PalletResultsOptimizer />
+      <EquipmentLoadingConsistencyGuard />
       <ConfirmedPackagingLoadingBridge />
       <App />
       <RemainingLengthIndicator />
