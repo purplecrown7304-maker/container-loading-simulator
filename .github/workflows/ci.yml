@@ -31,8 +31,8 @@ jobs:
       - name: Predeploy verification
         run: npm run verify:predeploy
 
-      - name: Install Chromium for E2E
-        run: npx playwright install --with-deps chromium
+      - name: Verify Chrome for E2E
+        run: google-chrome --version
 
       - name: Browser smoke tests
         run: npm run test:e2e
