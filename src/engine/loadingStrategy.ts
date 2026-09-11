@@ -2,6 +2,8 @@ import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 import { assessShapeQuality } from './shapeQuality';
 import { assessWeightBalance } from './weightBalance';
 import { assessAxleLoads, type AxleLoadAssessment } from './axleLoad';
+import { readTransportEquipment } from '../transportEquipment';
+import { readTransportEquipmentSpecOverrides } from '../transportEquipmentSpecOverrides';
 
 export type UserLoadingStrategy = 'auto' | 'capacity' | 'balance' | 'safety' | 'unloading' | 'grouping';
 export type ConcreteLoadingStrategy = Exclude<UserLoadingStrategy, 'auto'>;
@@ -133,7 +135,7 @@ export function analyzeCargoForAuto(cargo: CargoItem[]): { weights: StrategyWeig
   const unloadStops = new Set(active.map(item => item.unloadPriority).filter((value): value is number => Number.isFinite(value)));
   if (unloadStops.size >= 2) {
     weights.operations += 0.14;
-    reasons.push('하차 순서가 여러 단계라 하차 접근성 비중을 높였습니다.');
+    reasons.push('하차 순서가 여러 단계라 하차 접근성과 작업 편의 비중을 높였습니다.');
   }
   const heavyRatio = active.filter(item => item.weightKg >= 500).reduce((sum, item) => sum + item.quantity, 0) / Math.max(1, totalQty);
   if (heavyRatio >= 0.25) {
@@ -155,6 +157,7 @@ function unloadingScore(container: ContainerSpec, cargo: CargoItem[], result: Lo
   for (const placement of result.placements) {
     const item = byId.get(placement.cargoId);
     if (!item || !Number.isFinite(item.unloadPriority)) continue;
+    // 1이 가장 먼저 하차: 문쪽(x=length). 큰 숫자일수록 안쪽(x=0).
     const desired = 1 - (((item.unloadPriority as number) - min) / (max - min));
     const actual = (placement.x + placement.length / 2) / Math.max(0.001, container.length);
     total += clamp((1 - Math.abs(actual - desired)) * 100);
@@ -163,23 +166,65 @@ function unloadingScore(container: ContainerSpec, cargo: CargoItem[], result: Lo
   return count ? total / count : 85;
 }
 
+function workerAccessibilityScore(container: ContainerSpec, result: LoadingResult, utilization: number) {
+  if (!result.placements.length) return 100;
+  // 저적재율에서는 굳이 천장 가까이 쌓지 않고 낮은 단을 우선해 작업자 접근성을 높인다.
+  // 적재율이 높을수록 높이 사용은 불가피하므로 패널티를 완화한다.
+  const averageTop = result.placements.reduce((sum, item) => sum + item.z + item.height, 0) / result.placements.length;
+  const normalizedTop = averageTop / Math.max(0.001, container.height);
+  const lowUtilizationFactor = utilization < 50 ? 1 : utilization < 75 ? 0.65 : 0.35;
+  const heightPenalty = Math.max(0, normalizedTop - 0.38) * 115 * lowUtilizationFactor;
+
+  // 문쪽 20% 영역에 지나치게 높은 적재가 몰리면 최초 접근과 분류 작업이 어려워진다.
+  const doorStart = container.length * 0.80;
+  const doorCargo = result.placements.filter(item => item.x + item.length / 2 >= doorStart);
+  const tallDoorRatio = doorCargo.length
+    ? doorCargo.filter(item => item.z + item.height > container.height * 0.72).length / doorCargo.length
+    : 0;
+  const doorPenalty = tallDoorRatio * 18 * lowUtilizationFactor;
+  return clamp(100 - heightPenalty - doorPenalty);
+}
+
 function groupingScore(container: ContainerSpec, result: LoadingResult) {
   if (!result.placements.length) return 100;
   const shape = assessShapeQuality(container, result.placements);
   return clamp(100 - shape.fragmentedCargoTypes * 20);
 }
 
+function axleAwareContainer(container: ContainerSpec): ContainerSpec {
+  if (Number.isFinite(container.frontAxleX) && Number.isFinite(container.rearAxleX)) return container;
+  if (typeof window === 'undefined') return container;
+  const equipment = readTransportEquipment();
+  if (equipment.category !== 'truck') return container;
+  const tolerance = 0.03;
+  const sameSpace = Math.abs(equipment.length - container.length) <= tolerance
+    && Math.abs(equipment.width - container.width) <= tolerance
+    && Math.abs(equipment.height - container.height) <= tolerance;
+  if (!sameSpace) return container;
+  const axle = readTransportEquipmentSpecOverrides()[equipment.id];
+  if (!axle || !Number.isFinite(axle.frontAxleX) || !Number.isFinite(axle.rearAxleX)) return container;
+  return {
+    ...container,
+    frontAxleX: axle.frontAxleX,
+    rearAxleX: axle.rearAxleX,
+    frontAxleMaxKg: axle.frontAxleMaxKg,
+    rearAxleMaxKg: axle.rearAxleMaxKg,
+  };
+}
+
 export function scoreStrategyResult(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult, weights: StrategyWeights, physicsScore: number) {
   const volume = Math.max(0.001, container.length * container.width * container.height);
   const utilization = clamp(result.usedVolumeM3 / volume * 100);
   const balanceAssessment = assessWeightBalance(container, result);
-  const axleLoads = assessAxleLoads(container, result);
+  const axleLoads = assessAxleLoads(axleAwareContainer(container), result);
   // 실제 축 제원이 있을 때만 CG 균형 점수의 25%를 축 하중 분담 평가로 대체한다.
   const balance = axleLoads
     ? clamp(balanceAssessment.balanceScore * 0.75 + axleLoads.score * 0.25)
     : balanceAssessment.balanceScore;
   const stability = clamp(balanceAssessment.stabilityScore * 0.55 + physicsScore * 0.45);
-  const operations = unloadingScore(container, cargo, result);
+  const unload = unloadingScore(container, cargo, result);
+  const accessibility = workerAccessibilityScore(container, result, utilization);
+  const operations = clamp(unload * 0.70 + accessibility * 0.30);
   const grouping = groupingScore(container, result);
   const shape = assessShapeQuality(container, result.placements);
   const void = clamp(100 - shape.shapePenalty * 4 - Math.max(0, 70 - utilization) * 0.35);
