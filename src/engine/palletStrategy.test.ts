@@ -17,7 +17,7 @@ function load(index: number, x: number, y: number, cargoId: string, weight: numb
     palletIndex: index, stackLevel: 1, stackColumn: index,
     x, y, z: 0, length: spec.length, width: spec.width, height: spec.height,
     cargoPlacements: [{ cargoId, x, y, z: spec.height, length: 1, width: .8, height: .5, weightKg: weight }],
-    cargoWeightKg: weight, packagingWeightKg: 0, totalWeightKg: weight + spec.tareWeightKg,
+    cargoWeightKg: weight, packagingWeightKg: 0, packagingExtraHeightM: 0, totalWeightKg: weight + spec.tareWeightKg,
     cornerGuardsUsed: false, wrappingUsed: false,
     centerOfGravity: { x: x + .5, y: y + .4, z: .4 },
   };
