@@ -39,6 +39,7 @@ import TransportEquipmentSelectionUxBridge from './TransportEquipmentSelectionUx
 import TransportEquipmentSpecManager from './TransportEquipmentSpecManager';
 import ConfirmedPackagingLoadingBridge from './ConfirmedPackagingLoadingBridge';
 import EquipmentLoadingConsistencyGuard from './EquipmentLoadingConsistencyGuard';
+import PackagingDataIntegrityGuard from './PackagingDataIntegrityGuard';
 import RuntimeDiagnosticRecorder from './RuntimeDiagnosticRecorder';
 import PhysicsValidationTool from './PhysicsValidationTool';
 import InertiaTestTool from './InertiaTestTool';
@@ -122,6 +123,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <DirectWorkOrderOptimizer />
       <PalletResultsOptimizer />
       <EquipmentLoadingConsistencyGuard />
+      <PackagingDataIntegrityGuard />
       <ConfirmedPackagingLoadingBridge />
       <App />
       <RemainingLengthIndicator />
