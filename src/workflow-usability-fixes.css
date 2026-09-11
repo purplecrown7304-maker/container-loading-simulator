@@ -1,6 +1,8 @@
 /* Fixed-size workflow surfaces: headers/actions stay visible, long content scrolls inside. */
 .product-tools-dialog,
 .workspace-modal{
+  display:flex;
+  flex-direction:column;
   height:min(760px,calc(100dvh - 40px));
   max-height:calc(100dvh - 40px);
   overflow:hidden;
@@ -12,6 +14,7 @@
 .product-tools-body,
 .workspace-modal-body,
 .box-selector-body{
+  flex:1 1 auto;
   min-height:0;
   overflow-x:hidden;
   overflow-y:auto;
@@ -56,6 +59,22 @@
   scrollbar-gutter:stable;
 }
 
+/* Equipment chooser also keeps a bounded window instead of growing with card count. */
+.transport-selector-modal{
+  height:min(800px,calc(100dvh - 48px));
+  max-height:calc(100dvh - 48px);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+.transport-selector-head{
+  position:sticky;
+  top:0;
+  z-index:6;
+  padding-bottom:10px;
+  background:#f8fbff;
+}
+
 /* Results keep a fixed outer surface; the body is the scroll area. */
 .results-modal{
   height:min(820px,calc(100dvh - 48px));
@@ -96,6 +115,10 @@
   .guided-product-table{max-height:52vh}
   .guided-packaging-list{max-height:46vh}
   .product-master-list,.carton-tool-section{max-height:48vh}
+  .transport-selector-modal{
+    height:calc(100dvh - 16px);
+    max-height:calc(100dvh - 16px);
+  }
   .results-modal{
     width:100vw;
     height:100dvh;
