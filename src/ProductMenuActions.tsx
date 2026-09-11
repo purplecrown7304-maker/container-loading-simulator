@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { openProductTool } from './productToolEvents';
+import { openSafetyInspectionCenter } from './SafetyInspectionCenter';
 import { openTransportEquipmentSpecManager } from './TransportEquipmentSpecManager';
 
 function closeHeaderMenu() {
@@ -110,6 +111,26 @@ function syncVehicleSpecManagement() {
   }
 }
 
+function syncSafetyInspectionMenu() {
+  const sections = [...document.querySelectorAll<HTMLElement>('.final-workflow-menu > section')];
+  for (const section of sections) {
+    const button = [...section.querySelectorAll<HTMLButtonElement>(':scope > button')]
+      .find(item => buttonTitle(item) === '안전 점검');
+    if (!button) continue;
+    setButtonCopy(button, '안전 점검', '자동 적재에서 사용한 제약 · 무게중심 · 바닥하중 · 물리 · 관성 검증을 직접 실행');
+    if (button.dataset.manualSafetyCenterBound === 'true') return;
+    button.dataset.manualSafetyCenterBound = 'true';
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      openSafetyInspectionCenter();
+      closeHeaderMenu();
+    }, true);
+    return;
+  }
+}
+
 export default function ProductMenuActions() {
   useEffect(() => {
     let frame = 0;
@@ -119,6 +140,7 @@ export default function ProductMenuActions() {
         syncWorkPreparationMenu();
         syncBoxManagement();
         syncVehicleSpecManagement();
+        syncSafetyInspectionMenu();
       });
     };
     sync();
