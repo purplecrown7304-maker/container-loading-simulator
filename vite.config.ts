@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 
 const KiB = 1024;
+// Keep large stable dependencies out of the app entry so the release-size gate measures app code, not vendor churn.
 
 export default defineConfig({
   build: {
