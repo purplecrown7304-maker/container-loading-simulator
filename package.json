@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test e2e/current-guided-workflow.spec.ts",
+    "test:e2e:legacy": "playwright test e2e/enterprise-navigation.spec.ts e2e/input-safety.spec.ts e2e/product-packaging.spec.ts e2e/smoke.spec.ts e2e/transport-equipment.spec.ts",
     "check": "npm run verify:predeploy",
     "check:architecture": "node scripts/check-architecture.mjs",
     "check:bundle": "node scripts/check-bundle-size.mjs",
@@ -32,9 +33,9 @@
     "@types/react-dom": "19.2.4",
     "@types/three": "0.185.4",
     "@vitejs/plugin-react": "6.0.5",
-    "happy-dom": "20.0.10",
+    "happy-dom": "20.14.3",
     "typescript": "7.0.2",
     "vite": "8.2.1",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }

@@ -3,6 +3,7 @@ import type { Placement } from './types';
 
 const EPS = 1e-6;
 const G = 9.81;
+const cleanZero = (value: number) => Math.abs(value) <= EPS ? 0 : value;
 
 export type RestraintModel = {
   /** Horizontal restoring acceleration produced per metre of relative displacement (s^-2). */
@@ -37,8 +38,8 @@ export function horizontalRestraintForce(
     ax *= scale;
     az *= scale;
   }
-  const x = ax * massKg;
-  const z = az * massKg;
+  const x = cleanZero(ax * massKg);
+  const z = cleanZero(az * massKg);
   return { x, z, magnitudeN: Math.hypot(x, z) };
 }
 
@@ -55,10 +56,7 @@ function overlapRatio(
   return overlapX * overlapY / Math.max(EPS, item.length * item.width);
 }
 
-/**
- * Maps cargo to the highest pallet/support below it. This is important for stacked pallets:
- * upper-pallet cargo follows the upper pallet rather than being tied to the floor or lower pallet.
- */
+/** Maps cargo to the highest pallet/support below it. */
 export function supportingIndexForPlacement(placement: Placement, supports: PhysicsSupport[]) {
   let bestIndex = -1;
   let bestTop = -Infinity;
@@ -77,10 +75,7 @@ export function supportingIndexForPlacement(placement: Placement, supports: Phys
   return bestIndex;
 }
 
-/**
- * Returns the nearest lower pallet in the same vertical stack. Floor pallets return -1.
- * The vertical gap may contain the lower pallet's cargo, so only footprint alignment and z-order are used.
- */
+/** Returns the nearest lower pallet in the same vertical stack. Floor pallets return -1. */
 export function supportingIndexForSupport(supportIndex: number, supports: PhysicsSupport[]) {
   const support = supports[supportIndex];
   if (!support || support.z <= 0.01) return -1;

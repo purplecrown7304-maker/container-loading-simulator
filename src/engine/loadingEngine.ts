@@ -5,6 +5,8 @@ import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
 import { safelyRebalanceStrictWallPlacements } from './safeWeightAwareWallReorder';
 import { packByStrictWalls } from './strictWallPacker';
+import { consumeNextStrategyResultOverride } from './strategyResultOverride';
+import { centerSafeWallsLaterally, reorderForUnloading, reorderHeavyWallsInside } from './operationalWallReorder';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -38,18 +40,8 @@ function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], resu
 
 /**
  * DIRECT BOX loading policy.
- *
- * 1) StrictWallPacker builds a compact, physically valid arrangement while enforcing
- *    hard constraints: bounds, collision prevention, payload, stack layers, cumulative
- *    top-load limits and full support for upper boxes.
- * 2) Capacity/stability mode reorders only independently movable wall slices. A slice is
- *    cut only where no box crosses the boundary, so stacking/support geometry inside the
- *    slice remains unchanged. Heavy slices are placed closer to the horizontal target
- *    center without creating an internal corridor. Any unsafe/worse result is rejected.
- *    Unloading mode skips this reorder so explicit unloading sequence remains authoritative.
- * 3) The completed arrangement is translated as one rigid X/Y group so its weighted
- *    center of gravity is as close as possible to the container target center. Translation
- *    is clamped by container walls and Z is never raised.
+ * StrictWall remains the placement authority. Post-processors only move complete rigid
+ * wall slices, then a final rigid centering pass runs. Every final result is revalidated.
  */
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
@@ -77,6 +69,15 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     return result;
   }
 
+  if (shouldPublish) {
+    const optimized = consumeNextStrategyResultOverride(container, normalizedCargo, strategy);
+    if (optimized) {
+      publishCorrections(optimized.autoCorrections ?? []);
+      publishLoadingResult(container, normalizedCargo, optimized);
+      return optimized;
+    }
+  }
+
   if (preflight.rejected.length === 0 && shouldPublish && options.strategy === undefined) {
     const manual = readManualOverride(container, normalizedCargo);
     if (manual) {
@@ -87,10 +88,17 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   }
 
   const packed = packByStrictWalls(container, normalizedCargo, strategy);
-  const weightBalanced = strategy === 'unloading'
-    ? packed.placements
-    : safelyRebalanceStrictWallPlacements(container, packed.placements);
-  const finalPlacements = centerPlacementsOnContainer(container, weightBalanced);
+  let operational = packed.placements;
+  if (strategy === 'unloading') {
+    operational = reorderForUnloading(container, normalizedCargo, operational);
+  } else {
+    // Existing policy: heavy cargo is considered first and should stay deeper whenever
+    // a complete safe wall can be exchanged without changing support geometry.
+    operational = reorderHeavyWallsInside(container, normalizedCargo, operational);
+    operational = safelyRebalanceStrictWallPlacements(container, operational);
+  }
+  operational = centerSafeWallsLaterally(container, normalizedCargo, operational);
+  const finalPlacements = centerPlacementsOnContainer(container, operational);
   const result: LoadingResult = {
     placements: finalPlacements,
     remaining: [

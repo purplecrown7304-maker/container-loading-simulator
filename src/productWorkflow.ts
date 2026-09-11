@@ -97,26 +97,30 @@ export function packagingCandidates(
   };
   const enterprise = enterprisePackagingOptionsFromPlanner(sourceState);
   const packaging = enterprise.packaging ?? defaultProductPackagingOptions;
-  const candidates: ProductPackagingAssignment[] = [];
 
-  for (const box of boxes) {
-    const plan = optimizeProductPackaging(container, [product], [box], { ...packaging, allowCustomBoxDesign: false });
-    if (plan.assignments[0]) candidates.push(plan.assignments[0]);
+  // 등록/보유 카탈로그 박스가 제품을 안전하게 수용할 수 있으면 신규 규격은 후보로 만들지 않는다.
+  // optimizeProductPackaging 내부에서 바닥 90도 회전 가능성까지 검사하므로 보유박스 정방향/회전이
+  // 모두 실패했을 때만 자동설계 규격으로 넘어간다.
+  const catalogCandidates = boxes
+    .map(box => optimizeProductPackaging(container, [product], [box], { ...packaging, allowCustomBoxDesign: false }).assignments[0])
+    .filter((item): item is ProductPackagingAssignment => Boolean(item));
+
+  const uniqueCatalog = new Map<string, ProductPackagingAssignment>();
+  for (const candidate of catalogCandidates) {
+    const key = `${candidate.boxId}:${candidate.outerLength.toFixed(4)}:${candidate.outerWidth.toFixed(4)}:${candidate.outerHeight.toFixed(4)}`;
+    const previous = uniqueCatalog.get(key);
+    if (!previous || candidate.productFillRate > previous.productFillRate || (candidate.productFillRate === previous.productFillRate && candidate.score > previous.score)) {
+      uniqueCatalog.set(key, candidate);
+    }
   }
+
+  const owned = [...uniqueCatalog.values()]
+    .sort((a, b) => b.productFillRate - a.productFillRate || b.score - a.score || a.boxesNeeded - b.boxesNeeded || b.containerTileEfficiency - a.containerTileEfficiency)
+    .slice(0, 3);
+  if (owned.length) return owned;
 
   const generated = optimizeProductPackaging(container, [product], [], { ...packaging, allowCustomBoxDesign: true }).assignments[0];
-  if (generated) candidates.push(generated);
-
-  const unique = new Map<string, ProductPackagingAssignment>();
-  for (const candidate of candidates) {
-    const key = `${candidate.boxId}:${candidate.outerLength.toFixed(4)}:${candidate.outerWidth.toFixed(4)}:${candidate.outerHeight.toFixed(4)}`;
-    const previous = unique.get(key);
-    if (!previous || candidate.score > previous.score) unique.set(key, candidate);
-  }
-
-  return [...unique.values()]
-    .sort((a, b) => b.score - a.score || a.boxesNeeded - b.boxesNeeded || b.productFillRate - a.productFillRate)
-    .slice(0, 3);
+  return generated ? [generated] : [];
 }
 
 type QuickOrientation = [number, number, number];
@@ -223,7 +227,7 @@ export function previewPackagingCandidate(
   const catalogCandidates = boxes
     .map(box => quickAssignment(container, product, box, 'catalog'))
     .filter((item): item is ProductPackagingAssignment => Boolean(item))
-    .sort((a, b) => b.score - a.score || b.unitsPerBox - a.unitsPerBox || a.boxesNeeded - b.boxesNeeded);
+    .sort((a, b) => b.productFillRate - a.productFillRate || b.score - a.score || b.unitsPerBox - a.unitsPerBox || a.boxesNeeded - b.boxesNeeded);
   if (catalogCandidates[0]) return catalogCandidates[0];
 
   const planner = state ?? readEnterprisePackagingPlannerState();
@@ -326,24 +330,29 @@ export function cargoFromProductPackaging(
     if (!assignment) continue;
 
     const unitsPerBox = Math.max(1, assignment.unitsPerBox);
+    const nominalContentWeightKg = product.weightKg * unitsPerBox;
+    const boxTareWeightKg = Math.max(0, assignment.grossWeightKg - nominalContentWeightKg);
     const fullBoxCount = Math.floor(product.quantity / unitsPerBox);
     const remainingUnits = product.quantity % unitsPerBox;
     const addPackedBoxes = (id: string, quantity: number, unitsInBox: number, suffix = '') => {
       if (quantity <= 0 || unitsInBox <= 0) return;
       const contentWeightKg = product.weightKg * unitsInBox;
+      const grossWeightKg = boxTareWeightKg + contentWeightKg;
       cargo.push({
         id,
         name: `${product.name} · ${assignment.boxName}${suffix}`,
         length: assignment.outerLength,
         width: assignment.outerWidth,
         height: assignment.outerHeight,
-        // 적재 화물의 박스 무게는 빈 박스 자중이 아니라 실제 담긴 제품들의 총중량으로 사용한다.
-        weightKg: contentWeightKg,
+        // 무게 균형/총중량 계산에는 제품 내용물과 빈 박스 자중을 모두 포함한다.
+        weightKg: grossWeightKg,
         quantity,
         maxStackLayers: assignment.maxStackLayers,
         maxTopLoadKg: assignment.maxTopLoadKg,
         productId: product.id,
         productName: product.name,
+        boxId: assignment.boxId,
+        boxName: assignment.boxName,
         unitsPerPackage: unitsInBox,
         contentWeightKg,
         allowRotation: true,
@@ -355,7 +364,7 @@ export function cargoFromProductPackaging(
       addPackedBoxes(`PKG-${product.id}`, fullBoxCount, unitsPerBox);
     }
     if (remainingUnits > 0) {
-      // 마지막 박스는 실제 잔량 EA와 실제 제품 총중량을 별도 적재단위로 만들어 과대 중량 계산을 막는다.
+      // 마지막 박스는 실제 잔량 EA + 박스 자중으로 별도 중량을 계산한다.
       addPackedBoxes(
         fullBoxCount > 0 ? `PKG-${product.id}-PARTIAL` : `PKG-${product.id}`,
         1,
