@@ -49,8 +49,10 @@ function patchSelectorCards() {
     const item = overrides[id] ? applyTransportEquipmentSpecOverride(base) : base;
     const spec = card.querySelector<HTMLElement>('.transport-equipment-spec');
     const payload = card.querySelector<HTMLElement>('.transport-equipment-payload');
-    if (spec) spec.textContent = `${item.length.toFixed(2)} × ${item.width.toFixed(2)} × ${item.height.toFixed(2)} m`;
-    if (payload) payload.textContent = `적재 ${item.maxPayloadKg.toLocaleString()} kg`;
+    const specText = `${item.length.toFixed(2)} × ${item.width.toFixed(2)} × ${item.height.toFixed(2)} m`;
+    const payloadText = `적재 ${item.maxPayloadKg.toLocaleString()} kg`;
+    if (spec && spec.textContent !== specText) spec.textContent = specText;
+    if (payload && payload.textContent !== payloadText) payload.textContent = payloadText;
   });
 }
 
@@ -61,7 +63,7 @@ export default function TransportEquipmentSpecManager() {
   const [selectedId, setSelectedId] = useState('40-high-cube');
   const [draft, setDraft] = useState<TransportEquipmentSpecOverride>(() => draftFrom(applyTransportEquipmentSpecOverride(equipmentById('40-high-cube'))));
   const [message, setMessage] = useState('');
-  const [, setRevision] = useState(0);
+  const [revision, setRevision] = useState(0);
   const applyingOverride = useRef(false);
 
   const selectedBase = equipmentById(selectedId);
@@ -75,7 +77,7 @@ export default function TransportEquipmentSpecManager() {
       .filter(item => item.category === category)
       .map(applyTransportEquipmentSpecOverride)
       .filter(item => !needle || `${item.id} ${item.name} ${item.shortName}`.toLowerCase().includes(needle));
-  }, [category, query, open, overrides]);
+  }, [category, query, open, revision]);
 
   useEffect(() => {
     const openManager = () => {
