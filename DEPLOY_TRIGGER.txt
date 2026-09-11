@@ -1,7 +1,7 @@
 Vercel production deployment trigger
-Manual redeploy requested on 2026-09-08T15:59+09:00
+Manual redeploy requested on 2026-09-11T10:29+09:00
 Target: https://container-loading-simulator-1li2.vercel.app/
-Reason: deploy latest main with admin-only equipment image editing, box master admin editing, Excel box catalog import/update, work-order unblock, and header action refactor
-Source main commit before trigger: d7283e45249d527a2d13410866cd203e322015e2
-Trigger sequence: 8
+Reason: deploy latest main including packaging scroll, confirmed packaging loading sync, safety inspection center, saved work quick list, equipment spec management, and diagnostic mail bridge
+Source main commit before trigger: 2e03f8027df68c93ef453593f60a8c920e48dba3
+Trigger sequence: 9
 Policy: do not create any new Vercel project for deployment
