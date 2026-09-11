@@ -112,43 +112,33 @@ export function analyzeCargoForAuto(cargo: CargoItem[]): { weights: StrategyWeig
   const weights = { ...DEFAULT_AUTO_WEIGHTS };
   const reasons: string[] = [];
   if (!active.length) return { weights, reasons: ['적재 화물이 없어 기본 가중치를 사용합니다.'] };
-
   const totalQty = active.reduce((sum, item) => sum + item.quantity, 0);
   const dominantQty = Math.max(...active.map(item => item.quantity));
   const dominantRatio = totalQty > 0 ? dominantQty / totalQty : 0;
   if (active.length <= 4 && dominantRatio >= 0.45) {
-    weights.grouping += 0.10;
-    weights.utilization += 0.02;
+    weights.grouping += 0.10; weights.utilization += 0.02;
     reasons.push('SKU 종류가 적고 특정 제품 수량이 많아 동일 제품 묶음 비중을 높였습니다.');
   }
-
   const volumeCv = coeffVar(active.map(item => item.length * item.width * item.height));
   if (volumeCv >= 0.55) {
-    weights.utilization += 0.10;
-    weights.void += 0.06;
+    weights.utilization += 0.10; weights.void += 0.06;
     reasons.push('박스 크기 편차가 커 공간 활용과 빈 공간 억제 비중을 높였습니다.');
   }
-
   const weightCv = coeffVar(active.map(item => item.weightKg));
   if (weightCv >= 0.55) {
-    weights.balance += 0.10;
-    weights.stability += 0.07;
+    weights.balance += 0.10; weights.stability += 0.07;
     reasons.push('박스별 중량 차이가 커 무게 균형과 안정성 비중을 높였습니다.');
   }
-
   const unloadStops = new Set(active.map(item => item.unloadPriority).filter((value): value is number => Number.isFinite(value)));
   if (unloadStops.size >= 2) {
     weights.operations += 0.14;
     reasons.push('하차 순서가 여러 단계라 하차 접근성 비중을 높였습니다.');
   }
-
   const heavyRatio = active.filter(item => item.weightKg >= 500).reduce((sum, item) => sum + item.quantity, 0) / Math.max(1, totalQty);
   if (heavyRatio >= 0.25) {
-    weights.balance += 0.07;
-    weights.stability += 0.08;
+    weights.balance += 0.07; weights.stability += 0.08;
     reasons.push('고중량 화물 비중이 높아 무게중심과 저상 안정성을 강화했습니다.');
   }
-
   if (!reasons.length) reasons.push('화물 특성이 한쪽으로 치우치지 않아 기본 종합 가중치를 사용합니다.');
   return { weights: normalizeWeights(weights), reasons };
 }
@@ -172,26 +162,20 @@ function unloadingScore(container: ContainerSpec, cargo: CargoItem[], result: Lo
   return count ? total / count : 85;
 }
 
-function groupingScore(result: LoadingResult) {
+function groupingScore(container: ContainerSpec, result: LoadingResult) {
   if (!result.placements.length) return 100;
-  const shape = assessShapeQuality({ length: 1, width: 1, height: 1, maxPayloadKg: 1 }, result.placements);
+  const shape = assessShapeQuality(container, result.placements);
   return clamp(100 - shape.fragmentedCargoTypes * 20);
 }
 
-export function scoreStrategyResult(
-  container: ContainerSpec,
-  cargo: CargoItem[],
-  result: LoadingResult,
-  weights: StrategyWeights,
-  physicsScore: number,
-) {
+export function scoreStrategyResult(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult, weights: StrategyWeights, physicsScore: number) {
   const volume = Math.max(0.001, container.length * container.width * container.height);
   const utilization = clamp(result.usedVolumeM3 / volume * 100);
   const balanceAssessment = assessWeightBalance(container, result);
   const balance = balanceAssessment.balanceScore;
   const stability = clamp(balanceAssessment.stabilityScore * 0.55 + physicsScore * 0.45);
   const operations = unloadingScore(container, cargo, result);
-  const grouping = groupingScore(result);
+  const grouping = groupingScore(container, result);
   const shape = assessShapeQuality(container, result.placements);
   const void = clamp(100 - shape.shapePenalty * 4 - Math.max(0, 70 - utilization) * 0.35);
   const componentScores: StrategyWeights = { utilization, balance, stability, operations, grouping, void };
@@ -199,6 +183,4 @@ export function scoreStrategyResult(
   return { componentScores, totalScore: clamp(totalScore) };
 }
 
-export function weightsForExplicitStrategy(strategy: ConcreteLoadingStrategy) {
-  return MODE_WEIGHTS[strategy];
-}
+export function weightsForExplicitStrategy(strategy: ConcreteLoadingStrategy) { return MODE_WEIGHTS[strategy]; }
