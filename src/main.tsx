@@ -35,6 +35,7 @@ import TransportEquipmentDashboardSummary from './TransportEquipmentDashboardSum
 import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
 import TransportEquipmentRecalculationNotice from './TransportEquipmentRecalculationNotice';
 import TransportEquipmentSelectionUxBridge from './TransportEquipmentSelectionUxBridge';
+import TransportEquipmentSpecManager from './TransportEquipmentSpecManager';
 import PhysicsValidationTool from './PhysicsValidationTool';
 import InertiaTestTool from './InertiaTestTool';
 import InspectionStatusPanel from './InspectionStatusPanel';
@@ -103,6 +104,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <HeaderLoadingStatusBoard />
       <TransportEquipmentSelector />
       <TransportEquipmentSelectionUxBridge />
+      <TransportEquipmentSpecManager />
       <TransportEquipmentSafetyGuard />
       <TransportEquipmentRecalculationNotice />
       <ResultsOverlay />
