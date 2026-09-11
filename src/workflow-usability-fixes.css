@@ -1,0 +1,107 @@
+/* Fixed-size workflow surfaces: headers/actions stay visible, long content scrolls inside. */
+.product-tools-dialog,
+.workspace-modal{
+  height:min(760px,calc(100dvh - 40px));
+  max-height:calc(100dvh - 40px);
+  overflow:hidden;
+}
+.product-tools-dialog>header,
+.product-tools-dialog>footer,
+.workspace-modal>header,
+.workspace-modal>footer{flex:0 0 auto}
+.product-tools-body,
+.workspace-modal-body,
+.box-selector-body{
+  min-height:0;
+  overflow-x:hidden;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+
+/* Product selection used to clip rows because this container was overflow:hidden. */
+.guided-product-table{
+  max-height:clamp(300px,52vh,620px);
+  overflow-x:auto;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+.guided-product-table-head{
+  position:sticky;
+  top:0;
+  z-index:3;
+}
+.guided-packaging-list{
+  max-height:clamp(300px,48vh,560px);
+  overflow-y:auto;
+  scrollbar-gutter:stable;
+}
+.product-master-list,
+.carton-tool-section{
+  max-height:420px;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+.product-master-head,.carton-tool-title{
+  position:sticky;
+  top:0;
+  z-index:2;
+}
+.catalog-wrap,.saved-plan-list{
+  max-height:min(48vh,460px);
+  overflow:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+
+/* Results keep a fixed outer surface; the body is the scroll area. */
+.results-modal{
+  height:min(820px,calc(100dvh - 48px));
+  max-height:calc(100dvh - 48px);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+
+/* Main function menu: icon + large title only. Tiny explanatory copy is noise here. */
+.final-workflow-menu>section>button small,
+.final-workflow-menu>section>button div>small,
+.product-menu-company-action small{
+  display:none!important;
+}
+.final-workflow-menu>section>button b,
+.product-menu-company-action b{
+  font-size:15px!important;
+  line-height:1.25!important;
+  font-weight:850!important;
+}
+.final-workflow-menu>section>button{
+  min-height:56px;
+  align-items:center;
+}
+.final-workflow-menu>section>button>span{
+  font-size:20px!important;
+}
+
+@media(max-width:760px){
+  .product-tools-backdrop,.workspace-modal-backdrop{padding:8px}
+  .product-tools-dialog,.workspace-modal{
+    width:calc(100vw - 16px);
+    height:calc(100dvh - 16px);
+    max-height:calc(100dvh - 16px);
+    border-radius:14px;
+  }
+  .guided-product-table{max-height:52vh}
+  .guided-packaging-list{max-height:46vh}
+  .product-master-list,.carton-tool-section{max-height:48vh}
+  .results-modal{
+    width:100vw;
+    height:100dvh;
+    max-height:100dvh;
+    border-radius:0;
+  }
+  .final-workflow-menu>section>button b,
+  .product-menu-company-action b{font-size:16px!important}
+}
