@@ -49,6 +49,7 @@ import InspectionStatusPanel from './InspectionStatusPanel';
 import ProductToolsCenter from './ProductToolsCenter';
 import ProductMenuActions from './ProductMenuActions';
 import EquipmentVisualAdminEditor from './EquipmentVisualAdminEditor';
+import WorkflowIntegrationBridge from './WorkflowIntegrationBridge';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -101,11 +102,13 @@ import './ux-polish.css';
 import './guided-workflow.css';
 import './guided-workflow-v2.css';
 import './guided-result-tabs-enhancer.css';
+import './workflow-usability-fixes.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <RuntimeDiagnosticRecorder />
+      <WorkflowIntegrationBridge />
       <ReferenceWorkspaceBar />
       <ProductMenuActions />
       <ProductToolsCenter />
