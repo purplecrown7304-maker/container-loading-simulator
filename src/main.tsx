@@ -40,6 +40,8 @@ import TransportEquipmentSpecManager from './TransportEquipmentSpecManager';
 import ConfirmedPackagingLoadingBridge from './ConfirmedPackagingLoadingBridge';
 import PhysicsValidationTool from './PhysicsValidationTool';
 import InertiaTestTool from './InertiaTestTool';
+import SafetyInspectionCenter from './SafetyInspectionCenter';
+import SavedWorkQuickList from './SavedWorkQuickList';
 import InspectionStatusPanel from './InspectionStatusPanel';
 import ProductToolsCenter from './ProductToolsCenter';
 import ProductMenuActions from './ProductMenuActions';
@@ -126,6 +128,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <DashboardCommandDock />
       <TransportEquipmentDashboardSummary />
       <GuidedWorkflowShell />
+      <SavedWorkQuickList />
       <EquipmentVisualAdminEditor />
       <GuidedResultTabsEnhancer />
       <DiagnosticExportResultButton />
@@ -138,6 +141,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <EnterprisePackagingStrategyExplorer />
       <EnterpriseCartonApprovalCenter />
       <SecuringMaterialSettingsPanel />
+      <SafetyInspectionCenter />
       <PhysicsValidationTool />
       <InertiaTestTool />
       <ExcelImportActions />
