@@ -30,13 +30,14 @@ function target(): PhysicsTarget {
 }
 
 describe('final result inertia re-layout search', () => {
-  it('generates a broad deterministic profile set instead of a fixed 3/6 retry budget', () => {
+  it('generates a broad deterministic and deduplicated profile set', () => {
     const profiles = buildDirectReoptimizationCargoProfiles(target());
     expect(profiles.length).toBeGreaterThan(6);
     expect(profiles.some(profile => profile.label.includes('중량물 저층 우선'))).toBe(true);
-    expect(profiles.some(profile => profile.label.includes('고형상 저층 우선'))).toBe(true);
     expect(profiles.some(profile => profile.label.includes('SKU 층수 분산'))).toBe(true);
 
+    // heavy/tall selectors may resolve to an identical layer vector for a small SKU set;
+    // identical physical profiles must be deduplicated rather than retried under two labels.
     const keys = profiles.map(profile => profile.cargo
       .map(item => `${item.id}:${item.maxStackLayers ?? 'auto'}`)
       .sort()
