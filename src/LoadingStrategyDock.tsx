@@ -25,16 +25,29 @@ const MODES: Array<{ id: UserLoadingStrategy; icon: string }> = [
 ];
 
 type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
+type PalletSnapshotLite = {
+  result?: {
+    palletCount?: number;
+    placements?: unknown[];
+    remaining?: Array<{ cargoId: string; quantity: number; reason: string }>;
+    totalPalletizedWeightKg?: number;
+  };
+};
 type LoadingWindow = Window & {
   __containerLoadingLatestResult?: LoadingDetail;
-  __containerLoadingPalletSnapshot?: { result?: { palletCount?: number } };
+  __containerLoadingPalletSnapshot?: PalletSnapshotLite;
 };
 
 function latestLoading(): LoadingDetail | undefined {
   return typeof window === 'undefined' ? undefined : (window as LoadingWindow).__containerLoadingLatestResult;
 }
-function palletCount() {
-  return typeof window === 'undefined' ? 0 : (window as LoadingWindow).__containerLoadingPalletSnapshot?.result?.palletCount ?? 0;
+function palletSnapshot() {
+  return typeof window === 'undefined' ? undefined : (window as LoadingWindow).__containerLoadingPalletSnapshot;
+}
+function palletModeActive() {
+  if (typeof document === 'undefined') return false;
+  const active = document.querySelector<HTMLButtonElement>('.mode-tabs button.active');
+  return (active?.textContent ?? '').includes('팔레트');
 }
 
 export default function LoadingStrategyDock() {
@@ -109,17 +122,21 @@ export default function LoadingStrategyDock() {
     const { container, result } = loading;
     const volume = Math.max(0.001, container.length * container.width * container.height);
     const balance = assessWeightBalance(container, result);
+    const pallet = palletSnapshot()?.result;
+    const usePallet = palletModeActive() && (pallet?.palletCount ?? 0) > 0;
     return {
       fill: result.usedVolumeM3 / volume * 100,
       used: result.usedVolumeM3,
       remaining: Math.max(0, volume - result.usedVolumeM3),
-      weight: result.loadedWeightKg,
+      weight: usePallet ? (pallet?.totalPalletizedWeightKg ?? result.loadedWeightKg) : result.loadedWeightKg,
       lateral: balance.lateralDeviationPct,
       longitudinal: balance.longitudinalDeviationPct,
       cog: balance.centerOfGravity,
-      boxes: result.placements.length,
-      pallets: palletCount(),
-      unloaded: result.remaining.reduce((sum, item) => sum + item.quantity, 0),
+      boxes: usePallet ? (pallet?.placements?.length ?? result.placements.length) : result.placements.length,
+      pallets: usePallet ? (pallet?.palletCount ?? 0) : 0,
+      unloaded: usePallet
+        ? (pallet?.remaining ?? []).reduce((sum, item) => sum + item.quantity, 0)
+        : result.remaining.reduce((sum, item) => sum + item.quantity, 0),
     };
   }, [loading, palletRevision]);
 
@@ -136,6 +153,7 @@ export default function LoadingStrategyDock() {
         <div><span>사용 박스</span><b>{metrics.boxes.toLocaleString()}개</b></div>
         <div><span>사용 파렛트</span><b>{metrics.pallets.toLocaleString()}개</b></div>
         <div className={metrics.unloaded ? 'warn' : ''}><span>미적재</span><b>{metrics.unloaded.toLocaleString()}개</b></div>
+        {decision?.axleLoads && <><div><span>앞축 적재하중</span><b>{decision.axleLoads.frontKg.toFixed(0)} kg</b></div><div><span>뒤축 적재하중</span><b>{decision.axleLoads.rearKg.toFixed(0)} kg</b></div></>}
       </div>
       {decision?.requestedStrategy === 'auto' && <div className="loading-strategy-reasons">{decision.reasons.slice(0, 3).map(reason => <span key={reason}>{reason}</span>)}</div>}
     </section>, resultHost) : null;
