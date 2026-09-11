@@ -168,14 +168,10 @@ function unloadingScore(container: ContainerSpec, cargo: CargoItem[], result: Lo
 
 function workerAccessibilityScore(container: ContainerSpec, result: LoadingResult, utilization: number) {
   if (!result.placements.length) return 100;
-  // 저적재율에서는 굳이 천장 가까이 쌓지 않고 낮은 단을 우선해 작업자 접근성을 높인다.
-  // 적재율이 높을수록 높이 사용은 불가피하므로 패널티를 완화한다.
   const averageTop = result.placements.reduce((sum, item) => sum + item.z + item.height, 0) / result.placements.length;
   const normalizedTop = averageTop / Math.max(0.001, container.height);
   const lowUtilizationFactor = utilization < 50 ? 1 : utilization < 75 ? 0.65 : 0.35;
   const heightPenalty = Math.max(0, normalizedTop - 0.38) * 115 * lowUtilizationFactor;
-
-  // 문쪽 20% 영역에 지나치게 높은 적재가 몰리면 최초 접근과 분류 작업이 어려워진다.
   const doorStart = container.length * 0.80;
   const doorCargo = result.placements.filter(item => item.x + item.length / 2 >= doorStart);
   const tallDoorRatio = doorCargo.length
@@ -217,7 +213,6 @@ export function scoreStrategyResult(container: ContainerSpec, cargo: CargoItem[]
   const utilization = clamp(result.usedVolumeM3 / volume * 100);
   const balanceAssessment = assessWeightBalance(container, result);
   const axleLoads = assessAxleLoads(axleAwareContainer(container), result);
-  // 실제 축 제원이 있을 때만 CG 균형 점수의 25%를 축 하중 분담 평가로 대체한다.
   const balance = axleLoads
     ? clamp(balanceAssessment.balanceScore * 0.75 + axleLoads.score * 0.25)
     : balanceAssessment.balanceScore;
@@ -227,8 +222,8 @@ export function scoreStrategyResult(container: ContainerSpec, cargo: CargoItem[]
   const operations = clamp(unload * 0.70 + accessibility * 0.30);
   const grouping = groupingScore(container, result);
   const shape = assessShapeQuality(container, result.placements);
-  const void = clamp(100 - shape.shapePenalty * 4 - Math.max(0, 70 - utilization) * 0.35);
-  const componentScores: StrategyWeights = { utilization, balance, stability, operations, grouping, void };
+  const voidScore = clamp(100 - shape.shapePenalty * 4 - Math.max(0, 70 - utilization) * 0.35);
+  const componentScores: StrategyWeights = { utilization, balance, stability, operations, grouping, void: voidScore };
   const totalScore = Object.entries(weights).reduce((sum, [key, weight]) => sum + componentScores[key as keyof StrategyWeights] * weight, 0);
   return { componentScores, totalScore: clamp(totalScore), axleLoads };
 }
