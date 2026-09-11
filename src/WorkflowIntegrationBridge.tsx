@@ -75,7 +75,19 @@ function preferOwnedPackagingOptions() {
     const owned = options.filter(option => option.textContent?.includes('보유'));
     if (!owned.length) return;
 
+    // 사용 가능한 보유 박스가 하나라도 있으면 신규 규격은 fallback 후보가 아니다.
+    // 보유 박스가 전혀 맞지 않는 제품에서만 신규 규격이 보이도록 한다.
     const generated = options.filter(option => !option.textContent?.includes('보유'));
+    for (const option of owned) {
+      option.hidden = false;
+      option.disabled = false;
+    }
+    for (const option of generated) {
+      option.hidden = true;
+      option.disabled = true;
+    }
+
+    // 보유 후보끼리는 기존 점수 순서를 유지한다. 즉, 보유 박스 중 가장 좋은 후보가 1순위다.
     const desired = [...owned, ...generated];
     const alreadyOrdered = options.every((option, index) => option === desired[index]);
     if (!alreadyOrdered) {
