@@ -151,18 +151,15 @@ export async function optimizeLoadingWithPhysics(
 
     const scored = scoreStrategyResult(container, candidateCargo, result, weights, physics.score);
     scoredByMode.set(mode, scored);
-    const groupingScore = scored.componentScores.grouping;
-    const utilizationScore = scored.componentScores.utilization;
-    const balanceScore = scored.componentScores.balance;
     candidates.push({
       strategy,
       mode,
       score: scored.totalScore,
       physicsScore: physics.score,
       completionScore: completionScore(activeCargo, result),
-      balanceScore,
-      groupingScore,
-      utilizationScore,
+      balanceScore: scored.componentScores.balance,
+      groupingScore: scored.componentScores.grouping,
+      utilizationScore: scored.componentScores.utilization,
       result,
       physics,
     });
@@ -176,6 +173,27 @@ export async function optimizeLoadingWithPhysics(
     const fallbackCargo = modeCargo(activeCargo, fallbackMode);
     const strategy = legacyStrategyFor(fallbackMode);
     const result = loadContainer(container, fallbackCargo, { strategy, publish: false });
+    const fallbackGate = validateFinalLoadingCandidate(container, fallbackCargo, result);
+
+    if (!fallbackGate.passed) {
+      // 어떤 배치도 하드 안전 규칙을 통과하지 못했다. 화면에 억지로 적재된 것처럼 보이지 않게
+      // 다음 publish 1회에는 '0개 적재 + 전량 미적재' 결과를 주입하고 optimizer는 실패로 종료한다.
+      const safeEmpty: LoadingResult = {
+        placements: [],
+        remaining: activeCargo.map(item => ({
+          cargoId: item.id,
+          quantity: item.quantity,
+          reason: `안전 검사 실패: ${fallbackGate.reasons[0] ?? rejected[0] ?? '안전한 적재 위치를 찾지 못함'}`,
+        })),
+        loadedWeightKg: 0,
+        usedVolumeM3: 0,
+        validationIssues: [],
+        autoCorrections: [],
+      };
+      setNextStrategyResultOverride(container, activeCargo, 'stability', safeEmpty);
+      throw new Error(`모든 자동적재 후보가 안전 검사에서 탈락했습니다. ${fallbackGate.reasons[0] ?? rejected[0] ?? ''}`.trim());
+    }
+
     const physics = await runPhysicsValidationSuite(container, result.placements);
     const scored = scoreStrategyResult(container, fallbackCargo, result, weightsForExplicitStrategy(fallbackMode), physics.score);
     best = {
@@ -204,6 +222,12 @@ export async function optimizeLoadingWithPhysics(
     reasons,
     componentScores: scored.componentScores,
     totalScore: best.score,
+    axleLoads: scored.axleLoads ? {
+      frontKg: scored.axleLoads.frontKg,
+      rearKg: scored.axleLoads.rearKg,
+      frontRatePct: scored.axleLoads.frontRatePct,
+      rearRatePct: scored.axleLoads.rearRatePct,
+    } : undefined,
   };
 
   publishStrategyDecision(decision);
