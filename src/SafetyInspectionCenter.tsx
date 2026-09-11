@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { analyzeConstraints, type ConstraintCheck } from './engine/constraintAnalysis';
+import { type ConstraintCheck } from './engine/constraintAnalysis';
 import { analyzeFloorLoad, type FloorLoadAnalysis } from './engine/floorLoad';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance, type BalanceAssessment } from './engine/weightBalance';
+import { equipmentAwareConstraints } from './diagnosticBlackbox';
 import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
 import { OPEN_PHYSICS_VALIDATION_EVENT } from './PhysicsValidationTool';
 import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
+import { readTransportEquipment } from './transportEquipment';
 import './safety-inspection-center.css';
 
 export const OPEN_SAFETY_INSPECTION_CENTER_EVENT = 'container-loading:open-safety-inspection-center';
@@ -69,9 +71,10 @@ export default function SafetyInspectionCenter() {
     const next = requireTarget();
     if (!next) return;
     const floorLoad = analyzeFloorLoad(next.container, next.result, 12, 4);
-    const constraints = analyzeConstraints(next.container, next.cargo, next.result, floorLoad);
+    const equipment = readTransportEquipment();
+    const constraints = equipmentAwareConstraints(equipment, next.container, next.cargo, next.result);
     setChecks(current => ({ ...current, constraints, floorLoad }));
-    setMessage(`제약조건 검사를 다시 실행했습니다. ${statusText(constraints)}`);
+    setMessage(`제약조건 검사를 다시 실행했습니다. ${equipment.shortName} 기준 · ${statusText(constraints)}`);
   };
 
   const runBalance = () => {
@@ -94,10 +97,11 @@ export default function SafetyInspectionCenter() {
     const next = requireTarget();
     if (!next) return;
     const floorLoad = analyzeFloorLoad(next.container, next.result, 12, 4);
-    const constraints = analyzeConstraints(next.container, next.cargo, next.result, floorLoad);
+    const equipment = readTransportEquipment();
+    const constraints = equipmentAwareConstraints(equipment, next.container, next.cargo, next.result);
     const balance = assessWeightBalance(next.container, next.result);
     setChecks({ constraints, floorLoad, balance });
-    setMessage(`기본 안전검사 3종을 다시 실행했습니다. ${statusText(constraints)} · 무게중심 ${balance.grade}`);
+    setMessage(`기본 안전검사 3종을 다시 실행했습니다. ${equipment.shortName} 기준 · ${statusText(constraints)} · 무게중심 ${balance.grade}`);
   };
 
   const openPhysics = () => {
@@ -114,9 +118,10 @@ export default function SafetyInspectionCenter() {
 
   if (!open) return null;
 
+  const equipment = readTransportEquipment();
   const failCount = checks.constraints?.filter(item => item.status === 'fail').length ?? 0;
   const warnCount = checks.constraints?.filter(item => item.status === 'warn').length ?? 0;
-  const floorLimit = target?.container.floorLoadLimitKgPerM2 ?? 1500;
+  const floorLimit = target?.container.floorLoadLimitKgPerM2 ?? equipment.floorLoadLimitKgPerM2;
   const floorWarning = Boolean(checks.floorLoad && checks.floorLoad.maxKgPerM2 > floorLimit);
 
   return createPortal(
@@ -128,20 +133,20 @@ export default function SafetyInspectionCenter() {
         </header>
 
         <div className="safety-center-summary">
-          <div><span>대상</span><b>{target ? `${target.mode === 'pallets' ? '팔레트' : '박스'} 적재 · ${target.result.placements.length} EA` : '적재 결과 없음'}</b></div>
+          <div><span>대상</span><b>{target ? `${equipment.shortName} · ${target.mode === 'pallets' ? '팔레트' : '박스'} 적재 · ${target.result.placements.length} EA` : '적재 결과 없음'}</b></div>
           <button type="button" className="primary" disabled={!target} onClick={runQuickSet}>기본 안전검사 3종 실행</button>
         </div>
 
         <div className="safety-center-grid">
           <article className={failCount ? 'danger' : warnCount ? 'warn' : checks.constraints ? 'ok' : ''}>
-            <div className="safety-center-card-head"><span>01</span><div><b>제약조건 검사</b><small>중량 · 경계/충돌 · 높이 · 적층 · 상부하중 · 문쪽 위험</small></div></div>
+            <div className="safety-center-card-head"><span>01</span><div><b>제약조건 검사</b><small>중량 · 경계/충돌 · 높이 · 적층 · 상부하중 · 장비 유형별 출입구/개방부</small></div></div>
             <strong>{statusText(checks.constraints)}</strong>
             {checks.constraints && <div className="safety-center-results">{checks.constraints.map(item => <span key={item.id} className={item.status}><b>{item.label}</b><small>{item.detail}</small></span>)}</div>}
             <button type="button" disabled={!target} onClick={runConstraints}>검사 실행</button>
           </article>
 
           <article className={checks.balance ? (checks.balance.grade === 'A' || checks.balance.grade === 'B' ? 'ok' : checks.balance.grade === 'C' ? 'warn' : 'danger') : ''}>
-            <div className="safety-center-card-head"><span>02</span><div><b>무게중심 검사</b><small>컨테이너 전체 중심 기준 앞뒤 · 좌우 · 높이 분포</small></div></div>
+            <div className="safety-center-card-head"><span>02</span><div><b>무게중심 검사</b><small>적재공간 전체 중심 기준 앞뒤 · 좌우 · 높이 분포</small></div></div>
             <strong>{checks.balance ? `${checks.balance.grade} · ${checks.balance.loadingQualityScore.toFixed(0)}점` : '미실행'}</strong>
             {checks.balance && <div className="safety-center-metrics"><span>앞뒤 편차 <b>{checks.balance.longitudinalDeviationPct.toFixed(1)}%</b></span><span>좌우 편차 <b>{checks.balance.lateralDeviationPct.toFixed(1)}%</b></span><span>CG 높이 <b>{checks.balance.verticalCenterPct.toFixed(1)}%</b></span></div>}
             <button type="button" disabled={!target} onClick={runBalance}>검사 실행</button>
