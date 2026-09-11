@@ -25,13 +25,14 @@ const MODES: Array<{ id: UserLoadingStrategy; icon: string }> = [
   { id: 'grouping', icon: '▥' },
 ];
 
+type RemainingRow = { cargoId: string; quantity: number; reason: string };
 type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type PalletSnapshotLite = {
   result?: {
     palletCount?: number;
     placements?: Array<{ x: number; y: number; z: number; length: number; width: number; height: number }>;
     pallets?: Array<{ centerOfGravity: { x: number; y: number; z: number }; totalWeightKg: number }>;
-    remaining?: Array<{ cargoId: string; quantity: number; reason: string }>;
+    remaining?: RemainingRow[];
     totalPalletizedWeightKg?: number;
   };
 };
@@ -60,6 +61,12 @@ function palletCog(container: ContainerSpec, pallets: NonNullable<NonNullable<Pa
     y: pallets.reduce((sum, item) => sum + item.centerOfGravity.y * Math.max(0, item.totalWeightKg), 0) / total,
     z: pallets.reduce((sum, item) => sum + item.centerOfGravity.z * Math.max(0, item.totalWeightKg), 0) / total,
   };
+}
+
+function normalizeRemaining(rows: RemainingRow[] | undefined) {
+  return (rows ?? [])
+    .filter(item => item.quantity > 0)
+    .map(item => ({ ...item, reason: item.reason?.trim() || '적재 조건을 충족하지 못함' }));
 }
 
 export default function LoadingStrategyDock() {
@@ -143,6 +150,7 @@ export default function LoadingStrategyDock() {
       const cog = palletCog(container, pallets);
       const lateral = Math.abs(cog.y - container.width / 2) / Math.max(0.001, container.width / 2) * 100;
       const longitudinal = Math.abs(cog.x - container.length / 2) / Math.max(0.001, container.length / 2) * 100;
+      const remainingRows = normalizeRemaining(pallet.remaining);
       return {
         usePallet,
         displayStrategy: strategy === 'auto' ? resolvePalletLoadingStrategy(cargo) : strategy,
@@ -155,9 +163,11 @@ export default function LoadingStrategyDock() {
         cog,
         boxes: placements.length,
         pallets: pallet.palletCount ?? 0,
-        unloaded: (pallet.remaining ?? []).reduce((sum, item) => sum + item.quantity, 0),
+        unloaded: remainingRows.reduce((sum, item) => sum + item.quantity, 0),
+        remainingRows,
       };
     }
+    const remainingRows = normalizeRemaining(result.remaining);
     return {
       usePallet: false,
       displayStrategy: decision?.selectedStrategy ?? strategy,
@@ -170,7 +180,8 @@ export default function LoadingStrategyDock() {
       cog: balance.centerOfGravity,
       boxes: result.placements.length,
       pallets: 0,
-      unloaded: result.remaining.reduce((sum, item) => sum + item.quantity, 0),
+      unloaded: remainingRows.reduce((sum, item) => sum + item.quantity, 0),
+      remainingRows,
     };
   }, [loading, palletRevision, strategy, decision]);
 
@@ -189,6 +200,11 @@ export default function LoadingStrategyDock() {
         <div className={metrics.unloaded ? 'warn' : ''}><span>미적재</span><b>{metrics.unloaded.toLocaleString()}개</b></div>
         {!metrics.usePallet && decision?.axleLoads && <><div><span>앞축 적재하중</span><b>{decision.axleLoads.frontKg.toFixed(0)} kg</b></div><div><span>뒤축 적재하중</span><b>{decision.axleLoads.rearKg.toFixed(0)} kg</b></div></>}
       </div>
+      {metrics.remainingRows.length > 0 && <div className="loading-strategy-unloaded">
+        <b>미적재 품목 / 사유</b>
+        <div>{metrics.remainingRows.slice(0, 8).map((item, index) => <span key={`${item.cargoId}-${index}`}><strong>{item.cargoId} · {item.quantity}EA</strong><em>{item.reason}</em></span>)}</div>
+        {metrics.remainingRows.length > 8 && <small>외 {metrics.remainingRows.length - 8}개 사유는 상세 결과에서 확인</small>}
+      </div>}
       {!metrics.usePallet && decision?.requestedStrategy === 'auto' && <div className="loading-strategy-reasons">{decision.reasons.slice(0, 3).map(reason => <span key={reason}>{reason}</span>)}</div>}
     </section>, resultHost) : null;
 
