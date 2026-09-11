@@ -1,7 +1,7 @@
 import type { ContainerSpec, Placement } from './types';
 
 export type ShapeQualityAssessment = {
-  /** 호환성 유지용. 물리 안정성 판정에서는 더 이상 사용하지 않는다. */
+  /** 운영상 다루기 어려운 중앙 고립 낱개. 안전 하드실패가 아니라 최적화 벌점이다. */
   isolatedMiddleBoxes: number;
   /** 호환성 유지용. 돌출 높이는 Rapier 물리 검증이 판단한다. */
   protrudingTowers: number;
@@ -42,12 +42,22 @@ function componentCount(items: Placement[]) {
   return components;
 }
 
+function isMiddleIsolated(container: ContainerSpec, item: Placement, all: Placement[]) {
+  if (item.z > EPS) return false;
+  const touchesAny = all.some(other => other !== item && touches(item, other));
+  if (touchesAny) return false;
+  const touchesWall = item.x <= EPS
+    || item.y <= EPS
+    || item.x + item.length >= container.length - EPS
+    || item.y + item.width >= container.width - EPS;
+  return !touchesWall;
+}
+
 /**
- * 형상 평가는 이제 안전 판정이 아니라 운영 효율만 평가한다.
- * 중앙 낱개/돌출 타워는 정적 규칙으로 벌점화하지 않고 Rapier에서 실제 이동·전도 여부를 검사한다.
- * 여기서는 동일 품목이 과도하게 여러 구역으로 분산되는지만 최적화 힌트로 남긴다.
+ * Shape quality is an optimization/operational score, not a hard safety verdict.
+ * Rapier remains authoritative for actual movement/tilt safety.
  */
-export function assessShapeQuality(_container: ContainerSpec, placements: Placement[]): ShapeQualityAssessment {
+export function assessShapeQuality(container: ContainerSpec, placements: Placement[]): ShapeQualityAssessment {
   if (!placements.length) return { isolatedMiddleBoxes: 0, protrudingTowers: 0, fragmentedCargoTypes: 0, shapePenalty: 0, messages: [] };
 
   const byCargo = new Map<string, Placement[]>();
@@ -57,10 +67,12 @@ export function assessShapeQuality(_container: ContainerSpec, placements: Placem
     if (items.length >= 4 && componentCount(items) > 2) fragmentedCargoTypes += 1;
   }
 
-  const shapePenalty = Math.min(35, fragmentedCargoTypes * 7);
-  const messages = fragmentedCargoTypes
-    ? [`같은 품목이 여러 구역으로 분산된 종류가 ${fragmentedCargoTypes}개입니다. 안전성은 물리 검증에서 별도 판정합니다.`]
-    : ['동일 품목 묶음 상태가 양호합니다. 실제 안정성은 Rapier 물리 검증 결과를 사용합니다.'];
+  const isolatedMiddleBoxes = placements.filter(item => isMiddleIsolated(container, item, placements)).length;
+  const shapePenalty = Math.min(35, fragmentedCargoTypes * 7 + isolatedMiddleBoxes * 4);
+  const messages: string[] = [];
+  if (isolatedMiddleBoxes) messages.push(`중앙에 다른 화물·벽과 연결되지 않은 낱개가 ${isolatedMiddleBoxes}개 있습니다.`);
+  if (fragmentedCargoTypes) messages.push(`같은 품목이 여러 구역으로 분산된 종류가 ${fragmentedCargoTypes}개입니다.`);
+  if (!messages.length) messages.push('동일 품목 묶음과 낱개 배치 형상이 양호합니다. 실제 안정성은 Rapier 물리 검증 결과를 사용합니다.');
 
-  return { isolatedMiddleBoxes: 0, protrudingTowers: 0, fragmentedCargoTypes, shapePenalty, messages };
+  return { isolatedMiddleBoxes, protrudingTowers: 0, fragmentedCargoTypes, shapePenalty, messages };
 }
