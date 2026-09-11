@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { ADMIN_ACCESS_EVENT } from './adminAccess';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState } from './storage';
@@ -17,11 +18,13 @@ import {
 } from './enterprisePackagingPlannerStore';
 import { requiresBoxPackaging, type CompanyProductItem } from './companyProduct';
 import type { ProductPackagingAssignment } from './engine/productPackagingOptimizer';
+import { LOCAL_OPERATOR_EVENT } from './localOperator';
 import {
   PRODUCT_SELECTION_EVENT,
   cargoFromProductPackaging,
   formatBoxSize,
   packagingCandidates,
+  previewPackagingCandidate,
   readProductSelection,
   selectedProducts,
   writeProductSelection,
@@ -158,7 +161,13 @@ function ProductSelectionStage({ container, selection, onSelection }: {
   useEffect(() => {
     const refresh = () => setRevision(value => value + 1);
     window.addEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, refresh);
-    return () => window.removeEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, refresh);
+    window.addEventListener(LOCAL_OPERATOR_EVENT, refresh);
+    window.addEventListener(ADMIN_ACCESS_EVENT, refresh);
+    return () => {
+      window.removeEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, refresh);
+      window.removeEventListener(LOCAL_OPERATOR_EVENT, refresh);
+      window.removeEventListener(ADMIN_ACCESS_EVENT, refresh);
+    };
   }, []);
   const state = useMemo(() => readEnterprisePackagingPlannerState(), [revision]);
   const products = (state?.products ?? []) as CompanyProductItem[];
@@ -188,7 +197,7 @@ function ProductSelectionStage({ container, selection, onSelection }: {
       {filtered.map(product => {
         const quantity = selection[product.id] ?? 0;
         const candidate = requiresBoxPackaging(product)
-          ? packagingCandidates(container, { ...product, quantity: Math.max(1, quantity || 1) }, boxes, state)[0]
+          ? previewPackagingCandidate(container, { ...product, quantity: Math.max(1, quantity || 1) }, boxes, state)
           : undefined;
         return <article key={product.id} className={quantity > 0 ? 'selected' : ''}>
           <div className="guided-product-info"><b>{product.name}</b><span>{product.id} · {Math.round(product.length * 1000)}×{Math.round(product.width * 1000)}×{Math.round(product.height * 1000)} mm · {product.weightKg} kg</span></div>
@@ -200,7 +209,7 @@ function ProductSelectionStage({ container, selection, onSelection }: {
       {!filtered.length && <div className="guided-empty">검색 결과가 없습니다.</div>}
       {filtered.length === 50 && <div className="guided-empty">검색 결과가 많습니다. 제품명 또는 제품코드를 더 입력해 범위를 줄이세요.</div>}
     </div>}
-    <p className="guided-stage-help">제품 규격이나 제품 자체 등록정보를 수정하려면 메뉴의 <b>회사 제품 관리</b>를 사용합니다.</p>
+    <p className="guided-stage-help">검색 결과의 박스는 빠른 미리보기이며, 실제 포장 규격은 다음 제품 포장 단계에서 정밀 계산합니다.</p>
   </section>;
 }
 
@@ -214,7 +223,13 @@ function PackagingStage({ container, selection, onBundle }: {
   useEffect(() => {
     const refresh = () => setRevision(value => value + 1);
     window.addEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, refresh);
-    return () => window.removeEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, refresh);
+    window.addEventListener(LOCAL_OPERATOR_EVENT, refresh);
+    window.addEventListener(ADMIN_ACCESS_EVENT, refresh);
+    return () => {
+      window.removeEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, refresh);
+      window.removeEventListener(LOCAL_OPERATOR_EVENT, refresh);
+      window.removeEventListener(ADMIN_ACCESS_EVENT, refresh);
+    };
   }, []);
   const state = useMemo(() => readEnterprisePackagingPlannerState(), [revision]);
   const products = useMemo(() => selectedProducts((state?.products ?? []) as CompanyProductItem[], selection), [state, selection]);
@@ -356,8 +371,9 @@ export default function GuidedWorkflowShell() {
   const [mode, setMode] = useState<'boxes' | 'pallets'>(() => typeof document === 'undefined' ? 'boxes' : currentMode());
   const [selection, setSelection] = useState<ProductSelectionMap>(initialSelection);
   const [packaging, setPackaging] = useState<PackagingBundle>({ products: [], assignments: [], cargo: [], ready: false });
-  const [step, setStep] = useState<StepId>(() => Object.keys(initialSelection).length ? 2 : 1);
-  const [furthest, setFurthest] = useState<StepId>(() => Object.keys(initialSelection).length ? 2 : 1);
+  // 이전 선택 기록이 있어도 앱 진입은 항상 1단계에서 시작한다.
+  const [step, setStep] = useState<StepId>(1);
+  const [furthest, setFurthest] = useState<StepId>(1);
   const [running, setRunning] = useState(false);
   const [finalReady, setFinalReady] = useState(false);
 
@@ -399,10 +415,20 @@ export default function GuidedWorkflowShell() {
   useEffect(() => {
     const refresh = () => { setLive(readLive()); setMode(currentMode()); };
     const refreshSelection = () => setSelection(readProductSelection());
+    const refreshIdentity = () => {
+      setSelection(readProductSelection());
+      setPackaging({ products: [], assignments: [], cargo: [], ready: false });
+      setStep(1);
+      setFurthest(1);
+      setRunning(false);
+      setFinalReady(false);
+    };
     window.addEventListener(LOADING_RESULT_EVENT, refresh);
     window.addEventListener(STORAGE_UPDATED_EVENT, refresh);
     window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
     window.addEventListener(PRODUCT_SELECTION_EVENT, refreshSelection);
+    window.addEventListener(LOCAL_OPERATOR_EVENT, refreshIdentity);
+    window.addEventListener(ADMIN_ACCESS_EVENT, refreshIdentity);
     window.addEventListener('container-loading:pallet-snapshot-updated', refresh);
     const observer = new MutationObserver(() => {
       const rows = [...document.querySelectorAll<HTMLElement>('.inspection-status-table tbody tr')];
@@ -421,6 +447,8 @@ export default function GuidedWorkflowShell() {
       window.removeEventListener(STORAGE_UPDATED_EVENT, refresh);
       window.removeEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
       window.removeEventListener(PRODUCT_SELECTION_EVENT, refreshSelection);
+      window.removeEventListener(LOCAL_OPERATOR_EVENT, refreshIdentity);
+      window.removeEventListener(ADMIN_ACCESS_EVENT, refreshIdentity);
       window.removeEventListener('container-loading:pallet-snapshot-updated', refresh);
     };
   }, []);
