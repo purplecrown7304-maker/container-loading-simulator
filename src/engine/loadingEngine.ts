@@ -1,5 +1,6 @@
 import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult } from './types';
 import { validatePlacements } from './constraints';
+import { centerPlacementsOnContainer } from './containerCentering';
 import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
 import { packByStrictWalls } from './strictWallPacker';
@@ -37,16 +38,16 @@ function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], resu
 /**
  * DIRECT BOX loading policy.
  *
- * StrictWallPacker is the placement authority. It starts at x=0 (the inner wall) and
- * progresses toward the door while enforcing physical hard constraints: container
- * bounds, collision prevention, payload, configured stack layers, cumulative top-load
- * limits and full support for upper boxes.
+ * StrictWallPacker first builds a compact, physically valid arrangement while enforcing
+ * hard constraints: container bounds, collision prevention, payload, configured stack
+ * layers, cumulative top-load limits and full support for upper boxes.
  *
- * Operational shape quality, center-of-gravity deviation and inertia results are
- * evaluation/warning signals. They must never delete otherwise feasible cargo after
- * packing. In particular, do not center the whole cargo block merely to improve the
- * CG score, because that breaks the inner-wall -> door loading rule and can create a
- * false situation where cargo is removed only to obtain a prettier safety score.
+ * The completed arrangement is then translated as one rigid X/Y group so its weighted
+ * horizontal center of gravity is as close as possible to the container target center.
+ * A rigid translation preserves every support, stacking and collision relationship and
+ * is clamped by the container walls. Z is never raised: low center of gravity remains a
+ * stability preference. If exact horizontal centering is impossible because the loaded
+ * footprint already touches both walls, the closest physically valid position is used.
  */
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
@@ -84,7 +85,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   }
 
   const packed = packByStrictWalls(container, normalizedCargo, strategy);
-  const finalPlacements = packed.placements;
+  const finalPlacements = centerPlacementsOnContainer(container, packed.placements);
   const result: LoadingResult = {
     placements: finalPlacements,
     remaining: [
