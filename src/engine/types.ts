@@ -25,6 +25,10 @@ export type CargoItem = {
   productId?: string;
   /** 제품 포장 흐름에서 생성된 화물의 원 제품명. */
   productName?: string;
+  /** 제품 포장 단계에서 확정된 박스 마스터 코드. 직접 적재면 생략한다. */
+  boxId?: string;
+  /** 제품 포장 단계에서 확정된 박스명. */
+  boxName?: string;
   /** 이 적재단위(박스/직접적재) 1개 안에 실제 들어 있는 제품 EA. */
   unitsPerPackage?: number;
   /** 박스 자중을 제외한, 이 적재단위 안 제품들의 실제 총중량. */
