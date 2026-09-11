@@ -73,7 +73,15 @@ function preferOwnedPackagingOptions() {
   document.querySelectorAll<HTMLSelectElement>('.guided-package-choice select').forEach(select => {
     const options = [...select.options];
     const owned = options.filter(option => option.textContent?.includes('보유'));
-    if (!owned.length) return;
+
+    if (!owned.length) {
+      // 이전 렌더의 DOM이 재사용돼도 신규 fallback 후보가 숨은 채 남지 않게 복원한다.
+      for (const option of options) {
+        option.hidden = false;
+        option.disabled = false;
+      }
+      return;
+    }
 
     // 사용 가능한 보유 박스가 하나라도 있으면 신규 규격은 fallback 후보가 아니다.
     // 보유 박스가 전혀 맞지 않는 제품에서만 신규 규격이 보이도록 한다.
