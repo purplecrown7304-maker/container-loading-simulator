@@ -38,7 +38,7 @@ const spec = {
 };
 
 describe('pallet adaptive configured stack depth regression', () => {
-  it('keeps four-level alternatives when preserving all loaded cargo requires four pallet levels', () => {
+  it('does not invent a four-level pallet stack when the lower pallet footprint lacks enough support', () => {
     const result = packOnPallets(container, [cargo], spec);
     const loadingResult: LoadingResult = {
       placements: result.placements,
@@ -57,8 +57,12 @@ describe('pallet adaptive configured stack depth regression', () => {
 
     const candidates = buildPalletAdaptiveCandidates(current, snapshot);
 
-    expect(result.maxUsedStackLevel).toBe(4);
-    expect(candidates.some((candidate) => candidate.spec.maxStackLevels === 4)).toBe(true);
-    expect(candidates.some((candidate) => candidate.label.includes('4단 제한'))).toBe(true);
+    expect(result.maxUsedStackLevel).toBe(1);
+    expect(result.remaining.reduce((sum, item) => sum + item.quantity, 0)).toBeGreaterThan(0);
+    // Adaptive search may expose a 4-level configuration knob, but it must never preserve
+    // cargo by manufacturing an unsupported four-pallet tower.
+    for (const candidate of candidates.filter(item => item.spec.maxStackLevels === 4)) {
+      expect(candidate.result.maxUsedStackLevel).toBeLessThan(4);
+    }
   }, 10000);
 });
