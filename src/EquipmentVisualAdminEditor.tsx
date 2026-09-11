@@ -10,6 +10,7 @@ import {
   removeEquipmentImageOverride,
   setEquipmentImageOverride,
 } from './equipmentImageOverrides';
+import { equipmentPhotoFallback } from './equipmentPhotoFallback';
 import { TRANSPORT_EQUIPMENT_EVENT, useTransportEquipment } from './transportEquipment';
 
 export default function EquipmentVisualAdminEditor() {
@@ -102,25 +103,80 @@ export default function EquipmentVisualAdminEditor() {
     const custom = readEquipmentImageOverrides()[equipment.id];
     const svg = visualHost.querySelector<SVGElement>('svg');
     let image = visualHost.querySelector<HTMLImageElement>('img.equipment-custom-visual');
+    let fallback = visualHost.querySelector<HTMLElement>('span.equipment-guided-default-photo');
+    const fallbackStyle = equipmentPhotoFallback(equipment.id);
+
+    const ensureFallback = () => {
+      if (!fallbackStyle) return null;
+      if (!fallback) {
+        fallback = document.createElement('span');
+        fallback.className = 'equipment-guided-default-photo';
+        fallback.style.display = 'block';
+        fallback.style.width = '100%';
+        fallback.style.aspectRatio = '760 / 260';
+        fallback.style.backgroundRepeat = 'no-repeat';
+        fallback.style.backgroundColor = '#f7f8fa';
+        fallback.style.pointerEvents = 'none';
+        visualHost.prepend(fallback);
+      }
+      fallback.style.backgroundImage = fallbackStyle.backgroundImage;
+      fallback.style.backgroundPosition = fallbackStyle.backgroundPosition;
+      fallback.style.backgroundSize = fallbackStyle.backgroundSize;
+      return fallback;
+    };
+
+    const showDefault = () => {
+      const defaultPhoto = ensureFallback();
+      if (defaultPhoto) {
+        defaultPhoto.style.display = 'block';
+        if (svg) svg.style.display = 'none';
+        return;
+      }
+      fallback?.remove();
+      fallback = null;
+      if (svg) svg.style.display = '';
+    };
 
     if (custom) {
+      showDefault();
       if (!image) {
         image = document.createElement('img');
         image.className = 'equipment-custom-visual';
-        image.style.display = 'block';
+        image.style.display = 'none';
         image.style.width = '100%';
         image.style.aspectRatio = '760 / 260';
         image.style.objectFit = 'contain';
         image.style.background = 'transparent';
         visualHost.prepend(image);
       }
-      image.src = custom;
-      image.alt = `${equipment.shortName} 적재공간 이미지`;
-      if (svg) svg.style.display = 'none';
+      const currentImage = image;
+      currentImage.style.display = 'none';
+      currentImage.alt = `${equipment.shortName} 적재공간 이미지`;
+      currentImage.onload = () => {
+        currentImage.style.display = 'block';
+        if (fallback) fallback.style.display = 'none';
+        if (svg) svg.style.display = 'none';
+      };
+      currentImage.onerror = () => {
+        currentImage.remove();
+        showDefault();
+      };
+      currentImage.src = custom;
     } else {
-      image?.remove();
-      if (svg) svg.style.display = '';
+      if (image) {
+        image.onload = null;
+        image.onerror = null;
+        image.remove();
+      }
+      showDefault();
     }
+
+    return () => {
+      if (image) {
+        image.onload = null;
+        image.onerror = null;
+      }
+    };
   }, [visualHost, equipment.id, equipment.shortName, revision]);
 
   const upload = async (file: File | undefined) => {
