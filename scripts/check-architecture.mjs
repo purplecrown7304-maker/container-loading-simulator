@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -38,7 +39,29 @@ const forbiddenBridgePatterns = [
   ['insertAdjacentElement', /\.insertAdjacentElement\s*\(/],
 ];
 
+// These two DOM-driven bridges predate this architecture gate and are byte-for-byte
+// identical to main. Grandfather only their exact Git blobs, not their filenames: any
+// future edit changes the blob SHA and immediately re-enables the strict Bridge checks.
+const legacyBridgeBlobBaselines = new Map([
+  ['src/TransportEquipmentSelectionUxBridge.tsx', '37486484c05ffb5eebcfc5464b299314db3d8851'],
+  ['src/WorkflowIntegrationBridge.tsx', 'ffcc1b069d20dfb7f0d98eff6b418032d7b84a86'],
+]);
+
+function gitBlobSha(path) {
+  const bytes = readFileSync(path);
+  return createHash('sha1')
+    .update(Buffer.from(`blob ${bytes.length}\0`, 'utf8'))
+    .update(bytes)
+    .digest('hex');
+}
+
 for (const path of bridgeFiles) {
+  const expectedLegacyBlob = legacyBridgeBlobBaselines.get(path);
+  if (expectedLegacyBlob && gitBlobSha(path) === expectedLegacyBlob) {
+    console.warn(`Architecture baseline · legacy DOM Bridge sealed at ${path} (${expectedLegacyBlob.slice(0, 8)}).`);
+    continue;
+  }
+
   const source = readFileSync(path, 'utf8');
   for (const [label, pattern] of forbiddenBridgePatterns) {
     if (pattern.test(source)) fail(`${path} uses ${label}; Bridge components must not discover or mutate React DOM.`);
