@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { exportLoadingDiagnostics } from './diagnosticExport';
+import { exportLoadingDiagnosticsV2 } from './diagnosticExportV2';
 
 export default function DiagnosticExportResultButton() {
   const [host, setHost] = useState<HTMLElement | null>(null);
@@ -26,7 +26,7 @@ export default function DiagnosticExportResultButton() {
   if (!host) return null;
 
   const run = async () => {
-    const exported = await exportLoadingDiagnostics();
+    const exported = await exportLoadingDiagnosticsV2();
     if (!exported.ok) window.alert(exported.message);
   };
 
