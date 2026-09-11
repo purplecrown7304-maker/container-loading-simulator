@@ -37,8 +37,8 @@ function toPersonalCatalogItem(box: BoxCatalogItem): CargoItem {
     length: box.outerLength,
     width: box.outerWidth,
     height: box.outerHeight,
-    // 개인 박스 목록은 적재 화물 중량 필드가 필수다. 추천 규격은 실제 내용물 중량이
-    // 확정되기 전이므로 과소평가하지 않도록 허용 총중량을 보수적으로 사용한다.
+    // 추천 박스는 실제 내용물 중량이 확정되기 전이므로 과소평가하지 않도록
+    // 개인 박스 목록의 필수 중량에는 허용 총중량을 보수적으로 사용한다.
     weightKg: Math.max(0.001, box.maxGrossWeightKg),
     quantity: 0,
     maxStackLayers,
@@ -75,8 +75,16 @@ function preferOwnedPackagingOptions() {
     const owned = options.filter(option => option.textContent?.includes('보유'));
     if (!owned.length) return;
 
-    // 보유 박스 후보를 신규 규격보다 먼저 보여 준다.
-    for (const option of [...owned].reverse()) select.insertBefore(option, select.firstChild);
+    const generated = options.filter(option => !option.textContent?.includes('보유'));
+    const desired = [...owned, ...generated];
+    const alreadyOrdered = options.every((option, index) => option === desired[index]);
+    if (!alreadyOrdered) {
+      for (const option of desired) select.appendChild(option);
+    }
+
+    [...select.options].forEach((option, index) => {
+      option.textContent = (option.textContent ?? '').replace(/^\d+순위/, `${index + 1}순위`);
+    });
 
     const current = select.selectedOptions[0];
     if (current?.textContent?.includes('보유')) return;
