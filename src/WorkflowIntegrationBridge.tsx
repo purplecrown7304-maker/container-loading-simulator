@@ -83,7 +83,9 @@ function preferOwnedPackagingOptions() {
     }
 
     [...select.options].forEach((option, index) => {
-      option.textContent = (option.textContent ?? '').replace(/^\d+순위/, `${index + 1}순위`);
+      const currentText = option.textContent ?? '';
+      const nextText = currentText.replace(/^\d+순위/, `${index + 1}순위`);
+      if (nextText !== currentText) option.textContent = nextText;
     });
 
     const current = select.selectedOptions[0];
