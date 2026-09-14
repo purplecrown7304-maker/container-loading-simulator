@@ -1,6 +1,10 @@
 import { useEffect } from 'react';
-import { readShipmentInstructionSnapshot, type ShipmentInstructionSnapshot } from './shipmentInstruction';
-import { readStoredState, writeStoredState, type StoredState } from './storage';
+import { ADMIN_ACCESS_EVENT } from './adminAccess';
+import { LOCAL_OPERATOR_EVENT } from './localOperator';
+import { PRODUCT_SELECTION_EVENT } from './productWorkflow';
+import { readShipmentInstructionSnapshot } from './shipmentInstruction';
+import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
+import { TRANSPORT_EQUIPMENT_EVENT, readTransportEquipment } from './transportEquipment';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 import { recordDiagnosticTrace } from './runtimeDiagnostics';
 
@@ -9,40 +13,78 @@ type ReplayActionDetail = AppActionDetail & {
   equipmentConsistencyReplay?: boolean;
 };
 
-function applyConfirmedPackagingIdentity(state: StoredState, snapshot: ShipmentInstructionSnapshot): StoredState {
-  const lineByCargo = new Map(snapshot.lines.map(line => [line.cargoId, line]));
-  let changed = false;
-  const cargo = state.cargo.map(item => {
-    const baseCargoId = item.id.endsWith('-PARTIAL') ? item.id.slice(0, -'-PARTIAL'.length) : item.id;
-    const line = lineByCargo.get(item.id) ?? lineByCargo.get(baseCargoId);
-    if (!line) return item;
+type ConfirmedPackagingState = {
+  shipmentNo: string;
+  capturedAt: string;
+  container: StoredState['container'];
+  cargo: StoredState['cargo'];
+};
 
-    const boxId = line.packagingMode === 'box' ? line.boxId : undefined;
-    const boxName = line.packagingMode === 'box' ? line.boxName : undefined;
-    const next = {
-      ...item,
-      productId: item.productId ?? line.productId,
-      productName: item.productName ?? line.productName,
-      boxId,
-      boxName,
-    };
-    if (
-      next.productId !== item.productId
-      || next.productName !== item.productName
-      || next.boxId !== item.boxId
-      || next.boxName !== item.boxName
-    ) changed = true;
-    return next;
-  });
-  return changed ? { ...state, cargo } : state;
+const CONFIRMED_PACKAGING_KEY = 'container-loading:guided-confirmed-packaging-state:v1';
+const EPS = 0.001;
+
+function sameNumber(a: number | undefined, b: number | undefined, tolerance = EPS) {
+  if (a == null || b == null) return a === b;
+  return Math.abs(a - b) <= tolerance;
 }
 
-/**
- * 자동설계(AUTO-*) 박스는 과거 코드에서 무조건 1단/상부하중 0kg로 내려가면서
- * 바닥에 들어가는 수량만 적재되는 문제가 있었다. 제품 포장 시뮬레이터의 운영 기준인
- * 최대 3단 범위 안에서 컨테이너 높이가 허용하는 만큼 실제 자동 적재에도 적용한다.
- * 보유/등록 박스는 기존 제조 강도(maxStackLayers/maxTopLoadKg)를 그대로 존중한다.
- */
+function sameContainer(a: StoredState['container'], b: StoredState['container']) {
+  return sameNumber(a.length, b.length)
+    && sameNumber(a.width, b.width)
+    && sameNumber(a.height, b.height)
+    && sameNumber(a.maxPayloadKg, b.maxPayloadKg, 1)
+    && sameNumber(a.floorLoadLimitKgPerM2, b.floorLoadLimitKgPerM2, 1);
+}
+
+function cloneState(state: ConfirmedPackagingState): ConfirmedPackagingState {
+  return {
+    ...state,
+    container: { ...state.container },
+    cargo: state.cargo.map(item => ({ ...item })),
+  };
+}
+
+function readConfirmedPackaging(): ConfirmedPackagingState | null {
+  try {
+    const raw = window.localStorage.getItem(CONFIRMED_PACKAGING_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ConfirmedPackagingState;
+    if (!parsed?.shipmentNo || !parsed.container || !Array.isArray(parsed.cargo) || !parsed.cargo.length) return null;
+    return cloneState(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function writeConfirmedPackaging(state: StoredState) {
+  const snapshot = readShipmentInstructionSnapshot(state.cargo);
+  if (!snapshot) return false;
+  const next: ConfirmedPackagingState = {
+    shipmentNo: snapshot.shipmentNo,
+    capturedAt: new Date().toISOString(),
+    container: { ...state.container },
+    cargo: state.cargo.map(item => ({ ...item })),
+  };
+  try {
+    window.localStorage.setItem(CONFIRMED_PACKAGING_KEY, JSON.stringify(next));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearConfirmedPackaging() {
+  try { window.localStorage.removeItem(CONFIRMED_PACKAGING_KEY); } catch { /* storage unavailable */ }
+}
+
+function totalUnits(cargo: StoredState['cargo']) {
+  return cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
+}
+
+function cargoSummary(cargo: StoredState['cargo']) {
+  return cargo.map(item => `${item.id}:${item.quantity}`).join('|');
+}
+
 function applyGeneratedCartonRuntimeStack(state: StoredState): StoredState {
   let changed = false;
   const cargo = state.cargo.map(item => {
@@ -54,8 +96,6 @@ function applyGeneratedCartonRuntimeStack(state: StoredState): StoredState {
     return {
       ...item,
       maxStackLayers: provisionalLayers,
-      // AUTO 박스는 제조강도 실측값이 없으므로 0kg로 적층을 봉쇄하지 않는다.
-      // 실제 운영에서는 3단 이하의 설계 목표값으로 취급하고 제조 강도 확인이 별도로 필요하다.
       maxTopLoadKg: undefined,
     };
   });
@@ -63,64 +103,139 @@ function applyGeneratedCartonRuntimeStack(state: StoredState): StoredState {
 }
 
 /**
- * 제품 포장에서 확정한 cargo가 App state에 반영되기 전에 자동 적재가 실행되는 레이스를 막는다.
- * dispatchAppAction이 이미 저장 cargo를 App에 주입한 경우에는 같은 동기화를 반복하지 않는다.
- * 직접 APP_ACTION_EVENT가 들어온 경로에서는 canonical writeStoredState를 통해 result/physics 캐시까지
- * 같이 무효화하고 확정 cargo를 한 번만 재주입한다.
+ * 제품 포장 단계에서 확정된 cargo 자체를 자동 적재의 단일 원본으로 고정한다.
+ * App의 일반 화물 목록이나 이전 적재 결과가 남아 있어도 자동 적재 직전에 확정 cargo를
+ * 다시 주입하고 React가 해당 입력을 반영한 뒤에만 실제 계산을 재개한다.
  */
 export default function ConfirmedPackagingLoadingBridge() {
   useEffect(() => {
     let cancelled = false;
+    let replayTimer = 0;
+    let lastAlert = '';
+
+    const captureConfirmedPackaging = (event: Event) => {
+      if (document.documentElement.dataset.guidedStep !== '3') return;
+      const state = (event as CustomEvent<StoredState>).detail ?? readStoredState();
+      if (!state?.cargo?.length) return;
+      if (!writeConfirmedPackaging(state)) return;
+      const snapshot = readShipmentInstructionSnapshot(state.cargo);
+      recordDiagnosticTrace('guided-packaging-canonical-captured', {
+        shipmentNo: snapshot?.shipmentNo,
+        cargoTypes: state.cargo.length,
+        totalUnits: totalUnits(state.cargo),
+        cargo: cargoSummary(state.cargo),
+      });
+    };
+
+    const invalidateBeforePackaging = () => {
+      const step = Number(document.documentElement.dataset.guidedStep || 1);
+      if (step <= 3) clearConfirmedPackaging();
+    };
+
+    const alertOnce = (message: string) => {
+      if (lastAlert === message) return;
+      lastAlert = message;
+      window.setTimeout(() => { lastAlert = ''; }, 800);
+      window.alert(message);
+    };
 
     const onRunLoading = (event: Event) => {
       const custom = event as CustomEvent<ReplayActionDetail>;
       if (custom.detail?.action !== 'run-loading' || custom.detail?.confirmedPackagingReplay) return;
+      if (document.documentElement.dataset.guidedStep !== '5') return;
 
-      const stored = readStoredState();
-      if (!stored?.cargo?.length) return;
-      const snapshot = readShipmentInstructionSnapshot(stored.cargo);
-      if (!snapshot) return;
+      let confirmed = readConfirmedPackaging();
+      if (!confirmed) {
+        const stored = readStoredState();
+        if (stored?.cargo?.length && readShipmentInstructionSnapshot(stored.cargo)) {
+          writeConfirmedPackaging(stored);
+          confirmed = readConfirmedPackaging();
+        }
+      }
 
-      const identified = applyConfirmedPackagingIdentity(stored, snapshot);
-      const confirmed = applyGeneratedCartonRuntimeStack(identified);
-      const stateUpdated = confirmed !== stored;
+      if (!confirmed) {
+        event.stopImmediatePropagation();
+        alertOnce('제품 포장에서 확정한 박스 데이터가 없습니다. 제품 포장 단계에서 포장을 확정한 뒤 자동 적재를 실행하세요.');
+        return;
+      }
 
-      if (custom.detail?.synchronizedStoredState && !stateUpdated) return;
+      const snapshot = readShipmentInstructionSnapshot(confirmed.cargo);
+      if (!snapshot || snapshot.shipmentNo !== confirmed.shipmentNo) {
+        event.stopImmediatePropagation();
+        clearConfirmedPackaging();
+        alertOnce('제품 포장 데이터가 변경되었습니다. 제품 포장을 다시 확정한 뒤 자동 적재를 실행하세요.');
+        return;
+      }
+
+      const equipment = readTransportEquipment();
+      const equipmentContainer = {
+        ...confirmed.container,
+        length: equipment.length,
+        width: equipment.width,
+        height: equipment.height,
+        maxPayloadKg: equipment.maxPayloadKg,
+        floorLoadLimitKgPerM2: equipment.floorLoadLimitKgPerM2,
+      };
+      if (!sameContainer(confirmed.container, equipmentContainer)) {
+        event.stopImmediatePropagation();
+        clearConfirmedPackaging();
+        alertOnce('적재공간이 제품 포장 이후 변경되었습니다. 현재 적재공간 기준으로 제품 포장을 다시 확정하세요.');
+        return;
+      }
 
       event.stopImmediatePropagation();
-      writeStoredState(confirmed, true);
-      if (identified !== stored) {
-        recordDiagnosticTrace('confirmed-packaging-identity-restored', {
-          shipmentNo: snapshot.shipmentNo,
-          cargoTypes: confirmed.cargo.length,
-        });
-      }
-      if (confirmed !== identified) {
-        recordDiagnosticTrace('generated-carton-runtime-stack-normalized', {
-          shipmentNo: snapshot.shipmentNo,
-          cargoTypes: confirmed.cargo.filter(item => item.boxId?.startsWith('AUTO-')).length,
-          maxOperationalLayers: 3,
-        });
-      }
+      window.clearTimeout(replayTimer);
 
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          if (cancelled) return;
-          window.dispatchEvent(new CustomEvent<ReplayActionDetail>(APP_ACTION_EVENT, {
-            detail: {
-              ...custom.detail,
-              action: 'run-loading',
-              synchronizedStoredState: true,
-              confirmedPackagingReplay: true,
-            },
-          }));
-        });
+      const canonical = applyGeneratedCartonRuntimeStack({
+        container: { ...confirmed.container },
+        cargo: confirmed.cargo.map(item => ({ ...item })),
       });
+
+      recordDiagnosticTrace('guided-auto-loading-canonical-replay', {
+        shipmentNo: confirmed.shipmentNo,
+        cargoTypes: canonical.cargo.length,
+        totalUnits: totalUnits(canonical.cargo),
+        cargo: cargoSummary(canonical.cargo),
+      });
+
+      writeStoredState(canonical, true);
+      replayTimer = window.setTimeout(() => {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => {
+            if (cancelled) return;
+            const current = readStoredState();
+            if (!current || !readShipmentInstructionSnapshot(current.cargo)) {
+              alertOnce('자동 적재 직전 포장 데이터 동기화에 실패했습니다. 제품 포장을 다시 확정하세요.');
+              return;
+            }
+            window.dispatchEvent(new CustomEvent<ReplayActionDetail>(APP_ACTION_EVENT, {
+              detail: {
+                ...custom.detail,
+                action: 'run-loading',
+                synchronizedStoredState: true,
+                confirmedPackagingReplay: true,
+              },
+            }));
+          });
+        });
+      }, 120);
     };
 
+    window.addEventListener(STORAGE_UPDATED_EVENT, captureConfirmedPackaging);
+    window.addEventListener(PRODUCT_SELECTION_EVENT, invalidateBeforePackaging);
+    window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, invalidateBeforePackaging);
+    window.addEventListener(LOCAL_OPERATOR_EVENT, clearConfirmedPackaging);
+    window.addEventListener(ADMIN_ACCESS_EVENT, clearConfirmedPackaging);
     window.addEventListener(APP_ACTION_EVENT, onRunLoading, true);
+
     return () => {
       cancelled = true;
+      window.clearTimeout(replayTimer);
+      window.removeEventListener(STORAGE_UPDATED_EVENT, captureConfirmedPackaging);
+      window.removeEventListener(PRODUCT_SELECTION_EVENT, invalidateBeforePackaging);
+      window.removeEventListener(TRANSPORT_EQUIPMENT_EVENT, invalidateBeforePackaging);
+      window.removeEventListener(LOCAL_OPERATOR_EVENT, clearConfirmedPackaging);
+      window.removeEventListener(ADMIN_ACCESS_EVENT, clearConfirmedPackaging);
       window.removeEventListener(APP_ACTION_EVENT, onRunLoading, true);
     };
   }, []);
