@@ -15,6 +15,7 @@ import PalletFooterSummary from './PalletFooterSummary';
 import { clearPhysicsTarget } from './physicsTarget';
 import { openLoadingReport } from './report';
 import { openResultsModal } from './resultsModalEvents';
+import { readShipmentInstructionSnapshot } from './shipmentInstruction';
 import { normalizeCargo, readStoredState, STORAGE_KEY, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
 import WorkspaceTools from './WorkspaceTools';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
@@ -49,6 +50,25 @@ function LoadingFallback() {
 
 function isValidContainer(container: ContainerSpec): boolean {
   return containerInputError(container) === null;
+}
+
+function isProductPackagingCargo(cargo: CargoItem[]) {
+  return cargo.some(item => Boolean(item.productId) || item.id.startsWith('PKG-') || item.id.startsWith('DIRECT-'));
+}
+
+function pendingLoadingResult(cargo: CargoItem[]): LoadingResult {
+  return {
+    placements: [],
+    remaining: cargo.filter(item => item.quantity > 0).map(item => ({
+      cargoId: item.id,
+      quantity: item.quantity,
+      reason: '제품 포장 확정 완료 · 자동 적재 실행 대기',
+    })),
+    loadedWeightKg: 0,
+    usedVolumeM3: 0,
+    validationIssues: [],
+    autoCorrections: [],
+  };
 }
 
 export default function App() {
@@ -113,9 +133,24 @@ export default function App() {
       const normalized = normalizeCargo(state.cargo);
       setContainer(state.container);
       setCargo(normalized);
-      if (isValidContainer(state.container)) setResult(loadContainer(state.container, normalized.filter(item => item.quantity > 0)));
+
+      const guidedStep = Number(document.documentElement.dataset.guidedStep || 0);
+      const guidedPackagingInput = document.documentElement.dataset.guidedWorkflow === 'true'
+        && guidedStep >= 3
+        && guidedStep <= 5
+        && isProductPackagingCargo(normalized)
+        && Boolean(readShipmentInstructionSnapshot(normalized));
+
+      // 제품 포장 확정 데이터를 App에 주입할 때 임의의 기본 적재안을 먼저 만들지 않는다.
+      // 자동 적재를 누르기 전 3D에 '20개짜리 옛 결과'가 나타나는 혼선을 막고,
+      // 실제 자동 적재 결과만 화면에 표시한다.
+      if (guidedPackagingInput) setResult(pendingLoadingResult(normalized));
+      else if (isValidContainer(state.container)) setResult(loadContainer(state.container, normalized.filter(item => item.quantity > 0)));
+
       invalidatePhysics();
-      announce('success', '가져온 데이터가 현재 화면에 반영되었습니다.');
+      announce('success', guidedPackagingInput
+        ? `제품 포장 ${normalized.reduce((sum, item) => sum + item.quantity, 0).toLocaleString()}개가 자동 적재 입력으로 동기화되었습니다.`
+        : '가져온 데이터가 현재 화면에 반영되었습니다.');
       setEditingId(null);
       setDraft(emptyDraft);
     };
@@ -177,16 +212,44 @@ export default function App() {
 
   const runLoading = async () => {
     if (isRunning) return;
-    const invalidContainer = containerInputError(container);
+
+    const guidedRun = document.documentElement.dataset.guidedWorkflow === 'true'
+      && document.documentElement.dataset.guidedStep === '5';
+    const canonical = guidedRun ? readStoredState() : null;
+    let runContainer = canonical?.container ?? container;
+    let runCargo = canonical ? normalizeCargo(canonical.cargo) : cargo;
+    let runMode: LoadingMode = guidedRun ? 'boxes' : mode;
+
+    if (guidedRun) {
+      if (!canonical?.cargo?.length) return announce('error', '제품 포장에서 확정한 박스가 없습니다. 제품 포장을 다시 확정하세요.');
+      const shipment = readShipmentInstructionSnapshot(runCargo);
+      if (!shipment) return announce('error', '제품 포장 결과와 자동 적재 입력이 일치하지 않습니다. 제품 포장을 다시 확정하세요.');
+
+      const expectedUnits = shipment.lines.reduce((sum, line) => sum + Math.max(0, line.boxesNeeded), 0);
+      const actualUnits = runCargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
+      if (expectedUnits !== actualUnits) {
+        return announce('error', `제품 포장 ${expectedUnits}개와 자동 적재 입력 ${actualUnits}개가 일치하지 않습니다. 계산을 중단했습니다.`);
+      }
+
+      // 가이드 자동 적재에서는 App의 오래된 화물 state를 절대 사용하지 않는다.
+      // 방금 확정된 제품 포장 cargo와 적재공간을 직접 계산 입력으로 사용한다.
+      setContainer(runContainer);
+      setCargo(runCargo);
+      setMode('boxes');
+      runMode = 'boxes';
+      setResult(pendingLoadingResult(runCargo));
+    }
+
+    const invalidContainer = containerInputError(runContainer);
     if (invalidContainer) return announce('error', invalidContainer);
-    const preflight = preflightCargoInput(cargo);
+    const preflight = preflightCargoInput(runCargo);
     if (preflight.rejected.length > 0) {
       const first = preflight.rejected[0];
       return announce('error', `${first.cargoId}: ${first.reason}${preflight.rejected.length > 1 ? ` 외 ${preflight.rejected.length - 1}건` : ''}`);
     }
     const activeCargo = preflight.cargo;
     if (!activeCargo.length) return announce('warning', '적재할 화물이 없습니다. 본인의 박스 목록에서 화물을 등록하거나 선택하세요.');
-    if (mode === 'pallets') {
+    if (runMode === 'pallets') {
       invalidatePhysics();
       requestNextPalletCertification();
       setPalletRunToken(token => token + 1);
@@ -197,23 +260,29 @@ export default function App() {
     setPhysicsScore(null);
     setPhysicsStrategy(null);
     setOptimizationMessage('후보 적재안 생성 중…');
-    announce('info', '물리 기반 최적 적재 계산 중…');
+    const requestedBoxes = activeCargo.reduce((sum, item) => sum + item.quantity, 0);
+    announce('info', guidedRun
+      ? `제품 포장에서 확정한 ${requestedBoxes.toLocaleString()} BOX를 기준으로 자동 적재 계산 중…`
+      : '물리 기반 최적 적재 계산 중…');
     try {
-      const optimized = await optimizeLoadingWithPhysics(container, activeCargo, progress => {
+      const optimized = await optimizeLoadingWithPhysics(runContainer, activeCargo, progress => {
         setOptimizationMessage(`후보 ${progress.candidateIndex}/${progress.candidateCount} · ${strategyLabel(progress.strategy)} · 물리검증 ${Math.round(progress.physicsProgress * 100)}%`);
       });
-      const published = loadContainer(container, activeCargo, { strategy: optimized.strategy });
+      const published = loadContainer(runContainer, activeCargo, { strategy: optimized.strategy });
       setResult(published);
-      requestExactCertification({ mode: 'boxes', container, cargo: activeCargo, result: published });
+      requestExactCertification({ mode: 'boxes', container: runContainer, cargo: activeCargo, result: published });
       setPhysicsScore(optimized.physics.score);
       setPhysicsStrategy(optimized.strategy);
       (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = optimized.physics;
       window.dispatchEvent(new CustomEvent('container-loading:physics-validation-result', { detail: { mode: 'boxes', result: optimized.physics } }));
-      announce('success', `최적 적재 계산 완료 · ${published.placements.length}EA · 관성 3종 최종검증 진행 중`);
+      const remainingBoxes = published.remaining.reduce((sum, item) => sum + item.quantity, 0);
+      announce('success', guidedRun
+        ? `자동 적재 완료 · 요청 ${requestedBoxes.toLocaleString()} BOX · 적재 ${published.placements.length.toLocaleString()} BOX · 미적재 ${remainingBoxes.toLocaleString()} BOX`
+        : `최적 적재 계산 완료 · ${published.placements.length}EA · 관성 3종 최종검증 진행 중`);
       setOptimizationMessage('');
     } catch (error) {
       console.error('Physics optimization failed', error);
-      const fallback = loadContainer(container, activeCargo, { strategy: 'stability' });
+      const fallback = loadContainer(runContainer, activeCargo, { strategy: 'stability' });
       setResult(fallback);
       announce('warning', '물리 최적화 실행 중 오류가 발생해 안정성 우선 기본 적재안을 표시했습니다. 최종 결과로 사용하기 전 물리 검증을 다시 실행하세요.');
       setOptimizationMessage('');
