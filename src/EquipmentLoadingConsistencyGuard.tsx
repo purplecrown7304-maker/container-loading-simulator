@@ -4,7 +4,10 @@ import { readTransportEquipment } from './transportEquipment';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 import { recordDiagnosticTrace } from './runtimeDiagnostics';
 
-type GuardActionDetail = AppActionDetail & { equipmentConsistencyReplay?: boolean };
+type GuardActionDetail = AppActionDetail & {
+  equipmentConsistencyReplay?: boolean;
+  confirmedPackagingReplay?: boolean;
+};
 
 function differs(a: number | undefined, b: number | undefined, tolerance: number) {
   if (a == null || b == null) return a !== b;
@@ -14,6 +17,7 @@ function differs(a: number | undefined, b: number | undefined, tolerance: number
 /**
  * 적재공간 선택 UI와 실제 엔진 ContainerSpec이 갈라지는 것을 자동 적재 직전에 차단한다.
  * 선택 장비를 master로 사용하고 저장/App state를 먼저 동기화한 뒤 같은 작업을 재실행한다.
+ * 재실행 때 앞선 동기화 플래그를 보존해서 다른 guard가 같은 작업을 처음부터 반복하지 않게 한다.
  */
 export default function EquipmentLoadingConsistencyGuard() {
   useEffect(() => {
@@ -58,7 +62,12 @@ export default function EquipmentLoadingConsistencyGuard() {
         window.requestAnimationFrame(() => {
           if (cancelled) return;
           window.dispatchEvent(new CustomEvent<GuardActionDetail>(APP_ACTION_EVENT, {
-            detail: { action: 'run-loading', equipmentConsistencyReplay: true },
+            detail: {
+              ...custom.detail,
+              action: 'run-loading',
+              synchronizedStoredState: true,
+              equipmentConsistencyReplay: true,
+            },
           }));
         });
       });
