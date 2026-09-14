@@ -33,10 +33,36 @@ function clickMode(mode: 'boxes' | 'pallets') {
 export default function GuidedLoadingExecutionBridge() {
   useEffect(() => {
     let cancelled = false;
+    let dispatchingCanonical = false;
+
+    const dispatchOutsideLegacyGuidedBranch = (detail: CanonicalRunDetail) => {
+      const root = document.documentElement;
+      const previousStep = root.dataset.guidedStep;
+      root.dataset.guidedStep = '0';
+      dispatchingCanonical = true;
+      try {
+        window.dispatchEvent(new CustomEvent<CanonicalRunDetail>(APP_ACTION_EVENT, { detail }));
+      } finally {
+        dispatchingCanonical = false;
+        if (previousStep) root.dataset.guidedStep = previousStep;
+        else delete root.dataset.guidedStep;
+      }
+    };
 
     const onRun = (event: Event) => {
       const custom = event as CustomEvent<CanonicalRunDetail>;
-      if (custom.detail?.action !== 'run-loading' || custom.detail.guidedCanonicalReplay) return;
+      if (custom.detail?.action !== 'run-loading') return;
+
+      // 장비 일치 가드가 canonical 실행을 비동기로 한 번 더 재생한 경우에도
+      // App의 레거시 guidedRun(박스 강제)로 들어가지 않게 다시 한 번 우회한다.
+      if (custom.detail.guidedCanonicalReplay) {
+        if (dispatchingCanonical) return;
+        if (document.documentElement.dataset.guidedWorkflow !== 'true' || document.documentElement.dataset.guidedStep !== '5') return;
+        event.stopImmediatePropagation();
+        dispatchOutsideLegacyGuidedBranch(custom.detail);
+        return;
+      }
+
       if (document.documentElement.dataset.guidedWorkflow !== 'true' || document.documentElement.dataset.guidedStep !== '5') return;
 
       const confirmed = readConfirmedPackagingCargo();
@@ -64,16 +90,12 @@ export default function GuidedLoadingExecutionBridge() {
 
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
         if (cancelled) return;
-        const root = document.documentElement;
-        const previousStep = root.dataset.guidedStep;
-        // App의 레거시 guidedRun 분기는 박스 모드로 강제하므로 이번 한 번의 실행만 일반 실행 경로로 보낸다.
-        // React state는 위 writeStoredState/clickMode로 이미 확정 입력과 사용자가 고른 적재 단위에 맞춰져 있다.
-        root.dataset.guidedStep = '0';
-        window.dispatchEvent(new CustomEvent<CanonicalRunDetail>(APP_ACTION_EVENT, {
-          detail: { ...custom.detail, action: 'run-loading', guidedCanonicalReplay: true, synchronizedStoredState: true },
-        }));
-        if (previousStep) root.dataset.guidedStep = previousStep;
-        else delete root.dataset.guidedStep;
+        dispatchOutsideLegacyGuidedBranch({
+          ...custom.detail,
+          action: 'run-loading',
+          guidedCanonicalReplay: true,
+          synchronizedStoredState: true,
+        });
       }));
     };
 
