@@ -53,6 +53,7 @@ import WorkflowIntegrationBridge from './WorkflowIntegrationBridge';
 import LoadingStrategyDock from './LoadingStrategyDock';
 import PalletStrategyBridge from './PalletStrategyBridge';
 import AutomaticLoadingProgressOverlay from './AutomaticLoadingProgressOverlay';
+import LoadingStrategyAutoRunBridge from './LoadingStrategyAutoRunBridge';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -134,6 +135,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <PackagingDataIntegrityGuard />
       <ConfirmedPackagingLoadingBridge />
       <AutomaticLoadingProgressOverlay />
+      <LoadingStrategyAutoRunBridge />
       <App />
       <RemainingLengthIndicator />
       <PalletWeightDistributionDock />
