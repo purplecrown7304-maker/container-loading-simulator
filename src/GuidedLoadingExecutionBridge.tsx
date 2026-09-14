@@ -33,23 +33,29 @@ function rejectRun(message: string) {
 }
 
 /**
- * STEP 5의 계산 입력은 STEP 3에서 확정한 cargo snapshot 하나만 사용한다.
- * 개인 박스 목록, 이전 적재 결과, App의 오래된 cargo state를 합치지 않는다.
+ * STEP 5의 계산 입력은 STEP 3에서 확정한 shipmentInstruction cargo 하나만 사용한다.
+ * 박스 적재는 guidedStep=5를 유지한 채 replay하여 App이 local React state가 아니라
+ * readStoredState()의 canonical 입력을 직접 읽도록 한다.
+ *
+ * 팔레트는 App의 기존 팔레트 실행 경로가 아직 guidedRun 분기와 통합되지 않았으므로
+ * 기존 우회 동작을 임시 유지한다. 팔레트 전용 통합은 별도 회귀 테스트 후 정리한다.
  */
 export default function GuidedLoadingExecutionBridge() {
   useEffect(() => {
     let cancelled = false;
-    let dispatchingCanonical = false;
 
-    const dispatchOutsideLegacyGuidedBranch = (detail: CanonicalRunDetail) => {
+    const dispatchCanonicalReplay = (detail: CanonicalRunDetail, mode: 'boxes' | 'pallets') => {
+      if (mode === 'boxes') {
+        window.dispatchEvent(new CustomEvent<CanonicalRunDetail>(APP_ACTION_EVENT, { detail }));
+        return;
+      }
+
       const root = document.documentElement;
       const previousStep = root.dataset.guidedStep;
       root.dataset.guidedStep = '0';
-      dispatchingCanonical = true;
       try {
         window.dispatchEvent(new CustomEvent<CanonicalRunDetail>(APP_ACTION_EVENT, { detail }));
       } finally {
-        dispatchingCanonical = false;
         if (previousStep) root.dataset.guidedStep = previousStep;
         else delete root.dataset.guidedStep;
       }
@@ -59,15 +65,9 @@ export default function GuidedLoadingExecutionBridge() {
       const custom = event as CustomEvent<CanonicalRunDetail>;
       if (custom.detail?.action !== 'run-loading') return;
 
-      // 장비 일치 가드가 canonical 실행을 비동기로 한 번 더 재생한 경우에도
-      // App의 레거시 guidedRun(박스 강제)로 들어가지 않게 다시 한 번 우회한다.
-      if (custom.detail.guidedCanonicalReplay) {
-        if (dispatchingCanonical) return;
-        if (document.documentElement.dataset.guidedWorkflow !== 'true' || document.documentElement.dataset.guidedStep !== '5') return;
-        event.stopImmediatePropagation();
-        dispatchOutsideLegacyGuidedBranch(custom.detail);
-        return;
-      }
+      // canonical replay는 더 이상 여기서 재가로채지 않는다.
+      // 뒤쪽 integrity/equipment guard와 App까지 동일 이벤트를 그대로 통과시킨다.
+      if (custom.detail.guidedCanonicalReplay) return;
 
       if (document.documentElement.dataset.guidedWorkflow !== 'true' || document.documentElement.dataset.guidedStep !== '5') return;
 
@@ -96,12 +96,12 @@ export default function GuidedLoadingExecutionBridge() {
 
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
         if (cancelled) return;
-        dispatchOutsideLegacyGuidedBranch({
+        dispatchCanonicalReplay({
           ...custom.detail,
           action: 'run-loading',
           guidedCanonicalReplay: true,
           synchronizedStoredState: true,
-        });
+        }, mode);
       }));
     };
 
