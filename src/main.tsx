@@ -54,6 +54,7 @@ import LoadingStrategyDock from './LoadingStrategyDock';
 import PalletStrategyBridge from './PalletStrategyBridge';
 import AutomaticLoadingProgressOverlay from './AutomaticLoadingProgressOverlay';
 import LoadingStrategyAutoRunBridge from './LoadingStrategyAutoRunBridge';
+import GuidedWorkflowConsistencyBridge from './GuidedWorkflowConsistencyBridge';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -135,6 +136,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <PackagingDataIntegrityGuard />
       <ConfirmedPackagingLoadingBridge />
       <AutomaticLoadingProgressOverlay />
+      <GuidedWorkflowConsistencyBridge />
       <LoadingStrategyAutoRunBridge />
       <App />
       <RemainingLengthIndicator />
