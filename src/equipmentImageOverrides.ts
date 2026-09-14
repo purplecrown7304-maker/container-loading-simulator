@@ -55,9 +55,10 @@ export function clearEquipmentAdminCredential() {
 }
 
 export function readEquipmentImageOverrides(): EquipmentImageOverrides {
-  const legacy = readLegacyMap();
-  const remote = serverCache ?? readMap(CACHE_KEY, false);
-  return { ...legacy, ...remote };
+  // 화면에는 서버에서 발급된 HTTPS 이미지 URL만 사용한다.
+  // 예전 브라우저 localStorage의 data URL은 마이그레이션 입력으로만 사용해야 한다.
+  // 그렇지 않으면 관리자의 한 기기에서만 이미지가 보이고 다른 기기에서는 기본 그림이 보이는 문제가 생긴다.
+  return serverCache ?? readMap(CACHE_KEY, false);
 }
 
 export async function refreshEquipmentImageOverrides(): Promise<EquipmentImageOverrides> {
