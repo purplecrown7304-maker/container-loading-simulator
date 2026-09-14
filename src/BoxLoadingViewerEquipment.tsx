@@ -2,6 +2,7 @@ import { Edges } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import BoxContentInspector from './BoxContentInspector';
 import BoxSecuringAids3D from './BoxSecuringAids3D';
 import { cargoColor } from './cargoColors';
 import { CargoFaceInfoLabels } from './CargoFaceInfoLabels';
@@ -30,6 +31,7 @@ import WeightDistributionPanel from './WeightDistributionPanel';
 import './weight-distribution.css';
 
 type IndexedPlacement = { placement: Placement; index: number };
+type BoxInspectorState = { index: number; x: number; y: number };
 
 function CargoGroup({
   items,
@@ -37,6 +39,7 @@ function CargoGroup({
   scale,
   selectedIndex,
   onSelect,
+  onInspect,
   dimmed,
   assignedColor,
 }: {
@@ -45,6 +48,7 @@ function CargoGroup({
   scale: number;
   selectedIndex: number | null;
   onSelect: (index: number) => void;
+  onInspect: (index: number, x: number, y: number) => void;
   dimmed: boolean;
   assignedColor?: string;
 }) {
@@ -74,12 +78,26 @@ function CargoGroup({
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }, [items, container, scale, base, selectedIndex]);
 
-  return <instancedMesh ref={ref} args={[undefined, undefined, items.length]} castShadow={!dimmed} receiveShadow onClick={(event) => {
-    event.stopPropagation();
-    if (event.instanceId === undefined) return;
-    const value = items[event.instanceId];
-    if (value) onSelect(value.index);
-  }}>
+  return <instancedMesh
+    ref={ref}
+    args={[undefined, undefined, items.length]}
+    castShadow={!dimmed}
+    receiveShadow
+    onClick={(event) => {
+      event.stopPropagation();
+      if (event.instanceId === undefined) return;
+      const value = items[event.instanceId];
+      if (value) onSelect(value.index);
+    }}
+    onContextMenu={(event) => {
+      event.stopPropagation();
+      event.nativeEvent.preventDefault();
+      if (event.instanceId === undefined) return;
+      const value = items[event.instanceId];
+      if (!value) return;
+      onInspect(value.index, event.nativeEvent.clientX, event.nativeEvent.clientY);
+    }}
+  >
     <boxGeometry />
     <meshStandardMaterial
       roughness={0.58}
@@ -128,6 +146,7 @@ function BoxOutline({ p, container, scale }: { p: Placement; container: Containe
 
 export default function BoxLoadingViewerEquipment({ result, container }: { result: LoadingResult; container: ContainerSpec }) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [inspector, setInspector] = useState<BoxInspectorState | null>(null);
   const [view, setView] = useState<PreviewView>('free');
   const [showLabels, setShowLabels] = useState(readBoxLabelPreference);
   const [showWeightGraph, setShowWeightGraph] = useState(readWeightGraphPreference);
@@ -150,16 +169,29 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
     return [...map.entries()];
   }, [result.placements]);
   const selected = selectedIndex === null ? undefined : result.placements[selectedIndex];
+  const inspected = inspector === null ? undefined : result.placements[inspector.index];
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
   const weightDistribution = useMemo(() => analyzeWeightDistribution(container, result, 20, 8), [container, result]);
   const securingUsage = certification?.securing ?? null;
 
-  const change = (index: number | null) => { setSelectedIndex(index); selectPlacement(index); };
+  const change = (index: number | null) => {
+    setInspector(null);
+    setSelectedIndex(index);
+    selectPlacement(index);
+  };
+  const inspect = (index: number, x: number, y: number) => {
+    setSelectedIndex(index);
+    selectPlacement(index);
+    setInspector({ index, x, y });
+  };
   const toggleLabels = () => setShowLabels(current => { const next = !current; saveBoxLabelPreference(next); return next; });
   const toggleWeightGraph = () => setShowWeightGraph(current => { const next = !current; saveWeightGraphPreference(next); return next; });
   const toggleWeightCenter = () => setShowWeightCenter(current => { const next = !current; saveWeightCgPreference(next); return next; });
 
-  useEffect(() => setCertification(null), [result, container]);
+  useEffect(() => {
+    setCertification(null);
+    setInspector(null);
+  }, [result, container]);
   useEffect(() => {
     const onCertification = (event: Event) => {
       const next = (event as CustomEvent<InertiaCertification | undefined>).detail;
@@ -172,6 +204,7 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
     const onSelect = (event: Event) => {
       const index = (event as CustomEvent<PlacementSelectDetail>).detail?.index ?? null;
       if (index !== null && !result.placements[index]) return;
+      setInspector(null);
       setSelectedIndex(index);
     };
     window.addEventListener(PLACEMENT_SELECT_EVENT, onSelect);
@@ -198,7 +231,16 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
         <AxisGuide container={container} scale={scale} />
         <ClearanceGuide container={container} placements={result.placements} scale={scale} />
         {groups.map(([id, items]) => <group key={id}>
-          <CargoGroup items={items} container={container} scale={scale} selectedIndex={selectedIndex} onSelect={(index) => change(index)} dimmed={showWeightGraph} assignedColor={cargoMap.get(id)?.displayColor} />
+          <CargoGroup
+            items={items}
+            container={container}
+            scale={scale}
+            selectedIndex={selectedIndex}
+            onSelect={(index) => change(index)}
+            onInspect={inspect}
+            dimmed={showWeightGraph}
+            assignedColor={cargoMap.get(id)?.displayColor}
+          />
           <CargoEdges items={items} container={container} scale={scale} dimmed={showWeightGraph} />
           {showLabels && !showWeightGraph && <CargoFaceInfoLabels placements={items.map(({ placement }) => placement)} container={container} scale={scale} displayName={cargoMap.get(id)?.name ?? id} verticalOffset={0.03} />}
         </group>)}
@@ -213,6 +255,15 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
       {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip"><b>관성 보강 적용</b><span>미끄럼방지 {securingUsage.antiSlipMats}EA</span><span>블로킹재 {securingUsage.dunnageBlocks}EA</span>{securingUsage.loadBars > 0 && <span>고정바 {securingUsage.loadBars}EA</span>}</div>}
       {clearances && !showWeightGraph && <div className="reference-clearance-strip"><span>안쪽 <b>{clearances.back}</b></span><span>문쪽 <b>{clearances.door}</b></span><span>좌측 <b>{clearances.left}</b></span><span>우측 <b>{clearances.right}</b></span><span>천장 <b>{clearances.top}</b></span></div>}
       {selected && !showWeightGraph && <div className="reference-selected"><i style={{ background: cargoColor(selected.cargoId, cargoMap.get(selected.cargoId)?.displayColor) }} /><b>{cargoMap.get(selected.cargoId)?.name || selected.cargoId}</b><span>{selected.weightKg}kg · {(selected.length * selected.width * selected.height).toFixed(3)} CBM · R{addresses[selectedIndex!]?.row} C{addresses[selectedIndex!]?.column} L{addresses[selectedIndex!]?.layer}</span></div>}
+      {inspector && inspected && <BoxContentInspector
+        placement={inspected}
+        cargo={cargoMap.get(inspected.cargoId)}
+        container={container}
+        address={addresses[inspector.index]}
+        position={{ x: inspector.x, y: inspector.y }}
+        color={cargoColor(inspected.cargoId, cargoMap.get(inspected.cargoId)?.displayColor)}
+        onClose={() => setInspector(null)}
+      />}
     </div>
   </section>;
 }
