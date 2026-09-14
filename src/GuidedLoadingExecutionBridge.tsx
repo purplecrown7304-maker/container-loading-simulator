@@ -6,6 +6,7 @@ import { readStoredState, writeStoredState } from './storage';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 
 type CanonicalRunDetail = AppActionDetail & { guidedCanonicalReplay?: boolean };
+const GUIDED_RUN_REJECTED_EVENT = 'container-loading:guided-run-rejected';
 
 function runtimeCargo(cargo: CargoItem[], containerHeight: number) {
   return cargo.map(item => {
@@ -24,6 +25,11 @@ function clickMode(mode: 'boxes' | 'pallets') {
   const button = [...document.querySelectorAll<HTMLButtonElement>('.mode-tabs button')]
     .find(item => (item.textContent ?? '').trim() === label);
   if (button && !button.classList.contains('active')) button.click();
+}
+
+function rejectRun(message: string) {
+  window.dispatchEvent(new CustomEvent(GUIDED_RUN_REJECTED_EVENT, { detail: { message } }));
+  window.alert(message);
 }
 
 /**
@@ -70,7 +76,7 @@ export default function GuidedLoadingExecutionBridge() {
       const stored = readStoredState();
       if (!confirmed.length || !shipment || !stored) {
         event.stopImmediatePropagation();
-        window.alert('제품 포장 확정 데이터가 없습니다. 제품 포장 단계에서 다시 확정하세요.');
+        rejectRun('제품 포장 확정 데이터가 없습니다. 제품 포장 단계에서 다시 확정하세요.');
         return;
       }
 
@@ -78,7 +84,7 @@ export default function GuidedLoadingExecutionBridge() {
       const actual = confirmed.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
       if (expected !== actual) {
         event.stopImmediatePropagation();
-        window.alert(`제품 포장 ${expected} BOX와 자동 적재 입력 ${actual} BOX가 다릅니다. 자동 적재를 중단했습니다.`);
+        rejectRun(`제품 포장 ${expected} BOX와 자동 적재 입력 ${actual} BOX가 다릅니다. 자동 적재를 중단했습니다.`);
         return;
       }
 
