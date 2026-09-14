@@ -202,8 +202,8 @@ function assignmentFromBox(container: ContainerSpec, product: ProductItem, box: 
   const operationalStack = source === 'generated' ? 1 : declaredStack;
   const operationalTopLoad = source === 'generated' ? 0 : box.maxTopLoadKg;
 
-  // 자동설계 규격의 강도는 아직 검증되지 않았으므로 후보 비교만 목표 강도를 가정해 수행한다.
-  // 실제 메인 적재로 넘기는 assignment는 1단/0kg로 fail-closed 된다.
+  // 포장 후보의 예상 적재 수량은 실제 자동 적재에 넘기는 것과 동일한 강도/적층 제한으로 계산한다.
+  // 자동설계 미검증 박스는 여기서도 1단/0kg로 계산해야 포장 화면과 자동 적재 결과가 어긋나지 않는다.
   const simulationCargo: CargoItem = {
     id: `PKG-${product.id}`,
     name: `${product.name} · ${box.name}`,
@@ -212,8 +212,8 @@ function assignmentFromBox(container: ContainerSpec, product: ProductItem, box: 
     height: box.outerHeight,
     weightKg: grossWeightKg,
     quantity: boxesNeeded,
-    maxStackLayers: source === 'generated' ? geometryStack : operationalStack,
-    maxTopLoadKg: source === 'generated' ? requiredTopLoadKg : operationalTopLoad,
+    maxStackLayers: operationalStack,
+    maxTopLoadKg: operationalTopLoad,
     allowRotation: true,
   };
   const simulation = loadContainer(container, [simulationCargo], { strategy: 'capacity', publish: false });
