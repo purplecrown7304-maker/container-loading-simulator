@@ -76,11 +76,17 @@ function CargoGroup({
     });
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    // InstancedMesh의 배치 행렬을 런타임에 갱신한 뒤 경계값도 다시 계산한다.
+    // 자동 적재 완료 후 박스가 실제로 존재하는데 frustum culling 때문에 빈 캔버스로
+    // 보이는 상황을 막기 위한 방어다.
+    mesh.computeBoundingBox();
+    mesh.computeBoundingSphere();
   }, [items, container, scale, base, selectedIndex]);
 
   return <instancedMesh
     ref={ref}
     args={[undefined, undefined, items.length]}
+    frustumCulled={false}
     castShadow={!dimmed}
     receiveShadow
     onClick={(event) => {
@@ -173,6 +179,7 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
   const weightDistribution = useMemo(() => analyzeWeightDistribution(container, result, 20, 8), [container, result]);
   const securingUsage = certification?.securing ?? null;
+  const remainingUnits = useMemo(() => result.remaining.reduce((sum, item) => sum + Math.max(0, item.quantity), 0), [result.remaining]);
 
   const change = (index: number | null) => {
     setInspector(null);
@@ -223,6 +230,11 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
         showWeightCenter={showWeightCenter}
         onToggleWeightCenter={toggleWeightCenter}
       />
+      {result.placements.length > 0 && <div style={{ position: 'absolute', zIndex: 8, top: 58, left: 14, display: 'flex', gap: 8, alignItems: 'center', padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,.92)', border: '1px solid rgba(15,98,254,.18)', boxShadow: '0 4px 14px rgba(31,41,55,.09)', pointerEvents: 'none', fontSize: 12 }}>
+        <b style={{ color: '#0f62fe' }}>자동 적재 배치</b>
+        <span><strong>{result.placements.length.toLocaleString()}</strong> BOX</span>
+        <span>미적재 <strong>{remainingUnits.toLocaleString()}</strong> BOX</span>
+      </div>}
       <Canvas shadows camera={{ position: [7.6, 4.8, 7.2], fov: 46 }} dpr={[1, 1.25]} gl={{ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true }} onPointerMissed={() => change(null)}>
         <color attach="background" args={['#edf3f9']} />
         <ambientLight intensity={2.1} />
