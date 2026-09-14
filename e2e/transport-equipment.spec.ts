@@ -81,10 +81,45 @@ test('selected equipment persists after reload', async ({ page }) => {
   await page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' }).click();
   const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
   await dialog.getByRole('button', { name: /40' OPEN TOP/ }).click();
-  await dialog.getByRole('button', { name: '닫기' }).click();
+  if (await dialog.isVisible()) await dialog.getByRole('button', { name: '닫기' }).click();
   await expect(page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' })).toContainText('40FT Open Top');
 
   await page.reload();
   await expect(page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' })).toContainText('40FT Open Top');
   await expect(page.locator('.transport-dashboard-setting')).toContainText('40FT Open Top');
+});
+
+test('equipment selection is not reverted by stale dashboard or storage synchronization', async ({ page }) => {
+  await page.addInitScript(() => localStorage.clear());
+  await page.goto('/');
+
+  await page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' }).click();
+  let dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
+  await dialog.getByRole('button', { name: /20' STANDARD/ }).click();
+  await page.waitForTimeout(120);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const raw = localStorage.getItem('container-loading:transport-equipment-v1');
+    return raw ? JSON.parse(raw).id : '';
+  })).toBe('20-standard');
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('container-loading-simulator:storage-updated'));
+  });
+  await page.waitForTimeout(120);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const raw = localStorage.getItem('container-loading:transport-equipment-v1');
+    return raw ? JSON.parse(raw).id : '';
+  })).toBe('20-standard');
+
+  await page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' }).click();
+  dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
+  await dialog.getByRole('button', { name: /45' HIGH-CUBE/ }).click();
+  await page.waitForTimeout(120);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const raw = localStorage.getItem('container-loading:transport-equipment-v1');
+    return raw ? JSON.parse(raw).id : '';
+  })).toBe('45-high-cube');
 });
