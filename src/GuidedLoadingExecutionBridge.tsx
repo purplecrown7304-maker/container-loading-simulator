@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { readUserLoadingStrategy } from './engine/loadingStrategy';
 import type { CargoItem } from './engine/types';
 import { readGuidedLoadingUnit } from './guidedLoadingUnit';
 import { readConfirmedPackagingCargo, readShipmentInstructionSnapshot } from './shipmentInstruction';
@@ -39,47 +40,54 @@ function rejectRun(message: string) {
 }
 
 /**
- * STEP 5의 계산 입력은 STEP 3에서 확정한 shipmentInstruction cargo 하나만 사용한다.
- * 상자/파렛트 선택은 React mode 탭까지 실제로 반영된 것을 확인한 뒤 replay한다.
- * 숨겨진 탭의 state 반영보다 replay가 먼저 실행되면 사용자가 파렛트를 골라도 박스로
- * 계산되는 경쟁 조건이 생길 수 있으므로 최대 몇 프레임 동안 선택 상태를 확인한다.
+ * STEP 5 계산 입력은 STEP 3에서 확정한 shipmentInstruction cargo 하나만 사용한다.
+ * 실행 순간의 적재 단위와 적재 전략을 root dataset에 snapshot으로 고정해 진행창/결과 표시가
+ * 이후 UI 상태와 섞이지 않게 한다. 상자/파렛트 탭도 실제 React mode가 바뀐 뒤 replay한다.
  */
 export default function GuidedLoadingExecutionBridge() {
   useEffect(() => {
     let cancelled = false;
+    let replayPending = false;
 
     const dispatchCanonicalReplay = (detail: CanonicalRunDetail, mode: 'boxes' | 'pallets') => {
-      if (mode === 'boxes') {
-        window.dispatchEvent(new CustomEvent<CanonicalRunDetail>(APP_ACTION_EVENT, { detail }));
-        return;
-      }
-
-      const root = document.documentElement;
-      const previousStep = root.dataset.guidedStep;
-      root.dataset.guidedStep = '0';
       try {
-        window.dispatchEvent(new CustomEvent<CanonicalRunDetail>(APP_ACTION_EVENT, { detail }));
+        if (mode === 'boxes') {
+          window.dispatchEvent(new CustomEvent<CanonicalRunDetail>(APP_ACTION_EVENT, { detail }));
+          return;
+        }
+
+        // App의 기존 guidedRun 분기가 박스 모드로 고정되어 있어 파렛트만 호환 우회를 사용한다.
+        // mode 탭 state는 아래 settle 확인을 통과한 뒤이므로 step 0에서 일반 파렛트 실행 경로로 보낸다.
+        const root = document.documentElement;
+        const previousStep = root.dataset.guidedStep;
+        root.dataset.guidedStep = '0';
+        try {
+          window.dispatchEvent(new CustomEvent<CanonicalRunDetail>(APP_ACTION_EVENT, { detail }));
+        } finally {
+          if (previousStep) root.dataset.guidedStep = previousStep;
+          else delete root.dataset.guidedStep;
+        }
       } finally {
-        if (previousStep) root.dataset.guidedStep = previousStep;
-        else delete root.dataset.guidedStep;
+        replayPending = false;
       }
     };
 
     const replayAfterModeSettles = (detail: CanonicalRunDetail, mode: 'boxes' | 'pallets', attempt = 0) => {
-      if (cancelled) return;
+      if (cancelled) { replayPending = false; return; }
       clickMode(mode);
       window.requestAnimationFrame(() => {
-        if (cancelled) return;
+        if (cancelled) { replayPending = false; return; }
         if (activeMode() !== mode) {
           if (attempt < 5) {
             replayAfterModeSettles(detail, mode, attempt + 1);
             return;
           }
+          replayPending = false;
           rejectRun(`${mode === 'pallets' ? '파렛트' : '상자'} 적재 모드 전환이 완료되지 않아 자동 적재를 중단했습니다.`);
           return;
         }
         window.requestAnimationFrame(() => {
-          if (cancelled) return;
+          if (cancelled) { replayPending = false; return; }
           dispatchCanonicalReplay(detail, mode);
         });
       });
@@ -89,11 +97,14 @@ export default function GuidedLoadingExecutionBridge() {
       const custom = event as CustomEvent<CanonicalRunDetail>;
       if (custom.detail?.action !== 'run-loading') return;
 
-      // canonical replay는 더 이상 여기서 재가로채지 않는다.
-      // 뒤쪽 integrity/equipment guard와 App까지 동일 이벤트를 그대로 통과시킨다.
+      // canonical replay는 뒤쪽 integrity/equipment guard와 App까지 한 번만 통과시킨다.
       if (custom.detail.guidedCanonicalReplay) return;
-
       if (document.documentElement.dataset.guidedWorkflow !== 'true' || document.documentElement.dataset.guidedStep !== '5') return;
+
+      if (replayPending) {
+        event.stopImmediatePropagation();
+        return;
+      }
 
       const confirmed = readConfirmedPackagingCargo();
       const shipment = readShipmentInstructionSnapshot(confirmed);
@@ -113,7 +124,12 @@ export default function GuidedLoadingExecutionBridge() {
       }
 
       event.stopImmediatePropagation();
+      replayPending = true;
+      const root = document.documentElement;
       const mode = readGuidedLoadingUnit();
+      const strategy = readUserLoadingStrategy();
+      root.dataset.guidedRunUnit = mode;
+      root.dataset.guidedRunStrategy = strategy;
       const exactCargo = runtimeCargo(confirmed, stored.container.height);
       writeStoredState({ container: stored.container, cargo: exactCargo }, true);
 
