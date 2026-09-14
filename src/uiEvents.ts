@@ -1,4 +1,4 @@
-import { readStoredState, writeStoredState } from './storage';
+import { readStoredState } from './storage';
 
 export const APP_ACTION_EVENT = 'container-loading:app-action';
 export const OPEN_WORKSPACE_EVENT = 'container-loading:open-workspace';
@@ -19,7 +19,7 @@ export type ExcelImportMode = 'replace' | 'merge';
 
 export type AppActionDetail = {
   action: AppAction;
-  /** 자동 적재 직전에 저장된 포장 cargo를 App으로 다시 주입한 액션인지 표시한다. */
+  /** 자동 적재 직전에 저장된 포장 cargo를 App이 canonical 입력으로 읽어야 하는 액션인지 표시한다. */
   synchronizedStoredState?: boolean;
 };
 export type WorkspaceOpenDetail = { tab: WorkspaceTab };
@@ -33,17 +33,15 @@ function emitAppAction(action: AppAction, detail: Omit<AppActionDetail, 'action'
 }
 
 /**
- * 제품 포장 확정 시 localStorage에 저장한 cargo가 가이드 작업의 단일 원본이다.
- * 자동 적재 실행 직전에 같은 저장 경로(writeStoredState)를 다시 사용해 App 상태를
- * 동기화한다. 이렇게 해야 이전 result/physics 캐시도 함께 무효화되어 저장 이벤트와
- * 계산 이벤트가 서로 다른 상태를 보지 않는다.
+ * 가이드 자동 적재는 App/ExecutionBridge가 localStorage의 확정 포장 cargo를 직접 읽는다.
+ * 따라서 run-loading 직전에 같은 상태를 writeStoredState(..., true)로 다시 저장할 이유가 없다.
+ * 그 중복 저장은 STORAGE_UPDATED_EVENT를 발생시켜 방금 완료된 result를 pending으로 되돌릴 수 있었다.
  */
 export function dispatchAppAction(action: AppAction): void {
   if (action === 'run-loading' && document.documentElement.dataset.guidedStep === '5') {
     const packagedState = readStoredState();
     if (packagedState) {
-      writeStoredState(packagedState, true);
-      window.setTimeout(() => emitAppAction(action, { synchronizedStoredState: true }), 0);
+      emitAppAction(action, { synchronizedStoredState: true });
       return;
     }
   }
