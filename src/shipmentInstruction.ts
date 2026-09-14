@@ -32,6 +32,8 @@ export type ShipmentInstructionSnapshot = {
   createdAt: string;
   cargoSignature: string;
   lines: ShipmentInstructionLine[];
+  /** 제품 포장 단계에서 확정된 자동 적재 입력 원본. 다른 박스 목록이나 이전 작업과 절대 합치지 않는다. */
+  cargo?: CargoItem[];
 };
 
 type ResultLike = {
@@ -68,6 +70,10 @@ function cargoSignature(cargo: CargoItem[]) {
       item.weightKg.toFixed(5),
     ].join(':'))
     .join('|');
+}
+
+function cloneCargo(cargo: CargoItem[]) {
+  return cargo.map(item => ({ ...item }));
 }
 
 export function writeShipmentInstructionSnapshot(
@@ -128,6 +134,7 @@ export function writeShipmentInstructionSnapshot(
     createdAt: new Date().toISOString(),
     cargoSignature: cargoSignature(cargo),
     lines,
+    cargo: cloneCargo(cargo),
   };
   try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot)); } catch { /* storage unavailable */ }
 }
@@ -144,6 +151,14 @@ export function readShipmentInstructionSnapshot(cargo?: CargoItem[]): ShipmentIn
   } catch {
     return null;
   }
+}
+
+/** 자동 적재는 이 값만 사용한다. 저장된 개인 박스/이전 작업 cargo를 섞지 않는다. */
+export function readConfirmedPackagingCargo(): CargoItem[] {
+  const snapshot = readShipmentInstructionSnapshot();
+  if (!snapshot?.cargo?.length) return [];
+  if (snapshot.cargoSignature !== cargoSignature(snapshot.cargo)) return [];
+  return cloneCargo(snapshot.cargo);
 }
 
 function loadedCounts(placements: Placement[]) {
@@ -236,6 +251,6 @@ export function buildShipmentInstructionSection(cargo: CargoItem[], result: Resu
     <div class="shipment-head"><h2>출하 지시</h2><span>${generatedAt.toLocaleString('ko-KR')} · 일반 화물 기준</span></div>
     <div class="shipment-manual"><div><span>거래처</span><b>________________</b></div><div><span>목적지</span><b>________________</b></div><div><span>차량/컨테이너 No.</span><b>________________</b></div><div><span>출고 예정</span><b>________________</b></div></div>
     <div class="shipment-fallback">제품 흐름에서 생성된 출하정보가 없어 현재 적재 화물 기준으로 출하지시를 표시합니다.</div>
-    <table class="shipment-table"><thead><tr><th>화물</th><th>출하수량</th><th colspan="2">규격/중량</th><th>지시수량</th><th>적재결과</th><th>상태</th><th>확인</th></tr></thead><tbody>${rows}</tbody></table>
+    <table class="shipment-table"><thead><tr><th>화물</th><th>출하수량</th><th colspan="2">규격/중량</th><th>필요단위</th><th>적재결과</th><th>상태</th><th>확인</th></tr></thead><tbody>${rows}</tbody></table>
   </section>`;
 }
