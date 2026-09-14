@@ -135,25 +135,15 @@ function StepRail({ step, furthest, selectionCount, packagedReady, finalReady, r
     <h2>작업 준비</h2>
     <div className="guided-step-list">
       {steps.map(item => {
-        const complete = item.id === 1
-          ? step > 1
-          : item.id === 2
-            ? selectionCount > 0 && furthest >= 3
-            : item.id === 3
-              ? furthest >= 4
-              : item.id === 4
-                ? furthest >= 5
-                : item.id === 5
-                  ? finalReady
-                  : finalReady;
+        const complete = item.id < step || (item.id === 3 && packagedReady && step > 3) || (item.id === 6 && finalReady);
         const current = item.id === step;
         const enabled = item.id <= furthest;
         const meta = item.id === 1 ? '공간 확인'
           : item.id === 2 ? (selectionCount ? `${selectionCount}종 선택` : '미선택')
-          : item.id === 3 ? (furthest >= 4 ? '포장 확정' : packagedReady ? '포장안 준비' : '대기')
-          : item.id === 4 ? (furthest >= 5 ? '방식 확정' : furthest >= 4 ? '선택 대기' : '포장 확정 필요')
-          : item.id === 5 ? (finalReady ? '계산 완료' : running ? '계산 중' : furthest >= 5 ? '실행 가능' : '포장 확정 필요')
-          : finalReady ? '확인 가능' : '대기';
+          : item.id === 3 ? (packagedReady ? '포장안 준비' : '대기')
+          : item.id === 4 ? (step > 4 ? '방식 확정' : '선택 대기')
+          : item.id === 5 ? (finalReady ? '계산 완료' : running ? '계산 중' : '대기')
+          : finalReady ? '확인 가능' : '-';
         return <button key={item.id} type="button" className={`${current ? 'current' : ''} ${complete ? 'complete' : ''}`} disabled={!enabled} onClick={() => enabled && onStep(item.id)}>
           <span className="guided-step-dot">{complete ? '✓' : item.id}</span>
           <span className="guided-step-copy"><b>{item.label}</b><small>{meta}</small></span>
@@ -388,7 +378,7 @@ function JobSummary({ live, mode, finalReady, running, selection }: {
   const usedVolume = boxResult?.usedVolumeM3 ?? 0;
   const fillRate = maxVolume > 0 && usedVolume > 0 ? usedVolume / maxVolume * 100 : 0;
   const status = finalReady ? '작업 가능' : running ? '검사 중' : loaded ? '검증 대기' : '대기';
-  return <section className="guided-job-summary"><h2>현재 작업</h2><dl><div><dt>적재공간</dt><dd>{equipment.shortName}</dd></div><div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div><div><dt>포장 적재단위</dt><dd>{live.cargo.length ? `${live.cargo.reduce((sum, item) => sum + item.quantity, 0).toLocaleString()} 개` : '-'}</dd></div><div><dt>적재</dt><dd>{finalReady && loaded ? `${loaded} EA` : '-'}</dd></div><div><dt>미적재</dt><dd>{finalReady && (boxResult || palletSnapshot) ? `${remaining} EA` : '-'}</dd></div><div><dt>총 중량</dt><dd>{finalReady && weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div><div><dt>공간 사용률</dt><dd>{finalReady && mode === 'boxes' && usedVolume ? `${fillRate.toFixed(1)}%` : '-'}</dd></div><div className="guided-status-row"><dt>상태</dt><dd><i className={finalReady ? 'good' : running ? 'running' : ''}/>{status}</dd></div></dl></section>;
+  return <section className="guided-job-summary"><h2>현재 작업</h2><dl><div><dt>적재공간</dt><dd>{equipment.shortName}</dd></div><div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div><div><dt>포장 적재단위</dt><dd>{live.cargo.length ? `${live.cargo.length}종` : '-'}</dd></div><div><dt>적재</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div><div><dt>미적재</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div><div><dt>총 중량</dt><dd>{weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div><div><dt>공간 사용률</dt><dd>{mode === 'boxes' && usedVolume ? `${fillRate.toFixed(1)}%` : '-'}</dd></div><div className="guided-status-row"><dt>상태</dt><dd><i className={finalReady ? 'good' : running ? 'running' : ''}/>{status}</dd></div></dl></section>;
 }
 
 function BottomBar({ step, selectionCount, packagedReady, running, finalReady, onAdvance, onApplyPackaging }: {
@@ -411,15 +401,6 @@ function BottomBar({ step, selectionCount, packagedReady, running, finalReady, o
     else { label = running ? '자동 적재 계산 중…' : '자동 적재 실행'; disabled = running; action = () => dispatchAppAction('run-loading'); }
   } else if (step === 6) { label = '통합 출하·적재 작업지시서 보기'; disabled = !finalReady; action = () => dispatchAppAction('print-report'); }
   return <div className="guided-bottom-bar"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 6 ? '  ›' : ''}</button><span className="guided-bottom-spacer"/></div>;
-}
-
-function readGuidedValidity(): StepId {
-  const parsed = Number(document.documentElement.dataset.guidedValidThrough || 1);
-  return Math.max(1, Math.min(6, Number.isFinite(parsed) ? Math.round(parsed) : 1)) as StepId;
-}
-
-function readGuidedResultFresh() {
-  return document.documentElement.dataset.guidedResultFresh === 'true';
 }
 
 export default function GuidedWorkflowShell() {
@@ -480,14 +461,6 @@ export default function GuidedWorkflowShell() {
       setRunning(false);
       setFinalReady(false);
     };
-    const syncGuidedState = () => {
-      const validThrough = readGuidedValidity();
-      const fresh = readGuidedResultFresh();
-      setFurthest(validThrough);
-      setFinalReady(current => fresh ? current : false);
-      setStep(current => current > validThrough ? validThrough : current);
-    };
-
     window.addEventListener(LOADING_RESULT_EVENT, refresh);
     window.addEventListener(STORAGE_UPDATED_EVENT, refresh);
     window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
@@ -495,26 +468,18 @@ export default function GuidedWorkflowShell() {
     window.addEventListener(LOCAL_OPERATOR_EVENT, refreshIdentity);
     window.addEventListener(ADMIN_ACCESS_EVENT, refreshIdentity);
     window.addEventListener('container-loading:pallet-snapshot-updated', refresh);
-
-    const guidedObserver = new MutationObserver(syncGuidedState);
-    guidedObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-guided-valid-through', 'data-guided-result-fresh'] });
-
     const observer = new MutationObserver(() => {
       const rows = [...document.querySelectorAll<HTMLElement>('.inspection-status-table tbody tr')];
       const workOrderRow = rows.find(row => (row.textContent ?? '').includes('작업지시서'));
-      const inspectionReady = Boolean(workOrderRow && /발급 가능|보기 가능|완료|경고 발급/.test(workOrderRow.textContent ?? ''));
-      const fresh = readGuidedResultFresh();
-      const ready = fresh && inspectionReady;
+      const ready = Boolean(workOrderRow && /발급 가능|보기 가능|완료|경고 발급/.test(workOrderRow.textContent ?? ''));
       const activeRun = Boolean(document.querySelector('.operation-progress-backdrop')) || Boolean(document.querySelector('.calculation-overlay')) || rows.some(row => /진행/.test(row.textContent ?? ''));
       setFinalReady(ready);
       setRunning(activeRun && !ready);
-      if (ready) setFurthest(6);
+      if (ready) setFurthest(previous => Math.max(previous, 6) as StepId);
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'disabled'] });
     refresh();
-    syncGuidedState();
     return () => {
-      guidedObserver.disconnect();
       observer.disconnect();
       window.removeEventListener(LOADING_RESULT_EVENT, refresh);
       window.removeEventListener(STORAGE_UPDATED_EVENT, refresh);

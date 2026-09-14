@@ -7,10 +7,10 @@ import {
 import {
   LOADING_STRATEGY_DECISION_EVENT,
   LOADING_STRATEGY_SELECTION_EVENT,
+  readStrategyDecision,
   readUserLoadingStrategy,
   type UserLoadingStrategy,
 } from './engine/loadingStrategy';
-import type { CargoItem, ContainerSpec } from './engine/types';
 import { clearLatestInertiaCertification } from './inertiaCertification';
 import { clearPhysicsTarget } from './physicsTarget';
 import { LOCAL_OPERATOR_EVENT } from './localOperator';
@@ -26,11 +26,11 @@ import {
   type StoredState,
 } from './storage';
 import { TRANSPORT_EQUIPMENT_EVENT } from './transportEquipment';
-import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
+import { APP_ACTION_EVENT, dispatchAppAction, type AppActionDetail } from './uiEvents';
 
 type RuntimeLoadingDetail = {
-  container: ContainerSpec;
-  cargo: CargoItem[];
+  container: { length: number; width: number; height: number; maxPayloadKg: number };
+  cargo: Array<{ quantity: number }>;
   result: {
     placements: unknown[];
     remaining: Array<{ quantity: number }>;
@@ -48,7 +48,6 @@ type RuntimeWindow = Window & {
 
 type StepId = 1 | 2 | 3 | 4 | 5 | 6;
 
-const SHIPMENT_SNAPSHOT_KEY = 'container-loading-shipment-instruction-v1';
 const PUBLIC_STRATEGY_LABELS: Record<UserLoadingStrategy, string> = {
   auto: '균형 최적화형',
   capacity: '공간 활용 우선형',
@@ -59,14 +58,9 @@ const PUBLIC_STRATEGY_LABELS: Record<UserLoadingStrategy, string> = {
 };
 
 const clampStep = (value: number): StepId => Math.max(1, Math.min(6, Math.round(value))) as StepId;
-const near = (a: number, b: number, tolerance = 0.001) => Math.abs(a - b) <= tolerance;
 
 function currentStep(): StepId {
   return clampStep(Number(document.documentElement.dataset.guidedStep || 1));
-}
-
-function selectionCount() {
-  return Object.keys(readProductSelection()).length;
 }
 
 function packagedUnitCount(state = readStoredState()) {
@@ -75,31 +69,6 @@ function packagedUnitCount(state = readStoredState()) {
 
 function hasConfirmedPackaging(state = readStoredState()) {
   return Boolean(state?.cargo?.length && readShipmentInstructionSnapshot(state.cargo));
-}
-
-function cargoSignature(cargo: CargoItem[]) {
-  return [...cargo]
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .map(item => [
-      item.id,
-      item.quantity,
-      item.length.toFixed(5),
-      item.width.toFixed(5),
-      item.height.toFixed(5),
-      item.weightKg.toFixed(5),
-    ].join(':'))
-    .join('|');
-}
-
-function latestResultMatchesCurrentInput() {
-  const stored = readStoredState();
-  const latest = (window as RuntimeWindow).__containerLoadingLatestResult;
-  if (!stored?.cargo?.length || !latest?.cargo?.length) return false;
-  const sameContainer = near(stored.container.length, latest.container.length)
-    && near(stored.container.width, latest.container.width)
-    && near(stored.container.height, latest.container.height)
-    && near(stored.container.maxPayloadKg, latest.container.maxPayloadKg, 1);
-  return sameContainer && cargoSignature(stored.cargo) === cargoSignature(latest.cargo);
 }
 
 function clearRuntimeOutputs() {
@@ -113,30 +82,29 @@ function clearRuntimeOutputs() {
   document.documentElement.dataset.guidedResultFresh = 'false';
 }
 
-function clearConfirmedPackagingSnapshot() {
-  try { window.localStorage.removeItem(SHIPMENT_SNAPSHOT_KEY); } catch { /* storage unavailable */ }
-}
-
 function setText(element: Element | null, text: string) {
   if (element && element.textContent !== text) element.textContent = text;
 }
 
 /**
- * Guided workflow single source of truth.
+ * 작업 준비 1~6단계를 하나의 의존성 체인으로 묶는다.
  *
- * 1 적재공간 -> 2 제품 -> 3 포장 -> 4 방식 -> 5 자동적재 -> 6 결과
- * 앞 단계가 바뀌면 그 뒤 단계의 확정값과 결과를 즉시 폐기한다. 화면 표시, 버튼 잠금,
- * 실제 자동 적재 입력이 같은 validity/resultFresh 상태를 보게 해서 이전 계산이 섞이지 않게 한다.
+ * 적재공간 -> 제품 -> 포장 -> 방식 -> 자동적재 -> 결과 순서에서 앞 단계가 바뀌면
+ * 뒤 단계의 결과를 즉시 무효화한다. 각 화면이 서로 다른 storage/event를 사용하더라도
+ * 이전 결과를 새 작업처럼 재사용하거나 완료 단계로 건너뛰지 못하게 한다.
  */
 export default function GuidedWorkflowConsistencyBridge() {
   useEffect(() => {
     let validThrough: StepId = 2;
     let frame = 0;
-    let lastBlockedAction = '';
 
+    const selectionCount = () => Object.keys(readProductSelection()).length;
     const inferInitialValidity = () => {
-      if (hasConfirmedPackaging()) return 5 as StepId;
-      return (selectionCount() > 0 ? 3 : 2) as StepId;
+      let inferred: StepId = selectionCount() > 0 ? 3 : 2;
+      if (hasConfirmedPackaging()) inferred = 5;
+      const runtime = window as RuntimeWindow;
+      if (runtime.__containerLoadingLatestResult && readStrategyDecision()) inferred = 6;
+      return inferred;
     };
 
     const syncVisibleState = () => {
@@ -145,39 +113,26 @@ export default function GuidedWorkflowConsistencyBridge() {
         document.documentElement.dataset.guidedValidThrough = String(validThrough);
         const strategy = readUserLoadingStrategy();
         const strategyLabel = PUBLIC_STRATEGY_LABELS[strategy] ?? strategy;
-        const fresh = document.documentElement.dataset.guidedResultFresh === 'true' && validThrough >= 6;
         const units = validThrough >= 4 ? packagedUnitCount() : 0;
+        const fresh = document.documentElement.dataset.guidedResultFresh === 'true';
+        const runtime = window as RuntimeWindow;
+        const latest = runtime.__containerLoadingLatestResult;
         document.documentElement.dataset.guidedStrategy = strategy;
         document.documentElement.dataset.guidedPackageUnits = String(units);
 
         const buttons = [...document.querySelectorAll<HTMLButtonElement>('.guided-step-list button')];
         buttons.forEach((button, index) => {
-          const stage = index + 1;
-          const blocked = stage > validThrough;
+          const step = index + 1;
+          const blocked = step > validThrough;
           button.dataset.syncBlocked = blocked ? 'true' : 'false';
           if (blocked) button.title = '앞 단계를 다시 확정해야 진행할 수 있습니다.';
           else if (button.title === '앞 단계를 다시 확정해야 진행할 수 있습니다.') button.removeAttribute('title');
         });
 
-        setText(buttons[2]?.querySelector('small') ?? null, validThrough >= 4 ? '포장 확정' : selectionCount() > 0 ? '포장 필요' : '대기');
-        setText(buttons[3]?.querySelector('small') ?? null, validThrough >= 5 ? strategyLabel : validThrough >= 4 ? '선택 대기' : '포장 확정 필요');
-        setText(buttons[4]?.querySelector('small') ?? null, fresh ? '계산 완료' : validThrough >= 5 ? '실행 가능' : '포장 확정 필요');
-        setText(buttons[5]?.querySelector('small') ?? null, fresh ? '확인 가능' : '대기');
-
-        if (!fresh && buttons[5]) {
-          buttons[5].classList.remove('complete');
-          setText(buttons[5].querySelector('.guided-step-dot'), '6');
-        }
-
-        // InspectionStatusPanel은 미검증 작업도 "경고 발급 가능"이라고 표시할 수 있다.
-        // 가이드 흐름에서는 그것을 "결과 완료"로 해석하면 안 되므로 현재 결과가 stale이면 대기로 강제한다.
-        const rows = [...document.querySelectorAll<HTMLElement>('.inspection-status-table tbody tr')];
-        const workOrderRow = rows.find(row => (row.textContent ?? '').includes('작업지시서'));
-        if (!fresh && workOrderRow) {
-          setText(workOrderRow.querySelector('td:last-child strong'), '대기');
-          const note = workOrderRow.querySelector('td:nth-child(2) small');
-          if (note) setText(note, '현재 포장·적재 방식으로 자동 적재를 완료한 뒤 갱신됩니다.');
-        }
+        const strategyMeta = buttons[3]?.querySelector('small');
+        if (strategyMeta) setText(strategyMeta, validThrough >= 5 ? strategyLabel : '선택 대기');
+        const loadingMeta = buttons[4]?.querySelector('small');
+        if (loadingMeta) setText(loadingMeta, fresh && validThrough >= 6 ? '계산 완료' : validThrough >= 5 ? '실행 가능' : '포장 확정 필요');
 
         const summaryRows = [...document.querySelectorAll<HTMLElement>('.guided-job-summary dl>div')];
         for (const row of summaryRows) {
@@ -188,16 +143,21 @@ export default function GuidedWorkflowConsistencyBridge() {
             setText(value, units > 0 ? `${units.toLocaleString()} 개` : '-');
             continue;
           }
-          if (!fresh && ['적재', '미적재', '공간 사용률'].includes(label ?? '')) setText(value, '-');
-          if (!fresh && label === '총 중량') setText(value, `- / ${(readStoredState()?.container.maxPayloadKg ?? 0).toLocaleString()} kg`);
+          if (!fresh && ['적재', '미적재', '총 중량', '공간 사용률'].includes(label ?? '')) {
+            setText(value, label === '총 중량' ? `- / ${(latest?.container.maxPayloadKg ?? readStoredState()?.container.maxPayloadKg ?? 0).toLocaleString()} kg` : '-');
+            continue;
+          }
           if (!fresh && label === '상태') setText(value, '대기');
         }
 
         const autoStage = document.querySelector<HTMLElement>('.guided-auto-loading-stage');
         if (autoStage) {
-          setText(autoStage.querySelector('.guided-panel-title p'), `선택 방식: ${strategyLabel} · 확정 포장 ${units.toLocaleString()}개를 같은 조건으로 계산합니다.`);
-          setText(autoStage.querySelector('.guided-empty b'), `${strategyLabel} · 자동 적재 준비 완료`);
-          setText(autoStage.querySelector('.guided-empty span'), `포장 확정 수량 ${units.toLocaleString()}개 기준으로 실제 배치와 물리 검증을 실행합니다.`);
+          const description = autoStage.querySelector('.guided-panel-title p');
+          setText(description, `선택 방식: ${strategyLabel} · 확정 포장 ${units.toLocaleString()}개를 같은 조건으로 계산합니다.`);
+          const emptyTitle = autoStage.querySelector('.guided-empty b');
+          const emptyText = autoStage.querySelector('.guided-empty span');
+          setText(emptyTitle, `${strategyLabel} · 자동 적재 준비 완료`);
+          setText(emptyText, `포장 확정 수량 ${units.toLocaleString()}개 기준으로 실제 배치와 물리 검증을 실행합니다.`);
         }
 
         const resultStage = document.querySelector<HTMLElement>('.guided-result-stage');
@@ -223,30 +183,39 @@ export default function GuidedWorkflowConsistencyBridge() {
       });
     };
 
-    const invalidatePackagingAndResults = (returnTo: StepId) => {
-      clearConfirmedPackagingSnapshot();
+    const invalidateFromEquipment = () => {
       clearRuntimeOutputs();
-      setValidity(selectionCount() > 0 ? 3 : 2);
-      forceBackTo(returnTo);
+      setValidity(2);
+      forceBackTo(1);
     };
 
-    const invalidateFromEquipment = () => invalidatePackagingAndResults(1);
-    const invalidateFromSelection = () => invalidatePackagingAndResults(2);
-    const invalidateFromPackagingChoice = () => invalidatePackagingAndResults(3);
+    const invalidateFromSelection = () => {
+      clearRuntimeOutputs();
+      setValidity(selectionCount() > 0 ? 3 : 2);
+      forceBackTo(2);
+    };
+
+    const invalidateFromPackagingChoice = () => {
+      clearRuntimeOutputs();
+      setValidity(3);
+      forceBackTo(3);
+    };
 
     const onStorageUpdated = (event: Event) => {
       const state = (event as CustomEvent<StoredState>).detail ?? readStoredState();
+      // '포장 확정'은 아직 3단계인 상태에서 snapshot -> storage 순으로 기록된다.
+      // 저장/불러오기 또는 자동 적재 직전 재주입을 포장 확정으로 오인하지 않는다.
       if (currentStep() === 3 && state?.cargo?.length && readShipmentInstructionSnapshot(state.cargo)) {
         clearRuntimeOutputs();
-        setValidity(5);
-        return;
+        setValidity(5); // 기본 균형 최적화형도 유효하므로 4단계 확인 후 5단계 진행 가능.
+      } else {
+        syncVisibleState();
       }
-      syncVisibleState();
     };
 
     const onStrategySelection = () => {
       clearRuntimeOutputs();
-      setValidity(hasConfirmedPackaging() ? 5 : (selectionCount() > 0 ? 3 : 2));
+      setValidity(hasConfirmedPackaging() ? 5 : Math.min(validThrough, 3));
       if (currentStep() >= 6) forceBackTo(4);
     };
 
@@ -255,61 +224,35 @@ export default function GuidedWorkflowConsistencyBridge() {
       if (!detail) return;
       if (detail.status === 'running') {
         document.documentElement.dataset.guidedResultFresh = 'false';
-        setValidity(hasConfirmedPackaging() ? 5 : (selectionCount() > 0 ? 3 : 2));
-        return;
+        setValidity(Math.max(validThrough, 5));
+      } else if (detail.status === 'done') {
+        document.documentElement.dataset.guidedResultFresh = 'true';
+        setValidity(6);
+      } else {
+        document.documentElement.dataset.guidedResultFresh = 'false';
+        setValidity(Math.min(validThrough, 5));
       }
-      if (detail.status === 'done') {
-        const fresh = hasConfirmedPackaging() && latestResultMatchesCurrentInput();
-        document.documentElement.dataset.guidedResultFresh = fresh ? 'true' : 'false';
-        setValidity(fresh ? 6 : hasConfirmedPackaging() ? 5 : selectionCount() > 0 ? 3 : 2);
-        return;
-      }
-      document.documentElement.dataset.guidedResultFresh = 'false';
-      setValidity(hasConfirmedPackaging() ? 5 : (selectionCount() > 0 ? 3 : 2));
     };
 
     const onPlannerUpdated = () => {
       if (currentStep() < 3) return;
-      invalidatePackagingAndResults(3);
+      clearRuntimeOutputs();
+      setValidity(Math.min(validThrough, 3));
+      forceBackTo(3);
     };
 
     const onIdentityChanged = () => {
-      clearConfirmedPackagingSnapshot();
       clearRuntimeOutputs();
-      setValidity(selectionCount() > 0 ? 3 : 2);
+      setValidity(2);
       forceBackTo(1);
-    };
-
-    const blockAction = (event: Event, message: string) => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (lastBlockedAction === message) return;
-      lastBlockedAction = message;
-      window.setTimeout(() => { lastBlockedAction = ''; }, 600);
-      window.alert(message);
     };
 
     const onAppAction = (event: Event) => {
       const detail = (event as CustomEvent<AppActionDetail>).detail;
-      if (!detail) return;
-      if (detail.action === 'reset-all') {
-        clearConfirmedPackagingSnapshot();
-        clearRuntimeOutputs();
-        setValidity(2);
-        forceBackTo(1);
-        return;
-      }
-      if (document.documentElement.dataset.guidedWorkflow !== 'true') return;
-      if (detail.action === 'run-loading') {
-        if (currentStep() !== 5 || validThrough < 5 || !hasConfirmedPackaging()) {
-          blockAction(event, '제품 포장을 확정하고 적재 방식을 선택한 뒤 자동 적재를 실행하세요.');
-        }
-        return;
-      }
-      if ((detail.action === 'show-results' || detail.action === 'print-report')
-        && (validThrough < 6 || document.documentElement.dataset.guidedResultFresh !== 'true')) {
-        blockAction(event, '현재 작업의 자동 적재가 완료되지 않았습니다. 새 결과를 계산한 뒤 확인하세요.');
-      }
+      if (detail?.action !== 'reset-all') return;
+      clearRuntimeOutputs();
+      setValidity(2);
+      forceBackTo(1);
     };
 
     const onDocumentChange = (event: Event) => {
@@ -321,13 +264,39 @@ export default function GuidedWorkflowConsistencyBridge() {
     const guardNavigation = (event: Event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
+
       const stepButton = target.closest<HTMLButtonElement>('.guided-step-list button');
-      if (!stepButton) return;
-      const buttons = [...document.querySelectorAll<HTMLButtonElement>('.guided-step-list button')];
-      const requested = buttons.indexOf(stepButton) + 1;
-      if (requested <= validThrough) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
+      if (stepButton) {
+        const buttons = [...document.querySelectorAll<HTMLButtonElement>('.guided-step-list button')];
+        const requested = buttons.indexOf(stepButton) + 1;
+        if (requested > validThrough) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+        return;
+      }
+
+      const primary = target.closest<HTMLButtonElement>('.guided-primary-cta');
+      if (!primary) return;
+      const step = currentStep();
+      const fresh = document.documentElement.dataset.guidedResultFresh === 'true';
+      if (step === 4 && validThrough < 5) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (step === 5 && (!fresh || validThrough < 6)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const running = Boolean(document.querySelector('.operation-progress-backdrop,.calculation-overlay'))
+          || document.documentElement.dataset.guidedAutoRunScheduled === 'true';
+        if (!running && validThrough >= 5) dispatchAppAction('run-loading');
+        return;
+      }
+      if (step === 6 && validThrough < 6) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
     };
 
     const onStepMutation = () => {
@@ -336,7 +305,7 @@ export default function GuidedWorkflowConsistencyBridge() {
     };
 
     validThrough = inferInitialValidity();
-    document.documentElement.dataset.guidedResultFresh = 'false';
+    document.documentElement.dataset.guidedResultFresh = validThrough >= 6 ? 'true' : 'false';
     syncVisibleState();
 
     window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, invalidateFromEquipment);
