@@ -22,6 +22,7 @@ import EnterprisePackagingOutputActions from './EnterprisePackagingOutputActions
 import EnterprisePackagingStrategyExplorer from './EnterprisePackagingStrategyExplorer';
 import EnterpriseCartonApprovalCenter from './EnterpriseCartonApprovalCenter';
 import EnterpriseManufacturingSettings from './EnterpriseManufacturingSettings';
+import BoxManagerAuthBridge from './BoxManagerAuthBridge';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
 import HeaderLoadingStatusBoard from './HeaderLoadingStatusBoard';
 import RemainingLengthIndicator from './RemainingLengthIndicator';
@@ -119,6 +120,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ProductSelectionPageReset />
       <RuntimeDiagnosticRecorder />
       <WorkflowIntegrationBridge />
+      <BoxManagerAuthBridge />
       <ReferenceWorkspaceBar />
       <ProductMenuActions />
       <ProductToolsCenter />
