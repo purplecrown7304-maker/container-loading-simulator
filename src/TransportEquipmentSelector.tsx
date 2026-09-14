@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import EquipmentCard3D from './EquipmentCard3D';
 import EditableEquipmentCard from './EditableEquipmentCard';
-import { STORAGE_UPDATED_EVENT } from './storage';
 import {
   CONTAINER_EQUIPMENT,
   OPEN_TRANSPORT_SELECTOR_EVENT,
@@ -173,17 +172,18 @@ export default function TransportEquipmentSelector() {
 
   useEffect(() => {
     const onDashboardChange = (event: Event) => {
+      // 프로그램이 장비 선택을 적용하며 발생시킨 synthetic change는 절대
+      // 선택 장비를 다시 예전 대시보드 값으로 되돌리지 못하게 한다.
+      if (!event.isTrusted) return;
+      if (document.documentElement.dataset.guidedWorkflow === 'true') return;
       const target = event.target;
       if (!(target instanceof HTMLInputElement)) return;
       if (!target.closest('.dashboard-left .dashboard-card:first-child')) return;
       window.setTimeout(() => syncSelectionFromDashboard(readTransportEquipment().category), 0);
     };
-    const onStoredState = () => window.setTimeout(() => syncSelectionFromDashboard(readTransportEquipment().category), 30);
     document.addEventListener('change', onDashboardChange, true);
-    window.addEventListener(STORAGE_UPDATED_EVENT, onStoredState);
     return () => {
       document.removeEventListener('change', onDashboardChange, true);
-      window.removeEventListener(STORAGE_UPDATED_EVENT, onStoredState);
     };
   }, []);
 
