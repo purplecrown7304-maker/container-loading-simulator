@@ -8,6 +8,7 @@ import {
   TRANSPORT_EQUIPMENT_EVENT,
   createCustomEquipment,
   getTransportEquipment,
+  hasStoredTransportEquipment,
   readTransportEquipment,
   selectTransportEquipment,
   type TransportCategory,
@@ -131,7 +132,7 @@ export default function TransportEquipmentSelectionUxBridge() {
       if (customApply) {
         const equipment = customEquipmentFromDialog();
         if (!equipment) return;
-        // SafetyGuard가 같은 native click을 먼저 확인한 뒤 React의 오래된 DOM 동기화 경로는 타지 않게 한다.
+        // SafetyGuard가 같은 native click을 확인한 뒤 React의 오래된 DOM 역동기화 경로는 타지 않게 한다.
         event.preventDefault();
         event.stopPropagation();
         queueMicrotask(() => applyExplicitEquipment(equipment));
@@ -164,7 +165,9 @@ export default function TransportEquipmentSelectionUxBridge() {
 
     const observer = new MutationObserver(sync);
     observer.observe(document.body, { childList: true, subtree: true });
-    syncEquipmentToStoredState(readTransportEquipment());
+    // transportEquipment 저장값이 실제로 있을 때만 초기 동기화한다.
+    // 저장값이 없으면 Selector의 초기 1회 복구가 기존 container 값을 먼저 읽도록 둔다.
+    if (hasStoredTransportEquipment()) syncEquipmentToStoredState(readTransportEquipment());
     sync();
 
     return () => {
