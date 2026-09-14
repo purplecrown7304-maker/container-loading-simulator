@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { ADMIN_ACCESS_EVENT, isAdminSession, loginAdmin, logoutAdmin } from './adminAccess';
+import { clearEquipmentAdminCredential, setEquipmentAdminCredential } from './equipmentImageOverrides';
 import { exportLoadingDiagnostics } from './diagnosticExport';
 import { LOCAL_OPERATOR_EVENT, logoutLocalOperator, readLocalOperator, type LocalOperator } from './localOperator';
 import {
@@ -124,6 +125,7 @@ export default function ReferenceWorkspaceBar() {
           setLoginMessage('회원 프로필을 불러오지 못했습니다.');
           return;
         }
+        clearEquipmentAdminCredential();
         logoutAdmin();
         setIsAdmin(false);
         setOperator(result.member);
@@ -134,8 +136,13 @@ export default function ReferenceWorkspaceBar() {
         return;
       }
 
+      // 관리자 로그인에 사용한 비밀번호는 브라우저 저장소에 남기지 않고
+      // 현재 실행 중인 탭 메모리에만 전달한다. 장비 이미지 업로드 API가
+      // 동일한 서버 관리자 자격을 다시 검증할 때 사용한다.
+      setEquipmentAdminCredential(adminPassword);
       const ok = await loginAdmin(adminId, adminPassword);
       if (!ok) {
+        clearEquipmentAdminCredential();
         setLoginMessage('관리자 ID 또는 비밀번호가 올바르지 않습니다.');
         return;
       }
@@ -152,7 +159,10 @@ export default function ReferenceWorkspaceBar() {
   };
 
   const logout = () => {
-    if (isAdmin) logoutAdmin();
+    if (isAdmin) {
+      clearEquipmentAdminCredential();
+      logoutAdmin();
+    }
     if (operator) void logoutMember();
     setIsAdmin(false);
     setOperator(null);
