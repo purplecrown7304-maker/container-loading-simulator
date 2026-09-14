@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { readShipmentInstructionSnapshot, type ShipmentInstructionSnapshot } from './shipmentInstruction';
-import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
+import { readStoredState, writeStoredState, type StoredState } from './storage';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 import { recordDiagnosticTrace } from './runtimeDiagnostics';
 
@@ -39,8 +39,9 @@ function applyConfirmedPackagingIdentity(state: StoredState, snapshot: ShipmentI
 
 /**
  * 제품 포장에서 확정한 cargo가 App state에 반영되기 전에 자동 적재가 실행되는 레이스를 막는다.
- * dispatchAppAction이 이미 저장 cargo를 App에 주입한 경우에는 같은 STORAGE_UPDATED_EVENT를
- * 두 번 보내지 않는다. 실제 포장 identity가 누락된 경우에만 보정 후 한 번 재실행한다.
+ * dispatchAppAction이 이미 저장 cargo를 App에 주입한 경우에는 같은 동기화를 반복하지 않는다.
+ * 직접 APP_ACTION_EVENT가 들어온 경로에서는 canonical writeStoredState를 통해 result/physics 캐시까지
+ * 같이 무효화하고 확정 cargo를 한 번만 재주입한다.
  */
 export default function ConfirmedPackagingLoadingBridge() {
   useEffect(() => {
@@ -58,19 +59,15 @@ export default function ConfirmedPackagingLoadingBridge() {
       const confirmed = applyConfirmedPackagingIdentity(stored, snapshot);
       const identityUpdated = confirmed !== stored;
 
-      // 가이드 실행 경로는 uiEvents에서 이미 저장 cargo를 App에 주입했다.
-      // identity도 정상이라면 여기서 다시 가로채지 않고 그대로 실제 계산으로 보낸다.
       if (custom.detail?.synchronizedStoredState && !identityUpdated) return;
 
       event.stopImmediatePropagation();
+      writeStoredState(confirmed, true);
       if (identityUpdated) {
-        writeStoredState(confirmed, true);
         recordDiagnosticTrace('confirmed-packaging-identity-restored', {
           shipmentNo: snapshot.shipmentNo,
           cargoTypes: confirmed.cargo.length,
         });
-      } else {
-        window.dispatchEvent(new CustomEvent<StoredState>(STORAGE_UPDATED_EVENT, { detail: confirmed }));
       }
 
       window.requestAnimationFrame(() => {
