@@ -52,6 +52,7 @@ import EquipmentVisualAdminEditor from './EquipmentVisualAdminEditor';
 import WorkflowIntegrationBridge from './WorkflowIntegrationBridge';
 import LoadingStrategyDock from './LoadingStrategyDock';
 import PalletStrategyBridge from './PalletStrategyBridge';
+import AutomaticLoadingProgressOverlay from './AutomaticLoadingProgressOverlay';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -131,6 +132,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <EquipmentLoadingConsistencyGuard />
       <PackagingDataIntegrityGuard />
       <ConfirmedPackagingLoadingBridge />
+      <AutomaticLoadingProgressOverlay />
       <App />
       <RemainingLengthIndicator />
       <PalletWeightDistributionDock />
