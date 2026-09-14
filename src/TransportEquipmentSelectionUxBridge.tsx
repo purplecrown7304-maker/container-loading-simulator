@@ -18,10 +18,21 @@ import {
 const TYPE_LABEL_CLASS = 'guided-equipment-type-label';
 const IMAGE_CLASS = 'equipment-custom-visual';
 const EPS = 0.0001;
+const EXPLICIT_SELECTION_LOCK_MS = 1800;
 
 function sameNumber(a: number | undefined, b: number | undefined, tolerance = EPS) {
   if (a == null || b == null) return a === b;
   return Math.abs(a - b) <= tolerance;
+}
+
+function sameEquipment(a: TransportEquipment, b: TransportEquipment) {
+  return a.id === b.id
+    && a.category === b.category
+    && sameNumber(a.length, b.length)
+    && sameNumber(a.width, b.width)
+    && sameNumber(a.height, b.height)
+    && sameNumber(a.maxPayloadKg, b.maxPayloadKg, 1)
+    && sameNumber(a.floorLoadLimitKgPerM2, b.floorLoadLimitKgPerM2, 1);
 }
 
 function syncEquipmentToStoredState(equipment: TransportEquipment) {
@@ -110,6 +121,8 @@ function customEquipmentFromDialog(): TransportEquipment | null {
 export default function TransportEquipmentSelectionUxBridge() {
   useEffect(() => {
     let frame = 0;
+    let restoringExplicit = false;
+    let explicitLock: { equipment: TransportEquipment; until: number } | null = null;
 
     const sync = () => {
       window.cancelAnimationFrame(frame);
@@ -117,8 +130,14 @@ export default function TransportEquipmentSelectionUxBridge() {
     };
 
     const applyExplicitEquipment = (equipment: TransportEquipment) => {
-      selectTransportEquipment(equipment);
-      syncEquipmentToStoredState(equipment);
+      explicitLock = { equipment: { ...equipment }, until: performance.now() + EXPLICIT_SELECTION_LOCK_MS };
+      restoringExplicit = true;
+      try {
+        selectTransportEquipment(equipment);
+        syncEquipmentToStoredState(equipment);
+      } finally {
+        queueMicrotask(() => { restoringExplicit = false; });
+      }
       closeSelectorIfOpen();
       sync();
     };
@@ -132,7 +151,6 @@ export default function TransportEquipmentSelectionUxBridge() {
       if (customApply) {
         const equipment = customEquipmentFromDialog();
         if (!equipment) return;
-        // SafetyGuard가 같은 native click을 확인한 뒤 React의 오래된 DOM 역동기화 경로는 타지 않게 한다.
         event.preventDefault();
         event.stopPropagation();
         queueMicrotask(() => applyExplicitEquipment(equipment));
@@ -146,16 +164,33 @@ export default function TransportEquipmentSelectionUxBridge() {
       const equipment = getTransportEquipment(id);
       if (!equipment) return;
 
-      // 장비 선택은 transportEquipment -> stored container -> App 순서의 단방향으로만 흘린다.
-      // 기존 applyToDashboard/change/storage 역동기화는 깜빡임과 선택 되돌림의 원인이었다.
+      // 사용자가 장비 카드를 명시적으로 눌렀다면 그 선택이 유일한 master다.
+      // Selector의 legacy DOM/storage 역동기화가 수십 ms 뒤 이전 장비를 재선택하는 경로를 막는다.
       event.preventDefault();
       event.stopPropagation();
       queueMicrotask(() => applyExplicitEquipment(equipment));
     };
 
     const onEquipmentSelected = (event: Event) => {
-      const equipment = (event as CustomEvent<TransportEquipment>).detail ?? readTransportEquipment();
-      syncEquipmentToStoredState(equipment);
+      const incoming = (event as CustomEvent<TransportEquipment>).detail ?? readTransportEquipment();
+      const lock = explicitLock && performance.now() <= explicitLock.until ? explicitLock : null;
+      if (!lock) explicitLock = null;
+
+      if (lock && !restoringExplicit && !sameEquipment(incoming, lock.equipment)) {
+        // 오래된 dashboard/storage 값이 explicit selection 뒤늦게 덮어쓰려 하면
+        // 사용자 선택을 즉시 복구하고 같은 선택으로 저장 상태까지 다시 맞춘다.
+        restoringExplicit = true;
+        try {
+          selectTransportEquipment(lock.equipment);
+          syncEquipmentToStoredState(lock.equipment);
+        } finally {
+          queueMicrotask(() => { restoringExplicit = false; });
+        }
+        sync();
+        return;
+      }
+
+      syncEquipmentToStoredState(incoming);
       sync();
     };
 
@@ -165,8 +200,6 @@ export default function TransportEquipmentSelectionUxBridge() {
 
     const observer = new MutationObserver(sync);
     observer.observe(document.body, { childList: true, subtree: true });
-    // transportEquipment 저장값이 실제로 있을 때만 초기 동기화한다.
-    // 저장값이 없으면 Selector의 초기 1회 복구가 기존 container 값을 먼저 읽도록 둔다.
     if (hasStoredTransportEquipment()) syncEquipmentToStoredState(readTransportEquipment());
     sync();
 
