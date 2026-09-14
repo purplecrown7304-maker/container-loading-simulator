@@ -54,6 +54,9 @@ import LoadingStrategyDock from './LoadingStrategyDock';
 import PalletStrategyBridge from './PalletStrategyBridge';
 import AutomaticLoadingProgressOverlay from './AutomaticLoadingProgressOverlay';
 import LoadingStrategyAutoRunBridge from './LoadingStrategyAutoRunBridge';
+import ProductSelectionPageReset from './ProductSelectionPageReset';
+import GuidedLoadingUnitSelector from './GuidedLoadingUnitSelector';
+import GuidedLoadingExecutionBridge from './GuidedLoadingExecutionBridge';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -108,10 +111,12 @@ import './guided-workflow-v2.css';
 import './guided-result-tabs-enhancer.css';
 import './workflow-usability-fixes.css';
 import './guided-workflow-step-layout-fix.css';
+import './guided-loading-unit.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
+      <ProductSelectionPageReset />
       <RuntimeDiagnosticRecorder />
       <WorkflowIntegrationBridge />
       <ReferenceWorkspaceBar />
@@ -131,6 +136,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <DirectWorkOrderOptimizer />
       <PalletResultsOptimizer />
       <PalletStrategyBridge />
+      <GuidedLoadingExecutionBridge />
       <EquipmentLoadingConsistencyGuard />
       <PackagingDataIntegrityGuard />
       <ConfirmedPackagingLoadingBridge />
@@ -146,6 +152,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <TransportEquipmentDashboardSummary />
       <GuidedWorkflowShell />
       <LoadingStrategyDock />
+      <GuidedLoadingUnitSelector />
       <SavedWorkQuickList />
       <EquipmentVisualAdminEditor />
       <GuidedResultTabsEnhancer />
