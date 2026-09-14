@@ -1,4 +1,4 @@
-import { readStoredState, STORAGE_UPDATED_EVENT, type StoredState } from './storage';
+import { readStoredState, writeStoredState } from './storage';
 
 export const APP_ACTION_EVENT = 'container-loading:app-action';
 export const OPEN_WORKSPACE_EVENT = 'container-loading:open-workspace';
@@ -34,15 +34,15 @@ function emitAppAction(action: AppAction, detail: Omit<AppActionDetail, 'action'
 
 /**
  * 제품 포장 확정 시 localStorage에 저장한 cargo가 가이드 작업의 단일 원본이다.
- * 자동 적재 실행 직전에 저장된 포장 cargo를 App 상태에 다시 동기화한 뒤 다음 task에서
- * 계산을 시작한다. synchronizedStoredState 표시는 후속 guard들이 이미 끝난 동기화를
- * 또 반복하지 않게 해 중복 계산/화면 깜빡임을 줄인다.
+ * 자동 적재 실행 직전에 같은 저장 경로(writeStoredState)를 다시 사용해 App 상태를
+ * 동기화한다. 이렇게 해야 이전 result/physics 캐시도 함께 무효화되어 저장 이벤트와
+ * 계산 이벤트가 서로 다른 상태를 보지 않는다.
  */
 export function dispatchAppAction(action: AppAction): void {
   if (action === 'run-loading' && document.documentElement.dataset.guidedStep === '5') {
     const packagedState = readStoredState();
     if (packagedState) {
-      window.dispatchEvent(new CustomEvent<StoredState>(STORAGE_UPDATED_EVENT, { detail: packagedState }));
+      writeStoredState(packagedState, true);
       window.setTimeout(() => emitAppAction(action, { synchronizedStoredState: true }), 0);
       return;
     }
