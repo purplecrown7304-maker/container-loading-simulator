@@ -20,6 +20,12 @@ function runtimeCargo(cargo: CargoItem[], containerHeight: number) {
   });
 }
 
+function activeMode(): 'boxes' | 'pallets' {
+  const active = [...document.querySelectorAll<HTMLButtonElement>('.mode-tabs button')]
+    .find(item => item.classList.contains('active'));
+  return (active?.textContent ?? '').includes('팔레트') ? 'pallets' : 'boxes';
+}
+
 function clickMode(mode: 'boxes' | 'pallets') {
   const label = mode === 'boxes' ? '박스' : '팔레트';
   const button = [...document.querySelectorAll<HTMLButtonElement>('.mode-tabs button')]
@@ -34,11 +40,9 @@ function rejectRun(message: string) {
 
 /**
  * STEP 5의 계산 입력은 STEP 3에서 확정한 shipmentInstruction cargo 하나만 사용한다.
- * 박스 적재는 guidedStep=5를 유지한 채 replay하여 App이 local React state가 아니라
- * readStoredState()의 canonical 입력을 직접 읽도록 한다.
- *
- * 팔레트는 App의 기존 팔레트 실행 경로가 아직 guidedRun 분기와 통합되지 않았으므로
- * 기존 우회 동작을 임시 유지한다. 팔레트 전용 통합은 별도 회귀 테스트 후 정리한다.
+ * 상자/파렛트 선택은 React mode 탭까지 실제로 반영된 것을 확인한 뒤 replay한다.
+ * 숨겨진 탭의 state 반영보다 replay가 먼저 실행되면 사용자가 파렛트를 골라도 박스로
+ * 계산되는 경쟁 조건이 생길 수 있으므로 최대 몇 프레임 동안 선택 상태를 확인한다.
  */
 export default function GuidedLoadingExecutionBridge() {
   useEffect(() => {
@@ -59,6 +63,26 @@ export default function GuidedLoadingExecutionBridge() {
         if (previousStep) root.dataset.guidedStep = previousStep;
         else delete root.dataset.guidedStep;
       }
+    };
+
+    const replayAfterModeSettles = (detail: CanonicalRunDetail, mode: 'boxes' | 'pallets', attempt = 0) => {
+      if (cancelled) return;
+      clickMode(mode);
+      window.requestAnimationFrame(() => {
+        if (cancelled) return;
+        if (activeMode() !== mode) {
+          if (attempt < 5) {
+            replayAfterModeSettles(detail, mode, attempt + 1);
+            return;
+          }
+          rejectRun(`${mode === 'pallets' ? '파렛트' : '상자'} 적재 모드 전환이 완료되지 않아 자동 적재를 중단했습니다.`);
+          return;
+        }
+        window.requestAnimationFrame(() => {
+          if (cancelled) return;
+          dispatchCanonicalReplay(detail, mode);
+        });
+      });
     };
 
     const onRun = (event: Event) => {
@@ -92,17 +116,13 @@ export default function GuidedLoadingExecutionBridge() {
       const mode = readGuidedLoadingUnit();
       const exactCargo = runtimeCargo(confirmed, stored.container.height);
       writeStoredState({ container: stored.container, cargo: exactCargo }, true);
-      clickMode(mode);
 
-      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-        if (cancelled) return;
-        dispatchCanonicalReplay({
-          ...custom.detail,
-          action: 'run-loading',
-          guidedCanonicalReplay: true,
-          synchronizedStoredState: true,
-        }, mode);
-      }));
+      replayAfterModeSettles({
+        ...custom.detail,
+        action: 'run-loading',
+        guidedCanonicalReplay: true,
+        synchronizedStoredState: true,
+      }, mode);
     };
 
     window.addEventListener(APP_ACTION_EVENT, onRun, true);
