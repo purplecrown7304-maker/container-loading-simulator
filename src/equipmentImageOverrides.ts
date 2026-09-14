@@ -142,11 +142,12 @@ export async function removeEquipmentImageOverride(equipmentId: string) {
 }
 
 export async function migrateLegacyEquipmentImagesToServer() {
-  if (!isAdminSession()) return { migrated: 0, failed: 0 };
+  // 자동 마이그레이션은 로그인 시 이미 전달받은 관리자 비밀번호가 있을 때만 실행한다.
+  // 새로고침으로 관리자 세션만 복구된 경우 브라우저 prompt를 띄우지 않는다.
+  if (!isAdminSession() || !runtimeAdminPassword) return { migrated: 0, failed: 0 };
   const legacy = readLegacyMap();
   const entries = Object.entries(legacy).filter((entry): entry is [string, string] => entry[1].startsWith('data:image/'));
   if (!entries.length) return { migrated: 0, failed: 0 };
-  ensureAdminImageAccess();
   await refreshEquipmentImageOverrides();
   let migrated = 0;
   let failed = 0;
