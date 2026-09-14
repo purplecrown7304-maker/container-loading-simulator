@@ -17,29 +17,33 @@ export type AppAction =
 export type WorkspaceTab = 'boxes' | 'vehicles' | 'safety' | 'data';
 export type ExcelImportMode = 'replace' | 'merge';
 
-export type AppActionDetail = { action: AppAction };
+export type AppActionDetail = {
+  action: AppAction;
+  /** 자동 적재 직전에 저장된 포장 cargo를 App으로 다시 주입한 액션인지 표시한다. */
+  synchronizedStoredState?: boolean;
+};
 export type WorkspaceOpenDetail = { tab: WorkspaceTab };
 export type ExcelImportDetail = {
   action: 'template' | 'upload';
   mode?: ExcelImportMode;
 };
 
-function emitAppAction(action: AppAction) {
-  window.dispatchEvent(new CustomEvent<AppActionDetail>(APP_ACTION_EVENT, { detail: { action } }));
+function emitAppAction(action: AppAction, detail: Omit<AppActionDetail, 'action'> = {}) {
+  window.dispatchEvent(new CustomEvent<AppActionDetail>(APP_ACTION_EVENT, { detail: { action, ...detail } }));
 }
 
 /**
  * 제품 포장 확정 시 localStorage에 저장한 cargo가 가이드 작업의 단일 원본이다.
- * 현재 자동 적재 단계는 5단계이므로 실행 직전에 저장된 포장 cargo를 App 상태에
- * 다시 동기화한 뒤 다음 task에서 계산을 시작한다. 단계가 4→5로 늘어난 뒤 이 조건이
- * 예전 4단계에 남아 있어 자동 적재가 이전 화물을 보는 문제가 있었다.
+ * 자동 적재 실행 직전에 저장된 포장 cargo를 App 상태에 다시 동기화한 뒤 다음 task에서
+ * 계산을 시작한다. synchronizedStoredState 표시는 후속 guard들이 이미 끝난 동기화를
+ * 또 반복하지 않게 해 중복 계산/화면 깜빡임을 줄인다.
  */
 export function dispatchAppAction(action: AppAction): void {
   if (action === 'run-loading' && document.documentElement.dataset.guidedStep === '5') {
     const packagedState = readStoredState();
     if (packagedState) {
       window.dispatchEvent(new CustomEvent<StoredState>(STORAGE_UPDATED_EVENT, { detail: packagedState }));
-      window.setTimeout(() => emitAppAction(action), 0);
+      window.setTimeout(() => emitAppAction(action, { synchronizedStoredState: true }), 0);
       return;
     }
   }
