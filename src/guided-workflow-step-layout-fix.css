@@ -1,0 +1,61 @@
+/* Guided workflow stage ownership.
+   The main 3D loading canvas belongs only to STEP 5 (automatic loading).
+   STEP 4 must show the strategy selector instead of the viewer. */
+html[data-guided-workflow="true"][data-guided-step="1"] .dashboard-center>.viewer-card,
+html[data-guided-workflow="true"][data-guided-step="2"] .dashboard-center>.viewer-card,
+html[data-guided-workflow="true"][data-guided-step="3"] .dashboard-center>.viewer-card,
+html[data-guided-workflow="true"][data-guided-step="4"] .dashboard-center>.viewer-card,
+html[data-guided-workflow="true"][data-guided-step="6"] .dashboard-center>.viewer-card{
+  display:none!important;
+}
+
+html[data-guided-workflow="true"][data-guided-step="5"] .dashboard-center>.viewer-card{
+  display:block!important;
+  min-height:560px!important;
+  padding:16px!important;
+  border:1px solid var(--gw-border)!important;
+  border-radius:18px!important;
+  background:#fff!important;
+}
+
+html[data-guided-workflow="true"][data-guided-step="3"] .dashboard-center>.guided-stage-panel,
+html[data-guided-workflow="true"][data-guided-step="4"] .dashboard-center>.guided-stage-panel,
+html[data-guided-workflow="true"][data-guided-step="6"] .dashboard-center>.guided-stage-panel{
+  display:block!important;
+}
+
+html[data-guided-workflow="true"][data-guided-step="5"] .dashboard-center>.guided-stage-panel{
+  display:none!important;
+}
+
+html[data-guided-workflow="true"][data-guided-step="5"] .viewer-host{
+  height:calc(100vh - 184px)!important;
+  min-height:520px!important;
+  margin:0!important;
+  border-radius:18px!important;
+  overflow:hidden!important;
+  background:#0b0b0c!important;
+}
+
+html[data-guided-workflow="true"][data-guided-step="5"] .viewer-bottom-actions{
+  display:none!important;
+}
+
+/* STEP 4 strategy cards must be visible and use the full workflow stage. */
+html[data-guided-workflow="true"][data-guided-step="4"] .guided-loading-placeholder{
+  min-height:560px!important;
+  visibility:visible!important;
+}
+
+html[data-guided-workflow="true"][data-guided-step="4"] .loading-strategy-selector{
+  display:flex!important;
+  visibility:visible!important;
+  width:100%!important;
+}
+
+@media(max-width:760px){
+  html[data-guided-workflow="true"] .guided-step-list{
+    grid-template-columns:repeat(6,minmax(118px,1fr))!important;
+    min-width:730px!important;
+  }
+}
