@@ -29,12 +29,13 @@ function emitAppAction(action: AppAction) {
 }
 
 /**
- * 제품 포장 흐름의 4단계에서는 포장 확정 시 localStorage에 저장한 cargo가 단일 원본이다.
- * React 상태 반영보다 사용자가 자동 적재를 먼저 누르는 경우 이전 화물이 계산에 들어갈 수 있으므로,
- * 자동 적재 이벤트 직전에 저장된 포장 cargo를 App에 다시 동기화한 뒤 다음 task에서 실행한다.
+ * 제품 포장 확정 시 localStorage에 저장한 cargo가 가이드 작업의 단일 원본이다.
+ * 현재 자동 적재 단계는 5단계이므로 실행 직전에 저장된 포장 cargo를 App 상태에
+ * 다시 동기화한 뒤 다음 task에서 계산을 시작한다. 단계가 4→5로 늘어난 뒤 이 조건이
+ * 예전 4단계에 남아 있어 자동 적재가 이전 화물을 보는 문제가 있었다.
  */
 export function dispatchAppAction(action: AppAction): void {
-  if (action === 'run-loading' && document.documentElement.dataset.guidedStep === '4') {
+  if (action === 'run-loading' && document.documentElement.dataset.guidedStep === '5') {
     const packagedState = readStoredState();
     if (packagedState) {
       window.dispatchEvent(new CustomEvent<StoredState>(STORAGE_UPDATED_EVENT, { detail: packagedState }));
