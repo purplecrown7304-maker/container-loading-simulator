@@ -5,25 +5,35 @@ import {
   LOADING_STRATEGY_SELECTION_EVENT,
   readStrategyDecision,
   readUserLoadingStrategy,
-  STRATEGY_LABELS,
   writeUserLoadingStrategy,
   type StrategyDecision,
   type UserLoadingStrategy,
 } from './engine/loadingStrategy';
-import { resolvePalletLoadingStrategy } from './engine/palletStrategy';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
 import './loading-strategy.css';
 
-const MODES: Array<{ id: UserLoadingStrategy; icon: string }> = [
-  { id: 'auto', icon: '◎' },
-  { id: 'capacity', icon: '▦' },
-  { id: 'balance', icon: '⚖' },
-  { id: 'safety', icon: '⬢' },
-  { id: 'unloading', icon: '⇥' },
-  { id: 'grouping', icon: '▥' },
+type SelectableStrategy = Exclude<UserLoadingStrategy, 'grouping'>;
+type StrategyUi = { id: SelectableStrategy; icon: string; label: string; summary: string; priorities: string; use: string; recommended?: boolean };
+
+const MODES: StrategyUi[] = [
+  { id: 'balance', icon: '⚖', label: '무게 중심형 적재', summary: '전체 무게 중심을 중앙에 가깝게 유지합니다.', priorities: '중량 위치 · 좌우 균형 · 앞뒤 균형', use: '장거리 운송 · 중량 화물' },
+  { id: 'capacity', icon: '▦', label: '공간 활용 우선형', summary: '빈 공간을 줄이고 최대 적재량을 우선합니다.', priorities: '적재율 · 회전 활용 · 잔여 공간 채움', use: 'CBM 활용 · 최대 화물 적재' },
+  { id: 'safety', icon: '⬢', label: '안정성 우선형', summary: '무너짐과 넘어짐 위험을 줄이는 배치를 우선합니다.', priorities: '무거운 화물 하단 · 지지면 · 교차 적재 억제', use: '파손 위험 · 고단 적재 · 장거리' },
+  { id: 'unloading', icon: '⇥', label: '작업 편의 우선형', summary: '상하차 순서와 작업자 접근성을 우선합니다.', priorities: '문쪽 접근 · 하역 순서 · 작업 높이', use: '다점 배송 · 반복 상하차' },
+  { id: 'auto', icon: '◎', label: '균형 최적화형', summary: '공간·무게·안전·작업성을 종합 점수로 비교합니다.', priorities: '무게 중심 · 공간 활용 · 안정성 · 작업 편의', use: '일반 운송 · 조건 종합 최적화', recommended: true },
 ];
+
+const UI_BY_ID = Object.fromEntries(MODES.map(item => [item.id, item])) as Record<SelectableStrategy, StrategyUi>;
+
+function normalizeStrategy(value: UserLoadingStrategy): SelectableStrategy {
+  return value === 'grouping' ? 'auto' : value;
+}
+
+function strategyLabel(value: UserLoadingStrategy) {
+  return value === 'grouping' ? '동일 제품 묶음 적재' : UI_BY_ID[value]?.label ?? value;
+}
 
 type RemainingRow = { cargoId: string; quantity: number; reason: string };
 type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
@@ -70,12 +80,16 @@ function normalizeRemaining(rows: RemainingRow[] | undefined) {
 }
 
 export default function LoadingStrategyDock() {
-  const [strategy, setStrategy] = useState<UserLoadingStrategy>(() => readUserLoadingStrategy());
+  const [strategy, setStrategy] = useState<SelectableStrategy>(() => normalizeStrategy(readUserLoadingStrategy()));
   const [decision, setDecision] = useState<StrategyDecision | undefined>(() => readStrategyDecision());
   const [loading, setLoading] = useState<LoadingDetail | undefined>(() => latestLoading());
   const [palletRevision, setPalletRevision] = useState(0);
   const [selectorHost, setSelectorHost] = useState<HTMLElement | null>(null);
   const [resultHost, setResultHost] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (readUserLoadingStrategy() === 'grouping') writeUserLoadingStrategy('auto');
+  }, []);
 
   useEffect(() => {
     let frame = 0;
@@ -108,7 +122,7 @@ export default function LoadingStrategyDock() {
   }, []);
 
   useEffect(() => {
-    const onSelection = (event: Event) => setStrategy((event as CustomEvent<UserLoadingStrategy>).detail ?? readUserLoadingStrategy());
+    const onSelection = (event: Event) => setStrategy(normalizeStrategy((event as CustomEvent<UserLoadingStrategy>).detail ?? readUserLoadingStrategy()));
     const onDecision = (event: Event) => setDecision((event as CustomEvent<StrategyDecision>).detail ?? readStrategyDecision());
     const onResult = (event: Event) => setLoading((event as CustomEvent<LoadingDetail>).detail ?? latestLoading());
     const onPallet = () => setPalletRevision(value => value + 1);
@@ -124,21 +138,22 @@ export default function LoadingStrategyDock() {
     };
   }, []);
 
-  const select = (id: UserLoadingStrategy) => { setStrategy(id); writeUserLoadingStrategy(id); };
+  const select = (id: SelectableStrategy) => { setStrategy(id); writeUserLoadingStrategy(id); };
   const selector = selectorHost ? createPortal(
     <section className="loading-strategy-selector" aria-label="자동 적재 방식 선택">
-      <div className="loading-strategy-title"><div><span>AUTO LOADING</span><h1>적재 방식 선택</h1></div><strong>{STRATEGY_LABELS[strategy]}</strong></div>
+      <div className="loading-strategy-title"><div><span>STEP 4 · LOADING STRATEGY</span><h1>적재 방식 선택</h1><p>운송 목적에 맞는 기준을 선택한 뒤 자동 적재로 진행합니다.</p></div><strong>{UI_BY_ID[strategy].label}</strong></div>
       <div className="loading-strategy-grid">
-        {MODES.map(mode => <button key={mode.id} type="button" className={strategy === mode.id ? 'active' : ''} onClick={() => select(mode.id)}>
-          <i>{mode.icon}</i><b>{STRATEGY_LABELS[mode.id]}</b>{strategy === mode.id && <em>✓</em>}
+        {MODES.map(mode => <button key={mode.id} type="button" className={`${strategy === mode.id ? 'active' : ''} ${mode.recommended ? 'recommended' : ''}`} onClick={() => select(mode.id)}>
+          {mode.recommended && <span className="loading-strategy-recommended">기본 추천</span>}
+          <i>{mode.icon}</i><b>{mode.label}</b><span className="loading-strategy-summary">{mode.summary}</span><small><strong>우선순위</strong>{mode.priorities}</small><small><strong>추천</strong>{mode.use}</small>{strategy === mode.id && <em>✓</em>}
         </button>)}
       </div>
-      {strategy === 'auto' && <div className="loading-strategy-auto-note">화물 특성 분석 후 공간·무게·안전·하차·그룹화 가중치를 자동 조정</div>}
+      <div className="loading-strategy-auto-note">균형 최적화형은 무게 중심·공간 활용·안정성·작업 편의·적재 높이·빈 공간을 실제 후보 결과의 점수로 비교합니다.</div>
     </section>, selectorHost) : null;
 
   const metrics = useMemo(() => {
     if (!loading) return null;
-    const { container, result, cargo } = loading;
+    const { container, result } = loading;
     const volume = Math.max(0.001, container.length * container.width * container.height);
     const balance = assessWeightBalance(container, result);
     const pallet = palletSnapshot()?.result;
@@ -151,43 +166,15 @@ export default function LoadingStrategyDock() {
       const lateral = Math.abs(cog.y - container.width / 2) / Math.max(0.001, container.width / 2) * 100;
       const longitudinal = Math.abs(cog.x - container.length / 2) / Math.max(0.001, container.length / 2) * 100;
       const remainingRows = normalizeRemaining(pallet.remaining);
-      return {
-        usePallet,
-        displayStrategy: strategy === 'auto' ? resolvePalletLoadingStrategy(cargo) : strategy,
-        fill: used / volume * 100,
-        used,
-        remaining: Math.max(0, volume - used),
-        weight: pallet.totalPalletizedWeightKg ?? result.loadedWeightKg,
-        lateral,
-        longitudinal,
-        cog,
-        boxes: placements.length,
-        pallets: pallet.palletCount ?? 0,
-        unloaded: remainingRows.reduce((sum, item) => sum + item.quantity, 0),
-        remainingRows,
-      };
+      return { usePallet, fill: used / volume * 100, used, remaining: Math.max(0, volume - used), weight: pallet.totalPalletizedWeightKg ?? result.loadedWeightKg, lateral, longitudinal, cog, boxes: placements.length, pallets: pallet.palletCount ?? 0, unloaded: remainingRows.reduce((sum, item) => sum + item.quantity, 0), remainingRows };
     }
     const remainingRows = normalizeRemaining(result.remaining);
-    return {
-      usePallet: false,
-      displayStrategy: decision?.selectedStrategy ?? strategy,
-      fill: result.usedVolumeM3 / volume * 100,
-      used: result.usedVolumeM3,
-      remaining: Math.max(0, volume - result.usedVolumeM3),
-      weight: result.loadedWeightKg,
-      lateral: balance.lateralDeviationPct,
-      longitudinal: balance.longitudinalDeviationPct,
-      cog: balance.centerOfGravity,
-      boxes: result.placements.length,
-      pallets: 0,
-      unloaded: remainingRows.reduce((sum, item) => sum + item.quantity, 0),
-      remainingRows,
-    };
-  }, [loading, palletRevision, strategy, decision]);
+    return { usePallet: false, fill: result.usedVolumeM3 / volume * 100, used: result.usedVolumeM3, remaining: Math.max(0, volume - result.usedVolumeM3), weight: result.loadedWeightKg, lateral: balance.lateralDeviationPct, longitudinal: balance.longitudinalDeviationPct, cog: balance.centerOfGravity, boxes: result.placements.length, pallets: 0, unloaded: remainingRows.reduce((sum, item) => sum + item.quantity, 0), remainingRows };
+  }, [loading, palletRevision]);
 
   const resultPanel = resultHost && metrics ? createPortal(
     <section className="loading-strategy-result-summary">
-      <div className="loading-strategy-result-head"><b>{STRATEGY_LABELS[metrics.displayStrategy]}</b><span>{!metrics.usePallet && decision?.requestedStrategy === 'auto' ? `자동 종합점수 ${decision.totalScore.toFixed(1)}` : strategy === 'auto' ? '화물 특성 자동 분석 적용' : '선택 전략 적용'}</span></div>
+      <div className="loading-strategy-result-head"><b>{UI_BY_ID[strategy].label}</b><span>{!metrics.usePallet && decision ? `종합점수 ${decision.totalScore.toFixed(1)} · 실제 배치 ${strategyLabel(decision.selectedStrategy)}` : '선택한 적재 목적 적용'}</span></div>
       <div className="loading-strategy-result-grid">
         <div><span>전체 적재율</span><b>{metrics.fill.toFixed(1)}%</b></div>
         <div><span>사용 / 남은 CBM</span><b>{metrics.used.toFixed(2)} / {metrics.remaining.toFixed(2)}</b></div>
@@ -198,13 +185,10 @@ export default function LoadingStrategyDock() {
         <div><span>사용 박스</span><b>{metrics.boxes.toLocaleString()}개</b></div>
         <div><span>사용 파렛트</span><b>{metrics.pallets.toLocaleString()}개</b></div>
         <div className={metrics.unloaded ? 'warn' : ''}><span>미적재</span><b>{metrics.unloaded.toLocaleString()}개</b></div>
+        {!metrics.usePallet && decision && <div><span>적재 안정성</span><b>{decision.componentScores.stability.toFixed(1)}점</b></div>}
         {!metrics.usePallet && decision?.axleLoads && <><div><span>앞축 적재하중</span><b>{decision.axleLoads.frontKg.toFixed(0)} kg</b></div><div><span>뒤축 적재하중</span><b>{decision.axleLoads.rearKg.toFixed(0)} kg</b></div></>}
       </div>
-      {metrics.remainingRows.length > 0 && <div className="loading-strategy-unloaded">
-        <b>미적재 품목 / 사유</b>
-        <div>{metrics.remainingRows.slice(0, 8).map((item, index) => <span key={`${item.cargoId}-${index}`}><strong>{item.cargoId} · {item.quantity}EA</strong><em>{item.reason}</em></span>)}</div>
-        {metrics.remainingRows.length > 8 && <small>외 {metrics.remainingRows.length - 8}개 사유는 상세 결과에서 확인</small>}
-      </div>}
+      {metrics.remainingRows.length > 0 && <div className="loading-strategy-unloaded"><b>미적재 품목 / 사유</b><div>{metrics.remainingRows.slice(0, 8).map((item, index) => <span key={`${item.cargoId}-${index}`}><strong>{item.cargoId} · {item.quantity}EA</strong><em>{item.reason}</em></span>)}</div>{metrics.remainingRows.length > 8 && <small>외 {metrics.remainingRows.length - 8}개 사유는 상세 결과에서 확인</small>}</div>}
       {!metrics.usePallet && decision?.requestedStrategy === 'auto' && <div className="loading-strategy-reasons">{decision.reasons.slice(0, 3).map(reason => <span key={reason}>{reason}</span>)}</div>}
     </section>, resultHost) : null;
 
