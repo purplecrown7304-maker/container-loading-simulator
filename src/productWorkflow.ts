@@ -99,8 +99,7 @@ export function packagingCandidates(
   const packaging = enterprise.packaging ?? defaultProductPackagingOptions;
 
   // 등록/보유 카탈로그 박스가 제품을 안전하게 수용할 수 있으면 신규 규격은 후보로 만들지 않는다.
-  // optimizeProductPackaging 내부에서 바닥 90도 회전 가능성까지 검사하므로 보유박스 정방향/회전이
-  // 모두 실패했을 때만 자동설계 규격으로 넘어간다.
+  // optimizeProductPackaging 내부에서 실제 자동 적재와 같은 적층/강도 조건까지 시뮬레이션한다.
   const catalogCandidates = boxes
     .map(box => optimizeProductPackaging(container, [product], [box], { ...packaging, allowCustomBoxDesign: false }).assignments[0])
     .filter((item): item is ProductPackagingAssignment => Boolean(item));
@@ -109,13 +108,24 @@ export function packagingCandidates(
   for (const candidate of catalogCandidates) {
     const key = `${candidate.boxId}:${candidate.outerLength.toFixed(4)}:${candidate.outerWidth.toFixed(4)}:${candidate.outerHeight.toFixed(4)}`;
     const previous = uniqueCatalog.get(key);
-    if (!previous || candidate.productFillRate > previous.productFillRate || (candidate.productFillRate === previous.productFillRate && candidate.score > previous.score)) {
+    const candidateLoadRate = candidate.boxesNeeded > 0 ? candidate.simulatedLoadedBoxes / candidate.boxesNeeded : 0;
+    const previousLoadRate = previous && previous.boxesNeeded > 0 ? previous.simulatedLoadedBoxes / previous.boxesNeeded : -1;
+    if (!previous || candidateLoadRate > previousLoadRate || (candidateLoadRate === previousLoadRate && candidate.score > previous.score)) {
       uniqueCatalog.set(key, candidate);
     }
   }
 
   const owned = [...uniqueCatalog.values()]
-    .sort((a, b) => b.productFillRate - a.productFillRate || b.score - a.score || a.boxesNeeded - b.boxesNeeded || b.containerTileEfficiency - a.containerTileEfficiency)
+    .sort((a, b) => {
+      const aLoadRate = a.boxesNeeded > 0 ? a.simulatedLoadedBoxes / a.boxesNeeded : 0;
+      const bLoadRate = b.boxesNeeded > 0 ? b.simulatedLoadedBoxes / b.boxesNeeded : 0;
+      return bLoadRate - aLoadRate
+        || b.simulatedLoadedBoxes - a.simulatedLoadedBoxes
+        || b.score - a.score
+        || b.productFillRate - a.productFillRate
+        || a.boxesNeeded - b.boxesNeeded
+        || b.containerTileEfficiency - a.containerTileEfficiency;
+    })
     .slice(0, 3);
   if (owned.length) return owned;
 
