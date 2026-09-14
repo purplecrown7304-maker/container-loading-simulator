@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { loadContainer } from './loadingEngine';
 import { defaultProductPackagingOptions, optimizeProductPackaging, type BoxCatalogItem, type ProductItem } from './productPackagingOptimizer';
 import type { ContainerSpec } from './types';
 
@@ -68,6 +69,8 @@ describe('product packaging optimizer', () => {
     expect(plan.assignments[0].maxTopLoadKg).toBe(0);
     expect(plan.cargo[0].maxStackLayers).toBe(1);
     expect(plan.cargo[0].maxTopLoadKg).toBe(0);
+    const actual = loadContainer(container, plan.cargo, { strategy: 'capacity', publish: false });
+    expect(plan.assignments[0].simulatedLoadedBoxes).toBe(actual.placements.length);
   });
 
   it('rounds generated inner and outer dimensions upward to the manufacturing grid', () => {
