@@ -4,17 +4,22 @@ import { readStoredState } from './storage';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 import { recordDiagnosticTrace } from './runtimeDiagnostics';
 
+type IntegrityActionDetail = AppActionDetail & { guidedCanonicalReplay?: boolean };
+
 /**
  * 제품 포장 흐름인데 저장 cargo와 포장 확정 signature가 다르면 자동 적재를 중단한다.
- * 무게중심/품질 경고와 달리 이것은 입력 데이터 손상 가능성이므로 잘못된 박스를 계산하지 않는다.
+ * 단, GuidedLoadingExecutionBridge가 포장 snapshot을 그대로 복원한 뒤 AUTO 박스의 런타임 적층값만
+ * 보정해서 재실행하는 canonical replay는 이미 원본 수량/종류 검증을 통과했으므로 허용한다.
  */
 export default function PackagingDataIntegrityGuard() {
   useEffect(() => {
     let lastMismatch = '';
 
     const onRunLoading = (event: Event) => {
-      const custom = event as CustomEvent<AppActionDetail>;
+      const custom = event as CustomEvent<IntegrityActionDetail>;
       if (custom.detail?.action !== 'run-loading') return;
+      if (custom.detail.guidedCanonicalReplay) return;
+
       const stored = readStoredState();
       if (!stored?.cargo?.length) return;
 
