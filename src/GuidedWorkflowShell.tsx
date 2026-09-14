@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT } from './adminAccess';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
+import { LOADING_STRATEGY_SELECTION_EVENT } from './engine/loadingStrategy';
 import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState } from './storage';
 import {
   OPEN_TRANSPORT_SELECTOR_EVENT,
@@ -33,6 +34,7 @@ import {
 import ProductPackagingPreview3D from './ProductPackagingPreview3D';
 import { writeShipmentInstructionSnapshot } from './shipmentInstruction';
 import OperationProgressOverlay from './OperationProgressOverlay';
+import { GUIDED_LOADING_UNIT_EVENT } from './guidedLoadingUnit';
 
 type LiveDetail = { container: ContainerSpec; cargo: CargoItem[]; result?: LoadingResult };
 type PalletSnapshotLite = {
@@ -58,6 +60,12 @@ type PackagingBundle = {
 };
 
 type PackagingProgress = { processed: number; total: number; startedAt: number; stage: string };
+
+type AutoProgressDetail = { status?: 'running' | 'done' | 'error' };
+
+const GUIDED_RUN_IN_FLIGHT = 'guidedRunInFlight';
+const GUIDED_RUN_REJECTED_EVENT = 'container-loading:guided-run-rejected';
+const AUTOMATIC_LOADING_PROGRESS_EVENT = 'container-loading:automatic-loading-progress';
 
 const steps: Array<{ id: StepId; label: string }> = [
   { id: 1, label: '적재공간 선택' },
@@ -142,8 +150,8 @@ function StepRail({ step, furthest, selectionCount, packagedReady, finalReady, r
           : item.id === 2 ? (selectionCount ? `${selectionCount}종 선택` : '미선택')
           : item.id === 3 ? (packagedReady ? '포장안 준비' : '대기')
           : item.id === 4 ? (step > 4 ? '방식 확정' : '선택 대기')
-          : item.id === 5 ? (finalReady ? '계산 완료' : running ? '계산 중' : '대기')
-          : finalReady ? '확인 가능' : '-';
+          : item.id === 5 ? (finalReady ? '계산 완료' : running ? '계산 중' : furthest >= 5 ? '실행 대기' : '대기')
+          : finalReady ? '확인 가능' : '대기';
         return <button key={item.id} type="button" className={`${current ? 'current' : ''} ${complete ? 'complete' : ''}`} disabled={!enabled} onClick={() => enabled && onStep(item.id)}>
           <span className="guided-step-dot">{complete ? '✓' : item.id}</span>
           <span className="guided-step-copy"><b>{item.label}</b><small>{meta}</small></span>
@@ -373,15 +381,16 @@ function JobSummary({ live, mode, finalReady, running, selection }: {
   const loaded = mode === 'pallets' ? palletSnapshot?.result?.placements?.length ?? 0 : boxResult?.placements.length ?? 0;
   const remaining = mode === 'pallets' ? palletSnapshot?.result?.remaining?.reduce((sum, item) => sum + item.quantity, 0) ?? 0 : boxResult?.remaining.reduce((sum, item) => sum + item.quantity, 0) ?? 0;
   const selectedUnits = Object.values(selection).reduce((sum, value) => sum + value, 0);
+  const packagedUnits = live.cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
   const weight = mode === 'pallets' ? palletSnapshot?.result?.totalPalletizedWeightKg ?? 0 : boxResult?.loadedWeightKg ?? 0;
   const maxVolume = live.container.length * live.container.width * live.container.height;
   const usedVolume = boxResult?.usedVolumeM3 ?? 0;
   const fillRate = maxVolume > 0 && usedVolume > 0 ? usedVolume / maxVolume * 100 : 0;
-  const status = finalReady ? '작업 가능' : running ? '검사 중' : loaded ? '검증 대기' : '대기';
-  return <section className="guided-job-summary"><h2>현재 작업</h2><dl><div><dt>적재공간</dt><dd>{equipment.shortName}</dd></div><div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div><div><dt>포장 적재단위</dt><dd>{live.cargo.length ? `${live.cargo.length}종` : '-'}</dd></div><div><dt>적재</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div><div><dt>미적재</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div><div><dt>총 중량</dt><dd>{weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div><div><dt>공간 사용률</dt><dd>{mode === 'boxes' && usedVolume ? `${fillRate.toFixed(1)}%` : '-'}</dd></div><div className="guided-status-row"><dt>상태</dt><dd><i className={finalReady ? 'good' : running ? 'running' : ''}/>{status}</dd></div></dl></section>;
+  const status = finalReady ? '작업 가능' : running ? '계산 중' : '대기';
+  return <section className="guided-job-summary"><h2>현재 작업</h2><dl><div><dt>적재공간</dt><dd>{equipment.shortName}</dd></div><div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div><div><dt>포장 적재단위</dt><dd>{packagedUnits ? `${packagedUnits.toLocaleString()} BOX` : '-'}</dd></div><div><dt>적재</dt><dd>{finalReady ? `${loaded.toLocaleString()} EA` : '-'}</dd></div><div><dt>미적재</dt><dd>{finalReady ? `${remaining.toLocaleString()} EA` : '-'}</dd></div><div><dt>총 중량</dt><dd>{finalReady ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div><div><dt>공간 사용률</dt><dd>{finalReady && mode === 'boxes' ? `${fillRate.toFixed(1)}%` : '-'}</dd></div><div className="guided-status-row"><dt>상태</dt><dd><i className={finalReady ? 'good' : running ? 'running' : ''}/>{status}</dd></div></dl></section>;
 }
 
-function BottomBar({ step, selectionCount, packagedReady, running, finalReady, onAdvance, onApplyPackaging }: {
+function BottomBar({ step, selectionCount, packagedReady, running, finalReady, onAdvance, onApplyPackaging, onRunLoading }: {
   step: StepId;
   selectionCount: number;
   packagedReady: boolean;
@@ -389,6 +398,7 @@ function BottomBar({ step, selectionCount, packagedReady, running, finalReady, o
   finalReady: boolean;
   onAdvance: (step: StepId) => void;
   onApplyPackaging: () => void;
+  onRunLoading: () => void;
 }) {
   let label = '다음: 제품 선택';
   let disabled = false;
@@ -398,7 +408,7 @@ function BottomBar({ step, selectionCount, packagedReady, running, finalReady, o
   else if (step === 4) { label = '적재 방식 확정 · 다음: 자동 적재'; action = () => onAdvance(5); }
   else if (step === 5) {
     if (finalReady) { label = '결과 확인'; action = () => onAdvance(6); }
-    else { label = running ? '자동 적재 계산 중…' : '자동 적재 실행'; disabled = running; action = () => dispatchAppAction('run-loading'); }
+    else { label = running ? '자동 적재 계산 중…' : '자동 적재 실행'; disabled = running; action = onRunLoading; }
   } else if (step === 6) { label = '통합 출하·적재 작업지시서 보기'; disabled = !finalReady; action = () => dispatchAppAction('print-report'); }
   return <div className="guided-bottom-bar"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 6 ? '  ›' : ''}</button><span className="guided-bottom-spacer"/></div>;
 }
@@ -415,14 +425,46 @@ export default function GuidedWorkflowShell() {
   const [running, setRunning] = useState(false);
   const [finalReady, setFinalReady] = useState(false);
 
-  const advance = (next: StepId) => { setStep(next); setFurthest(previous => Math.max(previous, next) as StepId); };
+  const advance = (next: StepId) => {
+    if (next === 5) {
+      setFinalReady(false);
+      setRunning(false);
+      setFurthest(5);
+    } else {
+      setFurthest(previous => Math.max(previous, next) as StepId);
+    }
+    setStep(next);
+  };
+
+  const clearPublishedResults = () => {
+    const runtime = window as WorkflowWindow;
+    runtime.__containerLoadingLatestResult = undefined;
+    runtime.__containerLoadingPalletSnapshot = undefined;
+  };
+
   const applyPackaging = () => {
     if (!packaging.ready) return;
+    clearPublishedResults();
+    delete document.documentElement.dataset[GUIDED_RUN_IN_FLIGHT];
+    setFinalReady(false);
+    setRunning(false);
     writeShipmentInstructionSnapshot(packaging.products, packaging.assignments, packaging.cargo);
     writeStoredState({ container: live.container, cargo: packaging.cargo }, true);
     clickMode('boxes');
     setMode('boxes');
-    advance(4);
+    setStep(4);
+    setFurthest(4);
+  };
+
+  const runAutomaticLoading = () => {
+    clearPublishedResults();
+    document.documentElement.dataset[GUIDED_RUN_IN_FLIGHT] = 'true';
+    setFinalReady(false);
+    setRunning(true);
+    setFurthest(5);
+    setStep(5);
+    setLive(readLive());
+    dispatchAppAction('run-loading');
   };
 
   useEffect(() => {
@@ -452,42 +494,87 @@ export default function GuidedWorkflowShell() {
 
   useEffect(() => {
     const refresh = () => { setLive(readLive()); setMode(currentMode()); };
-    const refreshSelection = () => setSelection(readProductSelection());
+    const finishRun = () => {
+      delete document.documentElement.dataset[GUIDED_RUN_IN_FLIGHT];
+      setRunning(false);
+      setFinalReady(true);
+      setFurthest(6);
+    };
+    const cancelRun = () => {
+      delete document.documentElement.dataset[GUIDED_RUN_IN_FLIGHT];
+      setRunning(false);
+      setFinalReady(false);
+      setFurthest(previous => Math.min(previous, 5) as StepId);
+    };
+    const onBoxResult = (event: Event) => {
+      const detail = (event as CustomEvent<LiveDetail>).detail;
+      if (detail) setLive(detail);
+      else refresh();
+      if (document.documentElement.dataset[GUIDED_RUN_IN_FLIGHT] === 'true' && currentMode() === 'boxes') finishRun();
+    };
+    const onPalletResult = () => {
+      refresh();
+      if (document.documentElement.dataset[GUIDED_RUN_IN_FLIGHT] !== 'true' || currentMode() !== 'pallets') return;
+      const result = (window as WorkflowWindow).__containerLoadingPalletSnapshot?.result;
+      const completed = Boolean(result && ((result.palletCount ?? 0) > 0 || (result.remaining?.length ?? 0) > 0));
+      if (completed) finishRun();
+    };
+    const onAutomaticProgress = (event: Event) => {
+      const status = (event as CustomEvent<AutoProgressDetail>).detail?.status;
+      if (status === 'running') {
+        setRunning(true);
+        setFinalReady(false);
+      } else if (status === 'error') {
+        cancelRun();
+      }
+    };
+    const refreshSelection = () => {
+      setSelection(readProductSelection());
+      if (Number(document.documentElement.dataset.guidedStep || 0) >= 3) cancelRun();
+    };
     const refreshIdentity = () => {
       setSelection(readProductSelection());
       setPackaging({ products: [], assignments: [], cargo: [], ready: false });
+      clearPublishedResults();
       setStep(1);
       setFurthest(1);
       setRunning(false);
       setFinalReady(false);
+      delete document.documentElement.dataset[GUIDED_RUN_IN_FLIGHT];
     };
-    window.addEventListener(LOADING_RESULT_EVENT, refresh);
+    const invalidateResult = () => {
+      if (Number(document.documentElement.dataset.guidedStep || 0) < 4) return;
+      delete document.documentElement.dataset[GUIDED_RUN_IN_FLIGHT];
+      setRunning(false);
+      setFinalReady(false);
+      setFurthest(previous => Math.min(previous, 5) as StepId);
+    };
+
+    window.addEventListener(LOADING_RESULT_EVENT, onBoxResult);
     window.addEventListener(STORAGE_UPDATED_EVENT, refresh);
     window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
     window.addEventListener(PRODUCT_SELECTION_EVENT, refreshSelection);
     window.addEventListener(LOCAL_OPERATOR_EVENT, refreshIdentity);
     window.addEventListener(ADMIN_ACCESS_EVENT, refreshIdentity);
-    window.addEventListener('container-loading:pallet-snapshot-updated', refresh);
-    const observer = new MutationObserver(() => {
-      const rows = [...document.querySelectorAll<HTMLElement>('.inspection-status-table tbody tr')];
-      const workOrderRow = rows.find(row => (row.textContent ?? '').includes('작업지시서'));
-      const ready = Boolean(workOrderRow && /발급 가능|보기 가능|완료|경고 발급/.test(workOrderRow.textContent ?? ''));
-      const activeRun = Boolean(document.querySelector('.operation-progress-backdrop')) || Boolean(document.querySelector('.calculation-overlay')) || rows.some(row => /진행/.test(row.textContent ?? ''));
-      setFinalReady(ready);
-      setRunning(activeRun && !ready);
-      if (ready) setFurthest(previous => Math.max(previous, 6) as StepId);
-    });
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'disabled'] });
+    window.addEventListener('container-loading:pallet-snapshot-updated', onPalletResult);
+    window.addEventListener(AUTOMATIC_LOADING_PROGRESS_EVENT, onAutomaticProgress);
+    window.addEventListener(GUIDED_RUN_REJECTED_EVENT, cancelRun);
+    window.addEventListener(LOADING_STRATEGY_SELECTION_EVENT, invalidateResult);
+    window.addEventListener(GUIDED_LOADING_UNIT_EVENT, invalidateResult);
     refresh();
     return () => {
-      observer.disconnect();
-      window.removeEventListener(LOADING_RESULT_EVENT, refresh);
+      window.removeEventListener(LOADING_RESULT_EVENT, onBoxResult);
       window.removeEventListener(STORAGE_UPDATED_EVENT, refresh);
       window.removeEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
       window.removeEventListener(PRODUCT_SELECTION_EVENT, refreshSelection);
       window.removeEventListener(LOCAL_OPERATOR_EVENT, refreshIdentity);
       window.removeEventListener(ADMIN_ACCESS_EVENT, refreshIdentity);
-      window.removeEventListener('container-loading:pallet-snapshot-updated', refresh);
+      window.removeEventListener('container-loading:pallet-snapshot-updated', onPalletResult);
+      window.removeEventListener(AUTOMATIC_LOADING_PROGRESS_EVENT, onAutomaticProgress);
+      window.removeEventListener(GUIDED_RUN_REJECTED_EVENT, cancelRun);
+      window.removeEventListener(LOADING_STRATEGY_SELECTION_EVENT, invalidateResult);
+      window.removeEventListener(GUIDED_LOADING_UNIT_EVENT, invalidateResult);
+      delete document.documentElement.dataset[GUIDED_RUN_IN_FLIGHT];
     };
   }, []);
 
@@ -495,5 +582,5 @@ export default function GuidedWorkflowShell() {
   const rail = useMemo(() => hosts.left ? createPortal(<StepRail step={step} furthest={furthest} selectionCount={selectionCount} packagedReady={packaging.ready} finalReady={finalReady} running={running} onStep={setStep}/>, hosts.left) : null, [hosts.left, step, furthest, selectionCount, packaging.ready, finalReady, running]);
   const center = useMemo(() => hosts.center ? createPortal(<StagePanel step={step} live={live} selection={selection} onSelection={setSelection} onBundle={setPackaging}/>, hosts.center) : null, [hosts.center, step, live, selection]);
   const summary = useMemo(() => hosts.right ? createPortal(<JobSummary live={live} mode={mode} finalReady={finalReady} running={running} selection={selection}/>, hosts.right) : null, [hosts.right, live, mode, finalReady, running, selection]);
-  return <>{rail}{center}{summary}{typeof document !== 'undefined' ? createPortal(<BottomBar step={step} selectionCount={selectionCount} packagedReady={packaging.ready} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>, document.body) : null}</>;
+  return <>{rail}{center}{summary}{typeof document !== 'undefined' ? createPortal(<BottomBar step={step} selectionCount={selectionCount} packagedReady={packaging.ready} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging} onRunLoading={runAutomaticLoading}/>, document.body) : null}</>;
 }
