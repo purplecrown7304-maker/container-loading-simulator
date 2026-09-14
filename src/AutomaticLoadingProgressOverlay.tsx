@@ -6,6 +6,11 @@ import {
   readUserLoadingStrategy,
   type UserLoadingStrategy,
 } from './engine/loadingStrategy';
+import {
+  GUIDED_LOADING_UNIT_EVENT,
+  readGuidedLoadingUnit,
+  type GuidedLoadingUnit,
+} from './guidedLoadingUnit';
 
 const STRATEGY_LABEL: Record<UserLoadingStrategy, string> = {
   auto: '균형 최적화형',
@@ -16,9 +21,15 @@ const STRATEGY_LABEL: Record<UserLoadingStrategy, string> = {
   grouping: '동일 제품 묶음 적재',
 };
 
+const UNIT_LABEL: Record<GuidedLoadingUnit, string> = {
+  boxes: '상자 적재',
+  pallets: '파렛트 적재',
+};
+
 export default function AutomaticLoadingProgressOverlay() {
   const [detail, setDetail] = useState<AutomaticLoadingProgressDetail | null>(null);
   const [strategy, setStrategy] = useState<UserLoadingStrategy>(() => readUserLoadingStrategy());
+  const [unit, setUnit] = useState<GuidedLoadingUnit>(() => readGuidedLoadingUnit());
 
   useEffect(() => {
     let clearTimer = 0;
@@ -39,15 +50,25 @@ export default function AutomaticLoadingProgressOverlay() {
     const onStrategy = (event: Event) => {
       setStrategy((event as CustomEvent<UserLoadingStrategy>).detail ?? readUserLoadingStrategy());
     };
+    const onUnit = (event: Event) => {
+      setUnit((event as CustomEvent<GuidedLoadingUnit>).detail ?? readGuidedLoadingUnit());
+    };
     window.addEventListener(AUTOMATIC_LOADING_PROGRESS_EVENT, onProgress);
     window.addEventListener(LOADING_STRATEGY_SELECTION_EVENT, onStrategy);
+    window.addEventListener(GUIDED_LOADING_UNIT_EVENT, onUnit);
     return () => {
       window.clearTimeout(clearTimer);
       window.removeEventListener(AUTOMATIC_LOADING_PROGRESS_EVENT, onProgress);
       window.removeEventListener(LOADING_STRATEGY_SELECTION_EVENT, onStrategy);
+      window.removeEventListener(GUIDED_LOADING_UNIT_EVENT, onUnit);
     };
   }, []);
 
   if (!detail) return null;
-  return <OperationProgressOverlay title={`자동 적재 중 · ${STRATEGY_LABEL[strategy]}`} progress={detail.progress} startedAt={detail.startedAt} stage={detail.stage} />;
+  return <OperationProgressOverlay
+    title={`자동 적재 중 · ${UNIT_LABEL[unit]} · ${STRATEGY_LABEL[strategy]}`}
+    progress={detail.progress}
+    startedAt={detail.startedAt}
+    stage={detail.stage}
+  />;
 }
