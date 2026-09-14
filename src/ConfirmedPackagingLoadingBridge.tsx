@@ -4,7 +4,10 @@ import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState, type StoredSt
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 import { recordDiagnosticTrace } from './runtimeDiagnostics';
 
-type ReplayActionDetail = AppActionDetail & { confirmedPackagingReplay?: boolean };
+type ReplayActionDetail = AppActionDetail & {
+  confirmedPackagingReplay?: boolean;
+  equipmentConsistencyReplay?: boolean;
+};
 
 function applyConfirmedPackagingIdentity(state: StoredState, snapshot: ShipmentInstructionSnapshot): StoredState {
   const lineByCargo = new Map(snapshot.lines.map(line => [line.cargoId, line]));
@@ -35,10 +38,9 @@ function applyConfirmedPackagingIdentity(state: StoredState, snapshot: ShipmentI
 }
 
 /**
- * 제품 포장에서 확정한 cargo가 App state에 반영되기 전에 자동 적재가 실행되면
- * 직전 화물 목록으로 계산되는 레이스를 막는다.
- * 출하 스냅샷의 cargo signature와 현재 저장 cargo가 일치하는 경우에만 개입하며,
- * 확정 박스 코드/박스명도 같은 화물 객체에 보존한다.
+ * 제품 포장에서 확정한 cargo가 App state에 반영되기 전에 자동 적재가 실행되는 레이스를 막는다.
+ * dispatchAppAction이 이미 저장 cargo를 App에 주입한 경우에는 같은 STORAGE_UPDATED_EVENT를
+ * 두 번 보내지 않는다. 실제 포장 identity가 누락된 경우에만 보정 후 한 번 재실행한다.
  */
 export default function ConfirmedPackagingLoadingBridge() {
   useEffect(() => {
@@ -53,11 +55,14 @@ export default function ConfirmedPackagingLoadingBridge() {
       const snapshot = readShipmentInstructionSnapshot(stored.cargo);
       if (!snapshot) return;
 
-      // App의 기존 run-loading listener가 이전 cargo state로 먼저 실행되는 것을 차단한다.
-      event.stopImmediatePropagation();
-
       const confirmed = applyConfirmedPackagingIdentity(stored, snapshot);
       const identityUpdated = confirmed !== stored;
+
+      // 가이드 실행 경로는 uiEvents에서 이미 저장 cargo를 App에 주입했다.
+      // identity도 정상이라면 여기서 다시 가로채지 않고 그대로 실제 계산으로 보낸다.
+      if (custom.detail?.synchronizedStoredState && !identityUpdated) return;
+
+      event.stopImmediatePropagation();
       if (identityUpdated) {
         writeStoredState(confirmed, true);
         recordDiagnosticTrace('confirmed-packaging-identity-restored', {
@@ -65,16 +70,19 @@ export default function ConfirmedPackagingLoadingBridge() {
           cargoTypes: confirmed.cargo.length,
         });
       } else {
-        // 포장 확정 당시 저장된 cargo를 다시 한 번 App에 주입한다.
         window.dispatchEvent(new CustomEvent<StoredState>(STORAGE_UPDATED_EVENT, { detail: confirmed }));
       }
 
-      // React state 반영이 끝난 뒤 동일 확정 화물로 자동 적재를 재실행한다.
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           if (cancelled) return;
           window.dispatchEvent(new CustomEvent<ReplayActionDetail>(APP_ACTION_EVENT, {
-            detail: { action: 'run-loading', confirmedPackagingReplay: true },
+            detail: {
+              ...custom.detail,
+              action: 'run-loading',
+              synchronizedStoredState: true,
+              confirmedPackagingReplay: true,
+            },
           }));
         });
       });
