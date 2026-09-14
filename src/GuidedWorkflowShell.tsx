@@ -32,6 +32,7 @@ import {
 } from './productWorkflow';
 import ProductPackagingPreview3D from './ProductPackagingPreview3D';
 import { writeShipmentInstructionSnapshot } from './shipmentInstruction';
+import OperationProgressOverlay from './OperationProgressOverlay';
 
 type LiveDetail = { container: ContainerSpec; cargo: CargoItem[]; result?: LoadingResult };
 type PalletSnapshotLite = {
@@ -48,7 +49,7 @@ type WorkflowWindow = Window & {
 };
 
 type HostSet = { left: HTMLElement | null; center: HTMLElement | null; right: HTMLElement | null };
-type StepId = 1 | 2 | 3 | 4 | 5;
+type StepId = 1 | 2 | 3 | 4 | 5 | 6;
 type PackagingBundle = {
   products: CompanyProductItem[];
   assignments: ProductPackagingAssignment[];
@@ -56,12 +57,15 @@ type PackagingBundle = {
   ready: boolean;
 };
 
+type PackagingProgress = { processed: number; total: number; startedAt: number; stage: string };
+
 const steps: Array<{ id: StepId; label: string }> = [
   { id: 1, label: '적재공간 선택' },
   { id: 2, label: '제품 선택' },
   { id: 3, label: '제품 포장' },
-  { id: 4, label: '자동 적재' },
-  { id: 5, label: '결과 확인' },
+  { id: 4, label: '적재 방식 선택' },
+  { id: 5, label: '자동 적재' },
+  { id: 6, label: '결과 확인' },
 ];
 
 function readLive(): LiveDetail {
@@ -92,10 +96,6 @@ function openEquipment(category?: TransportCategory) {
   window.dispatchEvent(new CustomEvent(OPEN_TRANSPORT_SELECTOR_EVENT, { detail: category ? { category } : undefined }));
 }
 
-function formatDimensions(item: CargoItem) {
-  return `${Math.round(item.length * 1000)} × ${Math.round(item.width * 1000)} × ${Math.round(item.height * 1000)} mm`;
-}
-
 function EquipmentIllustration({ equipment }: { equipment: TransportEquipment }) {
   const openTop = equipment.geometry === 'open-top' || equipment.geometry === 'flat-rack' || equipment.geometry === 'platform';
   const truck = equipment.category === 'truck';
@@ -111,7 +111,7 @@ function EquipmentIllustration({ equipment }: { equipment: TransportEquipment })
       {equipment.geometry !== 'platform' && <polygon points="135,195 135,78 225,32 225,140" fill="url(#space-wall)" stroke="#8c99a6" strokeWidth="2" />}
       {!openTop && <polygon points="135,78 560,78 650,32 225,32" fill="#f3f6f9" stroke="#8c99a6" strokeWidth="2" />}
       {!openTop && <polygon points="560,195 560,78 650,32 650,140" fill="#e5ebf1" stroke="#8c99a6" strokeWidth="2" />}
-      {(equipment.geometry === 'flat-rack') && <><line x1="135" y1="195" x2="135" y2="72" stroke="#687583" strokeWidth="8"/><line x1="225" y1="140" x2="225" y2="28" stroke="#687583" strokeWidth="8"/><line x1="560" y1="195" x2="560" y2="74" stroke="#687583" strokeWidth="8"/><line x1="650" y1="140" x2="650" y2="29" stroke="#687583" strokeWidth="8"/></>}
+      {equipment.geometry === 'flat-rack' && <><line x1="135" y1="195" x2="135" y2="72" stroke="#687583" strokeWidth="8"/><line x1="225" y1="140" x2="225" y2="28" stroke="#687583" strokeWidth="8"/><line x1="560" y1="195" x2="560" y2="74" stroke="#687583" strokeWidth="8"/><line x1="650" y1="140" x2="650" y2="29" stroke="#687583" strokeWidth="8"/></>}
       {truck && <><rect x="80" y="153" width="58" height="42" rx="9" fill="#b7c0ca"/><circle cx="96" cy="202" r="14" fill="#49535e"/><circle cx="534" cy="202" r="14" fill="#49535e"/></>}
       {refrigerated && <g><rect x="245" y="52" width="72" height="26" rx="6" fill="#d8ecfb" stroke="#4e88b6"/><path d="M266 58v14M280 58v14M294 58v14" stroke="#4e88b6" strokeWidth="3"/></g>}
       <line x1="160" y1="218" x2="558" y2="218" stroke="#4779c8" strokeWidth="2"/><path d="M160 218l12-6v12zM558 218l-12-6v12z" fill="#4779c8"/><text x="359" y="238" textAnchor="middle" fontSize="13" fontWeight="700" fill="#4b5563">내부 길이 {(equipment.length * 1000).toLocaleString()} mm</text>
@@ -122,25 +122,27 @@ function EquipmentIllustration({ equipment }: { equipment: TransportEquipment })
   </button>;
 }
 
-function StepRail({ step, furthest, selectionCount, packagedReady, finalReady, onStep }: {
+function StepRail({ step, furthest, selectionCount, packagedReady, finalReady, running, onStep }: {
   step: StepId;
   furthest: StepId;
   selectionCount: number;
   packagedReady: boolean;
   finalReady: boolean;
+  running: boolean;
   onStep: (step: StepId) => void;
 }) {
   return <section className="guided-step-rail" aria-label="작업 준비 단계">
     <h2>작업 준비</h2>
     <div className="guided-step-list">
       {steps.map(item => {
-        const complete = item.id < step || (item.id === 3 && packagedReady && step > 3) || (item.id === 5 && finalReady);
+        const complete = item.id < step || (item.id === 3 && packagedReady && step > 3) || (item.id === 6 && finalReady);
         const current = item.id === step;
         const enabled = item.id <= furthest;
         const meta = item.id === 1 ? '공간 확인'
           : item.id === 2 ? (selectionCount ? `${selectionCount}종 선택` : '미선택')
           : item.id === 3 ? (packagedReady ? '포장안 준비' : '대기')
-          : item.id === 4 ? (finalReady ? '검사 완료' : '대기')
+          : item.id === 4 ? (step > 4 ? '방식 확정' : '선택 대기')
+          : item.id === 5 ? (finalReady ? '계산 완료' : running ? '계산 중' : '대기')
           : finalReady ? '확인 가능' : '-';
         return <button key={item.id} type="button" className={`${current ? 'current' : ''} ${complete ? 'complete' : ''}`} disabled={!enabled} onClick={() => enabled && onStep(item.id)}>
           <span className="guided-step-dot">{complete ? '✓' : item.id}</span>
@@ -175,9 +177,7 @@ function ProductSelectionStage({ container, selection, onSelection }: {
   const normalizedQuery = query.trim().toLowerCase();
   const filtered = useMemo(() => {
     if (!normalizedQuery) return [];
-    return products
-      .filter(product => `${product.id} ${product.name}`.toLowerCase().includes(normalizedQuery))
-      .slice(0, 50);
+    return products.filter(product => `${product.id} ${product.name}`.toLowerCase().includes(normalizedQuery)).slice(0, 50);
   }, [products, normalizedQuery]);
   const total = Object.values(selection).reduce((sum, value) => sum + value, 0);
 
@@ -196,9 +196,7 @@ function ProductSelectionStage({ container, selection, onSelection }: {
       <div className="guided-product-table-head"><span>제품 정보</span><span>포장</span><span>자동 추천 상자</span><span>이번 출하 수량</span></div>
       {filtered.map(product => {
         const quantity = selection[product.id] ?? 0;
-        const candidate = requiresBoxPackaging(product)
-          ? previewPackagingCandidate(container, { ...product, quantity: Math.max(1, quantity || 1) }, boxes, state)
-          : undefined;
+        const candidate = requiresBoxPackaging(product) ? previewPackagingCandidate(container, { ...product, quantity: Math.max(1, quantity || 1) }, boxes, state) : undefined;
         return <article key={product.id} className={quantity > 0 ? 'selected' : ''}>
           <div className="guided-product-info"><b>{product.name}</b><span>{product.id} · {Math.round(product.length * 1000)}×{Math.round(product.width * 1000)}×{Math.round(product.height * 1000)} mm · {product.weightKg} kg</span></div>
           <div className="guided-product-pack-type">{requiresBoxPackaging(product) ? <><b>박스 필요</b><span>포장 단계에서 확정</span></> : <><b>직접 적재</b><span>박스 없음</span></>}</div>
@@ -220,6 +218,10 @@ function PackagingStage({ container, selection, onBundle }: {
 }) {
   const [revision, setRevision] = useState(0);
   const [choices, setChoices] = useState<Record<string, string>>({});
+  const [candidates, setCandidates] = useState<Record<string, ProductPackagingAssignment[]>>({});
+  const [packagingRunning, setPackagingRunning] = useState(false);
+  const [progress, setProgress] = useState<PackagingProgress>({ processed: 0, total: 0, startedAt: 0, stage: '포장 계산 준비 중' });
+
   useEffect(() => {
     const refresh = () => setRevision(value => value + 1);
     window.addEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, refresh);
@@ -231,10 +233,40 @@ function PackagingStage({ container, selection, onBundle }: {
       window.removeEventListener(ADMIN_ACCESS_EVENT, refresh);
     };
   }, []);
+
   const state = useMemo(() => readEnterprisePackagingPlannerState(), [revision]);
   const products = useMemo(() => selectedProducts((state?.products ?? []) as CompanyProductItem[], selection), [state, selection]);
   const boxes = state?.boxes ?? [];
-  const candidates = useMemo(() => Object.fromEntries(products.map(product => [product.id, packagingCandidates(container, product, boxes, state)])), [products, boxes, container, state]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const compute = async () => {
+      const total = products.reduce((sum, product) => sum + Math.max(0, product.quantity), 0);
+      const startedAt = Date.now();
+      setCandidates({});
+      setPackagingRunning(products.length > 0);
+      setProgress({ processed: 0, total, startedAt, stage: '제품 크기 및 보유 박스 계산 준비 중' });
+      if (!products.length) return;
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      const next: Record<string, ProductPackagingAssignment[]> = {};
+      let processed = 0;
+      for (const product of products) {
+        if (cancelled) return;
+        setProgress({ processed, total, startedAt, stage: `${product.name} · 제품 규격과 보유 박스 비교 중` });
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        if (cancelled) return;
+        next[product.id] = requiresBoxPackaging(product) ? packagingCandidates(container, product, boxes, state) : [];
+        processed += Math.max(0, product.quantity);
+        if (cancelled) return;
+        setCandidates({ ...next });
+        setProgress({ processed, total, startedAt, stage: processed >= total ? '포장 결과 정리 및 검증 중' : `${product.name} 포장 계산 완료` });
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      }
+      if (!cancelled) setPackagingRunning(false);
+    };
+    void compute();
+    return () => { cancelled = true; };
+  }, [products, boxes, container, state]);
 
   useEffect(() => {
     setChoices(current => {
@@ -251,31 +283,33 @@ function PackagingStage({ container, selection, onBundle }: {
   const assignments = useMemo(() => products.flatMap(product => {
     if (!requiresBoxPackaging(product)) return [];
     const choice = choices[product.id];
-    const list = candidates[product.id] ?? [];
-    return list.filter(item => item.boxId === choice).slice(0, 1);
+    return (candidates[product.id] ?? []).filter(item => item.boxId === choice).slice(0, 1);
   }), [products, candidates, choices]);
   const requiredBoxed = products.filter(requiresBoxPackaging).length;
-  const ready = products.length > 0 && assignments.length === requiredBoxed;
+  const ready = !packagingRunning && products.length > 0 && assignments.length === requiredBoxed;
   const cargo = useMemo(() => cargoFromProductPackaging(products, assignments), [products, assignments]);
 
   useEffect(() => onBundle({ products, assignments, cargo, ready }), [products, assignments, cargo, ready, onBundle]);
 
-  return <section className="guided-stage-panel guided-packaging-stage">
-    <div className="guided-panel-title"><div><h1>제품 포장</h1><p>제품별 추천 박스를 자동 적용했습니다. 필요하면 후보를 바꾸고 3D 바닥 미리보기로 포장 결과를 확인합니다.</p></div><span className={`guided-packaging-status ${ready ? 'ready' : ''}`}>{ready ? '포장안 준비 완료' : '포장안 확인 필요'}</span></div>
-    <div className="guided-packaging-list">
-      {products.map(product => {
-        if (!requiresBoxPackaging(product)) return <article key={product.id} className="direct"><div><b>{product.name}</b><span>{product.id} · {product.quantity}EA</span></div><div className="guided-package-choice"><strong>박스 불필요 · 직접 적재</strong><span>{Math.round(product.length * 1000)}×{Math.round(product.width * 1000)}×{Math.round(product.height * 1000)} mm</span></div><div><b>{product.quantity} EA</b><span>적재단위</span></div></article>;
-        const list = candidates[product.id] ?? [];
-        const active = list.find(item => item.boxId === choices[product.id]);
-        return <article key={product.id} className={!active ? 'warning' : ''}>
-          <div><b>{product.name}</b><span>{product.id} · 제품 {product.quantity}EA</span></div>
-          <div className="guided-package-choice">{list.length ? <><select value={choices[product.id] ?? ''} onChange={event => setChoices(current => ({ ...current, [product.id]: event.target.value }))}>{list.map((item, index) => <option key={`${item.boxId}-${index}`} value={item.boxId}>{index + 1}순위 · {Math.round(item.outerLength * 1000)}×{Math.round(item.outerWidth * 1000)}×{Math.round(item.outerHeight * 1000)} · {item.source === 'catalog' ? '보유' : '신규'}</option>)}</select>{active && <span>{active.unitsPerBox}EA/BOX · 충진율 {Math.round(active.productFillRate * 100)}% · {active.boxName}</span>}</> : <><strong className="warn">추천 가능한 박스 없음</strong><span>제품 관리 또는 박스 관리에서 조건을 확인하세요.</span></>}</div>
-          <div>{active ? <><b>{active.boxesNeeded} BOX</b><span>포장 후 수량</span></> : <><b>-</b><span>포장 불가</span></>}</div>
-        </article>;
-      })}
-    </div>
-    {cargo.length > 0 ? <ProductPackagingPreview3D container={container} cargo={cargo} /> : <div className="guided-empty">포장 미리보기를 만들 수 없습니다.</div>}
-  </section>;
+  return <>
+    {packagingRunning && <OperationProgressOverlay title="제품 포장 중" progress={progress.total > 0 ? progress.processed / progress.total : 0} processed={progress.processed} total={progress.total} unitLabel="개 제품" startedAt={progress.startedAt} stage={progress.stage} />}
+    <section className="guided-stage-panel guided-packaging-stage">
+      <div className="guided-panel-title"><div><h1>제품 포장</h1><p>제품별 추천 박스를 실제 계산 순서대로 적용합니다. 필요하면 계산 완료 후 후보를 변경할 수 있습니다.</p></div><span className={`guided-packaging-status ${ready ? 'ready' : ''}`}>{packagingRunning ? '포장 계산 중' : ready ? '포장안 준비 완료' : '포장안 확인 필요'}</span></div>
+      <div className="guided-packaging-list">
+        {products.map(product => {
+          if (!requiresBoxPackaging(product)) return <article key={product.id} className="direct"><div><b>{product.name}</b><span>{product.id} · {product.quantity}EA</span></div><div className="guided-package-choice"><strong>박스 불필요 · 직접 적재</strong><span>{Math.round(product.length * 1000)}×{Math.round(product.width * 1000)}×{Math.round(product.height * 1000)} mm</span></div><div><b>{product.quantity} EA</b><span>적재단위</span></div></article>;
+          const list = candidates[product.id] ?? [];
+          const active = list.find(item => item.boxId === choices[product.id]);
+          return <article key={product.id} className={!packagingRunning && !active ? 'warning' : ''}>
+            <div><b>{product.name}</b><span>{product.id} · 제품 {product.quantity}EA</span></div>
+            <div className="guided-package-choice">{list.length ? <><select value={choices[product.id] ?? ''} onChange={event => setChoices(current => ({ ...current, [product.id]: event.target.value }))}>{list.map((item, index) => <option key={`${item.boxId}-${index}`} value={item.boxId}>{index + 1}순위 · {Math.round(item.outerLength * 1000)}×{Math.round(item.outerWidth * 1000)}×{Math.round(item.outerHeight * 1000)} · {item.source === 'catalog' ? '보유' : '신규'}</option>)}</select>{active && <span>{active.unitsPerBox}EA/BOX · 충진율 {Math.round(active.productFillRate * 100)}% · {active.boxName}</span>}</> : packagingRunning ? <><strong>계산 중…</strong><span>제품 규격과 보유 박스를 비교하고 있습니다.</span></> : <><strong className="warn">추천 가능한 박스 없음</strong><span>제품 관리 또는 박스 관리에서 조건을 확인하세요.</span></>}</div>
+            <div>{active ? <><b>{active.boxesNeeded} BOX</b><span>포장 후 수량</span></> : <><b>-</b><span>{packagingRunning ? '계산 중' : '포장 불가'}</span></>}</div>
+          </article>;
+        })}
+      </div>
+      {cargo.length > 0 ? <ProductPackagingPreview3D container={container} cargo={cargo} /> : <div className="guided-empty">{packagingRunning ? '포장 계산이 완료되면 미리보기가 표시됩니다.' : '포장 미리보기를 만들 수 없습니다.'}</div>}
+    </section>
+  </>;
 }
 
 function ResultStage({ live }: { live: LiveDetail }) {
@@ -283,17 +317,20 @@ function ResultStage({ live }: { live: LiveDetail }) {
   const total = live.cargo.reduce((sum, item) => sum + item.quantity, 0);
   const remaining = result?.remaining.reduce((sum, item) => sum + item.quantity, 0) ?? 0;
   const containerVolume = live.container.length * live.container.width * live.container.height;
-  const fillRate = result && containerVolume > 0 ? result.usedVolumeM3 / containerVolume * 100 : 0;
-  const weightRate = result && live.container.maxPayloadKg > 0 ? result.loadedWeightKg / live.container.maxPayloadKg * 100 : 0;
+  const usedVolume = result?.usedVolumeM3 ?? 0;
+  const remainingVolume = Math.max(0, containerVolume - usedVolume);
+  const fillRate = result && containerVolume > 0 ? usedVolume / containerVolume * 100 : 0;
   return <section className="guided-stage-panel guided-result-stage">
     <div className="guided-panel-title"><h1>결과 확인</h1><button type="button" className="guided-secondary-button" onClick={() => dispatchAppAction('show-results')}>상세 결과 보기</button></div>
     <div className="guided-result-tabs"><b>적재 결과</b><span>미적재</span><span>무게 분포</span><span>안전 검사</span></div>
     <div className="guided-result-grid">
       <div><span>요청</span><b>{total.toLocaleString()} EA</b></div>
-      <div className="good"><span>적재</span><b>{(result?.placements.length ?? 0).toLocaleString()} EA</b></div>
-      <div className={remaining ? 'warn' : 'good'}><span>미적재</span><b>{remaining.toLocaleString()} EA</b></div>
-      <div><span>CBM 사용률</span><b>{fillRate.toFixed(1)}%</b></div>
-      <div><span>중량 사용률</span><b>{weightRate.toFixed(1)}%</b></div>
+      <div className="good"><span>적재 제품</span><b>{(result?.placements.length ?? 0).toLocaleString()} EA</b></div>
+      <div className={remaining ? 'warn' : 'good'}><span>남은 제품</span><b>{remaining.toLocaleString()} EA</b></div>
+      <div><span>적재율</span><b>{fillRate.toFixed(1)}%</b></div>
+      <div><span>사용 CBM</span><b>{usedVolume.toFixed(2)}</b></div>
+      <div><span>남은 CBM</span><b>{remainingVolume.toFixed(2)}</b></div>
+      <div><span>총 적재 중량</span><b>{(result?.loadedWeightKg ?? 0).toLocaleString()} kg</b></div>
       <div className="good"><span>작업 판정</span><b>결과 확인</b></div>
     </div>
     {result?.remaining.length ? <div className="guided-unloaded-list"><div className="guided-section-label">미적재 화물</div>{result.remaining.map(item => <article key={item.cargoId}><span><b>{item.cargoId}</b><small>{item.reason}</small></span><strong>{item.quantity} EA</strong></article>)}</div> : null}
@@ -318,8 +355,9 @@ function StagePanel({ step, live, selection, onSelection, onBundle }: {
   </section>;
   if (step === 2) return <ProductSelectionStage container={live.container} selection={selection} onSelection={onSelection} />;
   if (step === 3) return <PackagingStage container={live.container} selection={selection} onBundle={onBundle} />;
-  if (step === 5) return <ResultStage live={live} />;
-  return <section className="guided-stage-panel guided-loading-placeholder" aria-hidden="true" />;
+  if (step === 4) return <section className="guided-stage-panel guided-loading-placeholder" aria-hidden="true" />;
+  if (step === 5) return <section className="guided-stage-panel guided-auto-loading-stage"><div className="guided-panel-title"><div><h1>자동 적재</h1><p>선택한 적재 방식으로 실제 후보 배치와 물리 검증을 실행합니다.</p></div></div><div className="guided-empty"><b>자동 적재 실행 준비 완료</b><span>아래 ‘자동 적재 실행’ 버튼을 누르면 진행률·현재 계산 단계·예상 남은 시간이 표시됩니다.</span></div></section>;
+  return <ResultStage live={live} />;
 }
 
 function JobSummary({ live, mode, finalReady, running, selection }: {
@@ -356,12 +394,13 @@ function BottomBar({ step, selectionCount, packagedReady, running, finalReady, o
   let disabled = false;
   let action = () => onAdvance(2);
   if (step === 2) { label = '다음: 제품 포장'; disabled = selectionCount < 1; action = () => onAdvance(3); }
-  else if (step === 3) { label = '포장 확정 · 다음: 자동 적재'; disabled = !packagedReady; action = onApplyPackaging; }
-  else if (step === 4) {
-    if (finalReady) { label = '결과 확인'; action = () => onAdvance(5); }
-    else { label = running ? '최종 적재 검사 중…' : '최종 적재 진행'; disabled = running; action = () => dispatchAppAction('run-loading'); }
-  } else if (step === 5) { label = '통합 출하·적재 작업지시서 보기'; disabled = !finalReady; action = () => dispatchAppAction('print-report'); }
-  return <div className="guided-bottom-bar"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 5 ? '  ›' : ''}</button><span className="guided-bottom-spacer"/></div>;
+  else if (step === 3) { label = '포장 확정 · 다음: 적재 방식 선택'; disabled = !packagedReady; action = onApplyPackaging; }
+  else if (step === 4) { label = '적재 방식 확정 · 다음: 자동 적재'; action = () => onAdvance(5); }
+  else if (step === 5) {
+    if (finalReady) { label = '결과 확인'; action = () => onAdvance(6); }
+    else { label = running ? '자동 적재 계산 중…' : '자동 적재 실행'; disabled = running; action = () => dispatchAppAction('run-loading'); }
+  } else if (step === 6) { label = '통합 출하·적재 작업지시서 보기'; disabled = !finalReady; action = () => dispatchAppAction('print-report'); }
+  return <div className="guided-bottom-bar"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 6 ? '  ›' : ''}</button><span className="guided-bottom-spacer"/></div>;
 }
 
 export default function GuidedWorkflowShell() {
@@ -371,7 +410,6 @@ export default function GuidedWorkflowShell() {
   const [mode, setMode] = useState<'boxes' | 'pallets'>(() => typeof document === 'undefined' ? 'boxes' : currentMode());
   const [selection, setSelection] = useState<ProductSelectionMap>(initialSelection);
   const [packaging, setPackaging] = useState<PackagingBundle>({ products: [], assignments: [], cargo: [], ready: false });
-  // 이전 선택 기록이 있어도 앱 진입은 항상 1단계에서 시작한다.
   const [step, setStep] = useState<StepId>(1);
   const [furthest, setFurthest] = useState<StepId>(1);
   const [running, setRunning] = useState(false);
@@ -434,10 +472,10 @@ export default function GuidedWorkflowShell() {
       const rows = [...document.querySelectorAll<HTMLElement>('.inspection-status-table tbody tr')];
       const workOrderRow = rows.find(row => (row.textContent ?? '').includes('작업지시서'));
       const ready = Boolean(workOrderRow && /발급 가능|보기 가능|완료|경고 발급/.test(workOrderRow.textContent ?? ''));
-      const activeRun = Boolean(document.querySelector('.calculation-overlay')) || rows.some(row => /진행/.test(row.textContent ?? ''));
+      const activeRun = Boolean(document.querySelector('.operation-progress-backdrop')) || Boolean(document.querySelector('.calculation-overlay')) || rows.some(row => /진행/.test(row.textContent ?? ''));
       setFinalReady(ready);
       setRunning(activeRun && !ready);
-      if (ready) setFurthest(previous => Math.max(previous, 5) as StepId);
+      if (ready) setFurthest(previous => Math.max(previous, 6) as StepId);
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'disabled'] });
     refresh();
@@ -454,7 +492,7 @@ export default function GuidedWorkflowShell() {
   }, []);
 
   const selectionCount = Object.keys(selection).length;
-  const rail = useMemo(() => hosts.left ? createPortal(<StepRail step={step} furthest={furthest} selectionCount={selectionCount} packagedReady={packaging.ready} finalReady={finalReady} onStep={setStep}/>, hosts.left) : null, [hosts.left, step, furthest, selectionCount, packaging.ready, finalReady]);
+  const rail = useMemo(() => hosts.left ? createPortal(<StepRail step={step} furthest={furthest} selectionCount={selectionCount} packagedReady={packaging.ready} finalReady={finalReady} running={running} onStep={setStep}/>, hosts.left) : null, [hosts.left, step, furthest, selectionCount, packaging.ready, finalReady, running]);
   const center = useMemo(() => hosts.center ? createPortal(<StagePanel step={step} live={live} selection={selection} onSelection={setSelection} onBundle={setPackaging}/>, hosts.center) : null, [hosts.center, step, live, selection]);
   const summary = useMemo(() => hosts.right ? createPortal(<JobSummary live={live} mode={mode} finalReady={finalReady} running={running} selection={selection}/>, hosts.right) : null, [hosts.right, live, mode, finalReady, running, selection]);
   return <>{rail}{center}{summary}{typeof document !== 'undefined' ? createPortal(<BottomBar step={step} selectionCount={selectionCount} packagedReady={packaging.ready} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>, document.body) : null}</>;
