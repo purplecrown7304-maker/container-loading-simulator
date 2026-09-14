@@ -30,6 +30,21 @@ export function readStoredState(): StoredState | null {
   }
 }
 
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.keys(value as Record<string, unknown>)
+    .sort()
+    .reduce<Record<string, unknown>>((result, key) => {
+      result[key] = stableValue((value as Record<string, unknown>)[key]);
+      return result;
+    }, {});
+}
+
+function stateFingerprint(state: StoredState) {
+  return JSON.stringify(stableValue({ ...state, cargo: normalizeCargo(state.cargo ?? []) }));
+}
+
 /**
  * 입력 원본(container/cargo)이 실제로 바뀌면 이전 계산 결과는 더 이상 같은 작업의 결과가 아니다.
  * 반대로 같은 상태를 다시 쓰는 동기화 이벤트는 완료된 3D 결과를 지우면 안 된다.
@@ -45,14 +60,14 @@ function invalidatePublishedRuntimeState() {
 
 export function writeStoredState(state: StoredState, notify = false): void {
   const normalized: StoredState = { ...state, cargo: normalizeCargo(state.cargo) };
-  const nextRaw = JSON.stringify(normalized);
-  const previousRaw = localStorage.getItem(STORAGE_KEY);
+  const previous = readStoredState();
 
-  // 브리지들이 같은 canonical 입력을 반복해서 저장하는 경우가 있다.
-  // 같은 입력을 '변경'으로 취급하면 완료 직후 결과/3D가 pending 상태로 되돌아간다.
-  if (previousRaw === nextRaw) return;
+  // 객체의 key 순서가 달라도 실제 container/cargo 값이 같으면 같은 입력이다.
+  // 같은 입력을 다시 저장하며 결과 캐시를 지우는 것이 자동 적재 완료 후 3D가 사라지는
+  // 대표적인 경쟁 조건이므로, 의미상 동일한 쓰기는 완전히 무시한다.
+  if (previous && stateFingerprint(previous) === stateFingerprint(normalized)) return;
 
-  localStorage.setItem(STORAGE_KEY, nextRaw);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
   if (notify) {
     invalidatePublishedRuntimeState();
     window.dispatchEvent(new CustomEvent<StoredState>(STORAGE_UPDATED_EVENT, { detail: normalized }));
