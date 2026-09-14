@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useTransportEquipment } from './transportEquipment';
+import { readStoredState, writeStoredState } from './storage';
 import { APP_ACTION_EVENT } from './uiEvents';
 
 const labels = [
@@ -52,10 +53,12 @@ function inputsFor(labelText: string) {
 }
 
 /**
- * Transport equipment is the master geometry. Keep both the main loading App and the
- * enterprise packaging planner synchronized with the selected equipment, including
- * floor load. React receives normal input/change events, then the main loading result
- * is recalculated so the equipment badge and the actual ContainerSpec cannot diverge.
+ * Transport equipment is the master geometry.
+ *
+ * 일반 화면에서는 기존처럼 장비 변경 뒤 즉시 재계산할 수 있지만, 가이드 작업에서는
+ * 1단계 장비 선택이 5단계 자동 적재를 몰래 실행하면 안 된다. 가이드 모드에서는
+ * App/포장 계산이 같은 ContainerSpec을 보도록 저장 상태만 동기화하고, 실제 적재는
+ * 사용자가 적재 방식을 확정해 5단계에 들어갈 때 실행한다.
  */
 export default function EnterpriseTransportEquipmentAdapter() {
   const equipment = useTransportEquipment();
@@ -77,6 +80,28 @@ export default function EnterpriseTransportEquipmentAdapter() {
           changedMain = changedMain || (isMain && changed);
         }
       });
+
+      const guided = document.documentElement.dataset.guidedWorkflow === 'true';
+      if (guided) {
+        const stored = readStoredState();
+        const container = {
+          ...(stored?.container ?? {
+            length: equipment.length,
+            width: equipment.width,
+            height: equipment.height,
+            maxPayloadKg: equipment.maxPayloadKg,
+            floorLoadLimitKgPerM2: equipment.floorLoadLimitKgPerM2,
+            floorLoadWarningMultiplier: 3,
+          }),
+          length: equipment.length,
+          width: equipment.width,
+          height: equipment.height,
+          maxPayloadKg: equipment.maxPayloadKg,
+          floorLoadLimitKgPerM2: equipment.floorLoadLimitKgPerM2,
+        };
+        writeStoredState({ container, cargo: stored?.cargo ?? [] }, true);
+        return;
+      }
 
       if (changedMain) {
         window.setTimeout(() => {
