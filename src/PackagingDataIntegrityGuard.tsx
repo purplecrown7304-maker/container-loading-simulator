@@ -7,9 +7,9 @@ import { recordDiagnosticTrace } from './runtimeDiagnostics';
 type IntegrityActionDetail = AppActionDetail & { guidedCanonicalReplay?: boolean };
 
 /**
- * 제품 포장 흐름인데 저장 cargo와 포장 확정 signature가 다르면 자동 적재를 중단한다.
- * 단, GuidedLoadingExecutionBridge가 포장 snapshot을 그대로 복원한 뒤 AUTO 박스의 런타임 적층값만
- * 보정해서 재실행하는 canonical replay는 이미 원본 수량/종류 검증을 통과했으므로 허용한다.
+ * 제품 포장 흐름에서는 최초 실행뿐 아니라 canonical replay도 동일한 shipmentInstruction
+ * signature를 통과해야 한다. replay라고 검증을 건너뛰면 writeStoredState 이후 App에 전달되는
+ * 실제 입력이 바뀌어도 감지할 방법이 없으므로 반드시 다시 확인한다.
  */
 export default function PackagingDataIntegrityGuard() {
   useEffect(() => {
@@ -18,7 +18,6 @@ export default function PackagingDataIntegrityGuard() {
     const onRunLoading = (event: Event) => {
       const custom = event as CustomEvent<IntegrityActionDetail>;
       if (custom.detail?.action !== 'run-loading') return;
-      if (custom.detail.guidedCanonicalReplay) return;
 
       const stored = readStoredState();
       if (!stored?.cargo?.length) return;
@@ -37,9 +36,11 @@ export default function PackagingDataIntegrityGuard() {
         shipmentNo: rawSnapshot.shipmentNo,
         expectedCargoSignature: rawSnapshot.cargoSignature,
         cargoTypes: stored.cargo.length,
+        canonicalReplay: custom.detail.guidedCanonicalReplay === true,
       });
       if (lastMismatch !== mismatchKey) {
         lastMismatch = mismatchKey;
+        window.setTimeout(() => { lastMismatch = ''; }, 800);
         window.alert('제품 포장에서 확정한 박스와 현재 자동 적재 입력이 일치하지 않습니다. 제품 포장 단계에서 포장을 다시 확정한 뒤 자동 적재를 실행하세요.');
       }
     };
