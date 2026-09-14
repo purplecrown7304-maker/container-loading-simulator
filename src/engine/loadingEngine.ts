@@ -14,9 +14,10 @@ export const LOADING_STRATEGY_STORAGE_KEY = 'container-loading-strategy';
 export type LoadingStrategy = 'capacity' | 'stability' | 'unloading';
 export type LoadingOptions = { strategy?: LoadingStrategy; publish?: boolean };
 
+type PublishedLoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type CorrectionWindow = Window & {
   __containerLoadingAutoCorrections?: AutoCorrectionRecord[];
-  __containerLoadingLatestResult?: { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
+  __containerLoadingLatestResult?: PublishedLoadingDetail;
 };
 
 function browserStrategy(): LoadingStrategy {
@@ -31,11 +32,42 @@ function publishCorrections(corrections: AutoCorrectionRecord[]) {
   window.dispatchEvent(new CustomEvent(AUTO_CORRECTION_EVENT, { detail: { corrections } }));
 }
 
+function guidedRunNeedsCanvasCommit() {
+  if (typeof document === 'undefined') return false;
+  const root = document.documentElement;
+  return root.dataset.guidedWorkflow === 'true'
+    && root.dataset.guidedStep === '5'
+    && root.dataset.guidedRunInFlight === 'true';
+}
+
 function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult) {
   if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return;
-  const detail = { container, cargo, result };
-  (window as CorrectionWindow).__containerLoadingLatestResult = detail;
-  window.dispatchEvent(new CustomEvent(LOADING_RESULT_EVENT, { detail }));
+  const detail: PublishedLoadingDetail = { container, cargo, result };
+  const runtime = window as CorrectionWindow;
+  runtime.__containerLoadingLatestResult = detail;
+
+  const dispatch = () => {
+    // If the input/result was invalidated or replaced while React was committing the viewer,
+    // never publish that stale result as the current guided result.
+    if (runtime.__containerLoadingLatestResult !== detail) return;
+    window.dispatchEvent(new CustomEvent(LOADING_RESULT_EVENT, { detail }));
+  };
+
+  if (!guidedRunNeedsCanvasCommit()) {
+    dispatch();
+    return;
+  }
+
+  // App receives the returned LoadingResult and calls setResult() immediately after this
+  // function returns. GuidedWorkflowShell must not unlock step 6 before that React update
+  // has reached BoxLoadingViewer. Two animation frames give React/Three the commit turn first,
+  // so the complete 3D arrangement is visible in step 5 before "결과 확인" becomes available.
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      if (!guidedRunNeedsCanvasCommit()) return;
+      dispatch();
+    });
+  });
 }
 
 /**
