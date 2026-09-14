@@ -81,6 +81,16 @@ const listeners = new Set<() => void>();
 
 function clone(value: TransportEquipment): TransportEquipment { return { ...value }; }
 
+function sameEquipment(a: TransportEquipment, b: TransportEquipment) {
+  return a.id === b.id
+    && a.category === b.category
+    && Math.abs(a.length - b.length) < 0.0001
+    && Math.abs(a.width - b.width) < 0.0001
+    && Math.abs(a.height - b.height) < 0.0001
+    && Math.abs(a.maxPayloadKg - b.maxPayloadKg) < 0.1
+    && Math.abs(a.floorLoadLimitKgPerM2 - b.floorLoadLimitKgPerM2) < 0.1;
+}
+
 function loadStored() {
   if (typeof window === 'undefined') return;
   try {
@@ -106,7 +116,13 @@ export function subscribeTransportEquipment(listener: () => void) { listeners.ad
 export function useTransportEquipment() { return useSyncExternalStore(subscribeTransportEquipment, readTransportEquipment, readTransportEquipment); }
 
 export function selectTransportEquipment(value: TransportEquipment) {
-  selected = clone(value);
+  const next = clone(value);
+  if (sameEquipment(selected, next)) {
+    loadedFromStorage = true;
+    if (typeof window !== 'undefined' && !window.localStorage.getItem(STORAGE_KEY)) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    return;
+  }
+  selected = next;
   loadedFromStorage = true;
   if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, JSON.stringify(selected));
   emit();
