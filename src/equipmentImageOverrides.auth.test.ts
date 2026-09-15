@@ -9,7 +9,8 @@ describe('equipment image admin authentication', () => {
   });
 
   it('exchanges the login password for a Supabase admin session without another prompt', async () => {
-    const promptSpy = vi.spyOn(window, 'prompt');
+    const promptMock = vi.fn();
+    vi.stubGlobal('prompt', promptMock);
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ sessionToken: 'server-session-token' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -18,7 +19,7 @@ describe('equipment image admin authentication', () => {
 
     await setEquipmentAdminCredential('admin-password');
 
-    expect(promptSpy).not.toHaveBeenCalled();
+    expect(promptMock).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0];
     expect(init?.method).toBe('POST');
