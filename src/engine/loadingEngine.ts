@@ -4,11 +4,12 @@ import { centerPlacementsOnContainer } from './containerCentering';
 import { packByHybridOptimizer } from './hybridLoadingOptimizer';
 import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
+import { normalizeLoadingStrategy, type LoadingStrategy } from './loadingStrategies';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
 export const LOADING_STRATEGY_STORAGE_KEY = 'container-loading-strategy';
-export type LoadingStrategy = 'capacity' | 'stability' | 'unloading';
+export type { LoadingStrategy } from './loadingStrategies';
 export type LoadingOptions = { strategy?: LoadingStrategy; publish?: boolean };
 
 type CorrectionWindow = Window & {
@@ -17,9 +18,8 @@ type CorrectionWindow = Window & {
 };
 
 function browserStrategy(): LoadingStrategy {
-  if (typeof window === 'undefined') return 'capacity';
-  const value = window.localStorage?.getItem(LOADING_STRATEGY_STORAGE_KEY);
-  return value === 'stability' || value === 'unloading' ? value : 'capacity';
+  if (typeof window === 'undefined') return 'balanced';
+  return normalizeLoadingStrategy(window.localStorage?.getItem(LOADING_STRATEGY_STORAGE_KEY));
 }
 
 function publishCorrections(corrections: AutoCorrectionRecord[]) {
@@ -36,21 +36,12 @@ function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], resu
 }
 
 /**
- * DIRECT BOX hybrid loading policy.
+ * DIRECT BOX hybrid loading policy inherited from PR #50.
  *
- * Two deterministic solvers generate competing physically valid plans:
- *  - StrictWallPacker: dense homogeneous wall/block construction.
- *  - EMS Beam V2: homogeneous blocks + maximal empty spaces + residual-gap reuse.
- *
- * HybridLoadingOptimizer evaluates both plans with the selected operating strategy.
- * Capacity emphasizes utilization/completion, stability emphasizes low/balanced weight
- * distribution, and unloading emphasizes unload order while retaining all hard safety
- * constraints. Bounds/collision/payload violations can never be traded for a higher score.
- *
- * The selected arrangement is then translated as one rigid X/Y group so its weighted
- * horizontal center of gravity is as close as possible to the container target center.
- * Rigid translation preserves support, stacking and collision relationships and is
- * clamped by the container walls. Z is never raised.
+ * StrictWallPacker and EMS Beam V2 remain competing deterministic solvers. The hybrid
+ * optimizer evaluates both under the selected six-strategy objective while all hard
+ * bounds/collision/payload/support/stacking constraints remain non-negotiable. The chosen
+ * plan is rigidly centered in X/Y only; relative support geometry and Z remain unchanged.
  */
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
