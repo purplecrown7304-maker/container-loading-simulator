@@ -36,6 +36,7 @@ import TransportEquipmentSelector from './TransportEquipmentSelector';
 import TransportEquipmentDashboardSummary from './TransportEquipmentDashboardSummary';
 import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
 import TransportEquipmentRecalculationNotice from './TransportEquipmentRecalculationNotice';
+import TransportEquipmentVisualLabelBridge from './TransportEquipmentVisualLabelBridge';
 import TransportEquipmentSpecManager from './TransportEquipmentSpecManager';
 import ConfirmedPackagingLoadingBridge from './ConfirmedPackagingLoadingBridge';
 import EquipmentLoadingConsistencyGuard from './EquipmentLoadingConsistencyGuard';
@@ -125,6 +126,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ProductToolsCenter />
       <HeaderLoadingStatusBoard />
       <TransportEquipmentSelector />
+      <TransportEquipmentVisualLabelBridge />
       <TransportEquipmentSpecManager />
       <TransportEquipmentSafetyGuard />
       <TransportEquipmentRecalculationNotice />
