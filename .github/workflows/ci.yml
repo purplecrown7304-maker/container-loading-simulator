@@ -20,6 +20,9 @@ jobs:
           node-version: 22
           package-manager-cache: false
 
+      - name: Pin npm for deterministic install
+        run: npm install --global npm@11.6.0
+
       - name: Install dependencies
         run: npm install
 
