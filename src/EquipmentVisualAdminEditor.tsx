@@ -5,6 +5,7 @@ import {
   EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT,
   migrateLegacyEquipmentImagesToServer,
   prepareEquipmentImage,
+  readEquipmentImageOverrides,
   refreshEquipmentImageOverrides,
   removeEquipmentImageOverride,
   setEquipmentImageOverride,
@@ -18,12 +19,13 @@ export default function EquipmentVisualAdminEditor() {
   const [isAdmin, setIsAdmin] = useState(() => isAdminSession());
   const [visualHost, setVisualHost] = useState<HTMLButtonElement | null>(null);
   const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null);
-  const [previewUrl, setPreviewUrl] = useState(() => resolveEquipmentImageUrl(equipment.id, Date.now()));
+  const [previewUrl, setPreviewUrl] = useState(() => readEquipmentImageOverrides()[equipment.id] ?? resolveEquipmentImageUrl(equipment.id));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
 
-  const syncPreview = () => {
-    setPreviewUrl(resolveEquipmentImageUrl(equipment.id, Date.now()));
+  const syncPreview = (next?: Record<string, string>) => {
+    const mapped = next?.[equipment.id] ?? readEquipmentImageOverrides()[equipment.id];
+    setPreviewUrl(mapped ?? resolveEquipmentImageUrl(equipment.id));
   };
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export default function EquipmentVisualAdminEditor() {
       void migrateLegacyEquipmentImagesToServer().then(result => {
         if (result.migrated > 0) {
           setMessage(`기존 로컬 이미지 ${result.migrated}개를 Supabase로 이전했습니다.`);
-          syncPreview();
+          void refreshEquipmentImageOverrides().then(syncPreview);
         }
       }).catch(error => setMessage(error instanceof Error ? error.message : '기존 이미지를 서버로 이전하지 못했습니다.'));
     }
@@ -43,11 +45,13 @@ export default function EquipmentVisualAdminEditor() {
       const active = isAdminSession();
       setIsAdmin(active);
       if (active) {
-        void migrateLegacyEquipmentImagesToServer().then(() => syncPreview())
+        void migrateLegacyEquipmentImagesToServer().then(() => refreshEquipmentImageOverrides()).then(syncPreview)
           .catch(error => setMessage(error instanceof Error ? error.message : '기존 이미지를 서버로 이전하지 못했습니다.'));
       }
     };
-    const syncImages = () => syncPreview();
+    const syncImages = () => {
+      void refreshEquipmentImageOverrides().then(syncPreview);
+    };
     window.addEventListener(ADMIN_ACCESS_EVENT, syncAdmin);
     window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, syncImages);
     window.addEventListener(EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT, syncImages);
@@ -59,7 +63,7 @@ export default function EquipmentVisualAdminEditor() {
   }, [equipment.id]);
 
   useEffect(() => {
-    syncPreview();
+    void refreshEquipmentImageOverrides().then(syncPreview);
   }, [equipment.id]);
 
   useEffect(() => {
@@ -116,7 +120,7 @@ export default function EquipmentVisualAdminEditor() {
     try {
       const dataUrl = await prepareEquipmentImage(file);
       const next = await setEquipmentImageOverride(equipment.id, dataUrl);
-      setPreviewUrl(next[equipment.id] ?? resolveEquipmentImageUrl(equipment.id, Date.now()));
+      setPreviewUrl(next[equipment.id] ?? '');
       setMessage(`${equipment.shortName} 이미지를 저장했습니다. 이 미리보기와 장비 선택창에 즉시 적용됩니다.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '이미지를 변경하지 못했습니다.');
@@ -140,39 +144,30 @@ export default function EquipmentVisualAdminEditor() {
     }
   };
 
-  const preview = visualHost ? createPortal(
-    previewUrl ? (
-      <img
-        className="equipment-custom-visual"
-        src={previewUrl}
-        alt={`${equipment.shortName} 적재공간`}
-        draggable={false}
-        onError={() => setPreviewUrl('')}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          zIndex: 60,
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          background: '#fff',
-          pointerEvents: 'none',
-        }}
-      />
-    ) : (
-      <span
-        className="equipment-custom-visual-empty"
-        aria-hidden="true"
-        style={{
-          position: 'absolute',
-          inset: 0,
-          zIndex: 60,
-          display: 'block',
-          background: '#fff',
-          pointerEvents: 'none',
-        }}
-      />
-    ),
+  const retryPreview = () => {
+    void refreshEquipmentImageOverrides().then(next => {
+      const fresh = next[equipment.id];
+      if (fresh && fresh !== previewUrl) setPreviewUrl(fresh);
+    });
+  };
+
+  const preview = visualHost && previewUrl ? createPortal(
+    <img
+      className="equipment-custom-visual"
+      src={previewUrl}
+      alt={`${equipment.shortName} 적재공간`}
+      draggable={false}
+      onError={retryPreview}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        zIndex: 60,
+        width: '100%',
+        height: '100%',
+        objectFit: 'contain',
+        pointerEvents: 'none',
+      }}
+    />,
     visualHost,
   ) : null;
 
