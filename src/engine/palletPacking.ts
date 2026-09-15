@@ -43,7 +43,14 @@ export type PalletPackingResult = {
   pallets: PalletLoad[];
   placements: Placement[];
   remaining: Array<{ cargoId: string; quantity: number; reason: string }>;
+  /** 하위 호환용. loadedPalletCount와 항상 같다. */
   palletCount: number;
+  requestedPalletCount: number;
+  loadedPalletCount: number;
+  unloadedPalletCount: number;
+  requestedBoxCount: number;
+  loadedBoxCount: number;
+  unloadedBoxCount: number;
   loadedCargoWeightKg: number;
   totalPackagingWeightKg: number;
   avoidedPackagingWeightKg: number;
@@ -476,6 +483,9 @@ export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pall
   const remainingRows = [...remaining.entries()]
     .filter(([, quantity]) => quantity > 0)
     .map(([cargoId, quantity]) => ({ cargoId, quantity, reason: '팔레트 적재공간·중량·적층 제약으로 미적재' }));
+  const requestedBoxCount = cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
+  const loadedBoxCount = placements.length;
+  const unloadedBoxCount = remainingRows.reduce((sum, item) => sum + item.quantity, 0);
   const left = placedPallets
     .filter((p) => lateralSide(p.centerOfGravity.y, container.width) < 0)
     .reduce((sum, p) => sum + p.totalWeightKg, 0);
@@ -488,6 +498,12 @@ export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pall
     placements,
     remaining: remainingRows,
     palletCount: placedPallets.length,
+    requestedPalletCount: pallets.length,
+    loadedPalletCount: placedPallets.length,
+    unloadedPalletCount: unplaced.length,
+    requestedBoxCount,
+    loadedBoxCount,
+    unloadedBoxCount,
     loadedCargoWeightKg,
     totalPackagingWeightKg,
     avoidedPackagingWeightKg: pallet.minimizePackaging
