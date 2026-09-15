@@ -172,8 +172,6 @@ export default function TransportEquipmentSelector() {
 
   useEffect(() => {
     const onDashboardChange = (event: Event) => {
-      // 프로그램이 장비 선택을 적용하며 발생시킨 synthetic change는 절대
-      // 선택 장비를 다시 예전 대시보드 값으로 되돌리지 못하게 한다.
       if (!event.isTrusted) return;
       if (document.documentElement.dataset.guidedWorkflow === 'true') return;
       const target = event.target;
@@ -182,9 +180,7 @@ export default function TransportEquipmentSelector() {
       window.setTimeout(() => syncSelectionFromDashboard(readTransportEquipment().category), 0);
     };
     document.addEventListener('change', onDashboardChange, true);
-    return () => {
-      document.removeEventListener('change', onDashboardChange, true);
-    };
+    return () => document.removeEventListener('change', onDashboardChange, true);
   }, []);
 
   const choose = (item: TransportEquipment) => {
@@ -194,13 +190,17 @@ export default function TransportEquipmentSelector() {
       setMessage('사용자 규격을 입력한 뒤 적용하세요.');
       return;
     }
-    if (!applyToDashboard(item)) {
-      setMessage('대시보드 컨테이너 입력칸을 찾지 못했습니다. 화면을 새로고침한 뒤 다시 적용하세요.');
-      return;
-    }
+
+    // 사용자의 카드 선택이 유일한 master다. 대시보드 DOM 동기화 성공 여부 때문에
+    // 장비 선택 자체가 취소되면 가이드 화면에서 40FT HC에 고정되는 문제가 재발한다.
     selectTransportEquipment(item);
     setCustom(editable(item));
-    setMessage(item.specializedCargo ? `${item.shortName}은 특수화물 전용 장비입니다. 박스 적재 결과는 참고용입니다.` : `${item.shortName} 규격을 현재 적재계획에 적용했습니다. 자동 적재를 다시 실행하세요.`);
+    const dashboardApplied = applyToDashboard(item);
+    setMessage(item.specializedCargo
+      ? `${item.shortName}은 특수화물 전용 장비입니다. 박스 적재 결과는 참고용입니다.`
+      : dashboardApplied
+        ? `${item.shortName} 규격을 현재 적재계획에 적용했습니다. 자동 적재를 다시 실행하세요.`
+        : `${item.shortName}을 선택했습니다. 계산 규격은 장비 선택값을 기준으로 동기화됩니다.`);
   };
 
   const applyCustom = () => {
@@ -210,12 +210,11 @@ export default function TransportEquipmentSelector() {
       return;
     }
     const item = createCustomEquipment(category, values);
-    if (!applyToDashboard(item)) {
-      setMessage('대시보드 입력칸을 찾지 못했습니다.');
-      return;
-    }
     selectTransportEquipment(item);
-    setMessage(`${item.shortName} 사용자 규격을 적용했습니다. 자동 적재를 다시 실행하세요.`);
+    const dashboardApplied = applyToDashboard(item);
+    setMessage(dashboardApplied
+      ? `${item.shortName} 사용자 규격을 적용했습니다. 자동 적재를 다시 실행하세요.`
+      : `${item.shortName} 사용자 규격을 선택했습니다. 계산 규격은 선택값을 기준으로 동기화됩니다.`);
   };
 
   if (!open) return null;
