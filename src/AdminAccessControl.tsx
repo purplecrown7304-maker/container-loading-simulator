@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT, isAdminSession, loginAdmin, logoutAdmin } from './adminAccess';
+import { clearEquipmentAdminCredential, setEquipmentAdminCredential } from './equipmentImageOverrides';
 import './admin-access.css';
 
 export default function AdminAccessControl() {
@@ -27,6 +28,18 @@ export default function AdminAccessControl() {
         setMessage('관리자 ID 또는 비밀번호가 올바르지 않습니다.');
         return;
       }
+
+      try {
+        // 로그인할 때 입력한 비밀번호를 Supabase 관리자 API에 즉시 전달해
+        // 장비 이미지 저장용 서버 세션을 발급받는다. 이후에는 비밀번호를 다시 묻지 않는다.
+        await setEquipmentAdminCredential(password);
+      } catch (error) {
+        clearEquipmentAdminCredential();
+        logoutAdmin();
+        setMessage(error instanceof Error ? error.message : 'Supabase 관리자 인증에 실패했습니다.');
+        return;
+      }
+
       setMessage('');
       setPassword('');
       setOpen(false);
@@ -36,6 +49,7 @@ export default function AdminAccessControl() {
   };
 
   const logout = () => {
+    clearEquipmentAdminCredential();
     logoutAdmin();
     setOpen(false);
     setPassword('');
