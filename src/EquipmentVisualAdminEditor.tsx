@@ -49,9 +49,7 @@ export default function EquipmentVisualAdminEditor() {
           .catch(error => setMessage(error instanceof Error ? error.message : '기존 이미지를 서버로 이전하지 못했습니다.'));
       }
     };
-    const syncImages = () => {
-      void refreshEquipmentImageOverrides().then(syncPreview);
-    };
+    const syncImages = () => syncPreview();
     window.addEventListener(ADMIN_ACCESS_EVENT, syncAdmin);
     window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, syncImages);
     window.addEventListener(EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT, syncImages);
