@@ -2,7 +2,8 @@ import { packByBlockSpaceBeamV2, type BeamPackingOutput } from './blockSpaceBeam
 import { centerPlacementsOnContainer } from './containerCentering';
 import { validatePlacements } from './constraints';
 import { analyzeFloorLoad } from './floorLoad';
-import { packByStrictWalls, type StrictWallOutput, type StrictWallStrategy } from './strictWallPacker';
+import { basePackingStrategy, type LoadingStrategy } from './loadingStrategies';
+import { packByStrictWalls, type StrictWallOutput } from './strictWallPacker';
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 import { assessWeightBalance } from './weightBalance';
 
@@ -21,6 +22,7 @@ export type HybridCandidateAssessment = {
   qualityScore: number;
   stabilityScore: number;
   balanceScore: number;
+  lowCenterOfGravityScore: number;
   floorDistributionScore: number;
   unloadingScore: number;
   validationIssueCount: number;
@@ -80,7 +82,7 @@ function floorDistributionScore(container: ContainerSpec, result: LoadingResult)
 function scoreCandidate(
   container: ContainerSpec,
   cargo: CargoItem[],
-  strategy: StrictWallStrategy,
+  strategy: LoadingStrategy,
   engine: HybridPackingEngine,
   output: PackingOutput,
 ): HybridCandidateAssessment {
@@ -92,35 +94,70 @@ function scoreCandidate(
   const quality = assessWeightBalance(container, result);
   const floorScore = floorDistributionScore(container, result);
   const unloadScore = unloadingArrangementScore(container, cargo, result);
+  const lowCogScore = clamp100(100 - Math.max(0, quality.verticalCenterPct - 20) * 1.5);
 
-  // Bounds/collision and payload are hard gates. A candidate cannot buy its way out of a
-  // physical violation with a better utilization score.
+  // PR #50 safety gate is intentionally preserved. No objective can compensate for a
+  // geometry/payload violation, regardless of utilization or strategy preference.
   const hardViolation = result.validationIssues.length > 0 || result.loadedWeightKg > container.maxPayloadKg + EPS;
   let score = Number.NEGATIVE_INFINITY;
 
   if (!hardViolation) {
-    if (strategy === 'capacity') {
-      score = fillRatePct * 0.35
-        + loadedRatePct * 0.35
-        + quality.loadingQualityScore * 0.08
-        + quality.stabilityScore * 0.07
-        + quality.balanceScore * 0.05
-        + floorScore * 0.10;
-    } else if (strategy === 'stability') {
-      score = fillRatePct * 0.12
-        + loadedRatePct * 0.18
-        + quality.loadingQualityScore * 0.18
-        + quality.stabilityScore * 0.25
-        + quality.balanceScore * 0.15
-        + floorScore * 0.12;
-    } else {
-      score = fillRatePct * 0.12
-        + loadedRatePct * 0.18
-        + quality.loadingQualityScore * 0.15
-        + quality.stabilityScore * 0.12
-        + quality.balanceScore * 0.10
-        + floorScore * 0.08
-        + unloadScore * 0.25;
+    switch (strategy) {
+      case 'capacity':
+        score = fillRatePct * 0.35
+          + loadedRatePct * 0.35
+          + quality.loadingQualityScore * 0.08
+          + quality.stabilityScore * 0.07
+          + quality.balanceScore * 0.05
+          + floorScore * 0.10;
+        break;
+      case 'stability':
+        score = fillRatePct * 0.12
+          + loadedRatePct * 0.18
+          + quality.loadingQualityScore * 0.18
+          + quality.stabilityScore * 0.25
+          + quality.balanceScore * 0.15
+          + floorScore * 0.07
+          + lowCogScore * 0.05;
+        break;
+      case 'center-of-gravity':
+        score = fillRatePct * 0.08
+          + loadedRatePct * 0.14
+          + quality.loadingQualityScore * 0.10
+          + quality.stabilityScore * 0.17
+          + quality.balanceScore * 0.24
+          + floorScore * 0.07
+          + lowCogScore * 0.20;
+        break;
+      case 'floor-balance':
+        score = fillRatePct * 0.10
+          + loadedRatePct * 0.15
+          + quality.loadingQualityScore * 0.10
+          + quality.stabilityScore * 0.14
+          + quality.balanceScore * 0.16
+          + floorScore * 0.30
+          + lowCogScore * 0.05;
+        break;
+      case 'unloading':
+        score = fillRatePct * 0.12
+          + loadedRatePct * 0.18
+          + quality.loadingQualityScore * 0.15
+          + quality.stabilityScore * 0.12
+          + quality.balanceScore * 0.10
+          + floorScore * 0.08
+          + unloadScore * 0.25;
+        break;
+      case 'balanced':
+      default:
+        score = fillRatePct * 0.18
+          + loadedRatePct * 0.20
+          + quality.loadingQualityScore * 0.15
+          + quality.stabilityScore * 0.15
+          + quality.balanceScore * 0.10
+          + floorScore * 0.10
+          + unloadScore * 0.07
+          + lowCogScore * 0.05;
+        break;
     }
   }
 
@@ -132,6 +169,7 @@ function scoreCandidate(
     qualityScore: quality.loadingQualityScore,
     stabilityScore: quality.stabilityScore,
     balanceScore: quality.balanceScore,
+    lowCenterOfGravityScore: lowCogScore,
     floorDistributionScore: floorScore,
     unloadingScore: unloadScore,
     validationIssueCount: result.validationIssues.length,
@@ -142,7 +180,7 @@ function scoreCandidate(
 function rankCandidates(
   container: ContainerSpec,
   cargo: CargoItem[],
-  strategy: StrictWallStrategy,
+  strategy: LoadingStrategy,
   candidates: Array<{ engine: HybridPackingEngine; output: PackingOutput }>,
 ) {
   return candidates
@@ -157,40 +195,40 @@ function rankCandidates(
 }
 
 /**
- * Deterministic solver portfolio for DIRECT BOX loading.
- *
- * StrictWall is strong at dense homogeneous walls. EMS Beam V2 is strong at safe residual
- * space reuse. The portfolio lets both compete on the same strategy score instead of
- * asking one heuristic to be good at every cargo shape.
+ * Deterministic solver portfolio introduced by PR #50.
+ * StrictWall remains strong at dense homogeneous walls; EMS Beam V2 remains strong at
+ * safe residual-space reuse. Six strategies only change preference weights, never hard
+ * safety constraints or the two-engine portfolio itself.
  */
 export function compareHybridCandidates(
   container: ContainerSpec,
   cargo: CargoItem[],
-  strategy: StrictWallStrategy,
+  strategy: LoadingStrategy,
 ): HybridCandidateAssessment[] {
+  const base = basePackingStrategy(strategy);
   return rankCandidates(container, cargo, strategy, [
-    { engine: 'strict-wall', output: packByStrictWalls(container, cargo, strategy) },
-    { engine: 'ems-beam-v2', output: packByBlockSpaceBeamV2(container, cargo, strategy) },
+    { engine: 'strict-wall', output: packByStrictWalls(container, cargo, base) },
+    { engine: 'ems-beam-v2', output: packByBlockSpaceBeamV2(container, cargo, base) },
   ]);
 }
 
 export function packByHybridOptimizer(
   container: ContainerSpec,
   cargo: CargoItem[],
-  strategy: StrictWallStrategy,
+  strategy: LoadingStrategy,
 ): PackingOutput {
-  const strict = packByStrictWalls(container, cargo, strategy);
+  const base = basePackingStrategy(strategy);
+  const strict = packByStrictWalls(container, cargo, base);
   const requestedCount = cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
   const strictRemaining = strict.remaining.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
 
-  // Default/capacity runs are the most frequent path. For a large job that StrictWall has
-  // already loaded completely, running a second expensive beam search cannot improve the
-  // loaded quantity and mostly doubles latency. Stability/unloading still compare both.
+  // Keep the PR #50 capacity fast path for large, already-complete jobs. Every other
+  // strategy compares both solvers because balance/CoG/floor/unloading can still improve.
   if (strategy === 'capacity' && requestedCount >= CAPACITY_FAST_PATH_COUNT && strictRemaining === 0) {
     return strict;
   }
 
-  const beam = packByBlockSpaceBeamV2(container, cargo, strategy);
+  const beam = packByBlockSpaceBeamV2(container, cargo, base);
   return rankCandidates(container, cargo, strategy, [
     { engine: 'strict-wall', output: strict },
     { engine: 'ems-beam-v2', output: beam },
