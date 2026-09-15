@@ -50,6 +50,7 @@ import ProductToolsCenter from './ProductToolsCenter';
 import ProductMenuActions from './ProductMenuActions';
 import EquipmentVisualAdminEditor from './EquipmentVisualAdminEditor';
 import WorkflowIntegrationBridge from './WorkflowIntegrationBridge';
+import LoadingRunOrchestrator from './LoadingRunOrchestrator';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -109,6 +110,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <RuntimeDiagnosticRecorder />
       <WorkflowIntegrationBridge />
+      <LoadingRunOrchestrator />
       <ReferenceWorkspaceBar />
       <ProductMenuActions />
       <ProductToolsCenter />
