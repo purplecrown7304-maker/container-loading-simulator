@@ -24,10 +24,13 @@ function load(index: number, x: number, y: number, cargoId: string, weight: numb
 }
 
 function result(pallets: PalletLoad[]): OptimizedPalletPackingResult {
+  const loadedBoxes = pallets.reduce((sum, item) => sum + item.cargoPlacements.length, 0);
   return {
     pallets,
     placements: pallets.flatMap(item => item.cargoPlacements),
     remaining: [], palletCount: pallets.length,
+    requestedPalletCount: pallets.length, loadedPalletCount: pallets.length, unloadedPalletCount: 0,
+    requestedBoxCount: loadedBoxes, loadedBoxCount: loadedBoxes, unloadedBoxCount: 0,
     loadedCargoWeightKg: pallets.reduce((s, p) => s + p.cargoWeightKg, 0),
     totalPackagingWeightKg: 0, avoidedPackagingWeightKg: 0, packagedPalletCount: 0,
     totalPalletizedWeightKg: pallets.reduce((s, p) => s + p.totalWeightKg, 0),
