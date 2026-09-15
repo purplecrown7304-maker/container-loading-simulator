@@ -45,11 +45,18 @@ function palletInputError(pallet: PalletSpec) {
 }
 
 function emptyOptimizedResult(remaining: RejectedCargoRow[]): OptimizedPalletPackingResult {
+  const unloadedBoxCount = remaining.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
   return {
     pallets: [],
     placements: [],
     remaining,
     palletCount: 0,
+    requestedPalletCount: 0,
+    loadedPalletCount: 0,
+    unloadedPalletCount: 0,
+    requestedBoxCount: unloadedBoxCount,
+    loadedBoxCount: 0,
+    unloadedBoxCount,
     loadedCargoWeightKg: 0,
     totalPackagingWeightKg: 0,
     avoidedPackagingWeightKg: 0,
@@ -178,11 +185,20 @@ function rebuildMetrics(
   const normalized = pallets.map((pallet, index) => ({ ...pallet, palletIndex: index + 1 }));
   const placements = normalized.flatMap((pallet) => pallet.cargoPlacements);
   const totalWeight = normalized.reduce((sum, pallet) => sum + pallet.totalWeightKg, 0);
+  const unloadedPalletCount = base.unloadedPalletCount;
+  const unloadedBoxCount = base.remaining.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
+  const loadedBoxCount = placements.length;
   return {
     ...base,
     pallets: normalized,
     placements,
     palletCount: normalized.length,
+    requestedPalletCount: normalized.length + unloadedPalletCount,
+    loadedPalletCount: normalized.length,
+    unloadedPalletCount,
+    requestedBoxCount: loadedBoxCount + unloadedBoxCount,
+    loadedBoxCount,
+    unloadedBoxCount,
     loadedCargoWeightKg: normalized.reduce((sum, pallet) => sum + pallet.cargoWeightKg, 0),
     totalPackagingWeightKg: normalized.reduce((sum, pallet) => sum + pallet.packagingWeightKg, 0),
     packagedPalletCount: normalized.filter((pallet) => pallet.cornerGuardsUsed || pallet.wrappingUsed).length,
@@ -401,9 +417,15 @@ export function packOnPallets(
 
   const floorSpread = spreadStacksToFreeFloor(selected.result, container, pallet);
   const redistributed = redistributeForLowUtilization(floorSpread, container, pallet);
+  const remaining = [...preflight.rejected, ...redistributed.result.remaining];
+  const loadedBoxCount = redistributed.result.placements.length;
+  const unloadedBoxCount = remaining.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
   return {
     ...redistributed.result,
-    remaining: [...preflight.rejected, ...redistributed.result.remaining],
+    remaining,
+    requestedBoxCount: loadedBoxCount + unloadedBoxCount,
+    loadedBoxCount,
+    unloadedBoxCount,
     optimization: {
       selectedStackTarget: selected.target,
       candidateCount: candidates.length,
