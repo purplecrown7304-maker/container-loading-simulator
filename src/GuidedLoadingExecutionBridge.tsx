@@ -9,13 +9,22 @@ import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 type CanonicalRunDetail = AppActionDetail & { guidedCanonicalReplay?: boolean };
 const GUIDED_RUN_REJECTED_EVENT = 'container-loading:guided-run-rejected';
 
-function runtimeCargo(cargo: CargoItem[], containerHeight: number) {
+/**
+ * 자동설계(AUTO-*) 박스는 제조 압축강도가 아직 검증되지 않은 design-target이므로
+ * 포장 마스터에는 보수적으로 1단 제한이 남아 있다. 다만 자동 적재 시뮬레이션에서는
+ * 그 값을 그대로 쓰면 컨테이너 높이가 충분해도 바닥 1단 또는 임의 3단에서 멈춘다.
+ *
+ * 따라서 guided 자동 적재 계산에 한해 박스 높이로 계산한 기하학적 적층 가능 단수를
+ * 사용한다. 엔진/포장 최적화의 recommendedStackLayers 상한과 맞춰 최대 7단까지만
+ * 허용하고, 실제 출하 확정 전에는 별도 제조 강도 검증이 필요하다는 의미는 유지한다.
+ */
+export function guidedRuntimeCargo(cargo: CargoItem[], containerHeight: number) {
   return cargo.map(item => {
     if (!item.boxId?.startsWith('AUTO-')) return { ...item };
     const geometricLayers = Math.max(1, Math.floor((containerHeight + 1e-9) / Math.max(item.height, 1e-9)));
     return {
       ...item,
-      maxStackLayers: Math.max(1, Math.min(3, geometricLayers)),
+      maxStackLayers: Math.max(1, Math.min(7, geometricLayers)),
       maxTopLoadKg: undefined,
     };
   });
@@ -130,7 +139,7 @@ export default function GuidedLoadingExecutionBridge() {
       const strategy = readUserLoadingStrategy();
       root.dataset.guidedRunUnit = mode;
       root.dataset.guidedRunStrategy = strategy;
-      const exactCargo = runtimeCargo(confirmed, stored.container.height);
+      const exactCargo = guidedRuntimeCargo(confirmed, stored.container.height);
       writeStoredState({ container: stored.container, cargo: exactCargo }, true);
 
       replayAfterModeSettles({

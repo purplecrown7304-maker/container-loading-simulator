@@ -3,6 +3,7 @@ import { validatePlacements } from './constraints';
 import { centerPlacementsOnContainer } from './containerCentering';
 import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
+import { fillSupportedTopVoids } from './mixedTopFill';
 import { safelyRebalanceStrictWallPlacements } from './safeWeightAwareWallReorder';
 import { packByStrictWalls } from './strictWallPacker';
 import { consumeNextStrategyResultOverride } from './strategyResultOverride';
@@ -72,8 +73,9 @@ function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], resu
 
 /**
  * DIRECT BOX loading policy.
- * StrictWall remains the placement authority. Post-processors only move complete rigid
- * wall slices, then a final rigid centering pass runs. Every final result is revalidated.
+ * StrictWall remains the placement authority for the floor/wall skeleton. Post-processors move
+ * complete rigid wall slices and center them first. Only after that stable base is finalized do we
+ * fill fully supported upper voids with remaining mixed-size cartons. Every final result is revalidated.
  */
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
@@ -130,15 +132,30 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     operational = safelyRebalanceStrictWallPlacements(container, operational);
   }
   operational = centerSafeWallsLaterally(container, normalizedCargo, operational);
-  const finalPlacements = centerPlacementsOnContainer(container, operational);
+  const centeredBasePlacements = centerPlacementsOnContainer(container, operational);
+
+  // 혼합 규격 상부 적재는 모든 벽 재배치/중앙정렬이 끝난 다음 수행한다.
+  // 먼저 올린 뒤 벽을 이동시키면 아래 지지박스와 위 박스가 분리될 수 있기 때문이다.
+  const topFilled = fillSupportedTopVoids(
+    container,
+    normalizedCargo,
+    {
+      placements: centeredBasePlacements,
+      remaining: packed.remaining,
+      loadedWeightKg: packed.loadedWeightKg,
+      usedVolumeM3: packed.usedVolumeM3,
+    },
+    strategy,
+  );
+  const finalPlacements = topFilled.placements;
   const result: LoadingResult = {
     placements: finalPlacements,
     remaining: [
       ...preflight.rejected,
-      ...packed.remaining,
+      ...topFilled.remaining,
     ],
-    loadedWeightKg: packed.loadedWeightKg,
-    usedVolumeM3: packed.usedVolumeM3,
+    loadedWeightKg: topFilled.loadedWeightKg,
+    usedVolumeM3: topFilled.usedVolumeM3,
     validationIssues: validatePlacements(container, finalPlacements),
     autoCorrections: [],
   };
