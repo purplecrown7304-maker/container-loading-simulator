@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT, isAdminSession } from './adminAccess';
+import { equipmentAtlasBackgroundStyle } from './EquipmentCard3D';
 import {
   EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT,
   migrateLegacyEquipmentImagesToServer,
@@ -102,22 +103,34 @@ export default function EquipmentVisualAdminEditor() {
     if (!visualHost) return;
 
     const svg = visualHost.querySelector<SVGElement>('svg');
-    // 이전 구현에서 삽입했던 img가 남아 있으면 제거한다. 선택 화면은 이제
-    // 장비 카드와 동일한 Supabase URL을 button 자체의 배경으로 직접 사용한다.
     visualHost.querySelector<HTMLImageElement>('img.equipment-custom-visual')?.remove();
 
-    const imageUrl = resolveEquipmentImageUrl(equipment.id, revision);
-    const probe = new Image();
-    let disposed = false;
-
-    const showDefault = () => {
-      if (disposed) return;
+    const clearBackground = () => {
       visualHost.style.backgroundImage = '';
       visualHost.style.backgroundRepeat = '';
       visualHost.style.backgroundPosition = '';
       visualHost.style.backgroundSize = '';
+      visualHost.style.backgroundColor = '';
+    };
+
+    const showBuiltInFallback = () => {
+      if (equipment.category === 'container') {
+        const atlas = equipmentAtlasBackgroundStyle(equipment.id);
+        visualHost.style.backgroundImage = String(atlas.backgroundImage ?? '');
+        visualHost.style.backgroundRepeat = String(atlas.backgroundRepeat ?? 'no-repeat');
+        visualHost.style.backgroundPosition = String(atlas.backgroundPosition ?? 'center');
+        visualHost.style.backgroundSize = String(atlas.backgroundSize ?? 'contain');
+        visualHost.style.backgroundColor = String(atlas.backgroundColor ?? 'transparent');
+        if (svg) svg.style.display = 'none';
+        return;
+      }
+      clearBackground();
       if (svg) svg.style.display = '';
     };
+
+    const imageUrl = resolveEquipmentImageUrl(equipment.id, revision);
+    const probe = new Image();
+    let disposed = false;
 
     probe.onload = () => {
       if (disposed) return;
@@ -125,9 +138,13 @@ export default function EquipmentVisualAdminEditor() {
       visualHost.style.backgroundRepeat = 'no-repeat';
       visualHost.style.backgroundPosition = 'center';
       visualHost.style.backgroundSize = 'contain';
+      visualHost.style.backgroundColor = 'transparent';
       if (svg) svg.style.display = 'none';
     };
-    probe.onerror = showDefault;
+    probe.onerror = () => {
+      if (disposed) return;
+      showBuiltInFallback();
+    };
     probe.src = imageUrl;
 
     return () => {
@@ -135,7 +152,7 @@ export default function EquipmentVisualAdminEditor() {
       probe.onload = null;
       probe.onerror = null;
     };
-  }, [visualHost, equipment.id, revision]);
+  }, [visualHost, equipment.category, equipment.id, revision]);
 
   const upload = async (file: File | undefined) => {
     if (!file || !isAdmin) return;
