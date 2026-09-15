@@ -102,41 +102,40 @@ export default function EquipmentVisualAdminEditor() {
     if (!visualHost) return;
 
     const svg = visualHost.querySelector<SVGElement>('svg');
-    let image = visualHost.querySelector<HTMLImageElement>('img.equipment-custom-visual');
-    if (!image) {
-      image = document.createElement('img');
-      image.className = 'equipment-custom-visual';
-      image.style.display = 'none';
-      image.style.width = '100%';
-      image.style.aspectRatio = '760 / 260';
-      image.style.objectFit = 'contain';
-      image.style.background = 'transparent';
-      visualHost.prepend(image);
-    }
+    // 이전 구현에서 삽입했던 img가 남아 있으면 제거한다. 선택 화면은 이제
+    // 장비 카드와 동일한 Supabase URL을 button 자체의 배경으로 직접 사용한다.
+    visualHost.querySelector<HTMLImageElement>('img.equipment-custom-visual')?.remove();
 
-    const targetImage = image;
     const imageUrl = resolveEquipmentImageUrl(equipment.id, revision);
+    const probe = new Image();
     let disposed = false;
 
-    targetImage.onload = () => {
+    const showDefault = () => {
       if (disposed) return;
-      targetImage.style.display = 'block';
-      if (svg) svg.style.display = 'none';
-    };
-    targetImage.onerror = () => {
-      if (disposed) return;
-      targetImage.style.display = 'none';
+      visualHost.style.backgroundImage = '';
+      visualHost.style.backgroundRepeat = '';
+      visualHost.style.backgroundPosition = '';
+      visualHost.style.backgroundSize = '';
       if (svg) svg.style.display = '';
     };
-    targetImage.alt = `${equipment.shortName} 적재공간 이미지`;
-    targetImage.src = imageUrl;
+
+    probe.onload = () => {
+      if (disposed) return;
+      visualHost.style.backgroundImage = `url("${imageUrl.replace(/"/g, '%22')}")`;
+      visualHost.style.backgroundRepeat = 'no-repeat';
+      visualHost.style.backgroundPosition = 'center';
+      visualHost.style.backgroundSize = 'contain';
+      if (svg) svg.style.display = 'none';
+    };
+    probe.onerror = showDefault;
+    probe.src = imageUrl;
 
     return () => {
       disposed = true;
-      targetImage.onload = null;
-      targetImage.onerror = null;
+      probe.onload = null;
+      probe.onerror = null;
     };
-  }, [visualHost, equipment.id, equipment.shortName, revision]);
+  }, [visualHost, equipment.id, revision]);
 
   const upload = async (file: File | undefined) => {
     if (!file || !isAdmin) return;
