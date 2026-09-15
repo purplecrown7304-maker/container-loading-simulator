@@ -5,11 +5,11 @@ import {
   EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT,
   migrateLegacyEquipmentImagesToServer,
   prepareEquipmentImage,
-  readEquipmentImageOverrides,
   refreshEquipmentImageOverrides,
   removeEquipmentImageOverride,
   setEquipmentImageOverride,
 } from './equipmentImageOverrides';
+import { resolveEquipmentImageUrl } from './equipmentImageUrl';
 import { TRANSPORT_EQUIPMENT_EVENT, useTransportEquipment } from './transportEquipment';
 
 export default function EquipmentVisualAdminEditor() {
@@ -18,12 +18,12 @@ export default function EquipmentVisualAdminEditor() {
   const [isAdmin, setIsAdmin] = useState(() => isAdminSession());
   const [visualHost, setVisualHost] = useState<HTMLButtonElement | null>(null);
   const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null);
-  const [previewUrl, setPreviewUrl] = useState(() => readEquipmentImageOverrides()[equipment.id] ?? '');
+  const [previewUrl, setPreviewUrl] = useState(() => resolveEquipmentImageUrl(equipment.id, Date.now()));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
 
   const syncPreview = () => {
-    setPreviewUrl(readEquipmentImageOverrides()[equipment.id] ?? '');
+    setPreviewUrl(resolveEquipmentImageUrl(equipment.id, Date.now()));
   };
 
   useEffect(() => {
@@ -116,7 +116,7 @@ export default function EquipmentVisualAdminEditor() {
     try {
       const dataUrl = await prepareEquipmentImage(file);
       const next = await setEquipmentImageOverride(equipment.id, dataUrl);
-      setPreviewUrl(next[equipment.id] ?? '');
+      setPreviewUrl(next[equipment.id] ?? resolveEquipmentImageUrl(equipment.id, Date.now()));
       setMessage(`${equipment.shortName} 이미지를 저장했습니다. 이 미리보기와 장비 선택창에 즉시 적용됩니다.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '이미지를 변경하지 못했습니다.');
