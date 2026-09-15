@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { EQUIPMENT_PHOTO_ATLAS_DATA_URI } from './equipmentPhotoAtlas';
 import './equipment-card-photo.css';
 import type { TransportEquipment } from './transportEquipment';
@@ -36,20 +37,25 @@ function centeredBackgroundPosition(index: number, count: number, scale: number)
   return ((0.5 - scale * cellCenter) / (1 - scale)) * 100;
 }
 
-export default function EquipmentCard3D({ item }: Props) {
-  const [column, row] = EQUIPMENT_ATLAS_CELLS[item.id] ?? EQUIPMENT_ATLAS_CELLS['40-high-cube'];
+export function equipmentAtlasBackgroundStyle(equipmentId: string): CSSProperties {
+  const [column, row] = EQUIPMENT_ATLAS_CELLS[equipmentId] ?? EQUIPMENT_ATLAS_CELLS['40-high-cube'];
   const positionX = centeredBackgroundPosition(column, ATLAS_COLUMNS, BACKGROUND_SCALE_X);
   const positionY = centeredBackgroundPosition(row, ATLAS_ROWS, BACKGROUND_SCALE_Y);
+  return {
+    backgroundImage: `url(${EQUIPMENT_PHOTO_ATLAS_DATA_URI})`,
+    backgroundPosition: `${positionX}% ${positionY}%`,
+    backgroundSize: `${BACKGROUND_SCALE_X * 100}% ${BACKGROUND_SCALE_Y * 100}%`,
+    backgroundRepeat: 'no-repeat',
+    backgroundColor: 'transparent',
+  };
+}
 
+export default function EquipmentCard3D({ item }: Props) {
   return (
     <span className="equipment-card-photo" aria-hidden="true">
       <span
         className="equipment-card-photo-sprite"
-        style={{
-          backgroundImage: `url(${EQUIPMENT_PHOTO_ATLAS_DATA_URI})`,
-          backgroundPosition: `${positionX}% ${positionY}%`,
-          backgroundSize: `${BACKGROUND_SCALE_X * 100}% ${BACKGROUND_SCALE_Y * 100}%`,
-        }}
+        style={equipmentAtlasBackgroundStyle(item.id)}
       />
     </span>
   );
