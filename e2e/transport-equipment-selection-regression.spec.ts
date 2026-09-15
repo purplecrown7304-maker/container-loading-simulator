@@ -7,7 +7,7 @@ async function selectedEquipmentId(page: import('@playwright/test').Page) {
   });
 }
 
-test('explicit equipment choice never reverts to the previous 40ft high cube', async ({ page }) => {
+test('explicit equipment choice persists, closes selector, and updates the guided name label', async ({ page }) => {
   await page.addInitScript(() => localStorage.clear());
   await page.goto('/');
 
@@ -16,17 +16,19 @@ test('explicit equipment choice never reverts to the previous 40ft high cube', a
   let dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
   await dialog.getByRole('button', { name: /20' STANDARD/ }).click();
 
-  // The old SafetyGuard kept a 2s acceptance window and could restore the old
-  // 40FT High Cube after the click looked successful. Wait past that window.
+  await expect(dialog).toBeHidden();
   await page.waitForTimeout(2600);
   await expect.poll(() => selectedEquipmentId(page)).toBe('20-standard');
   await expect(openSelector).toContainText('20FT Standard');
+  await expect(page.locator('.guided-equipment-type-label')).toHaveText("20' STANDARD");
 
   await openSelector.click();
   dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
   await dialog.getByRole('button', { name: /45' HIGH-CUBE/ }).click();
 
+  await expect(dialog).toBeHidden();
   await page.waitForTimeout(2600);
   await expect.poll(() => selectedEquipmentId(page)).toBe('45-high-cube');
   await expect(openSelector).toContainText('45FT High Cube');
+  await expect(page.locator('.guided-equipment-type-label')).toHaveText("45' HIGH-CUBE");
 });
