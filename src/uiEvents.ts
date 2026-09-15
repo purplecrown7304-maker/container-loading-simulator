@@ -1,3 +1,4 @@
+import { readShipmentInstructionSnapshot } from './shipmentInstruction';
 import { readStoredState } from './storage';
 
 export const APP_ACTION_EVENT = 'container-loading:app-action';
@@ -32,15 +33,21 @@ function emitAppAction(action: AppAction, detail: Omit<AppActionDetail, 'action'
   window.dispatchEvent(new CustomEvent<AppActionDetail>(APP_ACTION_EVENT, { detail: { action, ...detail } }));
 }
 
+function hasConfirmedPackagingState() {
+  const packagedState = readStoredState();
+  if (!packagedState?.cargo?.length) return false;
+  return Boolean(readShipmentInstructionSnapshot(packagedState.cargo));
+}
+
 /**
- * 가이드 자동 적재는 App/ExecutionBridge가 localStorage의 확정 포장 cargo를 직접 읽는다.
- * 따라서 run-loading 직전에 같은 상태를 writeStoredState(..., true)로 다시 저장할 이유가 없다.
- * 그 중복 저장은 STORAGE_UPDATED_EVENT를 발생시켜 방금 완료된 result를 pending으로 되돌릴 수 있었다.
+ * 제품 포장 흐름에서 실행하는 자동 적재는 App의 React cargo state 동기화 타이밍을 신뢰하지 않는다.
+ * 방금 저장한 shipmentInstruction + stored state가 서로 일치하면 run-loading 이벤트에
+ * synchronizedStoredState를 붙여 App이 저장된 확정 cargo를 직접 사용하게 한다.
  */
 export function dispatchAppAction(action: AppAction): void {
-  if (action === 'run-loading' && document.documentElement.dataset.guidedStep === '5') {
-    const packagedState = readStoredState();
-    if (packagedState) {
+  if (action === 'run-loading') {
+    const guidedStep = document.documentElement.dataset.guidedStep === '5';
+    if (guidedStep || hasConfirmedPackagingState()) {
       emitAppAction(action, { synchronizedStoredState: true });
       return;
     }
