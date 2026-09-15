@@ -77,6 +77,7 @@ export default function EquipmentVisualAdminEditor() {
         setVisualHost(next);
         if (next) {
           next.style.position = 'relative';
+          next.style.overflow = 'hidden';
           const toolbar = document.createElement('div');
           toolbar.style.margin = '-8px 0 16px';
           next.insertAdjacentElement('afterend', toolbar);
@@ -102,48 +103,56 @@ export default function EquipmentVisualAdminEditor() {
   useEffect(() => {
     if (!visualHost) return;
 
-    const svg = visualHost.querySelector<SVGElement>('svg');
     visualHost.querySelector<HTMLImageElement>('img.equipment-custom-visual')?.remove();
+    let overlay = visualHost.querySelector<HTMLSpanElement>('.equipment-guided-photo-overlay');
+    if (!overlay) {
+      overlay = document.createElement('span');
+      overlay.className = 'equipment-guided-photo-overlay';
+      overlay.setAttribute('aria-hidden', 'true');
+      overlay.style.position = 'absolute';
+      overlay.style.inset = '0';
+      overlay.style.zIndex = '50';
+      overlay.style.display = 'block';
+      overlay.style.pointerEvents = 'none';
+      overlay.style.backgroundColor = '#fff';
+      overlay.style.backgroundRepeat = 'no-repeat';
+      overlay.style.backgroundPosition = 'center';
+      overlay.style.backgroundSize = 'contain';
+      visualHost.appendChild(overlay);
+    }
 
-    const clearBackground = () => {
-      visualHost.style.backgroundImage = '';
-      visualHost.style.backgroundRepeat = '';
-      visualHost.style.backgroundPosition = '';
-      visualHost.style.backgroundSize = '';
-      visualHost.style.backgroundColor = '';
-    };
-
-    const showBuiltInFallback = () => {
-      if (equipment.category === 'container') {
-        const atlas = equipmentAtlasBackgroundStyle(equipment.id);
-        visualHost.style.backgroundImage = String(atlas.backgroundImage ?? '');
-        visualHost.style.backgroundRepeat = String(atlas.backgroundRepeat ?? 'no-repeat');
-        visualHost.style.backgroundPosition = String(atlas.backgroundPosition ?? 'center');
-        visualHost.style.backgroundSize = String(atlas.backgroundSize ?? 'contain');
-        visualHost.style.backgroundColor = String(atlas.backgroundColor ?? 'transparent');
-        if (svg) svg.style.display = 'none';
+    const showBuiltInPhoto = () => {
+      if (equipment.category !== 'container') {
+        overlay?.remove();
         return;
       }
-      clearBackground();
-      if (svg) svg.style.display = '';
+      const atlas = equipmentAtlasBackgroundStyle(equipment.id);
+      if (!overlay) return;
+      overlay.style.backgroundImage = String(atlas.backgroundImage ?? '');
+      overlay.style.backgroundRepeat = String(atlas.backgroundRepeat ?? 'no-repeat');
+      overlay.style.backgroundPosition = String(atlas.backgroundPosition ?? 'center');
+      overlay.style.backgroundSize = String(atlas.backgroundSize ?? 'contain');
+      overlay.style.backgroundColor = '#fff';
     };
+
+    showBuiltInPhoto();
+    if (equipment.category !== 'container') return;
 
     const imageUrl = resolveEquipmentImageUrl(equipment.id, revision);
     const probe = new Image();
     let disposed = false;
 
     probe.onload = () => {
-      if (disposed) return;
-      visualHost.style.backgroundImage = `url("${imageUrl.replace(/"/g, '%22')}")`;
-      visualHost.style.backgroundRepeat = 'no-repeat';
-      visualHost.style.backgroundPosition = 'center';
-      visualHost.style.backgroundSize = 'contain';
-      visualHost.style.backgroundColor = 'transparent';
-      if (svg) svg.style.display = 'none';
+      if (disposed || !overlay) return;
+      overlay.style.backgroundImage = `url("${imageUrl.replace(/"/g, '%22')}")`;
+      overlay.style.backgroundRepeat = 'no-repeat';
+      overlay.style.backgroundPosition = 'center';
+      overlay.style.backgroundSize = 'contain';
+      overlay.style.backgroundColor = '#fff';
     };
     probe.onerror = () => {
       if (disposed) return;
-      showBuiltInFallback();
+      showBuiltInPhoto();
     };
     probe.src = imageUrl;
 
