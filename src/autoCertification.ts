@@ -1,6 +1,9 @@
 import { requestDirectWorkOrder } from './directWorkOrderEvents';
+import { LOADING_STRATEGY_STORAGE_KEY } from './engine/loadingEngine';
+import { normalizeLoadingStrategy } from './engine/loadingStrategies';
 import { runPhysicsValidationSuite, type PhysicsScenario, type PhysicsValidationSuite } from './engine/physicsValidation';
 import { createPhysicsTargetSignature, requestCertifiedResults } from './inertiaCertification';
+import { publishLoadingWorkflowProgress } from './loadingWorkflow';
 import { publishPhysicsTarget, readPhysicsTarget, subscribePhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
 export const FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT = 'container-loading:final-physics-validation-progress';
@@ -31,6 +34,11 @@ export type FinalPhysicsComplete = {
   result: PhysicsValidationSuite;
 };
 
+function activeStrategy() {
+  if (typeof window === 'undefined') return normalizeLoadingStrategy(undefined);
+  return normalizeLoadingStrategy(window.localStorage.getItem(LOADING_STRATEGY_STORAGE_KEY));
+}
+
 function publishProgress(target: PhysicsTarget, signature: string, progress: number, scenario: PhysicsScenario) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent<FinalPhysicsProgress>(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, {
@@ -41,6 +49,14 @@ function publishProgress(target: PhysicsTarget, signature: string, progress: num
       scenario,
     },
   }));
+  publishLoadingWorkflowProgress({
+    mode: target.mode,
+    strategy: activeStrategy(),
+    phase: 'physics-validation',
+    percent: 55 + Math.round(Math.max(0, Math.min(1, progress)) * 15),
+    title: '최종 Rapier 물리 검증',
+    detail: `${scenario} · ${Math.round(progress * 100)}%`,
+  });
 }
 
 function clearFinalPhysicsRecord() {
@@ -102,20 +118,36 @@ async function validateThenCertify(target: PhysicsTarget) {
       detail: { mode: target.mode, result: physics, finalValidation: true, signature },
     }));
 
-    // 박스 모드는 사용자가 '작업지시서 발급'을 눌렀을 때와 같은 검증 엔진을 자동 호출한다.
-    // 보고서는 열지 않고, 관성 3종 + 누락 시나리오 보완 + 제한된 안전 후보 비교까지만 끝낸다.
+    publishLoadingWorkflowProgress({
+      mode: target.mode,
+      strategy: activeStrategy(),
+      phase: 'inertia-validation',
+      percent: 72,
+      title: '관성 테스트 자동 실행',
+      detail: '출발 가속 · 급정거 · 급회전 3종 검증',
+    });
+
+    // BOX keeps the established DirectWorkOrderOptimizer path: inertia + bounded
+    // rearrangement search. PALLET keeps FinalCertificationGate and its support model.
     if (target.mode === 'boxes') {
       requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false });
       return;
     }
 
-    // 팔레트는 기존 팔레트 최종 게이트를 유지한다.
     requestCertifiedResults({ container: target.container, cargo: target.cargo, result: target.result });
   } catch (error) {
     if (runId !== validationRunId) return;
     physicsWindow.__containerLoadingFinalPhysicsRunning = false;
     clearFinalPhysicsRecord();
     console.error('Final Rapier physics validation failed', error);
+    publishLoadingWorkflowProgress({
+      mode: target.mode,
+      strategy: activeStrategy(),
+      phase: 'failed',
+      percent: 100,
+      title: '물리 검증 실패',
+      detail: '검증되지 않은 후보는 finalLayout으로 확정하지 않았습니다.',
+    });
     window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, {
       detail: { mode: target.mode, signature, error },
     }));
