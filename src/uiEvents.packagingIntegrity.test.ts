@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./shipmentInstruction', () => ({
   readShipmentInstructionSnapshot: vi.fn(),
@@ -49,9 +49,14 @@ describe('confirmed packaging run source', () => {
     vi.clearAllMocks();
     document.documentElement.dataset.guidedWorkflow = 'false';
     document.documentElement.dataset.guidedStep = '3';
+    document.body.innerHTML = '<section class="company-product-flow"></section>';
   });
 
-  it('marks a matching product-packaging run so App reads the confirmed stored cargo directly', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('marks a matching company product-packaging run so App reads confirmed stored cargo directly', () => {
     mockedReadStoredState.mockReturnValue(packagedState);
     mockedReadShipmentInstructionSnapshot.mockReturnValue({ id: 'shipment-1' } as never);
 
@@ -61,12 +66,23 @@ describe('confirmed packaging run source', () => {
     expect(mockedReadShipmentInstructionSnapshot).toHaveBeenCalledWith(packagedState.cargo);
   });
 
-  it('does not force ordinary manually-entered cargo through the packaging snapshot path', () => {
+  it('does not mark a product workflow when the shipment snapshot does not match stored cargo', () => {
     mockedReadStoredState.mockReturnValue(packagedState);
     mockedReadShipmentInstructionSnapshot.mockReturnValue(null);
 
     const detail = captureRunDetail();
 
     expect(detail).toEqual({ action: 'run-loading' });
+  });
+
+  it('does not let an old confirmed packaging snapshot hijack an ordinary manual loading run', () => {
+    document.body.innerHTML = '';
+    mockedReadStoredState.mockReturnValue(packagedState);
+    mockedReadShipmentInstructionSnapshot.mockReturnValue({ id: 'old-shipment' } as never);
+
+    const detail = captureRunDetail();
+
+    expect(detail).toEqual({ action: 'run-loading' });
+    expect(mockedReadShipmentInstructionSnapshot).not.toHaveBeenCalled();
   });
 });
