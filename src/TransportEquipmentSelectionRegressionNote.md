@@ -1,0 +1,1 @@
+Regression note: selecting a known transport equipment closes the selector immediately; guided step 1 keeps a read-only top-left equipment name label. No click interception is used for either behavior.
