@@ -134,21 +134,16 @@ export default function App() {
       setContainer(state.container);
       setCargo(normalized);
 
-      const guidedStep = Number(document.documentElement.dataset.guidedStep || 0);
-      const guidedPackagingInput = document.documentElement.dataset.guidedWorkflow === 'true'
-        && guidedStep >= 3
-        && guidedStep <= 5
-        && isProductPackagingCargo(normalized)
+      const packagingInput = isProductPackagingCargo(normalized)
         && Boolean(readShipmentInstructionSnapshot(normalized));
 
       // 제품 포장 확정 데이터를 App에 주입할 때 임의의 기본 적재안을 먼저 만들지 않는다.
-      // 자동 적재를 누르기 전 3D에 '20개짜리 옛 결과'가 나타나는 혼선을 막고,
-      // 실제 자동 적재 결과만 화면에 표시한다.
-      if (guidedPackagingInput) setResult(pendingLoadingResult(normalized));
+      // 자동 적재를 누르기 전 옛 결과가 섞여 보이지 않게 하고 실제 자동 적재 결과만 표시한다.
+      if (packagingInput) setResult(pendingLoadingResult(normalized));
       else if (isValidContainer(state.container)) setResult(loadContainer(state.container, normalized.filter(item => item.quantity > 0)));
 
       invalidatePhysics();
-      announce('success', guidedPackagingInput
+      announce('success', packagingInput
         ? `제품 포장 ${normalized.reduce((sum, item) => sum + item.quantity, 0).toLocaleString()}개가 자동 적재 입력으로 동기화되었습니다.`
         : '가져온 데이터가 현재 화면에 반영되었습니다.');
       setEditingId(null);
@@ -210,18 +205,24 @@ export default function App() {
     setCargo(items => items.map(item => item.id === id ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item));
   };
 
-  const runLoading = async () => {
+  const runLoading = async (actionDetail?: Pick<AppActionDetail, 'synchronizedStoredState'>) => {
     if (isRunning) return;
 
     const guidedRun = document.documentElement.dataset.guidedWorkflow === 'true'
       && document.documentElement.dataset.guidedStep === '5';
-    const canonical = guidedRun ? readStoredState() : null;
+    const synchronizedRun = actionDetail?.synchronizedStoredState === true;
+    const canonicalRun = guidedRun || synchronizedRun;
+    const canonical = canonicalRun ? readStoredState() : null;
     let runContainer = canonical?.container ?? container;
     let runCargo = canonical ? normalizeCargo(canonical.cargo) : cargo;
     let runMode: LoadingMode = guidedRun ? 'boxes' : mode;
 
-    if (guidedRun) {
-      if (!canonical?.cargo?.length) return announce('error', '제품 포장에서 확정한 박스가 없습니다. 제품 포장을 다시 확정하세요.');
+    if (canonicalRun && !canonical?.cargo?.length) {
+      return announce('error', '제품 포장에서 확정한 적재 데이터가 없습니다. 제품 포장을 다시 확정하세요.');
+    }
+
+    const packagingRun = isProductPackagingCargo(runCargo);
+    if (packagingRun) {
       const shipment = readShipmentInstructionSnapshot(runCargo);
       if (!shipment) return announce('error', '제품 포장 결과와 자동 적재 입력이 일치하지 않습니다. 제품 포장을 다시 확정하세요.');
 
@@ -230,14 +231,18 @@ export default function App() {
       if (expectedUnits !== actualUnits) {
         return announce('error', `제품 포장 ${expectedUnits}개와 자동 적재 입력 ${actualUnits}개가 일치하지 않습니다. 계산을 중단했습니다.`);
       }
+    }
 
-      // 가이드 자동 적재에서는 App의 오래된 화물 state를 절대 사용하지 않는다.
-      // 방금 확정된 제품 포장 cargo와 적재공간을 직접 계산 입력으로 사용한다.
+    if (canonicalRun) {
+      // 실행 버튼을 누른 바로 그 순간의 확정 저장본을 React state보다 우선한다.
+      // CompanyProductLoadingFlow의 120ms 타이밍과 무관하게 BOX/PALLET 모두 같은 cargo를 소비한다.
       setContainer(runContainer);
       setCargo(runCargo);
-      setMode('boxes');
-      runMode = 'boxes';
-      setResult(pendingLoadingResult(runCargo));
+      if (guidedRun) {
+        setMode('boxes');
+        runMode = 'boxes';
+      }
+      if (packagingRun) setResult(pendingLoadingResult(runCargo));
     }
 
     const invalidContainer = containerInputError(runContainer);
@@ -249,19 +254,22 @@ export default function App() {
     }
     const activeCargo = preflight.cargo;
     if (!activeCargo.length) return announce('warning', '적재할 화물이 없습니다. 본인의 박스 목록에서 화물을 등록하거나 선택하세요.');
+    const requestedUnits = activeCargo.reduce((sum, item) => sum + item.quantity, 0);
     if (runMode === 'pallets') {
       invalidatePhysics();
       requestNextPalletCertification();
       setPalletRunToken(token => token + 1);
-      announce('info', '팔레트 최적 적재 계산 후 관성 3종을 자동 검증합니다. PASS한 적재안만 최종 결과로 엽니다.');
+      announce('info', packagingRun
+        ? `제품 포장에서 확정한 ${requestedUnits.toLocaleString()}개 적재단위를 기준으로 팔레트 최적 적재 계산을 시작합니다.`
+        : '팔레트 최적 적재 계산 후 관성 3종을 자동 검증합니다. PASS한 적재안만 최종 결과로 엽니다.');
       return;
     }
     setIsRunning(true);
     setPhysicsScore(null);
     setPhysicsStrategy(null);
     setOptimizationMessage('후보 적재안 생성 중…');
-    const requestedBoxes = activeCargo.reduce((sum, item) => sum + item.quantity, 0);
-    announce('info', guidedRun
+    const requestedBoxes = requestedUnits;
+    announce('info', packagingRun
       ? `제품 포장에서 확정한 ${requestedBoxes.toLocaleString()} BOX를 기준으로 자동 적재 계산 중…`
       : '물리 기반 최적 적재 계산 중…');
     try {
@@ -276,7 +284,7 @@ export default function App() {
       (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = optimized.physics;
       window.dispatchEvent(new CustomEvent('container-loading:physics-validation-result', { detail: { mode: 'boxes', result: optimized.physics } }));
       const remainingBoxes = published.remaining.reduce((sum, item) => sum + item.quantity, 0);
-      announce('success', guidedRun
+      announce('success', packagingRun
         ? `자동 적재 완료 · 요청 ${requestedBoxes.toLocaleString()} BOX · 적재 ${published.placements.length.toLocaleString()} BOX · 미적재 ${remainingBoxes.toLocaleString()} BOX`
         : `최적 적재 계산 완료 · ${published.placements.length}EA · 관성 3종 최종검증 진행 중`);
       setOptimizationMessage('');
@@ -322,9 +330,10 @@ export default function App() {
 
   useEffect(() => {
     const onAppAction = (event: Event) => {
-      const action = (event as CustomEvent<AppActionDetail>).detail?.action;
+      const detail = (event as CustomEvent<AppActionDetail>).detail;
+      const action = detail?.action;
       if (!action) return;
-      if (action === 'run-loading') { void runLoading(); return; }
+      if (action === 'run-loading') { void runLoading(detail); return; }
       if (action === 'show-results') { showResults(); return; }
       if (action === 'load-local') { loadLocal(); return; }
       if (action === 'save-local') { saveLocal(); return; }
