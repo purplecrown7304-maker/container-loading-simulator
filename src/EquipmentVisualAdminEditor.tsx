@@ -10,6 +10,7 @@ import {
   removeEquipmentImageOverride,
   setEquipmentImageOverride,
 } from './equipmentImageOverrides';
+import { resolveEquipmentImageUrl } from './equipmentImageUrl';
 import { TRANSPORT_EQUIPMENT_EVENT, useTransportEquipment } from './transportEquipment';
 
 export default function EquipmentVisualAdminEditor() {
@@ -99,28 +100,42 @@ export default function EquipmentVisualAdminEditor() {
 
   useEffect(() => {
     if (!visualHost) return;
-    const custom = readEquipmentImageOverrides()[equipment.id];
+
     const svg = visualHost.querySelector<SVGElement>('svg');
     let image = visualHost.querySelector<HTMLImageElement>('img.equipment-custom-visual');
-
-    if (custom) {
-      if (!image) {
-        image = document.createElement('img');
-        image.className = 'equipment-custom-visual';
-        image.style.display = 'block';
-        image.style.width = '100%';
-        image.style.aspectRatio = '760 / 260';
-        image.style.objectFit = 'contain';
-        image.style.background = 'transparent';
-        visualHost.prepend(image);
-      }
-      image.src = custom;
-      image.alt = `${equipment.shortName} 적재공간 이미지`;
-      if (svg) svg.style.display = 'none';
-    } else {
-      image?.remove();
-      if (svg) svg.style.display = '';
+    if (!image) {
+      image = document.createElement('img');
+      image.className = 'equipment-custom-visual';
+      image.style.display = 'none';
+      image.style.width = '100%';
+      image.style.aspectRatio = '760 / 260';
+      image.style.objectFit = 'contain';
+      image.style.background = 'transparent';
+      visualHost.prepend(image);
     }
+
+    const targetImage = image;
+    const imageUrl = resolveEquipmentImageUrl(equipment.id, revision);
+    let disposed = false;
+
+    targetImage.onload = () => {
+      if (disposed) return;
+      targetImage.style.display = 'block';
+      if (svg) svg.style.display = 'none';
+    };
+    targetImage.onerror = () => {
+      if (disposed) return;
+      targetImage.style.display = 'none';
+      if (svg) svg.style.display = '';
+    };
+    targetImage.alt = `${equipment.shortName} 적재공간 이미지`;
+    targetImage.src = imageUrl;
+
+    return () => {
+      disposed = true;
+      targetImage.onload = null;
+      targetImage.onerror = null;
+    };
   }, [visualHost, equipment.id, equipment.shortName, revision]);
 
   const upload = async (file: File | undefined) => {
