@@ -1,9 +1,10 @@
 name: CI
 
-# GitHub Actions billing is unavailable until September 2026.
-# Keep this workflow manual-only during August development.
-# Re-enable push/pull_request triggers when Actions usage resumes.
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
