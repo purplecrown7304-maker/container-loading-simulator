@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT, isAdminSession } from './adminAccess';
+import { equipmentAtlasBackgroundStyle } from './EquipmentCard3D';
 import {
   EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT,
   migrateLegacyEquipmentImagesToServer,
@@ -140,24 +141,40 @@ export default function EquipmentVisualAdminEditor() {
     }
   };
 
-  const preview = visualHost && previewUrl ? createPortal(
-    <img
-      className="equipment-custom-visual"
-      src={previewUrl}
-      alt={`${equipment.shortName} 적재공간`}
-      draggable={false}
-      onError={() => setPreviewUrl('')}
-      style={{
-        position: 'absolute',
-        inset: 0,
-        zIndex: 60,
-        width: '100%',
-        height: '100%',
-        objectFit: 'contain',
-        background: '#fff',
-        pointerEvents: 'none',
-      }}
-    />,
+  const preview = visualHost ? createPortal(
+    previewUrl ? (
+      <img
+        className="equipment-custom-visual"
+        src={previewUrl}
+        alt={`${equipment.shortName} 적재공간`}
+        draggable={false}
+        onError={() => setPreviewUrl('')}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 60,
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain',
+          background: '#fff',
+          pointerEvents: 'none',
+        }}
+      />
+    ) : equipment.category === 'container' ? (
+      <span
+        className="equipment-guided-default-photo"
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 60,
+          display: 'block',
+          pointerEvents: 'none',
+          backgroundColor: '#fff',
+          ...equipmentAtlasBackgroundStyle(equipment.id),
+        }}
+      />
+    ) : null,
     visualHost,
   ) : null;
 
