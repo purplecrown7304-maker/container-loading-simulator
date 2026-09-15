@@ -1,0 +1,38 @@
+.guided-strategy-stage{display:flex;flex-direction:column;gap:18px;min-height:520px}
+.guided-load-mode-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.guided-load-mode-grid button{min-height:92px;border:1px solid var(--border,#d9e0e7);border-radius:14px;background:#fff;padding:16px;text-align:left;display:flex;flex-direction:column;gap:7px;cursor:pointer}
+.guided-load-mode-grid button b{font-size:20px;letter-spacing:.02em}
+.guided-load-mode-grid button span{font-size:13px;color:#66717d;line-height:1.45}
+.guided-load-mode-grid button.active{border-color:#4b74c8;box-shadow:0 0 0 2px rgba(75,116,200,.12);background:#f8faff}
+.guided-strategy-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.guided-strategy-grid button{position:relative;min-height:132px;border:1px solid var(--border,#d9e0e7);border-radius:14px;background:#fff;padding:16px;text-align:left;display:flex;flex-direction:column;gap:8px;cursor:pointer}
+.guided-strategy-grid button b{font-size:16px}
+.guided-strategy-grid button span{font-size:12px;line-height:1.5;color:#687381}
+.guided-strategy-grid button i{margin-top:auto;font-style:normal;font-size:11px;font-weight:800;color:#687381}
+.guided-strategy-grid button.active{border-color:#4b74c8;box-shadow:0 0 0 2px rgba(75,116,200,.12);background:#f8faff}
+.guided-strategy-grid button.active i{color:#315fae}
+.guided-loading-stage{display:flex;flex-direction:column;gap:20px;min-height:520px}
+.guided-loading-progress-card{display:flex;align-items:center;justify-content:center;gap:28px;min-height:210px;border:1px solid var(--border,#d9e0e7);border-radius:18px;background:#fff;padding:26px}
+.guided-progress-ring{--progress:0%;width:132px;height:132px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(currentColor var(--progress),#e8edf2 0);color:#4b74c8;position:relative;flex:0 0 auto}
+.guided-progress-ring::after{content:"";position:absolute;inset:12px;border-radius:50%;background:#fff}
+.guided-progress-ring strong{position:relative;z-index:1;font-size:24px;color:#27313d}
+.guided-loading-progress-copy{display:flex;flex-direction:column;gap:8px;min-width:0}
+.guided-loading-progress-copy b{font-size:20px}
+.guided-loading-progress-copy span{font-size:14px;color:#5e6976;line-height:1.5}
+.guided-loading-progress-copy small{font-size:12px;color:#7b8590}
+.guided-loading-progress-card.failed .guided-progress-ring{color:#b64d4d}
+.guided-loading-progress-card.complete .guided-progress-ring{color:#3c8a62}
+.guided-phase-track{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+.guided-phase-track>div{min-height:76px;border:1px solid #e1e6eb;border-radius:12px;background:#fafbfc;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;text-align:center;padding:8px}
+.guided-phase-track i{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:#e9edf2;color:#63707c;font-style:normal;font-size:11px;font-weight:800}
+.guided-phase-track span{font-size:11px;color:#65717e;font-weight:700}
+.guided-phase-track .active{border-color:#7192d5;background:#f7f9ff}
+.guided-phase-track .active i{background:#4b74c8;color:#fff}
+.guided-phase-track .done i{background:#3c8a62;color:#fff}
+.guided-workflow-failure{border:1px solid #efcaca;border-radius:12px;background:#fff8f8;padding:14px 16px;color:#8b4242;font-size:13px;font-weight:700}
+.guided-final-layout-stage{gap:14px}
+.guided-final-layout-badge{display:inline-flex;align-self:flex-start;padding:7px 11px;border-radius:999px;background:#edf7f1;color:#327250;font-size:12px;font-weight:800}
+.guided-final-3d{height:360px;min-height:320px;border:1px solid #dce3ea;border-radius:16px;overflow:hidden;background:#f6f8fa}
+.guided-final-3d .viewer{height:100%;min-height:100%}
+@media(max-width:900px){.guided-strategy-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.guided-phase-track{grid-template-columns:repeat(2,minmax(0,1fr))}.guided-loading-progress-card{align-items:flex-start;flex-direction:column}.guided-load-mode-grid{grid-template-columns:1fr}.guided-final-3d{height:300px}}
+@media(max-width:560px){.guided-strategy-grid{grid-template-columns:1fr}.guided-progress-ring{width:110px;height:110px}.guided-phase-track{grid-template-columns:1fr 1fr}}
