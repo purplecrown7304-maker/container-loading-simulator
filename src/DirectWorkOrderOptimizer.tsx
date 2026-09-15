@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { REQUEST_DIRECT_WORK_ORDER_EVENT, type DirectWorkOrderRequest } from './directWorkOrderEvents';
 import { buildDirectResultReoptimizationCandidates, type DirectResultReoptimizationCandidate } from './engine/finalResultOptimization';
+import { LOADING_STRATEGY_STORAGE_KEY } from './engine/loadingEngine';
+import { normalizeLoadingStrategy } from './engine/loadingStrategies';
 import { writeManualOverride } from './engine/manualOverride';
+import { runPhysicsValidationSuite } from './engine/physicsValidation';
+import { publishFinalLayout } from './finalLayout';
 import {
   INERTIA_CERTIFICATION_EVENT,
   INERTIA_PASS_SHIFT_M,
@@ -16,6 +20,7 @@ import {
   completeCertificationForWorkOrder,
   workOrderApprovalLabel,
 } from './inertiaWorkOrderPolicy';
+import { publishLoadingWorkflowProgress } from './loadingWorkflow';
 import { publishPhysicsTarget, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { openLoadingReport } from './report';
 import { STORAGE_UPDATED_EVENT, type StoredState } from './storage';
@@ -26,6 +31,11 @@ const MAX_DIRECT_WORK_ORDER_CANDIDATES = 8;
 type Candidate = DirectResultReoptimizationCandidate;
 type Evaluated = Candidate & { certification: InertiaCertification; risk: number };
 type CertificationWindow = Window & { __containerLoadingLatestCertification?: InertiaCertification };
+
+function activeStrategy() {
+  if (typeof window === 'undefined') return normalizeLoadingStrategy(undefined);
+  return normalizeLoadingStrategy(window.localStorage.getItem(LOADING_STRATEGY_STORAGE_KEY));
+}
 
 function certificationRisk(result: InertiaCertification) {
   const shift = result.maxHorizontalShiftM / Math.max(EPS, INERTIA_PASS_SHIFT_M);
@@ -44,13 +54,31 @@ function publishCertification(certification: InertiaCertification) {
   window.dispatchEvent(new CustomEvent<InertiaCertification>(INERTIA_CERTIFICATION_EVENT, { detail: certification }));
 }
 
-function applyCandidate(candidate: Candidate, certification: InertiaCertification) {
+function applyVerifiedCandidate(candidate: Candidate, certification: InertiaCertification, source: 'baseline' | 'auto-rearranged') {
   const target = candidate.target;
   writeManualOverride(target.container, target.cargo, target.result);
   const state: StoredState = { container: target.container, cargo: target.cargo };
   window.dispatchEvent(new CustomEvent<StoredState>(STORAGE_UPDATED_EVENT, { detail: state }));
   publishPhysicsTarget(target);
   publishCertification(certification);
+  publishFinalLayout({
+    mode: 'boxes',
+    strategy: activeStrategy(),
+    container: target.container,
+    cargo: target.cargo,
+    result: target.result,
+    certification,
+    verifiedAt: new Date().toISOString(),
+    source,
+  });
+  publishLoadingWorkflowProgress({
+    mode: 'boxes',
+    strategy: activeStrategy(),
+    phase: 'complete',
+    percent: 100,
+    title: '최종 적재 확정',
+    detail: `${candidate.label} · ${workOrderApprovalLabel(certification)} · finalLayout 생성 완료`,
+  });
 }
 
 function requestTarget(detail: DirectWorkOrderRequest): PhysicsTarget {
@@ -75,8 +103,8 @@ export default function DirectWorkOrderOptimizer() {
     setRunning(true);
     setProgress(null);
     setMessage(automatic
-      ? '최종 적재 진행 · 관성 3종과 안전 후보를 자동 검증합니다.'
-      : '현재 적재안과 안전성이 높은 소수 재배치 후보를 관성 검증합니다.');
+      ? '최종 적재 진행 · 물리 재검증과 관성 3종을 자동 검증합니다.'
+      : '현재 적재안과 안전성이 높은 소수 재배치 후보를 물리·관성 검증합니다.');
     setError('');
 
     if (!current.result.placements.length) {
@@ -110,8 +138,55 @@ export default function DirectWorkOrderOptimizer() {
           return;
         }
         const candidate = candidates[index];
+        const rearranged = index > 0;
         setAttempt({ index: index + 1, total: candidates.length, label: candidate.label });
         setMessage(`${automatic ? '최종 적재 자동검증' : '상자 재배치'} ${index + 1}/${candidates.length} · ${candidate.label}`);
+        publishLoadingWorkflowProgress({
+          mode: 'boxes',
+          strategy: activeStrategy(),
+          phase: rearranged ? 'rearranging' : 'inertia-validation',
+          percent: 72 + Math.round((index / Math.max(1, candidates.length)) * 20),
+          title: rearranged ? '자동 재배치 후보 생성' : '관성 테스트 자동 실행',
+          detail: `${candidate.label} · ${index + 1}/${candidates.length}`,
+          attempt: index + 1,
+          attemptTotal: candidates.length,
+        });
+
+        // Baseline already passed autoCertification Rapier validation. Every rearranged
+        // candidate must run the full Rapier suite again before inertia certification.
+        if (rearranged) {
+          publishLoadingWorkflowProgress({
+            mode: 'boxes',
+            strategy: activeStrategy(),
+            phase: 'revalidation',
+            percent: 74 + Math.round((index / Math.max(1, candidates.length)) * 18),
+            title: '재배치 물리 재검증',
+            detail: `${candidate.label} · Rapier 4개 시나리오`,
+            attempt: index + 1,
+            attemptTotal: candidates.length,
+          });
+          const physics = await runPhysicsValidationSuite(
+            candidate.target.container,
+            candidate.target.result.placements,
+            undefined,
+            candidate.target.supports ?? [],
+          );
+          if (cancelled()) return;
+          const physicsFailed = physics.unstableCount + physics.supportUnstableCount > 0 || !physics.settled;
+          if (physicsFailed) continue;
+        }
+
+        publishLoadingWorkflowProgress({
+          mode: 'boxes',
+          strategy: activeStrategy(),
+          phase: rearranged ? 'revalidation' : 'inertia-validation',
+          percent: 78 + Math.round((index / Math.max(1, candidates.length)) * 18),
+          title: rearranged ? '재배치 관성 재검증' : '관성 테스트 자동 실행',
+          detail: '출발 가속 · 급정거 · 급회전',
+          attempt: index + 1,
+          attemptTotal: candidates.length,
+        });
+
         const initialCertification = await runInertiaCertification(
           candidate.target,
           next => { if (!cancelled()) setProgress(next); },
@@ -132,7 +207,15 @@ export default function DirectWorkOrderOptimizer() {
         const evaluated: Evaluated = { ...candidate, certification, risk: certificationRisk(certification) };
         const approval = assessWorkOrderCertification(certification);
         if (approval === 'pass' || approval === 'caution') {
-          applyCandidate(candidate, certification);
+          publishLoadingWorkflowProgress({
+            mode: 'boxes',
+            strategy: activeStrategy(),
+            phase: 'finalizing',
+            percent: 98,
+            title: '검증된 배치 최종 확정',
+            detail: `${candidate.label} · finalLayout 생성`,
+          });
+          applyVerifiedCandidate(candidate, certification, rearranged ? 'auto-rearranged' : 'baseline');
           setRunning(false);
           setMessage(`최종 관성검증 ${workOrderApprovalLabel(certification)} · ${candidate.label}`);
 
@@ -151,28 +234,33 @@ export default function DirectWorkOrderOptimizer() {
 
       if (cancelled()) return;
       setRunning(false);
-      if (!bestWarning) {
-        setError('관성 결과를 만들지 못했습니다. 현재 적재안을 유지합니다.');
-        if (!automatic) setOpen(true);
-        return;
-      }
-
-      applyCandidate(bestWarning, bestWarning.certification);
-      setMessage(`안전 후보 비교 완료 · 가장 낮은 위험안 적용 · ${bestWarning.label}`);
-      if (automatic) {
-        setOpen(false);
-        return;
-      }
-
-      const opened = openLoadingReport(bestWarning.target.container, bestWarning.target.cargo, bestWarning.target.result);
-      if (opened) setOpen(false);
-      else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
+      // Important: do not apply a failed candidate. Earlier versions used the least-risk
+      // failed layout; the verified workflow must leave the previous final layout intact.
+      const diagnostic = bestWarning ? ` 가장 낮은 위험 후보: ${bestWarning.label}.` : '';
+      setError(`모든 재배치 후보가 최종 검증 기준을 통과하지 못했습니다.${diagnostic} 기존 확정 배치를 유지합니다.`);
+      publishLoadingWorkflowProgress({
+        mode: 'boxes',
+        strategy: activeStrategy(),
+        phase: 'failed',
+        percent: 100,
+        title: '최종 검증 실패',
+        detail: '실패 후보는 finalLayout으로 확정하지 않았습니다. 기존 확정 배치를 유지합니다.',
+      });
+      if (!automatic) setOpen(true);
     } catch (reason) {
       if (cancelled()) return;
       console.error('Direct work-order inertia search failed', reason);
       setRunning(false);
       setOpen(true);
-      setError('직접 적재 관성 검증을 완료하지 못했습니다. 현재 적재안을 유지합니다.');
+      setError('직접 적재 물리·관성 검증을 완료하지 못했습니다. 기존 확정 배치를 유지합니다.');
+      publishLoadingWorkflowProgress({
+        mode: 'boxes',
+        strategy: activeStrategy(),
+        phase: 'failed',
+        percent: 100,
+        title: '최종 검증 오류',
+        detail: '오류 후보는 finalLayout으로 확정하지 않았습니다.',
+      });
     }
   }, []);
 
@@ -195,7 +283,7 @@ export default function DirectWorkOrderOptimizer() {
         <div>
           <span>FINAL WORK ORDER OPTIMIZER · DIRECT BOX</span>
           <h2 id="direct-work-order-title">작업지시서 전 상자 안전 후보 비교</h2>
-          <p>출발 가속 · 급정거 · 급회전 3종을 비교해 더 안전한 배치를 우선합니다. 모든 후보가 위험이어도 가장 낮은 위험안을 적용하고 위험 경고·보강 권장사항을 포함한 작업지시서를 생성합니다.</p>
+          <p>출발 가속 · 급정거 · 급회전 3종과 재배치 후보의 Rapier 물리 재검증을 수행합니다. 검증 기준을 통과한 후보만 최종 배치로 확정합니다.</p>
         </div>
         {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
       </header>
@@ -210,18 +298,18 @@ export default function DirectWorkOrderOptimizer() {
         <span>현재 보강 <b>{progress.levelLabel}</b></span>
         <span>관성 시나리오 <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
         <span>현재 계산 <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
-        <span>출력 정책 <b>등급과 무관하게 발급</b></span>
+        <span>출력 정책 <b>검증 승인 후 확정</b></span>
       </div>}
 
       <article className="final-cert-materials">
         <div className="final-cert-material-head"><div><b>자동 비교 범위</b><span>화물 수량 유지</span></div><strong>{attempt.total || '-'}개 배치</strong></div>
         <div className="final-cert-material-grid">
-          <div><span>상자 배치</span><b>안정성/적재율/하역</b><small>전략별 고유 배치만 비교</small></div>
+          <div><span>상자 배치</span><b>6개 전략 목적함수</b><small>PR #50 하이브리드 후보 유지</small></div>
           <div><span>적재 높이</span><b>저중심 후보 우선</b><small>정적 안전점수로 선별</small></div>
           <div><span>후보 수</span><b>최대 {MAX_DIRECT_WORK_ORDER_CANDIDATES}개</b><small>무제한 반복 없음</small></div>
-          <div><span>관성 검증</span><b>출발·급정거·급회전</b><small>가능한 3종 모두 확인</small></div>
-          <div><span>주의 결과</span><b>작업지시서 생성</b><small>권장사항 자동 기입</small></div>
-          <div><span>위험 결과</span><b>경고 포함 생성</b><small>가장 낮은 위험안 + 보강 권장</small></div>
+          <div><span>물리 재검증</span><b>Rapier 4종</b><small>재배치마다 다시 확인</small></div>
+          <div><span>관성 검증</span><b>출발·급정거·급회전</b><small>승인 후보만 확정</small></div>
+          <div><span>위험 결과</span><b>미확정</b><small>기존 finalLayout 유지</small></div>
         </div>
       </article>
 
