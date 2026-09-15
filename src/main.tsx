@@ -104,6 +104,7 @@ import './guided-workflow.css';
 import './guided-workflow-v2.css';
 import './guided-result-tabs-enhancer.css';
 import './workflow-usability-fixes.css';
+import './loading-workflow.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
