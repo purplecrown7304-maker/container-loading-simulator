@@ -1,9 +1,9 @@
 import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult } from './types';
 import { validatePlacements } from './constraints';
 import { centerPlacementsOnContainer } from './containerCentering';
+import { packByHybridOptimizer } from './hybridLoadingOptimizer';
 import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
-import { packByStrictWalls } from './strictWallPacker';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -36,18 +36,21 @@ function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], resu
 }
 
 /**
- * DIRECT BOX loading policy.
+ * DIRECT BOX hybrid loading policy.
  *
- * StrictWallPacker first builds a compact, physically valid arrangement while enforcing
- * hard constraints: container bounds, collision prevention, payload, configured stack
- * layers, cumulative top-load limits and full support for upper boxes.
+ * Two deterministic solvers generate competing physically valid plans:
+ *  - StrictWallPacker: dense homogeneous wall/block construction.
+ *  - EMS Beam V2: homogeneous blocks + maximal empty spaces + residual-gap reuse.
  *
- * The completed arrangement is then translated as one rigid X/Y group so its weighted
+ * HybridLoadingOptimizer evaluates both plans with the selected operating strategy.
+ * Capacity emphasizes utilization/completion, stability emphasizes low/balanced weight
+ * distribution, and unloading emphasizes unload order while retaining all hard safety
+ * constraints. Bounds/collision/payload violations can never be traded for a higher score.
+ *
+ * The selected arrangement is then translated as one rigid X/Y group so its weighted
  * horizontal center of gravity is as close as possible to the container target center.
- * A rigid translation preserves every support, stacking and collision relationship and
- * is clamped by the container walls. Z is never raised: low center of gravity remains a
- * stability preference. If exact horizontal centering is impossible because the loaded
- * footprint already touches both walls, the closest physically valid position is used.
+ * Rigid translation preserves support, stacking and collision relationships and is
+ * clamped by the container walls. Z is never raised.
  */
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
@@ -84,7 +87,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     }
   }
 
-  const packed = packByStrictWalls(container, normalizedCargo, strategy);
+  const packed = packByHybridOptimizer(container, normalizedCargo, strategy);
   const finalPlacements = centerPlacementsOnContainer(container, packed.placements);
   const result: LoadingResult = {
     placements: finalPlacements,
