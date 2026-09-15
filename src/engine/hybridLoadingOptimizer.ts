@@ -7,6 +7,7 @@ import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 import { assessWeightBalance } from './weightBalance';
 
 const EPS = 1e-9;
+const CAPACITY_FAST_PATH_COUNT = 120;
 const clamp100 = (value: number) => Math.max(0, Math.min(100, value));
 
 type PackingOutput = StrictWallOutput | BeamPackingOutput;
@@ -61,7 +62,6 @@ function unloadingArrangementScore(container: ContainerSpec, cargo: CargoItem[],
     if (!xs?.length) continue;
     const actual = xs.reduce((sum, x) => sum + x, 0) / xs.length;
     const normalizedPriority = ((item.unloadPriority as number) - min) / (max - min);
-    // priority 1 is unloaded first and therefore should be nearer the door-side end.
     const target = 1 - normalizedPriority;
     const score = clamp100(100 - Math.abs(actual - target) * 120);
     weighted += score * xs.length;
@@ -139,31 +139,39 @@ function scoreCandidate(
   };
 }
 
+function rankCandidates(
+  container: ContainerSpec,
+  cargo: CargoItem[],
+  strategy: StrictWallStrategy,
+  candidates: Array<{ engine: HybridPackingEngine; output: PackingOutput }>,
+) {
+  return candidates
+    .map(({ engine, output }) => scoreCandidate(container, cargo, strategy, engine, output))
+    .sort((a, b) => {
+      const scoreDiff = b.score - a.score;
+      if (Number.isFinite(scoreDiff) && Math.abs(scoreDiff) > EPS) return scoreDiff;
+      return b.output.placements.length - a.output.placements.length
+        || b.output.usedVolumeM3 - a.output.usedVolumeM3
+        || a.engine.localeCompare(b.engine);
+    });
+}
+
 /**
  * Deterministic solver portfolio for DIRECT BOX loading.
  *
- * The wall/block beam packer is strong at dense homogeneous walls. EMS Beam V2 is
- * strong at reusing safe residual spaces. Running both gives the strategy scorer two
- * genuinely different plans instead of asking one heuristic to be good at everything.
+ * StrictWall is strong at dense homogeneous walls. EMS Beam V2 is strong at safe residual
+ * space reuse. The portfolio lets both compete on the same strategy score instead of
+ * asking one heuristic to be good at every cargo shape.
  */
 export function compareHybridCandidates(
   container: ContainerSpec,
   cargo: CargoItem[],
   strategy: StrictWallStrategy,
 ): HybridCandidateAssessment[] {
-  const candidates: Array<{ engine: HybridPackingEngine; output: PackingOutput }> = [
+  return rankCandidates(container, cargo, strategy, [
     { engine: 'strict-wall', output: packByStrictWalls(container, cargo, strategy) },
     { engine: 'ems-beam-v2', output: packByBlockSpaceBeamV2(container, cargo, strategy) },
-  ];
-
-  return candidates
-    .map(({ engine, output }) => scoreCandidate(container, cargo, strategy, engine, output))
-    .sort((a, b) =>
-      b.score - a.score
-      || b.output.placements.length - a.output.placements.length
-      || b.output.usedVolumeM3 - a.output.usedVolumeM3
-      || a.engine.localeCompare(b.engine),
-    );
+  ]);
 }
 
 export function packByHybridOptimizer(
@@ -171,6 +179,20 @@ export function packByHybridOptimizer(
   cargo: CargoItem[],
   strategy: StrictWallStrategy,
 ): PackingOutput {
-  return compareHybridCandidates(container, cargo, strategy)[0]?.output
-    ?? packByStrictWalls(container, cargo, strategy);
+  const strict = packByStrictWalls(container, cargo, strategy);
+  const requestedCount = cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
+  const strictRemaining = strict.remaining.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
+
+  // Default/capacity runs are the most frequent path. For a large job that StrictWall has
+  // already loaded completely, running a second expensive beam search cannot improve the
+  // loaded quantity and mostly doubles latency. Stability/unloading still compare both.
+  if (strategy === 'capacity' && requestedCount >= CAPACITY_FAST_PATH_COUNT && strictRemaining === 0) {
+    return strict;
+  }
+
+  const beam = packByBlockSpaceBeamV2(container, cargo, strategy);
+  return rankCandidates(container, cargo, strategy, [
+    { engine: 'strict-wall', output: strict },
+    { engine: 'ems-beam-v2', output: beam },
+  ])[0]?.output ?? strict;
 }
