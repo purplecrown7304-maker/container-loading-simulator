@@ -5,11 +5,11 @@ import { ADMIN_ACCESS_EVENT, isAdminSession } from './adminAccess';
 import {
   EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT,
   prepareEquipmentImage,
-  readEquipmentImageOverrides,
   refreshEquipmentImageOverrides,
   removeEquipmentImageOverride,
   setEquipmentImageOverride,
 } from './equipmentImageOverrides';
+import { resolveEquipmentImageUrl } from './equipmentImageUrl';
 import type { EquipmentGeometry, TransportEquipment } from './transportEquipment';
 
 type Props = {
@@ -39,15 +39,25 @@ function DefaultVisual({ item }: { item: TransportEquipment }) {
 }
 
 export default function EditableEquipmentCard({ item, active, onSelect, onMessage }: Props) {
-  const [imageSrc, setImageSrc] = useState(() => readEquipmentImageOverrides()[item.id] ?? '');
+  const [imageSrc, setImageSrc] = useState(() => resolveEquipmentImageUrl(item.id));
+  const [imageFailed, setImageFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [isAdmin, setIsAdmin] = useState(() => isAdminSession());
 
   useEffect(() => {
-    void refreshEquipmentImageOverrides();
-    const sync = () => setImageSrc(readEquipmentImageOverrides()[item.id] ?? '');
+    let mounted = true;
+    const sync = () => {
+      if (!mounted) return;
+      setImageFailed(false);
+      setImageSrc(resolveEquipmentImageUrl(item.id, Date.now()));
+    };
+
+    void refreshEquipmentImageOverrides().then(sync);
     window.addEventListener(EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT, sync);
-    return () => window.removeEventListener(EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT, sync);
+    return () => {
+      mounted = false;
+      window.removeEventListener(EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT, sync);
+    };
   }, [item.id]);
 
   useEffect(() => {
@@ -69,7 +79,8 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
     try {
       const dataUrl = await prepareEquipmentImage(file);
       const next = await setEquipmentImageOverride(item.id, dataUrl);
-      setImageSrc(next[item.id] ?? '');
+      setImageFailed(false);
+      setImageSrc(next[item.id] ?? resolveEquipmentImageUrl(item.id, Date.now()));
       onMessage?.(`${item.shortName} 이미지를 Supabase 서버에 저장했습니다.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : '이미지 변경에 실패했습니다.';
@@ -89,6 +100,7 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
     try {
       await removeEquipmentImageOverride(item.id);
       setImageSrc('');
+      setImageFailed(false);
       onMessage?.(`${item.shortName} 서버 이미지를 삭제하고 기본 이미지로 복원했습니다.`);
     } catch (error) {
       onMessage?.(error instanceof Error ? error.message : '기본 이미지 복원에 실패했습니다.');
@@ -106,7 +118,9 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
       onClick={() => onSelect(item)}
     >
       <span className="transport-equipment-card-name">{item.name}</span>
-      {imageSrc ? <span className="transport-equipment-user-image"><img src={imageSrc} alt="" draggable={false} /></span> : <DefaultVisual item={item} />}
+      {imageSrc && !imageFailed
+        ? <span className="transport-equipment-user-image"><img src={imageSrc} alt={`${item.shortName} 적재공간`} draggable={false} onError={() => setImageFailed(true)} /></span>
+        : <DefaultVisual item={item} />}
       <span className="transport-equipment-spec">{item.length.toFixed(2)} × {item.width.toFixed(2)} × {item.height.toFixed(2)} m</span>
       <span className="transport-equipment-payload">적재 {item.maxPayloadKg.toLocaleString()} kg</span>
     </button>
@@ -115,7 +129,7 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
         {busy ? '처리중…' : '이미지 수정'}
         <input type="file" accept="image/png,image/jpeg,image/webp" onChange={changeImage} disabled={busy} />
       </label>
-      {imageSrc && <button type="button" className="transport-image-reset" onClick={event => void resetImage(event)} disabled={busy}>원본</button>}
+      {imageSrc && !imageFailed && <button type="button" className="transport-image-reset" onClick={event => void resetImage(event)} disabled={busy}>원본</button>}
     </div>}
   </div>;
 }
