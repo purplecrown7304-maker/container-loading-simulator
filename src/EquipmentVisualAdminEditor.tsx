@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT, isAdminSession } from './adminAccess';
-import { equipmentAtlasBackgroundStyle } from './EquipmentCard3D';
 import {
   EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT,
   migrateLegacyEquipmentImagesToServer,
@@ -127,15 +126,15 @@ export default function EquipmentVisualAdminEditor() {
     }
   };
 
-  const restore = async () => {
+  const deleteImage = async () => {
     if (!isAdmin) return;
     setBusy(true);
     try {
       await removeEquipmentImageOverride(equipment.id);
       setPreviewUrl('');
-      setMessage(`${equipment.shortName} 업로드 이미지를 삭제하고 기본 그림으로 복원했습니다.`);
+      setMessage(`${equipment.shortName} 이미지를 삭제했습니다.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '기본 그림으로 복원하지 못했습니다.');
+      setMessage(error instanceof Error ? error.message : '이미지를 삭제하지 못했습니다.');
     } finally {
       setBusy(false);
     }
@@ -160,21 +159,20 @@ export default function EquipmentVisualAdminEditor() {
           pointerEvents: 'none',
         }}
       />
-    ) : equipment.category === 'container' ? (
+    ) : (
       <span
-        className="equipment-guided-default-photo"
+        className="equipment-custom-visual-empty"
         aria-hidden="true"
         style={{
           position: 'absolute',
           inset: 0,
           zIndex: 60,
           display: 'block',
+          background: '#fff',
           pointerEvents: 'none',
-          backgroundColor: '#fff',
-          ...equipmentAtlasBackgroundStyle(equipment.id),
         }}
       />
-    ) : null,
+    ),
     visualHost,
   ) : null;
 
@@ -197,7 +195,7 @@ export default function EquipmentVisualAdminEditor() {
       <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={event => void upload(event.target.files?.[0])} />
       <span style={{ marginRight: 'auto', color: '#46617c', fontSize: 11, fontWeight: 800 }}>현재 선택 적재공간 이미지 · 관리자</span>
       <button type="button" style={buttonStyle} disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? '처리 중…' : '이미지 업로드'}</button>
-      {previewUrl && <button type="button" style={buttonStyle} disabled={busy} onClick={() => void restore()}>기본 그림 복원</button>}
+      {previewUrl && <button type="button" style={buttonStyle} disabled={busy} onClick={() => void deleteImage()}>이미지 삭제</button>}
       {message && <small style={{ flexBasis: '100%', color: '#66707a', fontSize: 10.5, textAlign: 'right' }}>{message}</small>}
     </div>,
     toolbarHost,
