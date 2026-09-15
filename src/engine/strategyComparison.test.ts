@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadContainer } from './loadingEngine';
+import { LOADING_STRATEGIES } from './loadingStrategies';
 import { compareLoadingStrategies } from './strategyComparison';
 import type { CargoItem, ContainerSpec } from './types';
 
@@ -10,9 +11,10 @@ const cargo: CargoItem[] = [
 ];
 
 describe('loading strategy comparison', () => {
-  it('returns all three strategies with finite scores', () => {
+  it('returns all six strategies with finite scores', () => {
     const rows = compareLoadingStrategies(container, cargo);
-    expect(rows.map(row => row.strategy)).toEqual(['capacity', 'stability', 'unloading']);
+    expect(rows.map(row => row.strategy)).toEqual(LOADING_STRATEGIES.map(row => row.id));
+    expect(rows).toHaveLength(6);
     rows.forEach(row => {
       expect(Number.isFinite(row.overallScore)).toBe(true);
       expect(row.overallScore).toBeGreaterThanOrEqual(0);
