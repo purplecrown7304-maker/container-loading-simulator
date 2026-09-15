@@ -12,6 +12,7 @@ export type EquipmentImageOverrides = Record<string, string>;
 
 let serverCache: EquipmentImageOverrides | null = null;
 let runtimeAdminPassword = '';
+let runtimeAdminSessionToken = '';
 let refreshPromise: Promise<EquipmentImageOverrides> | null = null;
 
 function readMap(key: string, allowDataUrl: boolean): EquipmentImageOverrides {
@@ -46,12 +47,39 @@ function dispatchUpdated() {
   window.dispatchEvent(new Event(EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT));
 }
 
-export function setEquipmentAdminCredential(password: string) {
+function hasRuntimeAdminCredential() {
+  return Boolean(runtimeAdminSessionToken || runtimeAdminPassword);
+}
+
+export async function setEquipmentAdminCredential(password: string) {
   runtimeAdminPassword = password;
+  runtimeAdminSessionToken = '';
+  if (!password) throw new Error('관리자 비밀번호가 필요합니다.');
+
+  try {
+    const response = await fetch(CONTAINER_ADMIN_API_URL, {
+      method: 'POST',
+      headers: supabasePublicHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ action: 'session', adminId: 'admin', adminPassword: password }),
+    });
+    const data = await response.json().catch(() => ({})) as { error?: string; sessionToken?: string };
+    if (!response.ok || !data.sessionToken) {
+      throw new Error(response.status === 401
+        ? '사이트 관리자 비밀번호와 Supabase 관리자 인증 정보가 일치하지 않습니다.'
+        : data.error || 'Supabase 관리자 세션을 만들지 못했습니다.');
+    }
+    runtimeAdminSessionToken = data.sessionToken;
+    runtimeAdminPassword = '';
+  } catch (error) {
+    runtimeAdminPassword = '';
+    runtimeAdminSessionToken = '';
+    throw error;
+  }
 }
 
 export function clearEquipmentAdminCredential() {
   runtimeAdminPassword = '';
+  runtimeAdminSessionToken = '';
 }
 
 export function readEquipmentImageOverrides(): EquipmentImageOverrides {
@@ -85,24 +113,31 @@ export async function refreshEquipmentImageOverrides(): Promise<EquipmentImageOv
 
 function ensureAdminImageAccess() {
   if (!isAdminSession()) throw new Error('관리자 계정으로 로그인한 경우에만 장비 이미지를 수정할 수 있습니다.');
-  if (!runtimeAdminPassword) {
-    const entered = window.prompt('Supabase에 장비 이미지를 저장하려면 관리자 비밀번호를 한 번 더 입력하세요.') ?? '';
-    runtimeAdminPassword = entered;
+  if (!hasRuntimeAdminCredential()) {
+    throw new Error('관리자 서버 인증이 없습니다. 로그아웃 후 관리자 계정으로 다시 로그인하세요.');
   }
-  if (!runtimeAdminPassword) throw new Error('관리자 비밀번호 확인이 필요합니다.');
 }
 
 async function adminMutation(payload: Record<string, unknown>) {
   ensureAdminImageAccess();
+  const headers = supabasePublicHeaders({ 'Content-Type': 'application/json' });
+  if (runtimeAdminSessionToken) headers['x-admin-session'] = runtimeAdminSessionToken;
+
   const response = await fetch(CONTAINER_ADMIN_API_URL, {
     method: 'POST',
-    headers: supabasePublicHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ ...payload, adminId: 'admin', adminPassword: runtimeAdminPassword }),
+    headers,
+    body: JSON.stringify({
+      ...payload,
+      adminId: 'admin',
+      ...(runtimeAdminPassword ? { adminPassword: runtimeAdminPassword } : {}),
+    }),
   });
   const data = await response.json().catch(() => ({})) as { error?: string; publicUrl?: string };
   if (!response.ok) {
-    if (response.status === 401) runtimeAdminPassword = '';
-    throw new Error(response.status === 401 ? '관리자 비밀번호가 올바르지 않습니다. 다시 시도하세요.' : data.error || 'Supabase 서버 저장에 실패했습니다.');
+    if (response.status === 401) clearEquipmentAdminCredential();
+    throw new Error(response.status === 401
+      ? '관리자 서버 인증이 만료되었습니다. 로그아웃 후 다시 로그인하세요.'
+      : data.error || 'Supabase 서버 저장에 실패했습니다.');
   }
   return data;
 }
@@ -142,9 +177,9 @@ export async function removeEquipmentImageOverride(equipmentId: string) {
 }
 
 export async function migrateLegacyEquipmentImagesToServer() {
-  // 자동 마이그레이션은 로그인 시 이미 전달받은 관리자 비밀번호가 있을 때만 실행한다.
-  // 새로고침으로 관리자 세션만 복구된 경우 브라우저 prompt를 띄우지 않는다.
-  if (!isAdminSession() || !runtimeAdminPassword) return { migrated: 0, failed: 0 };
+  // 자동 마이그레이션은 로그인 시 서버 관리자 세션을 발급받은 경우에만 실행한다.
+  // 새로고침으로 브라우저 관리자 세션만 복구된 경우 별도 비밀번호 prompt를 띄우지 않는다.
+  if (!isAdminSession() || !hasRuntimeAdminCredential()) return { migrated: 0, failed: 0 };
   const legacy = readLegacyMap();
   const entries = Object.entries(legacy).filter((entry): entry is [string, string] => entry[1].startsWith('data:image/'));
   if (!entries.length) return { migrated: 0, failed: 0 };
