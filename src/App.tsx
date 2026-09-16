@@ -10,6 +10,7 @@ import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
 import { clearLatestInertiaCertification } from './inertiaCertification';
+import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { openPalletLoadingReport } from './palletWorkerReport';
 import PalletFooterSummary from './PalletFooterSummary';
 import { clearPhysicsTarget } from './physicsTarget';
@@ -186,6 +187,9 @@ export default function App() {
     }
     const activeCargo = preflight.cargo;
     if (!activeCargo.length) return announce('warning', '적재할 화물이 없습니다. 본인의 박스 목록에서 화물을 등록하거나 선택하세요.');
+    const guidedWorkflow = typeof document !== 'undefined' && document.documentElement.dataset.guidedWorkflow === 'true';
+    const preferredStrategy = guidedWorkflow ? readLoadingStrategyPreference() : null;
+    if (guidedWorkflow && !preferredStrategy) return announce('warning', '적재 방식을 먼저 선택해 주세요.');
     if (mode === 'pallets') {
       invalidatePhysics();
       requestNextPalletCertification();
@@ -197,11 +201,11 @@ export default function App() {
     setPhysicsScore(null);
     setPhysicsStrategy(null);
     setOptimizationMessage('후보 적재안 생성 중…');
-    announce('info', '물리 기반 최적 적재 계산 중…');
+    announce('info', preferredStrategy ? `${strategyLabel(preferredStrategy)} 전략으로 물리 기반 적재 계산 중…` : '물리 기반 최적 적재 계산 중…');
     try {
       const optimized = await optimizeLoadingWithPhysics(container, activeCargo, progress => {
         setOptimizationMessage(`후보 ${progress.candidateIndex}/${progress.candidateCount} · ${strategyLabel(progress.strategy)} · 물리검증 ${Math.round(progress.physicsProgress * 100)}%`);
-      });
+      }, preferredStrategy ?? undefined);
       const published = loadContainer(container, activeCargo, { strategy: optimized.strategy });
       setResult(published);
       requestExactCertification({ mode: 'boxes', container, cargo: activeCargo, result: published });
@@ -213,9 +217,10 @@ export default function App() {
       setOptimizationMessage('');
     } catch (error) {
       console.error('Physics optimization failed', error);
-      const fallback = loadContainer(container, activeCargo, { strategy: 'stability' });
+      const fallbackStrategy = preferredStrategy ?? 'stability';
+      const fallback = loadContainer(container, activeCargo, { strategy: fallbackStrategy });
       setResult(fallback);
-      announce('warning', '물리 최적화 실행 중 오류가 발생해 안정성 우선 기본 적재안을 표시했습니다. 최종 결과로 사용하기 전 물리 검증을 다시 실행하세요.');
+      announce('warning', `물리 최적화 실행 중 오류가 발생해 ${strategyLabel(fallbackStrategy)} 기본 적재안을 표시했습니다. 최종 결과로 사용하기 전 물리 검증을 다시 실행하세요.`);
       setOptimizationMessage('');
     } finally {
       setIsRunning(false);
