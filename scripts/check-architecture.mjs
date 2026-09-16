@@ -50,11 +50,11 @@ for (const path of bridgeFiles) {
 }
 
 const loadingUnitEnhancer = readFileSync('src/GuidedLoadingUnitEnhancer.tsx', 'utf8');
-if (!loadingUnitEnhancer.includes("useGuidedWorkflowState")) {
+if (!loadingUnitEnhancer.includes('useGuidedWorkflowState')) {
   fail('GuidedLoadingUnitEnhancer must consume the centralized guided workflow state instead of observing data-guided-step itself.');
 }
 if (/observe\(document\.documentElement[\s\S]*data-guided-step/.test(loadingUnitEnhancer)) {
-  fail('GuidedLoadingUnitEnhancer restored its own data-guided-step MutationObserver; keep that compatibility observation centralized in guidedWorkflowState.ts.');
+  fail('GuidedLoadingUnitEnhancer restored its own data-guided-step MutationObserver; keep compatibility observation centralized in guidedWorkflowState.ts.');
 }
 
 const tokenizedCss = [
@@ -64,6 +64,7 @@ const tokenizedCss = [
   'src/reference-viewer.css',
   'src/transport-equipment.css',
   'src/transport-equipment-selection-ux.css',
+  'src/guided-workflow.css',
   'src/guided-workflow-v2.css',
   'src/guided-loading-strategy.css',
   'src/guided-loading-unit.css',
@@ -113,7 +114,31 @@ for (const [className] of legacyWorkspaceClasses) {
   }
 }
 
+const appSource = readFileSync('src/App.tsx', 'utf8');
+if (!appSource.includes('useGuidedWorkflowState')) {
+  fail('App.tsx must subscribe to guided workflow state so the 3D viewer is owned by React rendering.');
+}
+if (!appSource.includes('shouldRenderGuidedViewer(guidedWorkflowState)')) {
+  fail('App.tsx must use the guided viewer render policy instead of relying on CSS to hide/show the viewer.');
+}
+
+const guidedWorkflowCss = readFileSync('src/guided-workflow.css', 'utf8');
 const guidedWorkflowV2 = readFileSync('src/guided-workflow-v2.css', 'utf8');
+const guidedStrategyCss = readFileSync('src/guided-loading-strategy.css', 'utf8');
+const cssDrivenCenterSwitch = /data-guided-step[^\n{]*[\s\S]{0,180}(?:\.viewer-card|\.guided-stage-panel)[^{]*\{[^}]*display\s*:/;
+for (const [path, source] of [
+  ['src/guided-workflow.css', guidedWorkflowCss],
+  ['src/guided-workflow-v2.css', guidedWorkflowV2],
+  ['src/guided-loading-strategy.css', guidedStrategyCss],
+]) {
+  if (cssDrivenCenterSwitch.test(source)) {
+    fail(`${path} restored data-guided-step CSS display switching; App/StagePanel React rendering must own center content visibility.`);
+  }
+}
+if (!/\.guided-loading-placeholder\s*\{[^}]*display\s*:\s*none/.test(guidedWorkflowCss)) {
+  fail('src/guided-workflow.css must keep only the generic step-5 placeholder hidden; step visibility belongs to React.');
+}
+
 if (!/grid-template-columns\s*:\s*repeat\(6,\s*minmax\(118px,\s*1fr\)\)/.test(guidedWorkflowV2)) {
   fail('src/guided-workflow-v2.css must own the mobile six-step guided rail.');
 }
@@ -135,4 +160,4 @@ if (!/\.guided-result-grid>div:nth-child\(-n \+ 3\)\s*\{[^}]*min-height\s*:\s*96
   fail('src/guided-result-tabs-enhancer.css must keep the three primary result metrics visually prioritized.');
 }
 
-if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · temporary UX review styles removed · guided-step observation centralized.`);
+if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · guided viewer visibility owned by React.`);
