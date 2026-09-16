@@ -17,17 +17,18 @@ export function positiveTopLoadKg(value: unknown): number | undefined {
 /**
  * 개인 박스의 최대 적층단을 플래너의 기존 상부하중 모델에도 전달한다.
  * 플래너는 과거에 maxStackLayers 필드가 없었으므로, 최대총중량 기준으로 보수적인
- * 등가 상부하중을 계산한다. 실제 자동 적재에는 applyPersonalStackPolicyToCargo가
- * 명시적인 maxStackLayers를 다시 넣어 층수 한도를 정확히 보존한다.
+ * 등가 상부하중을 계산한다. 개인 박스에 양수 상부하중이 따로 입력돼 있으면 더 엄격한
+ * 값을 사용한다. 개인 박스의 0kg은 과거 추천 기본값이므로 2단 이상 명시 시 별도 강도값으로
+ * 해석하지 않는다.
  */
 export function effectivePlannerTopLoadKg(box: BoxCatalogItem, personal: Pick<CargoItem, 'maxStackLayers' | 'maxTopLoadKg'>): number | undefined {
   const layers = normalizeDeclaredStackLayers(personal.maxStackLayers);
-  const explicit = positiveTopLoadKg(personal.maxTopLoadKg) ?? positiveTopLoadKg(box.maxTopLoadKg);
-  if (!layers) return explicit ?? box.maxTopLoadKg;
+  const personalTopLoad = positiveTopLoadKg(personal.maxTopLoadKg);
+  if (!layers) return personalTopLoad ?? box.maxTopLoadKg;
   if (layers <= 1) return 0;
 
   const layerDerivedTopLoad = (layers - 1) * Math.max(0.001, box.maxGrossWeightKg);
-  return explicit == null ? layerDerivedTopLoad : Math.min(explicit, layerDerivedTopLoad);
+  return personalTopLoad == null ? layerDerivedTopLoad : Math.min(personalTopLoad, layerDerivedTopLoad);
 }
 
 /** 개인 박스에서 사용자가 선언한 적층단을 실제 적재 CargoItem에 그대로 적용한다. */
