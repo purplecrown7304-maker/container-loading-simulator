@@ -92,7 +92,6 @@ import './enterprise-strategy.css';
 import './enterprise-approval.css';
 import './enterprise-manufacturing.css';
 import './transport-equipment.css';
-import './transport-equipment-scroll-fix.css';
 import './transport-equipment-selection-ux.css';
 import './topbar-cleanup.css';
 import './login-segmented.css';
