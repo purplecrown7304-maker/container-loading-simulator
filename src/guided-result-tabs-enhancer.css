@@ -25,4 +25,14 @@
 .guided-safety-list article.pass strong{color:var(--gw-green)}
 .guided-safety-list article.warn strong{color:var(--gw-orange)}
 .guided-safety-list article.fail strong{color:var(--gw-red)}
-@media(max-width:760px){.guided-result-tabs.interactive{gap:14px;overflow-x:auto;white-space:nowrap}.guided-weight-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.guided-safety-list article{grid-template-columns:26px minmax(0,1fr)}.guided-safety-list article>strong{grid-column:2}}
+
+/* Results UX ownership migrated from the temporary review layer. */
+.guided-result-tabs{overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-width:thin;white-space:nowrap}
+.guided-unloaded-list{max-height:min(360px,36vh);overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding-right:4px}
+.guided-result-grid>div:nth-child(-n + 3){min-height:96px;display:flex;flex-direction:column;justify-content:center}
+.guided-result-grid>div:nth-child(-n + 3) b{font-size:24px}
+
+@media(max-width:900px){.guided-result-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.guided-result-tabs.interactive{gap:14px;overflow-x:auto;white-space:nowrap}.guided-weight-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.guided-safety-list article{grid-template-columns:26px minmax(0,1fr)}.guided-safety-list article>strong{grid-column:2}.guided-result-grid>div:nth-child(-n + 3) b{font-size:21px}}
+@media(max-width:700px){.guided-result-grid{grid-template-columns:1fr 1fr}.guided-unloaded-list{max-height:42vh}}
+@media(max-width:460px){.guided-result-grid{grid-template-columns:1fr}.guided-result-grid>div:nth-child(-n + 3){min-height:78px}}
