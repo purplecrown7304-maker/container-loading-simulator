@@ -23,7 +23,7 @@ const cargo: CargoItem[] = [{
 }];
 
 describe('report-driven pallet optimization', () => {
-  it('compares pallet stack targets instead of always maximizing one pallet height', () => {
+  it('compares pallet stack targets and prefers the less-stacked complete plan', () => {
     const result = packOnPallets(container, cargo, {
       ...defaultPalletSpec,
       length: 1.1,
@@ -34,10 +34,10 @@ describe('report-driven pallet optimization', () => {
     });
 
     expect(result.optimization.candidateCount).toBe(2);
-    expect(result.optimization.selectedStackTarget).toBe(2);
-    expect(result.maxUsedStackLevel).toBe(2);
-    expect(result.optimization.floorPositions).toBeLessThan(result.palletCount);
+    expect(result.optimization.selectedStackTarget).toBe(1);
+    expect(result.maxUsedStackLevel).toBe(1);
     expect(result.placements).toHaveLength(32);
+    expect(result.remaining.reduce((sum, item) => sum + item.quantity, 0)).toBe(0);
   });
 
   it('redistributes low-utilization pallet columns across the container length', () => {
@@ -54,7 +54,7 @@ describe('report-driven pallet optimization', () => {
     expect(Math.max(...result.pallets.map((pallet) => pallet.x))).toBeGreaterThan(container.length * 0.7);
   });
 
-  it('keeps a single low-utilization pallet lane on the container centerline', () => {
+  it('keeps low-utilization floor lanes centered as a group', () => {
     const result = packOnPallets(container, cargo, {
       ...defaultPalletSpec,
       length: 1.1,
@@ -65,9 +65,14 @@ describe('report-driven pallet optimization', () => {
     });
 
     const floorPallets = result.pallets.filter((pallet) => pallet.stackLevel === 1);
-    const expectedY = (container.width - 1.1) / 2;
     expect(floorPallets.length).toBeGreaterThan(0);
-    floorPallets.forEach((pallet) => expect(pallet.y).toBeCloseTo(expectedY, 5));
+    const minY = Math.min(...floorPallets.map((pallet) => pallet.y));
+    const maxY = Math.max(...floorPallets.map((pallet) => pallet.y + pallet.width));
+    expect((minY + maxY) / 2).toBeCloseTo(container.width / 2, 5);
+    floorPallets.forEach((pallet) => {
+      expect(pallet.y).toBeGreaterThanOrEqual(-1e-9);
+      expect(pallet.y + pallet.width).toBeLessThanOrEqual(container.width + 1e-9);
+    });
   });
 
   it('never loses cargo while evaluating global pallet candidates', () => {
