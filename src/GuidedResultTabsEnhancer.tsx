@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { analyzeConstraints } from './engine/constraintAnalysis';
+import { validatePlacements } from './engine/constraints';
 import { analyzeFloorLoad } from './engine/floorLoad';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
+import { useGuidedLoadingUnit } from './guidedLoadingUnitState';
 import { readLatestInertiaCertification } from './inertiaCertification';
-import { STORAGE_UPDATED_EVENT } from './storage';
+import { usePalletSnapshot } from './palletSnapshotStore';
+import { readStoredState, STORAGE_UPDATED_EVENT } from './storage';
 
 type ResultTab = 'result' | 'unloaded' | 'weight' | 'safety';
 type Detail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
@@ -19,15 +22,31 @@ const tabs: Array<{ id: ResultTab; label: string }> = [
   { id: 'safety', label: '안전 검사' },
 ];
 
-function readDetail() {
+function readBoxDetail() {
   return typeof window === 'undefined' ? undefined : (window as ResultWindow).__containerLoadingLatestResult;
 }
 
+function buildPalletDetail(snapshot: ReturnType<typeof usePalletSnapshot>): Detail | undefined {
+  const stored = readStoredState();
+  if (!snapshot || !stored) return undefined;
+  const placements = snapshot.result.placements;
+  const result: LoadingResult = {
+    placements,
+    remaining: snapshot.result.remaining,
+    loadedWeightKg: snapshot.result.totalPalletizedWeightKg,
+    usedVolumeM3: placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0),
+    validationIssues: validatePlacements(stored.container, placements),
+  };
+  return { container: stored.container, cargo: stored.cargo, result };
+}
+
 export default function GuidedResultTabsEnhancer() {
+  const loadingUnit = useGuidedLoadingUnit();
+  const palletSnapshot = usePalletSnapshot();
   const [host, setHost] = useState<HTMLElement | null>(null);
   const [stage, setStage] = useState<HTMLElement | null>(null);
   const [tab, setTab] = useState<ResultTab>('result');
-  const [detail, setDetail] = useState<Detail | undefined>(() => readDetail());
+  const [boxDetail, setBoxDetail] = useState<Detail | undefined>(() => readBoxDetail());
 
   useEffect(() => {
     let frame = 0;
@@ -41,7 +60,11 @@ export default function GuidedResultTabsEnhancer() {
           return;
         }
         const originalTabs = nextStage.querySelector<HTMLElement>('.guided-result-tabs');
+        const originalGrid = nextStage.querySelector<HTMLElement>('.guided-result-grid');
+        const originalUnloaded = nextStage.querySelector<HTMLElement>('.guided-unloaded-list');
         if (originalTabs) originalTabs.style.display = 'none';
+        if (originalGrid) originalGrid.style.display = 'none';
+        if (originalUnloaded) originalUnloaded.style.display = 'none';
         let nextHost = nextStage.querySelector<HTMLElement>('.guided-result-tabs-enhancer-host');
         if (!nextHost) {
           nextHost = document.createElement('div');
@@ -62,7 +85,7 @@ export default function GuidedResultTabsEnhancer() {
   }, []);
 
   useEffect(() => {
-    const refresh = () => setDetail(readDetail());
+    const refresh = () => setBoxDetail(readBoxDetail());
     window.addEventListener(LOADING_RESULT_EVENT, refresh);
     window.addEventListener(STORAGE_UPDATED_EVENT, refresh);
     return () => {
@@ -75,23 +98,36 @@ export default function GuidedResultTabsEnhancer() {
     if (!stage) return;
     const grid = stage.querySelector<HTMLElement>('.guided-result-grid');
     const unloaded = stage.querySelector<HTMLElement>('.guided-unloaded-list');
-    if (grid) grid.style.display = tab === 'result' ? '' : 'none';
+    if (grid) grid.style.display = 'none';
     if (unloaded) unloaded.style.display = 'none';
   }, [stage, tab]);
+
+  const detail = useMemo(
+    () => loadingUnit === 'pallets' ? buildPalletDetail(palletSnapshot) : boxDetail,
+    [loadingUnit, palletSnapshot, boxDetail],
+  );
 
   const analyses = useMemo(() => {
     if (!detail) return null;
     const floor = analyzeFloorLoad(detail.container, detail.result, 12, 4);
     const balance = assessWeightBalance(detail.container, detail.result);
     const checks = analyzeConstraints(detail.container, detail.cargo, detail.result, floor);
-    const certification = readLatestInertiaCertification();
+    const latestCertification = readLatestInertiaCertification();
+    const expectedMode = loadingUnit === 'pallets' ? 'pallets' : 'boxes';
+    const certification = latestCertification?.mode === expectedMode ? latestCertification : undefined;
     return { floor, balance, checks, certification };
-  }, [detail]);
+  }, [detail, loadingUnit]);
 
   if (!host) return null;
 
   const result = detail?.result;
   const floorLimit = detail?.container.floorLoadLimitKgPerM2 ?? 1500;
+  const requested = detail?.cargo.reduce((sum, item) => sum + item.quantity, 0) ?? 0;
+  const remaining = result?.remaining.reduce((sum, item) => sum + item.quantity, 0) ?? 0;
+  const volume = detail ? detail.container.length * detail.container.width * detail.container.height : 0;
+  const fillRate = result && volume > 0 ? result.usedVolumeM3 / volume * 100 : 0;
+  const weightRate = result && detail && detail.container.maxPayloadKg > 0 ? result.loadedWeightKg / detail.container.maxPayloadKg * 100 : 0;
+  const certificationLabel = analyses?.certification?.status === 'passed' ? '관성 통과' : result ? '결과 확인' : '대기';
 
   return createPortal(
     <>
@@ -106,6 +142,17 @@ export default function GuidedResultTabsEnhancer() {
         >{item.label}</button>)}
       </div>
 
+      {tab === 'result' && <section className="guided-result-tab-panel">
+        {result && detail ? <div className="guided-result-grid enhanced">
+          <div><span>요청</span><b>{requested.toLocaleString()} EA</b></div>
+          <div className="good"><span>적재</span><b>{result.placements.length.toLocaleString()} EA</b></div>
+          <div className={remaining ? 'warn' : 'good'}><span>미적재</span><b>{remaining.toLocaleString()} EA</b></div>
+          <div><span>CBM 사용률</span><b>{fillRate.toFixed(1)}%</b></div>
+          <div><span>중량 사용률</span><b>{weightRate.toFixed(1)}%</b></div>
+          <div className={analyses?.certification?.status === 'passed' ? 'good' : ''}><span>작업 판정</span><b>{certificationLabel}</b></div>
+        </div> : <div className="guided-result-empty">표시할 최종 적재 결과가 없습니다.</div>}
+      </section>}
+
       {tab === 'unloaded' && <section className="guided-result-tab-panel">
         {result?.remaining.length ? <div className="guided-unloaded-list enhanced">
           {result.remaining.map(item => <article key={`${item.cargoId}-${item.reason}`}>
@@ -118,8 +165,8 @@ export default function GuidedResultTabsEnhancer() {
         {analyses && detail ? <>
           <div className="guided-weight-grid">
             <div><span>총 적재중량</span><b>{detail.result.loadedWeightKg.toLocaleString()} kg</b><small>한도 {detail.container.maxPayloadKg.toLocaleString()} kg</small></div>
-            <div><span>앞뒤 무게중심 편차</span><b>{analyses.balance.longitudinalDeviationPct.toFixed(1)}%</b><small>컨테이너 중심 기준</small></div>
-            <div><span>좌우 무게중심 편차</span><b>{analyses.balance.lateralDeviationPct.toFixed(1)}%</b><small>컨테이너 중심 기준</small></div>
+            <div><span>앞뒤 무게중심 편차</span><b>{analyses.balance.longitudinalDeviationPct.toFixed(1)}%</b><small>적재공간 중심 기준</small></div>
+            <div><span>좌우 무게중심 편차</span><b>{analyses.balance.lateralDeviationPct.toFixed(1)}%</b><small>적재공간 중심 기준</small></div>
             <div><span>무게중심 높이</span><b>{analyses.balance.verticalCenterPct.toFixed(1)}%</b><small>내부 높이 대비</small></div>
             <div><span>최대 바닥하중</span><b>{analyses.floor.maxKgPerM2.toFixed(0)} kg/m²</b><small>기준 {floorLimit.toLocaleString()} kg/m²</small></div>
             <div><span>적재 품질</span><b>{analyses.balance.grade} · {analyses.balance.loadingQualityScore.toFixed(0)}점</b><small>무게중심 + 형상 평가</small></div>
@@ -137,7 +184,7 @@ export default function GuidedResultTabsEnhancer() {
           </article>)}
           <article className={analyses.certification?.status === 'passed' ? 'pass' : 'warn'}>
             <span className="guided-safety-icon">{analyses.certification?.status === 'passed' ? '✓' : '!'}</span>
-            <span><b>관성 3종 검사</b><small>{analyses.certification ? `검사 ${analyses.certification.testedScenarios}/3 · 최대 이동 ${(analyses.certification.maxHorizontalShiftM * 1000).toFixed(1)} mm` : '현재 결과와 일치하는 관성 검사 결과를 확인하세요.'}</small></span>
+            <span><b>관성 3종 검사</b><small>{analyses.certification ? `검사 ${analyses.certification.testedScenarios}/3 · 최대 이동 ${(analyses.certification.maxHorizontalShiftM * 1000).toFixed(1)} mm` : '현재 적재 유형의 관성 검사 결과를 확인하세요.'}</small></span>
             <strong>{analyses.certification?.status === 'passed' ? '통과' : '확인'}</strong>
           </article>
         </div> : <div className="guided-result-empty">안전 검사를 표시할 적재 결과가 없습니다.</div>}
