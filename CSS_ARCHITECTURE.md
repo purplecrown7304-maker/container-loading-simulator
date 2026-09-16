@@ -58,7 +58,7 @@
 - `src/ux-review-phase2.css`
 
 현재 남은 역할은 가이드 전체 shell 비율, 핵심 결과 수치 강조, 결과 목록/하단 CTA 등 아직 구형 `guided-workflow.css`에서 안전하게 분리하지 못한 보정입니다.
-제품 목록, mode tabs, 적재 유형, 적재 전략, 3D Viewer, Workspace, 적재공간 규칙은 review CSS에 다시 넣지 않습니다.
+제품 목록, mode tabs, 적재 유형, 적재 전략, 모바일 6단계 rail, 3D Viewer, Workspace, 적재공간 규칙은 review CSS에 다시 넣지 않습니다.
 새로운 세 번째 review CSS를 만들지 않습니다.
 
 ## 3. !important 규칙
@@ -99,7 +99,7 @@
 4. `styles.css`의 구형 `.workspace` / `.panel` 계열은 전체 저장소 사용 여부를 확인한 뒤 제거
 5. 단계 표시를 CSS 강제 display 전환에서 React 상태 기반 렌더링으로 바꾸는 작업은 별도 리팩터링으로 진행
 
-현재까지 Viewer, Workspace, 적재공간, 제품 목록, mode tabs, 적재 유형/전략의 소유권 이동을 완료했습니다.
+현재까지 Viewer, Workspace, 적재공간, 제품 목록, mode tabs, 모바일 6단계 rail, 적재 유형/전략의 소유권 이동을 완료했습니다.
 
 ## 7. 자동 검사
 
