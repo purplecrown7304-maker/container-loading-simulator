@@ -90,6 +90,14 @@ export function hasSupabaseMemberSession(): boolean {
   return Boolean(readStoredSession());
 }
 
+/**
+ * loading_members 전용 opaque session token이다.
+ * Supabase Auth JWT가 아니므로 브라우저 외부로 노출하지 않고 container-member-api 호출에만 사용한다.
+ */
+export function readSupabaseMemberSessionToken(): string | null {
+  return readStoredSession()?.token ?? null;
+}
+
 async function postMemberAction(payload: Record<string, unknown>, token?: string) {
   const response = await fetch(CONTAINER_MEMBER_API_URL, {
     method: 'POST',
