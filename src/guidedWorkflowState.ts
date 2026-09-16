@@ -12,13 +12,19 @@ let snapshot: GuidedWorkflowSnapshot = DEFAULT_SNAPSHOT;
 let observer: MutationObserver | null = null;
 const listeners = new Set<() => void>();
 
-export function normalizeGuidedWorkflowStep(value: string | undefined): GuidedWorkflowStep {
+export function normalizeGuidedWorkflowStep(value: string | number | undefined): GuidedWorkflowStep {
   const numeric = Number(value);
   return Number.isInteger(numeric) && numeric >= 1 && numeric <= 6 ? numeric as GuidedWorkflowStep : 1;
 }
 
+function notifyIfChanged(next: GuidedWorkflowSnapshot) {
+  if (next.active === snapshot.active && next.step === snapshot.step) return;
+  snapshot = next;
+  listeners.forEach(listener => listener());
+}
+
 function readDocumentSnapshot(): GuidedWorkflowSnapshot {
-  if (typeof document === 'undefined') return DEFAULT_SNAPSHOT;
+  if (typeof document === 'undefined') return snapshot;
   const root = document.documentElement;
   return {
     active: root.dataset.guidedWorkflow === 'true',
@@ -26,17 +32,13 @@ function readDocumentSnapshot(): GuidedWorkflowSnapshot {
   };
 }
 
-function emitIfChanged() {
-  const next = readDocumentSnapshot();
-  if (next.active === snapshot.active && next.step === snapshot.step) return;
-  snapshot = next;
-  listeners.forEach(listener => listener());
+function emitDocumentSnapshot() {
+  notifyIfChanged(readDocumentSnapshot());
 }
 
 function ensureObserver() {
   if (observer || typeof document === 'undefined' || typeof MutationObserver === 'undefined') return;
-  snapshot = readDocumentSnapshot();
-  observer = new MutationObserver(emitIfChanged);
+  observer = new MutationObserver(emitDocumentSnapshot);
   observer.observe(document.documentElement, {
     attributes: true,
     attributeFilter: ['data-guided-workflow', 'data-guided-step'],
@@ -49,10 +51,32 @@ function stopObserverIfIdle() {
   observer = null;
 }
 
+export function publishGuidedWorkflowState(next: GuidedWorkflowSnapshot) {
+  const normalized: GuidedWorkflowSnapshot = {
+    active: Boolean(next.active),
+    step: normalizeGuidedWorkflowStep(next.step),
+  };
+  notifyIfChanged(normalized);
+
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  if (normalized.active) {
+    root.dataset.guidedWorkflow = 'true';
+    root.dataset.guidedStep = String(normalized.step);
+  } else {
+    delete root.dataset.guidedWorkflow;
+    delete root.dataset.guidedStep;
+  }
+}
+
+export function shouldRenderGuidedViewer(state: GuidedWorkflowSnapshot) {
+  return !state.active || state.step === 5;
+}
+
 export function subscribeGuidedWorkflow(listener: () => void) {
   listeners.add(listener);
   ensureObserver();
-  emitIfChanged();
+  emitDocumentSnapshot();
   return () => {
     listeners.delete(listener);
     stopObserverIfIdle();
@@ -60,7 +84,6 @@ export function subscribeGuidedWorkflow(listener: () => void) {
 }
 
 export function getGuidedWorkflowSnapshot() {
-  if (typeof document !== 'undefined' && !observer) snapshot = readDocumentSnapshot();
   return snapshot;
 }
 
