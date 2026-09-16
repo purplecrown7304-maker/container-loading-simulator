@@ -44,6 +44,37 @@ export function isLegacySyntheticCatalogBox(value: unknown): boolean {
     && item.allowRotation === (index % 6 !== 5);
 }
 
+/**
+ * 예전 범용 박스 추천 기능이 추천 결과를 개인 박스 목록에 자동 저장하던 항목.
+ * REC 코드만으로 지우지 않고 자동생성 이름, 규격, 기본 안전값까지 모두 맞을 때만 제거한다.
+ * 따라서 사용자가 REC 코드를 실제 박스 코드로 재사용한 경우에는 보존된다.
+ */
+export function isLegacyAutoRecommendedPersonalBox(value: unknown): boolean {
+  const item = asRecord(value);
+  if (!item) return false;
+
+  const id = typeof item.id === 'string' ? item.id : '';
+  const name = typeof item.name === 'string' ? item.name : '';
+  const idMatch = /^REC-(\d+)X(\d+)X(\d+)$/.exec(id);
+  const nameMatch = /^범용 추천 (\d+)×(\d+)×(\d+) \(강도확인\)$/.exec(name);
+  if (!idMatch || !nameMatch) return false;
+
+  const dimensionsMm = idMatch.slice(1).map(Number);
+  const nameDimensionsMm = nameMatch.slice(1).map(Number);
+  if (dimensionsMm.some((dimension, index) => dimension !== nameDimensionsMm[index])) return false;
+  if (dimensionsMm.some(dimension => !Number.isFinite(dimension) || dimension <= 0)) return false;
+
+  const [lengthMm, widthMm, heightMm] = dimensionsMm;
+  return closeEnough(item.length, lengthMm / 1000)
+    && closeEnough(item.width, widthMm / 1000)
+    && closeEnough(item.height, heightMm / 1000)
+    && closeEnough(item.weightKg, 22)
+    && item.quantity === 0
+    && item.maxStackLayers === 1
+    && closeEnough(item.maxTopLoadKg, 0)
+    && item.allowRotation === true;
+}
+
 const LEGACY_SAMPLE_BOXES: Array<{
   id: string;
   name: string;
@@ -90,8 +121,12 @@ export function isLegacyPlannerSampleBox(value: unknown): boolean {
     && closeEnough(item.maxTopLoadKg, spec.maxTopLoadKg);
 }
 
+function isLegacyUnregisteredCatalogBox(value: unknown): boolean {
+  return isLegacySyntheticCatalogBox(value) || isLegacyAutoRecommendedPersonalBox(value);
+}
+
 export function removeLegacySyntheticCargoBoxes(items: CargoItem[]): CargoItem[] {
-  return items.filter(item => !isLegacySyntheticCatalogBox(item));
+  return items.filter(item => !isLegacyUnregisteredCatalogBox(item));
 }
 
 export function removeLegacyPlannerSampleBoxes(items: BoxCatalogItem[]): BoxCatalogItem[] {
@@ -104,7 +139,7 @@ function cleanCatalogStorage(key: string) {
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return;
-    const cleaned = parsed.filter(item => !isLegacySyntheticCatalogBox(item));
+    const cleaned = parsed.filter(item => !isLegacyUnregisteredCatalogBox(item));
     if (cleaned.length !== parsed.length) window.localStorage.setItem(key, JSON.stringify(cleaned));
   } catch {
     // 손상된 저장값은 여기서 임의 삭제하지 않는다.
