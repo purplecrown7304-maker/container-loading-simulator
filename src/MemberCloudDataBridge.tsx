@@ -104,8 +104,9 @@ export default function MemberCloudDataBridge() {
         if (direction === 'download' && remote) {
           suppressUploadRef.current = true;
           try {
-            if (remote.plannerState) writeEnterprisePackagingPlannerState(remote.plannerState, true);
+            // 개인 박스를 먼저 복원해야 플래너 저장 시 해당 박스의 최대 적층단 정책도 같은 값으로 합쳐진다.
             writePersonalBoxCatalog(operator, remote.personalBoxes);
+            if (remote.plannerState) writeEnterprisePackagingPlannerState(remote.plannerState, true);
           } finally {
             suppressUploadRef.current = false;
           }
