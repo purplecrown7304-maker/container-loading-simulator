@@ -18,10 +18,12 @@ const removedFiles = [
   'src/DashboardRuntimeEnhancer.tsx',
   'src/dashboard-runtime.css',
   'src/transport-equipment-scroll-fix.css',
+  'src/ux-review-improvements.css',
+  'src/ux-review-phase2.css',
 ];
 
 for (const path of removedFiles) {
-  if (existsSync(path)) fail(`${path} must not be restored. Use block-first generation, React state/components, or the domain store instead.`);
+  if (existsSync(path)) fail(`${path} must not be restored. Keep behavior in the owning feature stylesheet, React component, or domain store instead.`);
 }
 
 if (!existsSync('src/tokens.css')) fail('src/tokens.css is required for the shared typography scale.');
@@ -55,6 +57,7 @@ const tokenizedCss = [
   'src/guided-workflow-v2.css',
   'src/guided-loading-strategy.css',
   'src/guided-loading-unit.css',
+  'src/guided-result-tabs-enhancer.css',
   'src/minimap.css',
   'src/pallet-footer-summary.css',
 ];
@@ -65,65 +68,17 @@ for (const path of tokenizedCss) {
   }
 }
 
-const uxReviewCss = [
-  'src/ux-review-improvements.css',
-  'src/ux-review-phase2.css',
-];
-for (const path of uxReviewCss) {
-  if (!existsSync(path)) fail(`${path} is required while the UX review migration is active.`);
-  const source = existsSync(path) ? readFileSync(path, 'utf8') : '';
-  if (/font-size\s*:\s*(?:[0-9](?:\.\d+)?)px\b/.test(source)) {
-    fail(`${path} must not introduce typography below 10px. Use shared font tokens instead.`);
-  }
-}
-
-if (existsSync('src/ux-review-phase2.css')) {
-  const phase2 = readFileSync('src/ux-review-phase2.css', 'utf8');
-  if (/!important\b/.test(phase2)) {
-    fail('src/ux-review-phase2.css must not add new !important declarations. Resolve specificity in the owning feature stylesheet instead.');
-  }
-}
-
-const migratedOwnerRules = [
-  ['.reference-selected', 'src/reference-viewer.css'],
-  ['.preview-view-controls', 'src/reference-viewer.css'],
-  ['.workspace-modal', 'src/workspace-tools.css'],
-  ['.catalog-wrap', 'src/workspace-tools.css'],
-  ['.guided-equipment-type-label', 'src/transport-equipment-selection-ux.css'],
-  ['.transport-selector-modal', 'src/transport-equipment.css'],
-  ['.guided-product-table', 'src/guided-workflow-v2.css'],
-  ['.mode-tabs', 'src/mode.css'],
-  ['.guided-loading-unit-grid', 'src/guided-loading-unit.css'],
-  ['.guided-loading-unit-running-badge', 'src/guided-loading-unit.css'],
-  ['.guided-strategy-card', 'src/guided-loading-strategy.css'],
-];
-for (const reviewPath of uxReviewCss) {
-  const source = existsSync(reviewPath) ? readFileSync(reviewPath, 'utf8') : '';
-  for (const [selector, owner] of migratedOwnerRules) {
-    if (source.includes(selector)) {
-      fail(`${reviewPath} reintroduced ${selector}; keep that rule in ${owner}.`);
-    }
-  }
-}
-
 const mainSource = readFileSync('src/main.tsx', 'utf8');
 if (mainSource.includes("import './transport-equipment-scroll-fix.css';")) {
   fail('main.tsx must not restore transport-equipment-scroll-fix.css; scrolling belongs to transport-equipment.css.');
 }
-
-const review1Import = "import './ux-review-improvements.css';";
-const review2Import = "import './ux-review-phase2.css';";
-const review1Index = mainSource.indexOf(review1Import);
-const review2Index = mainSource.indexOf(review2Import);
-if (review1Index < 0 || review2Index < 0) {
-  fail('main.tsx must load both UX review stylesheets while the staged migration is active.');
-} else if (review2Index < review1Index) {
-  fail('ux-review-phase2.css must load after ux-review-improvements.css.');
+if (/import ['"]\.\/ux-review.*\.css['"]/.test(mainSource)) {
+  fail('main.tsx must not import temporary ux-review stylesheets after ownership migration.');
 }
 
 const reviewCssNames = readdirSync('src').filter((name) => /^ux-review.*\.css$/.test(name));
-if (reviewCssNames.length > 2) {
-  fail(`Do not add another UX override layer (${reviewCssNames.join(', ')}). Move new rules into an existing review file or the owning feature stylesheet.`);
+if (reviewCssNames.length > 0) {
+  fail(`Temporary UX review stylesheets must stay removed (${reviewCssNames.join(', ')}). Put rules in the owning feature stylesheet.`);
 }
 
 const guidedWorkflowV2 = readFileSync('src/guided-workflow-v2.css', 'utf8');
@@ -133,5 +88,19 @@ if (!/grid-template-columns\s*:\s*repeat\(6,\s*minmax\(118px,\s*1fr\)\)/.test(gu
 if (!/max-height\s*:\s*clamp\(320px,\s*42vh,\s*560px\)/.test(guidedWorkflowV2)) {
   fail('src/guided-workflow-v2.css must keep product results inside a bounded scrolling region.');
 }
+if (!/grid-template-columns\s*:\s*280px\s+minmax\(720px,\s*1fr\)\s+360px/.test(guidedWorkflowV2)) {
+  fail('src/guided-workflow-v2.css must own the reviewed desktop guided-shell proportions.');
+}
+if (!/\.guided-primary-cta\s*\{[^}]*min-height\s*:\s*var\(--control-height-lg,\s*44px\)/s.test(guidedWorkflowV2)) {
+  fail('src/guided-workflow-v2.css must keep the primary CTA at the accessible control height.');
+}
 
-if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · ${reviewCssNames.length} UX review stylesheet(s) guarded.`);
+const guidedResults = readFileSync('src/guided-result-tabs-enhancer.css', 'utf8');
+if (!/\.guided-unloaded-list\s*\{[^}]*max-height\s*:\s*min\(360px,\s*36vh\)/s.test(guidedResults)) {
+  fail('src/guided-result-tabs-enhancer.css must own bounded scrolling for unloaded results.');
+}
+if (!/\.guided-result-grid>div:nth-child\(-n \+ 3\)\s*\{[^}]*min-height\s*:\s*96px/s.test(guidedResults)) {
+  fail('src/guided-result-tabs-enhancer.css must keep the three primary result metrics visually prioritized.');
+}
+
+if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · temporary UX review styles removed.`);
