@@ -3,7 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const PASSWORD_ITERATIONS = 180000;
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
-const MAX_SYNC_BYTES = 2_000_000;
+const MAX_DATA_BYTES = 5 * 1024 * 1024;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,27 +54,8 @@ function publicMember(row: { id: string; email: string; display_name: string; st
   return { id: row.id, email: row.email, displayName: row.display_name, status: row.status };
 }
 
-type DbClient = ReturnType<typeof createClient>;
-
-async function authenticateMember(db: DbClient, req: Request, nowIso: string) {
-  const token = bearer(req);
-  if (!token) return { error: "member_auth_required" as const, status: 401 };
-  const tokenHash = await sha256(token);
-  const { data: session } = await db
-    .from("loading_member_sessions")
-    .select("member_id,expires_at")
-    .eq("token_hash", tokenHash)
-    .gt("expires_at", nowIso)
-    .maybeSingle();
-  if (!session) return { error: "member_auth_required" as const, status: 401 };
-  const { data: member } = await db
-    .from("loading_members")
-    .select("id,email,display_name,status")
-    .eq("id", session.member_id)
-    .maybeSingle();
-  if (!member || member.status !== "active") return { error: "member_inactive" as const, status: 403 };
-  await db.from("loading_member_sessions").update({ last_seen_at: nowIso }).eq("token_hash", tokenHash);
-  return { token, tokenHash, member, expiresAt: session.expires_at };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 Deno.serve(async (req: Request) => {
@@ -86,15 +67,45 @@ Deno.serve(async (req: Request) => {
   const nowIso = new Date().toISOString();
   await db.from("loading_member_sessions").delete().lt("expires_at", nowIso);
 
+  const token = bearer(req);
+  let authenticatedMember: { id: string; email: string; display_name: string; status: string } | null = null;
+  let tokenHash = "";
+  if (token) {
+    tokenHash = await sha256(token);
+    const { data: session } = await db
+      .from("loading_member_sessions")
+      .select("member_id,expires_at")
+      .eq("token_hash", tokenHash)
+      .gt("expires_at", nowIso)
+      .maybeSingle();
+    if (session) {
+      const { data: member } = await db
+        .from("loading_members")
+        .select("id,email,display_name,status")
+        .eq("id", session.member_id)
+        .maybeSingle();
+      if (member?.status === "active") authenticatedMember = member;
+    }
+  }
+
   if (req.method === "GET") {
-    const auth = await authenticateMember(db, req, nowIso);
-    if ("error" in auth) return json({ error: auth.error }, auth.status);
-    return json({ ok: true, member: publicMember(auth.member), expiresAt: auth.expiresAt });
+    if (!authenticatedMember) return json({ error: "member_auth_required" }, 401);
+    await db.from("loading_member_sessions").update({ last_seen_at: nowIso }).eq("token_hash", tokenHash);
+    const { data: session } = await db.from("loading_member_sessions").select("expires_at").eq("token_hash", tokenHash).maybeSingle();
+    return json({ ok: true, member: publicMember(authenticatedMember), expiresAt: session?.expires_at });
   }
 
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  const contentLength = Number(req.headers.get("content-length") || 0);
+  if (contentLength > MAX_DATA_BYTES) return json({ error: "payload_too_large" }, 413);
+
   let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return json({ error: "invalid_json" }, 400); }
+  try {
+    body = await req.json();
+    if (new TextEncoder().encode(JSON.stringify(body)).byteLength > MAX_DATA_BYTES) return json({ error: "payload_too_large" }, 413);
+  } catch {
+    return json({ error: "invalid_json" }, 400);
+  }
   const action = String(body.action ?? "");
 
   if (action === "signup") {
@@ -151,49 +162,49 @@ Deno.serve(async (req: Request) => {
   }
 
   if (action === "logout") {
-    const token = bearer(req);
-    if (token) await db.from("loading_member_sessions").delete().eq("token_hash", await sha256(token));
+    if (tokenHash) await db.from("loading_member_sessions").delete().eq("token_hash", tokenHash);
     return json({ ok: true });
   }
 
-  if (action === "get_data" || action === "save_data") {
-    const auth = await authenticateMember(db, req, nowIso);
-    if ("error" in auth) return json({ error: auth.error }, auth.status);
+  if (!authenticatedMember) return json({ error: "member_auth_required" }, 401);
+  await db.from("loading_member_sessions").update({ last_seen_at: nowIso }).eq("token_hash", tokenHash);
 
-    if (action === "get_data") {
-      const { data, error } = await db
-        .from("loading_member_data")
-        .select("planner_state,personal_boxes,updated_at")
-        .eq("member_id", auth.member.id)
-        .maybeSingle();
-      if (error) return json({ error: error.message }, 500);
-      return json({
-        ok: true,
-        data: data ? {
-          plannerState: data.planner_state,
-          personalBoxes: Array.isArray(data.personal_boxes) ? data.personal_boxes : [],
-          updatedAt: data.updated_at,
-        } : null,
-      });
-    }
+  if (action === "get_data") {
+    const { data, error } = await db
+      .from("loading_member_data")
+      .select("planner_state,personal_boxes,app_state,schema_version,updated_at")
+      .eq("member_id", authenticatedMember.id)
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 500);
+    if (!data) return json({ ok: true, exists: false, data: null });
+    return json({
+      ok: true,
+      exists: true,
+      data: {
+        plannerState: data.planner_state ?? null,
+        personalBoxes: Array.isArray(data.personal_boxes) ? data.personal_boxes : [],
+        appState: isRecord(data.app_state) ? data.app_state : {},
+        schemaVersion: Number(data.schema_version) || 1,
+        updatedAt: data.updated_at,
+      },
+    });
+  }
 
-    const plannerState = body.plannerState ?? null;
-    const personalBoxes = body.personalBoxes ?? [];
-    if (plannerState !== null && (typeof plannerState !== "object" || Array.isArray(plannerState))) {
-      return json({ error: "invalid_planner_state" }, 400);
-    }
-    if (!Array.isArray(personalBoxes)) return json({ error: "invalid_personal_boxes" }, 400);
-    const encoded = JSON.stringify({ plannerState, personalBoxes });
-    if (new TextEncoder().encode(encoded).byteLength > MAX_SYNC_BYTES) return json({ error: "member_data_too_large" }, 413);
-
-    const { error } = await db.from("loading_member_data").upsert({
-      member_id: auth.member.id,
+  if (action === "save_data") {
+    const plannerState = body.plannerState == null || isRecord(body.plannerState) ? body.plannerState ?? null : null;
+    const personalBoxes = Array.isArray(body.personalBoxes) ? body.personalBoxes : [];
+    const appState = isRecord(body.appState) ? body.appState : {};
+    const schemaVersion = Number.isInteger(body.schemaVersion) && Number(body.schemaVersion) > 0 ? Number(body.schemaVersion) : 1;
+    const { data, error } = await db.from("loading_member_data").upsert({
+      member_id: authenticatedMember.id,
       planner_state: plannerState,
       personal_boxes: personalBoxes,
+      app_state: appState,
+      schema_version: schemaVersion,
       updated_at: nowIso,
-    }, { onConflict: "member_id" });
+    }, { onConflict: "member_id" }).select("updated_at").single();
     if (error) return json({ error: error.message }, 500);
-    return json({ ok: true, updatedAt: nowIso });
+    return json({ ok: true, updatedAt: data?.updated_at ?? nowIso });
   }
 
   return json({ error: "unknown_action" }, 400);
