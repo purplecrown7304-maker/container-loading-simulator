@@ -1,9 +1,8 @@
 /* UX/UI review improvements, 2026-09-16.
- * Keep this file loaded last so the current multi-layer stylesheet stack can be
- * improved without changing loading, physics, or persistence behavior.
+ * Temporary guided-workflow review layer. Viewer and workspace rules now live
+ * in their owning stylesheets instead of this cross-feature override file.
  */
 
-/* Desktop information hierarchy: more room for the 3D/work area and readable right summary. */
 @media (min-width: 1181px) {
   html[data-guided-workflow="true"] .dashboard-grid {
     grid-template-columns: 280px minmax(720px, 1fr) 360px !important;
@@ -13,7 +12,6 @@
   }
 }
 
-/* Product search results stay inside the task card instead of growing the whole page. */
 .guided-product-table {
   max-height: clamp(320px, 42vh, 560px);
   overflow-x: hidden;
@@ -29,47 +27,6 @@
   border-bottom: 1px solid var(--gw-border);
 }
 
-/* Minimum readable sizes for controls that were previously 7-9px. */
-.preview-view-controls button {
-  min-width: 38px;
-  height: var(--control-height-sm, 32px) !important;
-  min-height: var(--control-height-sm, 32px) !important;
-  padding: 0 10px !important;
-  font-size: var(--font-2xs, 11px) !important;
-}
-
-.reference-clearance-strip span,
-.reference-clearance-strip b,
-.reference-selected,
-.equipment-view-badge b,
-.equipment-view-badge span,
-.equipment-special-warning,
-.static-setting small,
-.fixed-option-list b {
-  font-size: var(--font-2xs, 11px) !important;
-  line-height: 1.4;
-}
-
-.reference-selected {
-  max-width: 40%;
-  min-height: 32px;
-  box-sizing: border-box;
-}
-
-/* Reserve separate viewer zones instead of solving collisions only with z-index. */
-.preview-view-controls {
-  max-width: 55%;
-}
-
-.equipment-special-warning {
-  top: auto;
-  right: 12px;
-  bottom: 12px;
-  max-width: min(360px, 42%);
-  white-space: normal;
-}
-
-/* Equipment label moves away from the viewer's top-left controls. */
 .guided-equipment-type-label {
   top: auto;
   bottom: 12px;
@@ -79,7 +36,6 @@
   font-size: var(--font-xs, 13px);
 }
 
-/* Box / pallet is a primary operating mode, so make it visually stronger than minor tabs. */
 .mode-tabs {
   display: inline-flex;
   gap: 4px;
@@ -107,7 +63,6 @@
   box-shadow: 0 1px 4px rgba(15, 23, 42, .12) !important;
 }
 
-/* Keep loading type and strategy as two clearly separated decisions. */
 .guided-loading-unit-floating .guided-loading-unit-block {
   padding: 20px;
 }
@@ -129,7 +84,6 @@
   min-height: 200px;
 }
 
-/* The selected loading mode / strategy summary should live on the viewer's right side. */
 .guided-loading-unit-running-badge {
   right: max(24px, calc((100vw - 1720px) / 2 + 400px));
   max-width: min(520px, calc(100vw - 48px));
@@ -145,7 +99,6 @@
   font-size: var(--font-2xs, 11px);
 }
 
-/* Results: requested / loaded / unloaded are the first things operators need to scan. */
 .guided-result-grid > div:nth-child(-n + 3) {
   min-height: 96px;
   display: flex;
@@ -157,14 +110,11 @@
   font-size: 24px;
 }
 
-/* Consistent keyboard focus, without changing the app's click behavior. */
 .guided-stage-panel button:focus-visible,
 .guided-stage-panel input:focus-visible,
 .guided-stage-panel select:focus-visible,
 .guided-bottom-bar button:focus-visible,
-.mode-tabs button:focus-visible,
-.transport-selector-modal button:focus-visible,
-.transport-selector-modal input:focus-visible {
+.mode-tabs button:focus-visible {
   outline: 3px solid rgba(37, 99, 235, .28);
   outline-offset: 2px;
 }
@@ -187,23 +137,6 @@
 
   .guided-product-table {
     max-height: 56vh;
-  }
-
-  .preview-view-controls {
-    max-width: none;
-  }
-
-  .reference-selected {
-    top: 48px;
-    right: auto;
-    left: 6px;
-    max-width: calc(100% - 12px);
-  }
-
-  .equipment-special-warning {
-    right: 8px;
-    bottom: 46px;
-    max-width: calc(100% - 16px);
   }
 
   .guided-equipment-type-label {
@@ -231,8 +164,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .guided-strategy-card,
-  .guided-loading-unit-grid button,
-  .transport-equipment-card {
+  .guided-loading-unit-grid button {
     transition: none !important;
     transform: none !important;
   }
