@@ -1,50 +1,8 @@
 /* UX/UI review phase 2, 2026-09-16.
- * Focus: fixed-size dialogs with internal scroll, mobile equipment browsing,
- * result readability, and touch ergonomics. No loading/persistence behavior.
+ * Temporary guided-result and mobile workflow layer. Workspace dialog behavior
+ * has moved to workspace-tools.css; transport behavior remains feature-owned.
  */
 
-/* Workspace dialogs keep their shell size stable. Header/footer stay visible;
- * the content area scrolls instead of allowing the whole dialog to grow. */
-.workspace-modal {
-  display: flex;
-  flex-direction: column;
-  max-height: min(860px, calc(100dvh - 40px));
-  overflow: hidden;
-  border-radius: 14px;
-}
-
-.workspace-modal > header,
-.workspace-modal > footer {
-  flex: 0 0 auto;
-}
-
-.workspace-modal > header {
-  position: relative;
-  top: auto;
-}
-
-.workspace-modal > .workspace-modal-body,
-.workspace-modal > .box-selector-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-
-.workspace-modal > footer {
-  position: relative;
-  bottom: auto;
-}
-
-.catalog-wrap {
-  max-height: min(460px, 48vh);
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-
-/* Long result/error lists remain inside the result card. */
 .guided-unloaded-list {
   max-height: min(360px, 36vh);
   overflow-y: auto;
@@ -60,7 +18,6 @@
   white-space: nowrap;
 }
 
-/* Make the active workflow step easier to scan in a warehouse environment. */
 .guided-step-list button.current {
   box-shadow: inset 3px 0 0 var(--gw-blue);
 }
@@ -69,7 +26,6 @@
   color: var(--gw-green);
 }
 
-/* The primary footer action must remain easy to hit without obscuring content. */
 .guided-bottom-bar {
   padding-bottom: max(12px, env(safe-area-inset-bottom));
 }
@@ -79,137 +35,13 @@
   box-shadow: 0 5px 16px rgba(0, 113, 227, .18);
 }
 
-/* Transport selection is a contained dialog rather than a page-length surface. */
-.transport-selector-modal {
-  max-height: min(900px, calc(100dvh - 32px));
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-
-.transport-selector-head {
-  position: sticky;
-  top: -20px;
-  z-index: 5;
-  margin: -20px -20px 0;
-  padding: 20px 20px 10px;
-  background: rgba(248, 251, 255, .97);
-  backdrop-filter: blur(10px);
-}
-
-.transport-selector-foot {
-  position: sticky;
-  bottom: -20px;
-  z-index: 4;
-  margin-right: -20px;
-  margin-bottom: -20px;
-  margin-left: -20px;
-  padding: 12px 20px 20px;
-  background: rgba(248, 251, 255, .98);
-}
-
-/* Distinguish selected equipment more clearly without relying on border thickness alone. */
-.transport-equipment-card.active {
-  background: #f4f8ff;
-  box-shadow: 0 0 0 2px rgba(15, 136, 255, .08), 0 8px 20px rgba(37, 99, 235, .08);
-}
-
-.transport-equipment-card:focus-visible {
-  outline: 3px solid rgba(37, 99, 235, .28);
-  outline-offset: 2px;
-}
-
 @media (max-width: 900px) {
-  .workspace-modal {
-    max-height: calc(100dvh - 16px);
-  }
-
   .guided-result-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 700px) {
-  .workspace-modal-backdrop,
-  .transport-selector-backdrop {
-    padding: 6px;
-  }
-
-  .workspace-modal,
-  .workspace-modal.box-selector-modal,
-  .transport-selector-modal {
-    width: calc(100vw - 12px);
-    max-height: calc(100dvh - 12px);
-    border-radius: 12px;
-  }
-
-  .workspace-modal > header {
-    min-height: 56px;
-    padding: 0 14px;
-  }
-
-  .workspace-modal-body,
-  .box-selector-body {
-    padding: 14px;
-  }
-
-  .workspace-modal > footer {
-    padding: 10px 14px max(10px, env(safe-area-inset-bottom));
-  }
-
-  /* Equipment cards become a horizontal snap list, avoiding a very long 2-column page. */
-  .transport-equipment-grid {
-    display: flex;
-    gap: 10px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 2px 2px 12px;
-    scroll-snap-type: x mandatory;
-    scroll-padding-inline: 2px;
-    scrollbar-width: thin;
-  }
-
-  .transport-equipment-card {
-    flex: 0 0 min(78vw, 300px);
-    min-height: 186px;
-    scroll-snap-align: start;
-  }
-
-  .transport-selector-head {
-    top: -13px;
-    margin: -13px -13px 0;
-    padding: 13px 13px 8px;
-  }
-
-  .transport-selector-foot {
-    bottom: -13px;
-    margin-right: -13px;
-    margin-bottom: -13px;
-    margin-left: -13px;
-    padding: 10px 13px max(13px, env(safe-area-inset-bottom));
-  }
-
-  .transport-category-tabs {
-    gap: 4px;
-    margin-top: 12px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .transport-category-tabs::-webkit-scrollbar {
-    display: none;
-  }
-
-  .transport-category-tabs button,
-  .transport-selector-head > button,
-  .box-selector-actions button,
-  .box-search button,
-  .edit-mini,
-  .safety-complete {
-    min-height: var(--control-height-lg, 44px);
-  }
-
   .guided-step-rail {
     scroll-snap-type: x proximity;
     overscroll-behavior-inline: contain;
@@ -248,10 +80,5 @@
 
   .guided-result-grid > div:nth-child(-n + 3) {
     min-height: 78px;
-  }
-
-  .vehicle-preset-grid,
-  .vehicle-fields {
-    grid-template-columns: 1fr;
   }
 }
