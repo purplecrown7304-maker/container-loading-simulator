@@ -8,7 +8,7 @@ export const GUIDED_LOADING_UNIT_EVENT = 'container-loading:guided-loading-unit-
 const store = createExternalStore<GuidedLoadingUnit | null>(null);
 let hydrated = false;
 
-function normalizeGuidedLoadingUnit(value: unknown): GuidedLoadingUnit | null {
+export function normalizeGuidedLoadingUnit(value: unknown): GuidedLoadingUnit | null {
   return value === 'boxes' || value === 'pallets' ? value : null;
 }
 
