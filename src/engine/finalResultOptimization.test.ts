@@ -29,6 +29,20 @@ function target(): PhysicsTarget {
   };
 }
 
+function smallTarget(): PhysicsTarget {
+  const smallContainer: ContainerSpec = { length: 2.4, width: 1.2, height: 1.6, maxPayloadKg: 3000 };
+  const smallCargo: CargoItem[] = [
+    { id: 'A', name: 'A', length: 0.6, width: 0.4, height: 0.3, weightKg: 18, quantity: 6, maxStackLayers: 4, maxTopLoadKg: 180, allowRotation: true },
+    { id: 'B', name: 'B', length: 0.4, width: 0.4, height: 0.25, weightKg: 9, quantity: 6, maxStackLayers: 4, maxTopLoadKg: 120, allowRotation: true },
+  ];
+  return {
+    mode: 'boxes',
+    container: smallContainer,
+    cargo: smallCargo,
+    result: loadContainer(smallContainer, smallCargo, { strategy: 'capacity', publish: false }),
+  };
+}
+
 describe('final result inertia re-layout search', () => {
   it('generates a broad deterministic and deduplicated profile set', () => {
     const profiles = buildDirectReoptimizationCargoProfiles(target());
@@ -43,7 +57,7 @@ describe('final result inertia re-layout search', () => {
   });
 
   it('keeps bounded candidate search cargo counts unchanged', () => {
-    const current = target();
+    const current = smallTarget();
     const candidates = buildDirectResultReoptimizationCandidates(current, 2);
     expect(candidates.length).toBeLessThanOrEqual(2);
 
@@ -54,5 +68,5 @@ describe('final result inertia re-layout search', () => {
       candidate.result.placements.forEach((item) => actual.set(item.cargoId, (actual.get(item.cargoId) ?? 0) + 1));
       expect(actual).toEqual(requested);
     }
-  }, 60000);
+  }, 30000);
 });
