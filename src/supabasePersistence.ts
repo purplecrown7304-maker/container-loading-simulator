@@ -7,6 +7,7 @@ import {
 } from './memberCloudData';
 import {
   LEGACY_MEMBER_SESSION_KEY,
+  MEMBER_AUTH_EVENT,
   MEMBER_SESSION_KEY,
   readSupabaseMember,
   seedTransientMemberSession,
@@ -263,7 +264,16 @@ function migrateLegacyTransientSessions(native: Storage) {
 
 function setupRuntimeRecovery() {
   const retry = () => { if (dirty) void flushNow(); };
+  const onMemberAuthChanged = () => {
+    const nextMember = readSupabaseMember();
+    const previousId = activeMember?.id ?? null;
+    const nextId = nextMember?.id ?? null;
+    if (previousId === nextId) return;
+    // 계정이 바뀌면 이전 사용자의 메모리 상태를 절대로 재사용하지 않고 새 계정의 Supabase 상태로 재부팅한다.
+    window.setTimeout(() => window.location.reload(), 0);
+  };
   window.addEventListener('online', retry);
+  window.addEventListener(MEMBER_AUTH_EVENT, onMemberAuthChanged);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && dirty) void flushNow();
   });
