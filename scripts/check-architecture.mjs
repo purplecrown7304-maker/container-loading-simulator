@@ -29,6 +29,7 @@ for (const path of removedFiles) {
 if (!existsSync('src/tokens.css')) fail('src/tokens.css is required for the shared typography scale.');
 if (!existsSync('src/store/externalStore.ts')) fail('src/store/externalStore.ts is required for domain state migration.');
 if (!existsSync('src/palletSnapshotStore.ts')) fail('src/palletSnapshotStore.ts is required for pallet domain state.');
+if (!existsSync('src/palletTargetRestore.ts')) fail('src/palletTargetRestore.ts is required so guided pallet results/reports survive viewer unmount.');
 if (!existsSync('src/guidedWorkflowState.ts')) fail('src/guidedWorkflowState.ts is required for React-owned guided workflow state.');
 if (!existsSync('src/guidedLoadingUnitState.ts')) fail('src/guidedLoadingUnitState.ts is required for guided loading-unit state.');
 if (!existsSync('src/loading-progress.css')) fail('src/loading-progress.css is required for automatic-loading progress feedback.');
@@ -102,6 +103,30 @@ if (/currentMode\s*\(|clickMode\s*\(|\.mode-tabs|inspection-status-table|workOrd
 }
 if (!guidedShellSource.includes('INERTIA_CERTIFICATION_EVENT') || !guidedShellSource.includes('FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT')) {
   fail('GuidedWorkflowShell must use explicit validation/certification events for step-5 running/ready state.');
+}
+
+const guidedResultEnhancer = readFileSync('src/GuidedResultTabsEnhancer.tsx', 'utf8');
+if (!guidedResultEnhancer.includes('useGuidedLoadingUnit') || !guidedResultEnhancer.includes('usePalletSnapshot')) {
+  fail('GuidedResultTabsEnhancer must render the active box/pallet result from domain state.');
+}
+if (/__containerLoadingPalletSnapshot/.test(guidedResultEnhancer)) {
+  fail('GuidedResultTabsEnhancer must not read the legacy pallet window mirror; use palletSnapshotStore instead.');
+}
+if (!guidedResultEnhancer.includes('buildPalletDetail')) {
+  fail('GuidedResultTabsEnhancer must rebuild the displayed pallet LoadingResult after the viewer unmounts.');
+}
+
+const palletTargetRestore = readFileSync('src/palletTargetRestore.ts', 'utf8');
+if (!palletTargetRestore.includes('readPalletSnapshot') || !palletTargetRestore.includes('publishPhysicsTarget')) {
+  fail('palletTargetRestore.ts must rebuild and publish the exact pallet physics target from palletSnapshotStore.');
+}
+const palletWorkerReport = readFileSync('src/palletWorkerReport.ts', 'utf8');
+if (!palletWorkerReport.includes('restorePalletPhysicsTarget')) {
+  fail('palletWorkerReport.ts must restore a pallet target before result/report certification checks.');
+}
+const resultsModalEvents = readFileSync('src/resultsModalEvents.ts', 'utf8');
+if (!resultsModalEvents.includes('restorePalletPhysicsTarget')) {
+  fail('resultsModalEvents.ts must restore a cleared pallet target before opening guided pallet results.');
 }
 
 const tokenizedCss = [
@@ -244,4 +269,4 @@ if (!/\.guided-result-grid>div:nth-child\(-n \+ 3\)\s*\{[^}]*min-height\s*:\s*96
   fail('src/guided-result-tabs-enhancer.css must keep the three primary result metrics visually prioritized.');
 }
 
-if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · guided workflow state React-owned · shell status scraping removed · loading-unit DOM proxy removed · progress/ETA feedback locked.`);
+if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · guided workflow state React-owned · shell status scraping removed · loading-unit DOM proxy removed · pallet result/target restoration locked · progress/ETA feedback locked.`);
