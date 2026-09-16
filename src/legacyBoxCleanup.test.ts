@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CargoItem } from './engine/types';
 import type { BoxCatalogItem } from './engine/productPackagingOptimizer';
 import {
+  isLegacyAutoRecommendedPersonalBox,
   isLegacyPlannerSampleBox,
   isLegacySyntheticCatalogBox,
   removeLegacyPlannerSampleBoxes,
@@ -25,6 +26,29 @@ const realUserBoxSameId: CargoItem = {
   ...legacySeed,
   name: '사용자 실제 박스',
   length: 0.41,
+};
+
+const legacyRecommendedBox: CargoItem = {
+  id: 'REC-570X750X330',
+  name: '범용 추천 570×750×330 (강도확인)',
+  length: 0.57,
+  width: 0.75,
+  height: 0.33,
+  weightKg: 22,
+  quantity: 0,
+  maxStackLayers: 1,
+  maxTopLoadKg: 0,
+  allowRotation: true,
+};
+
+const realUserRecommendedCode: CargoItem = {
+  ...legacyRecommendedBox,
+  name: '사용자가 직접 등록한 대형 박스',
+};
+
+const modifiedRecommendedBox: CargoItem = {
+  ...legacyRecommendedBox,
+  maxStackLayers: 3,
 };
 
 const legacyPlannerSample: BoxCatalogItem = {
@@ -53,9 +77,32 @@ describe('legacy unregistered box cleanup', () => {
     expect(isLegacySyntheticCatalogBox(realUserBoxSameId)).toBe(false);
   });
 
-  it('removes only old synthetic personal boxes and preserves real user boxes', () => {
-    const cleaned = removeLegacySyntheticCargoBoxes([legacySeed, realUserBoxSameId]);
-    expect(cleaned).toEqual([realUserBoxSameId]);
+  it('identifies historical REC recommendation boxes shown as personal boxes', () => {
+    expect(isLegacyAutoRecommendedPersonalBox(legacyRecommendedBox)).toBe(true);
+    expect(isLegacyAutoRecommendedPersonalBox({
+      ...legacyRecommendedBox,
+      id: 'REC-655X335X790',
+      name: '범용 추천 655×335×790 (강도확인)',
+      length: 0.655,
+      width: 0.335,
+      height: 0.79,
+    })).toBe(true);
+  });
+
+  it('does not delete a real user box just because it reuses a REC code', () => {
+    expect(isLegacyAutoRecommendedPersonalBox(realUserRecommendedCode)).toBe(false);
+    expect(isLegacyAutoRecommendedPersonalBox(modifiedRecommendedBox)).toBe(false);
+  });
+
+  it('removes old synthetic and auto-recommended personal boxes while preserving real user boxes', () => {
+    const cleaned = removeLegacySyntheticCargoBoxes([
+      legacySeed,
+      realUserBoxSameId,
+      legacyRecommendedBox,
+      realUserRecommendedCode,
+      modifiedRecommendedBox,
+    ]);
+    expect(cleaned).toEqual([realUserBoxSameId, realUserRecommendedCode, modifiedRecommendedBox]);
   });
 
   it('identifies exact old planner samples and preserves repurposed same-id boxes', () => {
