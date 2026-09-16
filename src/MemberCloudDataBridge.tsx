@@ -1,21 +1,29 @@
 import { useEffect, useRef } from 'react';
 import {
   ENTERPRISE_PACKAGING_PLANNER_EVENT,
+  ENTERPRISE_PACKAGING_PLANNER_KEY,
   readEnterprisePackagingPlannerState,
   writeEnterprisePackagingPlannerState,
 } from './enterprisePackagingPlannerStore';
 import { MEMBER_AUTH_EVENT, hasSupabaseMemberSession, readSupabaseMember } from './memberAuth';
 import { fetchMemberCloudData, saveMemberCloudData, type MemberCloudData } from './memberCloudData';
 import { chooseMemberSyncDirection, hasMemberCatalogData } from './memberCloudSyncPolicy';
-import { LOCAL_OPERATOR_EVENT, readLocalOperator, type LocalOperator } from './localOperator';
+import { LOCAL_OPERATOR_EVENT, operatorScopedStorageKey, readLocalOperator, type LocalOperator } from './localOperator';
 import {
   PERSONAL_BOX_CATALOG_EVENT,
+  personalBoxCatalogKey,
   readPersonalBoxCatalog,
   writePersonalBoxCatalog,
 } from './personalBoxCatalog';
 
 export const MEMBER_CLOUD_SYNC_EVENT = 'container-loading:member-cloud-data-synced';
 const DIRTY_KEY_PREFIX = 'container-loading:member-cloud-data-dirty:v1';
+
+type ObservedStorage = {
+  operatorId: string;
+  plannerRaw: string | null;
+  personalBoxesRaw: string | null;
+};
 
 function dirtyKey(operator: LocalOperator) {
   return `${DIRTY_KEY_PREFIX}:${encodeURIComponent(operator.id)}`;
@@ -45,15 +53,28 @@ function readLocalSnapshot(operator: LocalOperator): Omit<MemberCloudData, 'upda
   };
 }
 
+function observeStorage(operator: LocalOperator): ObservedStorage {
+  return {
+    operatorId: operator.id,
+    plannerRaw: localStorage.getItem(operatorScopedStorageKey(ENTERPRISE_PACKAGING_PLANNER_KEY, operator)),
+    personalBoxesRaw: localStorage.getItem(personalBoxCatalogKey(operator)),
+  };
+}
+
 export default function MemberCloudDataBridge() {
   const suppressUploadRef = useRef(false);
   const syncTimerRef = useRef<number | null>(null);
   const uploadTimerRef = useRef<number | null>(null);
   const syncRunningRef = useRef<Promise<void> | null>(null);
+  const observedStorageRef = useRef<ObservedStorage | null>(null);
 
   useEffect(() => {
     const announce = (detail: Record<string, unknown>) => {
       window.dispatchEvent(new CustomEvent(MEMBER_CLOUD_SYNC_EVENT, { detail }));
+    };
+
+    const refreshObservedStorage = (operator: LocalOperator | null = currentMemberOperator()) => {
+      observedStorageRef.current = operator ? observeStorage(operator) : null;
     };
 
     const uploadLatest = async () => {
@@ -63,6 +84,7 @@ export default function MemberCloudDataBridge() {
       try {
         const updatedAt = await saveMemberCloudData(snapshot);
         setDirty(operator, false);
+        refreshObservedStorage(operator);
         announce({ status: 'uploaded', updatedAt: updatedAt ?? null });
       } catch (error) {
         setDirty(operator, true);
@@ -97,6 +119,7 @@ export default function MemberCloudDataBridge() {
         if (direction === 'upload') {
           const updatedAt = await saveMemberCloudData(local);
           setDirty(operator, false);
+          refreshObservedStorage(operator);
           announce({ status: 'uploaded', reason: remote ? 'local-dirty' : 'initial-migration', updatedAt: updatedAt ?? null });
           return;
         }
@@ -111,10 +134,12 @@ export default function MemberCloudDataBridge() {
             suppressUploadRef.current = false;
           }
           setDirty(operator, false);
+          refreshObservedStorage(operator);
           announce({ status: 'downloaded', updatedAt: remote.updatedAt ?? null });
           return;
         }
 
+        refreshObservedStorage(operator);
         announce({ status: 'empty' });
       } catch (error) {
         announce({ status: 'offline', error: error instanceof Error ? error.message : String(error) });
@@ -138,8 +163,14 @@ export default function MemberCloudDataBridge() {
       }, delay);
     };
 
-    const onAuthChanged = () => queueSynchronize(100);
-    const onOperatorChanged = () => queueSynchronize(40);
+    const onAuthChanged = () => {
+      observedStorageRef.current = null;
+      queueSynchronize(100);
+    };
+    const onOperatorChanged = () => {
+      observedStorageRef.current = null;
+      queueSynchronize(40);
+    };
     const onOnline = () => queueSynchronize(0);
     const onVisibility = () => {
       if (document.visibilityState === 'visible') queueSynchronize(100);
@@ -152,6 +183,25 @@ export default function MemberCloudDataBridge() {
     window.addEventListener('online', onOnline);
     document.addEventListener('visibilitychange', onVisibility);
 
+    const observerTimer = window.setInterval(() => {
+      const operator = currentMemberOperator();
+      if (!operator) {
+        observedStorageRef.current = null;
+        return;
+      }
+      const next = observeStorage(operator);
+      const previous = observedStorageRef.current;
+      if (!previous || previous.operatorId !== next.operatorId) {
+        observedStorageRef.current = next;
+        return;
+      }
+      if (previous.plannerRaw !== next.plannerRaw || previous.personalBoxesRaw !== next.personalBoxesRaw) {
+        observedStorageRef.current = next;
+        queueUpload();
+      }
+    }, 800);
+
+    refreshObservedStorage();
     queueSynchronize(120);
 
     return () => {
@@ -161,6 +211,7 @@ export default function MemberCloudDataBridge() {
       window.removeEventListener(PERSONAL_BOX_CATALOG_EVENT, queueUpload);
       window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisibility);
+      window.clearInterval(observerTimer);
       if (syncTimerRef.current !== null) window.clearTimeout(syncTimerRef.current);
       if (uploadTimerRef.current !== null) window.clearTimeout(uploadTimerRef.current);
     };
