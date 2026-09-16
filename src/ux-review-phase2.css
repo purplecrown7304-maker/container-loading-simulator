@@ -1,6 +1,6 @@
 /* UX/UI review phase 2, 2026-09-16.
- * Temporary guided-result and mobile workflow layer. Workspace dialog behavior
- * has moved to workspace-tools.css; transport behavior remains feature-owned.
+ * Temporary guided-result and bottom-action layer. Product/mode/strategy/unit
+ * rules have moved to their owning feature stylesheets.
  */
 
 .guided-unloaded-list {
