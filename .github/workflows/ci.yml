@@ -27,13 +27,13 @@ jobs:
           package-manager-cache: false
 
       # This repository intentionally has no package-lock.json yet. Exact direct
-      # dependency versions are pinned in package.json, so CI installs from that
-      # manifest and records the resolved tree before running release gates.
+      # dependency versions are pinned in package.json. legacy-peer-deps avoids an
+      # npm 10 Arborist peer-graph crash observed on the hosted runner.
       - name: Install dependencies
-        run: npm install --no-fund --no-audit
+        run: npm install --legacy-peer-deps --no-fund --no-audit
 
       - name: Record dependency versions
-        run: npm ls --depth=0
+        run: npm ls --depth=0 --legacy-peer-deps
 
       - name: Security audit
         run: npm audit --audit-level=high
