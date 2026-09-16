@@ -1,4 +1,5 @@
 import { isAdminSession } from './adminAccess';
+import { effectivePlannerTopLoadKg, normalizeDeclaredStackLayers } from './boxStackingPolicy';
 import { isLegacyVirtualCompanyProduct } from './companyProduct';
 import {
   defaultEnterprisePackagingOptions,
@@ -10,12 +11,15 @@ import type { BoxCatalogItem, ProductItem } from './engine/productPackagingOptim
 import type { ContainerSpec } from './engine/types';
 import { isLegacyAutoRecommendedPersonalBox, removeLegacyPlannerSampleBoxes } from './legacyBoxCleanup';
 import { operatorScopedStorageKey, readLocalOperator } from './localOperator';
+import { readPersonalBoxCatalog, type PersonalBoxCatalogItem } from './personalBoxCatalog';
 
 export const ENTERPRISE_PACKAGING_PLANNER_KEY = 'container-loading-product-packaging-v1';
 export const ENTERPRISE_PACKAGING_PLANNER_EVENT = 'container-loading:enterprise-packaging-planner-updated';
 
 const ADMIN_PLANNER_KEY = `${ENTERPRISE_PACKAGING_PLANNER_KEY}:admin`;
 const GUEST_PLANNER_KEY = `${ENTERPRISE_PACKAGING_PLANNER_KEY}:guest`;
+
+type PlannerBoxWithStack = BoxCatalogItem & { maxStackLayers?: number };
 
 export type EnterprisePackagingPlannerSettings = {
   allowCustom?: boolean;
@@ -61,6 +65,38 @@ function cleanPlannerState(state: EnterprisePackagingPlannerState) {
   return changed ? { ...state, products, boxes } : state;
 }
 
+/**
+ * 개인 박스 관리에서 사용자가 지정한 최대 적층단을 포장 플래너 박스에도 전달한다.
+ * 과거 플래너 모델은 maxStackLayers가 없어서 maxTopLoadKg=0인 추천 박스를 무조건 1단으로
+ * 해석했다. ID가 일치하는 실제 개인 박스의 명시적 적층단만 반영한다.
+ */
+export function mergePersonalBoxStackingIntoPlanner(
+  state: EnterprisePackagingPlannerState,
+  personalBoxes: PersonalBoxCatalogItem[],
+): EnterprisePackagingPlannerState {
+  const personalById = new Map(personalBoxes.map(item => [item.id, item]));
+  let changed = false;
+  const boxes = state.boxes.map(box => {
+    const personal = personalById.get(box.id);
+    if (!personal) return box;
+    const maxStackLayers = normalizeDeclaredStackLayers(personal.maxStackLayers);
+    if (!maxStackLayers) return box;
+
+    const current = box as PlannerBoxWithStack;
+    const maxTopLoadKg = effectivePlannerTopLoadKg(box, personal);
+    if (current.maxStackLayers === maxStackLayers && current.maxTopLoadKg === maxTopLoadKg) return box;
+    changed = true;
+    return { ...box, maxStackLayers, maxTopLoadKg } as PlannerBoxWithStack;
+  });
+  return changed ? { ...state, boxes } : state;
+}
+
+function applyActivePersonalBoxStacking(state: EnterprisePackagingPlannerState) {
+  const operator = readLocalOperator();
+  if (!operator) return state;
+  return mergePersonalBoxStackingIntoPlanner(state, readPersonalBoxCatalog(operator));
+}
+
 function activePlannerKey() {
   if (isAdminSession()) return ADMIN_PLANNER_KEY;
   const operator = readLocalOperator();
@@ -93,9 +129,10 @@ export function readEnterprisePackagingPlannerState(): EnterprisePackagingPlanne
     migrateLegacyAdminPlannerIfNeeded(key);
     const parsed = parsePlannerState(window.localStorage.getItem(key));
     if (!parsed) return null;
+    const merged = applyActivePersonalBoxStacking(parsed);
     const raw = window.localStorage.getItem(key);
-    if (raw !== JSON.stringify(parsed)) window.localStorage.setItem(key, JSON.stringify(parsed));
-    return parsed;
+    if (raw !== JSON.stringify(merged)) window.localStorage.setItem(key, JSON.stringify(merged));
+    return merged;
   } catch {
     return null;
   }
@@ -103,7 +140,7 @@ export function readEnterprisePackagingPlannerState(): EnterprisePackagingPlanne
 
 export function writeEnterprisePackagingPlannerState(state: EnterprisePackagingPlannerState, notify = true) {
   if (typeof window === 'undefined') return;
-  const cleaned = cleanPlannerState(state);
+  const cleaned = applyActivePersonalBoxStacking(cleanPlannerState(state));
   const key = activePlannerKey();
   window.localStorage.setItem(key, JSON.stringify(cleaned));
   if (notify) window.dispatchEvent(new CustomEvent<EnterprisePackagingPlannerState>(ENTERPRISE_PACKAGING_PLANNER_EVENT, { detail: cleaned }));
@@ -148,7 +185,7 @@ export function enterprisePackagingOptionsFromPlanner(
 export function buildEnterprisePackagingPlanFromPlanner(
   state: EnterprisePackagingPlannerState,
 ): EnterprisePackagingPlan {
-  const cleaned = cleanPlannerState(state);
+  const cleaned = applyActivePersonalBoxStacking(cleanPlannerState(state));
   return optimizeEnterprisePackaging(
     cleaned.container,
     cleaned.products,
