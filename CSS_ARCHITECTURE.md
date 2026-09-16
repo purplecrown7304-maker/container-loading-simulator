@@ -15,7 +15,7 @@
 ### 전역 토큰
 - `src/tokens.css`
 - 폰트 크기, 공통 색상, 컨트롤 높이, z-index 계층의 기준입니다.
-- 10px 미만 신규 폰트는 금지합니다.
+- 보조 텍스트는 `--font-2xs`(11px)보다 작게 만들지 않습니다.
 
 ### 가이드 작업 흐름
 - `src/guided-workflow.css`
@@ -75,8 +75,9 @@
 
 ## 5. 접근성 기준
 
-- 일반 보조 텍스트는 최소 11px 토큰을 우선합니다.
+- 일반 보조 텍스트는 최소 `--font-2xs`(11px)를 사용합니다.
 - 모바일 주요 버튼/선택 컨트롤은 최소 44px 터치 높이를 사용합니다.
+- 작은 보조 버튼도 가능한 경우 `--control-height-sm`(32px) 이상을 확보합니다.
 - `:focus-visible` 상태를 제거하지 않습니다.
 - 모션이 필수가 아니면 `prefers-reduced-motion`에서 비활성화합니다.
 
@@ -92,19 +93,21 @@
 6. `.workspace`, `.panel`, `.left-panel`, `.right-panel`이 TSX에 다시 등장하면 architecture check에서 차단하도록 가드 추가
 7. `styles.css`에서 구형 `.workspace`, `.panel`, `.left-panel`, `.right-panel` 규칙과 관련 반응형 잔재 제거
 8. 같은 구형 selector가 `styles.css`에 다시 들어오면 architecture check에서 실패하도록 가드 추가
+9. `styles.css`의 10px 보조 텍스트를 `--font-2xs`(11px)로 올리고 inspector 보조 버튼에 32px 최소 높이를 적용
+10. `styles.css`도 tokenized CSS 검사 대상에 포함해 8~10px 폰트 재도입을 차단
 
 다음 단계:
 
-1. `styles.css`와 기타 전역 CSS에 남은 10px 이하 보조 텍스트를 실제 사용 여부와 함께 정리하고 공용 토큰으로 통합
-2. 중복 `!important`와 상충하는 반응형 규칙을 단계적으로 축소
-3. 단계 표시를 CSS 강제 display 전환에서 React 상태 기반 렌더링으로 바꾸는 별도 리팩터링 진행
+1. 중복 `!important`와 상충하는 반응형 규칙을 단계적으로 축소
+2. 단계 표시를 CSS 강제 display 전환에서 React 상태 기반 렌더링으로 바꾸는 별도 리팩터링 진행
+3. 가이드 shell의 실제 React 렌더 구조를 단순화한 뒤 불필요한 CSS 상태 selector 제거
 
 ## 7. 자동 검사
 
 `scripts/check-architecture.mjs`가 다음을 검사합니다.
 
 - Bridge 컴포넌트의 React DOM 직접 탐색/조작 금지
-- 이미 토큰화한 CSS에 8~10px 폰트 재도입 금지
+- `styles.css`를 포함한 토큰화 CSS에 8~10px 폰트 재도입 금지
 - 삭제된 `transport-equipment-scroll-fix.css` 재도입 금지
 - 삭제된 `ux-review-*.css`와 import 재도입 금지
 - 구형 `.workspace`, `.panel`, `.left-panel`, `.right-panel` JSX 클래스 재도입 금지
