@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT } from './adminAccess';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { LOADING_RESULT_EVENT, type LoadingStrategy } from './engine/loadingEngine';
+import { publishGuidedWorkflowState } from './guidedWorkflowState';
 import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState } from './storage';
 import {
   OPEN_TRANSPORT_SELECTOR_EVENT,
@@ -476,10 +477,12 @@ export default function GuidedWorkflowShell() {
   };
 
   useEffect(() => {
-    document.documentElement.dataset.guidedWorkflow = 'true';
-    document.documentElement.dataset.guidedStep = String(step);
-    return () => { delete document.documentElement.dataset.guidedWorkflow; delete document.documentElement.dataset.guidedStep; };
+    publishGuidedWorkflowState({ active: true, step });
   }, [step]);
+
+  useEffect(() => () => {
+    publishGuidedWorkflowState({ active: false, step: 1 });
+  }, []);
 
   useEffect(() => {
     writeLoadingStrategyPreference(null);
