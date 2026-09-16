@@ -12,9 +12,9 @@ let snapshot: GuidedWorkflowSnapshot = DEFAULT_SNAPSHOT;
 let observer: MutationObserver | null = null;
 const listeners = new Set<() => void>();
 
-function parseStep(value: string | undefined): GuidedWorkflowStep {
+export function normalizeGuidedWorkflowStep(value: string | undefined): GuidedWorkflowStep {
   const numeric = Number(value);
-  return numeric >= 1 && numeric <= 6 ? numeric as GuidedWorkflowStep : 1;
+  return Number.isInteger(numeric) && numeric >= 1 && numeric <= 6 ? numeric as GuidedWorkflowStep : 1;
 }
 
 function readDocumentSnapshot(): GuidedWorkflowSnapshot {
@@ -22,7 +22,7 @@ function readDocumentSnapshot(): GuidedWorkflowSnapshot {
   const root = document.documentElement;
   return {
     active: root.dataset.guidedWorkflow === 'true',
-    step: parseStep(root.dataset.guidedStep),
+    step: normalizeGuidedWorkflowStep(root.dataset.guidedStep),
   };
 }
 
