@@ -14,6 +14,10 @@ describe('member cloud sync policy', () => {
     expect(chooseMemberSyncDirection({ remoteExists: true, localDirty: true, localHasData: true })).toBe('upload');
   });
 
+  it('uploads an intentional full deletion instead of resurrecting remote rows', () => {
+    expect(chooseMemberSyncDirection({ remoteExists: true, localDirty: true, localHasData: false })).toBe('upload');
+  });
+
   it('recognizes company products and personal boxes as member data', () => {
     expect(hasMemberCatalogData({ plannerState: { products: [{ id: 'P1' }], boxes: [] }, personalBoxes: [] })).toBe(true);
     expect(hasMemberCatalogData({ plannerState: null, personalBoxes: [{ id: 'B1' }] })).toBe(true);
