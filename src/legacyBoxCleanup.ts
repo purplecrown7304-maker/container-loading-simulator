@@ -145,7 +145,8 @@ function cleanPlannerStorage(key: string) {
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (!parsed || !Array.isArray(parsed.boxes)) return;
-    const cleanedBoxes = parsed.boxes.filter(item => !isLegacyPlannerSampleBox(item));
+    // 추천 분석 결과 자체는 보유 박스가 아니다. 사용자가 등록 버튼을 눌러 explicit 표식이 붙은 추천만 보유 박스로 유지한다.
+    const cleanedBoxes = parsed.boxes.filter(item => !isLegacyPlannerSampleBox(item) && !isLegacyAutoRecommendedPersonalBox(item));
     if (cleanedBoxes.length !== parsed.boxes.length) {
       window.localStorage.setItem(key, JSON.stringify({ ...parsed, boxes: cleanedBoxes }));
     }
@@ -156,7 +157,7 @@ function cleanPlannerStorage(key: string) {
 
 /**
  * 앱 시작 시 예전 버전이 사용자의 의사와 무관하게 넣었던 박스만 제거한다.
- * 현재 사용자가 직접 등록/엑셀 업로드한 박스는 건드리지 않는다.
+ * 현재 사용자가 직접 등록/엑셀 업로드하거나 추천 화면에서 명시적으로 등록한 박스는 건드리지 않는다.
  */
 export function cleanupLegacyUnregisteredBoxes() {
   if (typeof window === 'undefined') return;
