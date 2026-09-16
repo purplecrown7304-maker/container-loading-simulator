@@ -57,6 +57,20 @@ if (/observe\(document\.documentElement[\s\S]*data-guided-step/.test(loadingUnit
   fail('GuidedLoadingUnitEnhancer restored its own data-guided-step MutationObserver; keep compatibility observation centralized in guidedWorkflowState.ts.');
 }
 
+const guidedShellSource = readFileSync('src/GuidedWorkflowShell.tsx', 'utf8');
+if (!guidedShellSource.includes('publishGuidedWorkflowState')) {
+  fail('GuidedWorkflowShell must publish active/step state through guidedWorkflowState.ts.');
+}
+if (/document\.documentElement\.dataset\.guided(?:Workflow|Step)\s*=/.test(guidedShellSource)) {
+  fail('GuidedWorkflowShell must not write guided DOM dataset attributes directly; publish through guidedWorkflowState.ts instead.');
+}
+if (!/publishGuidedWorkflowState\(\{\s*active:\s*true,\s*step\s*\}\)/.test(guidedShellSource)) {
+  fail('GuidedWorkflowShell must publish each React step transition to the centralized guided workflow state.');
+}
+if (!/publishGuidedWorkflowState\(\{\s*active:\s*false,\s*step:\s*1\s*\}\)/.test(guidedShellSource)) {
+  fail('GuidedWorkflowShell must clear the centralized guided workflow state when it unmounts.');
+}
+
 const tokenizedCss = [
   'src/styles.css',
   'src/dashboard-mockup.css',
@@ -160,4 +174,4 @@ if (!/\.guided-result-grid>div:nth-child\(-n \+ 3\)\s*\{[^}]*min-height\s*:\s*96
   fail('src/guided-result-tabs-enhancer.css must keep the three primary result metrics visually prioritized.');
 }
 
-if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · guided viewer visibility owned by React.`);
+if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · guided state published from React shell · viewer visibility owned by React.`);
