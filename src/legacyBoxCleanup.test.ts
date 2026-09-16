@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { CargoItem } from './engine/types';
 import type { BoxCatalogItem } from './engine/productPackagingOptimizer';
 import {
+  cleanupLegacyUnregisteredBoxes,
   isLegacyAutoRecommendedPersonalBox,
   isLegacyPlannerSampleBox,
   isLegacySyntheticCatalogBox,
@@ -58,9 +59,14 @@ const realUserRecommendedCode: CargoItem = {
   name: '사용자가 직접 등록한 대형 박스',
 };
 
-const modifiedRecommendedBox: CargoItem = {
+const unapprovedModifiedRecommendation: CargoItem = {
   ...legacyRecommendedBox,
   maxStackLayers: 3,
+};
+
+const explicitRecommendedBox = {
+  ...legacyRecommendedBox,
+  recommendationRegistration: 'explicit' as const,
 };
 
 const legacyPlannerSample: BoxCatalogItem = {
@@ -84,6 +90,8 @@ const realPlannerBoxSameId: BoxCatalogItem = {
 };
 
 describe('legacy unregistered box cleanup', () => {
+  beforeEach(() => localStorage.clear());
+
   it('identifies the old virtual 18-box seed without relying on quantity', () => {
     expect(isLegacySyntheticCatalogBox(legacySeed)).toBe(true);
     expect(isLegacySyntheticCatalogBox(realUserBoxSameId)).toBe(false);
@@ -99,27 +107,34 @@ describe('legacy unregistered box cleanup', () => {
       width: 0.335,
       height: 0.79,
     })).toBe(true);
+    expect(isLegacyAutoRecommendedPersonalBox({
+      ...legacyRecommendedBox,
+      id: 'REC-655X335X790-2',
+      name: '추가추천 655×335×790 (강도확인)',
+    })).toBe(true);
   });
 
-  it('treats omitted allowRotation as the old UI default of allowed', () => {
+  it('does not treat metadata edits as user approval', () => {
     expect(isLegacyAutoRecommendedPersonalBox(legacyRecommendedBoxWithImplicitDefaults)).toBe(true);
+    expect(isLegacyAutoRecommendedPersonalBox(unapprovedModifiedRecommendation)).toBe(true);
   });
 
-  it('does not delete a real user box just because it reuses a REC code', () => {
+  it('preserves real user boxes and explicitly registered recommendations', () => {
     expect(isLegacyAutoRecommendedPersonalBox(realUserRecommendedCode)).toBe(false);
-    expect(isLegacyAutoRecommendedPersonalBox(modifiedRecommendedBox)).toBe(false);
+    expect(isLegacyAutoRecommendedPersonalBox(explicitRecommendedBox)).toBe(false);
   });
 
-  it('removes old synthetic and auto-recommended personal boxes while preserving real user boxes', () => {
+  it('removes unapproved recommendations while preserving explicit registrations', () => {
     const cleaned = removeLegacySyntheticCargoBoxes([
       legacySeed,
       realUserBoxSameId,
       legacyRecommendedBox,
       legacyRecommendedBoxWithImplicitDefaults,
       realUserRecommendedCode,
-      modifiedRecommendedBox,
+      unapprovedModifiedRecommendation,
+      explicitRecommendedBox,
     ]);
-    expect(cleaned).toEqual([realUserBoxSameId, realUserRecommendedCode, modifiedRecommendedBox]);
+    expect(cleaned).toEqual([realUserBoxSameId, realUserRecommendedCode, explicitRecommendedBox]);
   });
 
   it('identifies exact old planner samples and preserves repurposed same-id boxes', () => {
@@ -130,5 +145,33 @@ describe('legacy unregistered box cleanup', () => {
   it('removes old planner sample boxes from owned-box state', () => {
     const cleaned = removeLegacyPlannerSampleBoxes([legacyPlannerSample, realPlannerBoxSameId]);
     expect(cleaned).toEqual([realPlannerBoxSameId]);
+  });
+
+  it('removes unapproved REC boxes from persisted planner state but keeps explicit ones', () => {
+    const plannerKey = 'container-loading-product-packaging-v1:test-user';
+    const unapprovedPlannerBox = {
+      id: 'REC-700X470X290',
+      name: '범용 추천 700×470×290 (강도확인)',
+      innerLength: 0.69,
+      innerWidth: 0.46,
+      innerHeight: 0.28,
+      outerLength: 0.7,
+      outerWidth: 0.47,
+      outerHeight: 0.29,
+      tareWeightKg: 0.5,
+      maxGrossWeightKg: 22,
+      maxTopLoadKg: 0,
+    };
+    const explicitPlannerBox = { ...unapprovedPlannerBox, id: 'REC-700X470X290-2', recommendationRegistration: 'explicit' };
+    localStorage.setItem(plannerKey, JSON.stringify({
+      container: { length: 5.9, width: 2.35, height: 2.39, maxPayloadKg: 28200 },
+      products: [],
+      boxes: [unapprovedPlannerBox, explicitPlannerBox],
+    }));
+
+    cleanupLegacyUnregisteredBoxes();
+
+    const saved = JSON.parse(localStorage.getItem(plannerKey) || '{}') as { boxes: Array<{ id: string }> };
+    expect(saved.boxes.map(box => box.id)).toEqual(['REC-700X470X290-2']);
   });
 });

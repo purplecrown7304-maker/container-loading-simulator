@@ -15,6 +15,8 @@ import {
   writeEnterprisePackagingPlannerState,
   type EnterprisePackagingPlannerState,
 } from './enterprisePackagingPlannerStore';
+import { readLocalOperator } from './localOperator';
+import { registerRecommendedPersonalBox } from './personalBoxCatalog';
 import { useTransportEquipment } from './transportEquipment';
 import { formatBoxSize, packagingCandidates } from './productWorkflow';
 import { OPEN_PRODUCT_TOOL_EVENT, type ProductToolView } from './productToolEvents';
@@ -215,7 +217,19 @@ export default function ProductToolsCenter() {
       });
     }
     setAdditional([...suggestions.values()].sort((a, b) => b.products.length - a.products.length || b.assignment.score - a.assignment.score));
-    setMessage(`제품 ${boxed.length}종과 현재 등록 박스 ${boxes.length}종을 함께 분석했습니다.`);
+    setMessage(`제품 ${boxed.length}종과 현재 등록 박스 ${boxes.length}종을 함께 분석했습니다. 추천 결과는 자동 등록되지 않습니다.`);
+  };
+
+  const registerExplicitRecommendation = (box: BoxCatalogItem, successMessage: string) => {
+    const operator = readLocalOperator();
+    if (!operator) {
+      setMessage('추천 박스를 등록하려면 먼저 사용자 로그인이 필요합니다. 추천 결과는 자동으로 개인 박스 목록에 추가되지 않습니다.');
+      return false;
+    }
+    saveState(products, [...boxes, box]);
+    registerRecommendedPersonalBox(operator, box);
+    setMessage(successMessage);
+    return true;
   };
 
   const registerAssignment = (assignment: ProductPackagingAssignment, label: string) => {
@@ -234,8 +248,10 @@ export default function ProductToolsCenter() {
       maxTopLoadKg: 0,
       unitCost: assignment.boxUnitCost,
     };
-    saveState(products, [...boxes, box]);
-    setMessage(`${box.id} 규격을 회사 박스로 등록했습니다. 강도 확인 전 상부 허용중량은 0kg로 등록됩니다.`);
+    registerExplicitRecommendation(
+      box,
+      `${box.id} 규격을 사용자가 직접 등록했습니다. 개인 박스 목록에 추가했습니다. 강도 확인 전 상부 허용중량은 0kg입니다.`,
+    );
   };
 
   const registerFamily = (item: NonNullable<CommonCartonFamilyPlan['family']['selectedBoxes']>[number]) => {
@@ -255,8 +271,10 @@ export default function ProductToolsCenter() {
       maxGrossWeightKg: options.packaging.maxGeneratedGrossWeightKg,
       maxTopLoadKg: 0,
     };
-    saveState(products, [...boxes, box]);
-    setMessage(`${box.id} 범용 규격을 회사 박스로 등록했습니다. 압축강도 확인 후 상부 허용중량을 수정하세요.`);
+    registerExplicitRecommendation(
+      box,
+      `${box.id} 범용 규격을 사용자가 직접 등록했습니다. 개인 박스 목록에 추가했습니다. 압축강도 확인 후 상부 허용중량을 수정하세요.`,
+    );
   };
 
   if (!view) return null;
@@ -264,7 +282,7 @@ export default function ProductToolsCenter() {
 
   return <div className="product-tools-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setView(null); }}>
     <section className="product-tools-dialog" role="dialog" aria-modal="true" aria-label={view === 'products' ? '회사 제품 관리' : '범용 및 추가 박스 추천'}>
-      <header><div><span>COMPANY DATA</span><h2>{view === 'products' ? '회사 제품 관리' : '범용 · 추가 박스 스펙 추천'}</h2><p>{view === 'products' ? '제품 마스터를 관리합니다. 실제 출하 수량은 메인 2단계 제품 선택에서 입력합니다.' : '등록 제품 전체와 현재 회사 박스를 함께 분석해 공용화 규격과 추가 보유할 박스 스펙을 제안합니다.'}</p></div><button type="button" onClick={() => setView(null)}>×</button></header>
+      <header><div><span>COMPANY DATA</span><h2>{view === 'products' ? '회사 제품 관리' : '범용 · 추가 박스 스펙 추천'}</h2><p>{view === 'products' ? '제품 마스터를 관리합니다. 실제 출하 수량은 메인 2단계 제품 선택에서 입력합니다.' : '등록 제품 전체와 현재 회사 박스를 함께 분석해 공용화 규격과 추가 보유할 박스 스펙을 제안합니다. 추천만으로 개인 박스 목록에는 추가되지 않습니다.'}</p></div><button type="button" onClick={() => setView(null)}>×</button></header>
 
       {view === 'products' ? <div className="product-tools-body">
         <input ref={inputRef} hidden type="file" accept=".xlsx,.xls" onChange={event => void importWorkbook(event.target.files?.[0])}/>
@@ -292,8 +310,8 @@ export default function ProductToolsCenter() {
       </div> : <div className="product-tools-body">
         <div className="carton-analyze-head"><div><b>분석 대상</b><span>회사 제품 {products.filter(requiresBoxPackaging).length}종 · 현재 회사 박스 {boxes.length}종 · {equipment.shortName}</span></div><button className="primary" onClick={calculateCartons}>제품·보유박스 분석</button></div>
         {familyPlan && <div className="carton-metrics"><div><span>개별 최적 규격</span><b>{familyPlan.family.baselineBoxTypes}종</b></div><div><span>범용화 후</span><b>{familyPlan.family.selectedBoxTypes}종</b></div><div><span>규격 절감</span><b>{familyPlan.family.boxTypeSavings}종</b></div><div><span>평균 효율 손실</span><b>{(familyPlan.family.averageScoreLoss * 100).toFixed(1)}%</b></div></div>}
-        <div className="carton-tool-section"><div className="carton-tool-title"><h3>범용 상자 크기 추천</h3><span>여러 제품에 같이 사용할 수 있는 규격</span></div>{universal.length ? universal.map(item => <article className="carton-recommend-row" key={`${item.id}-${item.outerLength}`}><div><b>{mm(item.outerLength)} × {mm(item.outerWidth)} × {mm(item.outerHeight)} mm</b><span>{item.source === 'catalog' ? '현재 보유 박스 재사용' : '신규 범용 규격'}</span></div><div><b>{item.assignedProducts.length}개 제품 공용</b><span>{item.assignedProducts.join(', ')}</span></div>{item.source === 'catalog' ? <strong className="registered">보유 중</strong> : <button onClick={() => registerFamily(item)}>회사 박스로 등록</button>}</article>) : <div className="carton-empty">분석 버튼을 누르면 범용 규격이 표시됩니다.</div>}</div>
-        <div className="carton-tool-section"><div className="carton-tool-title"><h3>추가 보유 권장 박스</h3><span>현재 박스 스펙과 비교했을 때 추가하면 효율이 좋아지는 규격</span></div>{additional.length ? additional.map(item => <article className="carton-recommend-row" key={item.key}><div><b>{formatBoxSize(item.assignment)}</b><span>{item.reason}</span></div><div><b>{item.products.length}개 제품 개선</b><span>{item.products.join(', ')} · {item.assignment.unitsPerBox}EA/BOX · 충진율 {Math.round(item.assignment.productFillRate * 100)}%</span></div><button onClick={() => registerAssignment(item.assignment, '추가추천')}>회사 박스로 등록</button></article>) : <div className="carton-empty">분석 후 현재 보유 박스보다 추가 가치가 있는 규격만 표시합니다.</div>}</div>
+        <div className="carton-tool-section"><div className="carton-tool-title"><h3>범용 상자 크기 추천</h3><span>여러 제품에 같이 사용할 수 있는 규격 · 등록 버튼을 눌러야 개인 박스 목록에 추가</span></div>{universal.length ? universal.map(item => <article className="carton-recommend-row" key={`${item.id}-${item.outerLength}`}><div><b>{mm(item.outerLength)} × {mm(item.outerWidth)} × {mm(item.outerHeight)} mm</b><span>{item.source === 'catalog' ? '현재 보유 박스 재사용' : '신규 범용 규격'}</span></div><div><b>{item.assignedProducts.length}개 제품 공용</b><span>{item.assignedProducts.join(', ')}</span></div>{item.source === 'catalog' ? <strong className="registered">보유 중</strong> : <button onClick={() => registerFamily(item)}>회사 박스로 등록</button>}</article>) : <div className="carton-empty">분석 버튼을 누르면 범용 규격이 표시됩니다.</div>}</div>
+        <div className="carton-tool-section"><div className="carton-tool-title"><h3>추가 보유 권장 박스</h3><span>현재 박스 스펙과 비교했을 때 추가하면 효율이 좋아지는 규격 · 등록 전에는 목록에 저장하지 않음</span></div>{additional.length ? additional.map(item => <article className="carton-recommend-row" key={item.key}><div><b>{formatBoxSize(item.assignment)}</b><span>{item.reason}</span></div><div><b>{item.products.length}개 제품 개선</b><span>{item.products.join(', ')} · {item.assignment.unitsPerBox}EA/BOX · 충진율 {Math.round(item.assignment.productFillRate * 100)}%</span></div><button onClick={() => registerAssignment(item.assignment, '추가추천')}>회사 박스로 등록</button></article>) : <div className="carton-empty">분석 후 현재 보유 박스보다 추가 가치가 있는 규격만 표시합니다.</div>}</div>
       </div>}
       {message && <footer className="product-tools-message">{message}</footer>}
     </section>

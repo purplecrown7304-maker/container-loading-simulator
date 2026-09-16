@@ -45,37 +45,27 @@ export function isLegacySyntheticCatalogBox(value: unknown): boolean {
 }
 
 /**
- * 예전 범용 박스 추천 기능이 추천 결과를 개인 박스 목록에 자동 저장하던 항목.
- * REC 코드만으로 지우지 않고 자동생성 이름, 규격, 기본 안전값까지 모두 맞을 때만 제거한다.
- * 오래된 저장값은 quantity/allowRotation 필드가 생략된 버전도 있어 UI 기본값과 동일하게 해석한다.
+ * 범용 추천은 추천 결과일 뿐 개인 박스가 아니다.
+ * 개인 목록에는 추천 화면에서 사용자가 직접 '회사 박스로 등록'을 눌러
+ * recommendationRegistration='explicit' 표식이 붙은 항목만 남긴다.
+ * 이 규칙 덕분에 과거 버전이 자동 저장한 REC-* 항목은 필드 버전 차이와 무관하게 정리된다.
  */
 export function isLegacyAutoRecommendedPersonalBox(value: unknown): boolean {
   const item = asRecord(value);
   if (!item) return false;
+  if (item.recommendationRegistration === 'explicit') return false;
 
   const id = typeof item.id === 'string' ? item.id : '';
   const name = typeof item.name === 'string' ? item.name : '';
-  const idMatch = /^REC-(\d+)X(\d+)X(\d+)$/.exec(id);
-  const nameMatch = /^범용 추천 (\d+)×(\d+)×(\d+) \(강도확인\)$/.exec(name);
+  const idMatch = /^REC-(\d+)X(\d+)X(\d+)(?:-\d+)?$/.exec(id);
+  const nameMatch = /^(?:범용 추천|추가추천) (\d+)×(\d+)×(\d+) \(강도확인\)$/.exec(name);
   if (!idMatch || !nameMatch) return false;
 
-  const dimensionsMm = idMatch.slice(1).map(Number);
+  const dimensionsMm = idMatch.slice(1, 4).map(Number);
   const nameDimensionsMm = nameMatch.slice(1).map(Number);
-  if (dimensionsMm.some((dimension, index) => dimension !== nameDimensionsMm[index])) return false;
-  if (dimensionsMm.some(dimension => !Number.isFinite(dimension) || dimension <= 0)) return false;
-
-  const [lengthMm, widthMm, heightMm] = dimensionsMm;
-  const quantityIsLegacyDefault = item.quantity == null || item.quantity === 0;
-  const rotationIsLegacyDefault = item.allowRotation == null || item.allowRotation === true;
-
-  return closeEnough(item.length, lengthMm / 1000)
-    && closeEnough(item.width, widthMm / 1000)
-    && closeEnough(item.height, heightMm / 1000)
-    && closeEnough(item.weightKg, 22)
-    && quantityIsLegacyDefault
-    && item.maxStackLayers === 1
-    && closeEnough(item.maxTopLoadKg, 0)
-    && rotationIsLegacyDefault;
+  return dimensionsMm.every((dimension, index) => Number.isFinite(dimension)
+    && dimension > 0
+    && dimension === nameDimensionsMm[index]);
 }
 
 const LEGACY_SAMPLE_BOXES: Array<{
@@ -155,7 +145,8 @@ function cleanPlannerStorage(key: string) {
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (!parsed || !Array.isArray(parsed.boxes)) return;
-    const cleanedBoxes = parsed.boxes.filter(item => !isLegacyPlannerSampleBox(item));
+    // 추천 분석 결과 자체는 보유 박스가 아니다. 사용자가 등록 버튼을 눌러 explicit 표식이 붙은 추천만 보유 박스로 유지한다.
+    const cleanedBoxes = parsed.boxes.filter(item => !isLegacyPlannerSampleBox(item) && !isLegacyAutoRecommendedPersonalBox(item));
     if (cleanedBoxes.length !== parsed.boxes.length) {
       window.localStorage.setItem(key, JSON.stringify({ ...parsed, boxes: cleanedBoxes }));
     }
@@ -166,7 +157,7 @@ function cleanPlannerStorage(key: string) {
 
 /**
  * 앱 시작 시 예전 버전이 사용자의 의사와 무관하게 넣었던 박스만 제거한다.
- * 현재 사용자가 직접 등록/엑셀 업로드한 박스는 건드리지 않는다.
+ * 현재 사용자가 직접 등록/엑셀 업로드하거나 추천 화면에서 명시적으로 등록한 박스는 건드리지 않는다.
  */
 export function cleanupLegacyUnregisteredBoxes() {
   if (typeof window === 'undefined') return;
