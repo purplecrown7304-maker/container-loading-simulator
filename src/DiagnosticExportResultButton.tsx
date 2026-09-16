@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { DIAGNOSTIC_RECIPIENT } from './DiagnosticAutoMailBridge';
 import { exportLoadingDiagnosticsV2 } from './diagnosticExportV2';
 
 export default function DiagnosticExportResultButton() {
   const [host, setHost] = useState<HTMLElement | null>(null);
+  const [preparing, setPreparing] = useState(false);
 
   useEffect(() => {
     let frame = 0;
@@ -26,13 +28,25 @@ export default function DiagnosticExportResultButton() {
   if (!host) return null;
 
   const run = async () => {
-    const exported = await exportLoadingDiagnosticsV2();
-    if (!exported.ok) window.alert(exported.message);
+    if (preparing) return;
+    setPreparing(true);
+    try {
+      const exported = await exportLoadingDiagnosticsV2();
+      if (!exported.ok) window.alert(exported.message);
+    } finally {
+      setPreparing(false);
+    }
   };
 
   return createPortal(
-    <button type="button" className="guided-secondary-button diagnostic-export-result-button" onClick={() => void run()}>
-      점검 파일 내보내기
+    <button
+      type="button"
+      className="guided-secondary-button diagnostic-export-result-button"
+      onClick={() => void run()}
+      disabled={preparing}
+      title={`생성한 점검 ZIP을 ${DIAGNOSTIC_RECIPIENT}으로 전송합니다.`}
+    >
+      {preparing ? '점검 파일 준비 중…' : '점검 파일 메일 전송'}
     </button>,
     host,
   );
