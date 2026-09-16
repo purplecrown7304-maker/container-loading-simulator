@@ -26,8 +26,11 @@ jobs:
           node-version: 22
           package-manager-cache: false
 
+      # This repository intentionally has no package-lock.json yet. Exact direct
+      # dependency versions are pinned in package.json, so CI installs from that
+      # manifest and records the resolved tree before running release gates.
       - name: Install dependencies
-        run: npm ci
+        run: npm install --no-fund --no-audit
 
       - name: Record dependency versions
         run: npm ls --depth=0
