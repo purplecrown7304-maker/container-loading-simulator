@@ -45,6 +45,7 @@ let memoryStorage: MemoryAppStorage | null = null;
 let activeMember: LocalOperator | null = null;
 let initialized = false;
 let dirty = false;
+let changeRevision = 0;
 let uploadTimer: number | null = null;
 let uploadInFlight: Promise<void> | null = null;
 let legacyNativeCleared = false;
@@ -196,10 +197,20 @@ function clearNativeApplicationData() {
   }
 }
 
+function queueFlush(delay = 350) {
+  if (!activeMember || typeof window === 'undefined') return;
+  if (uploadTimer !== null) window.clearTimeout(uploadTimer);
+  uploadTimer = window.setTimeout(() => {
+    uploadTimer = null;
+    void flushNow();
+  }, delay);
+}
+
 async function flushNow() {
   if (!dirty || !activeMember || !memoryStorage) return;
   if (uploadInFlight) return uploadInFlight;
 
+  const revisionAtStart = changeRevision;
   const snapshot = persistentSnapshot();
   const compatibility = deriveCompatibilityData(snapshot, activeMember.id);
   const run = saveMemberCloudData({
@@ -207,28 +218,31 @@ async function flushNow() {
     appState: snapshot,
     schemaVersion: MEMBER_APP_STATE_SCHEMA_VERSION,
   }).then(updatedAt => {
-    dirty = false;
-    clearNativeApplicationData();
-    announce('saved', { updatedAt: updatedAt ?? null });
+    if (changeRevision === revisionAtStart) {
+      dirty = false;
+      clearNativeApplicationData();
+    } else {
+      // 업로드 중 새 수정이 발생했다. 방금 보낸 옛 스냅샷으로 dirty 상태를 지우지 않는다.
+      dirty = true;
+    }
+    announce('saved', { updatedAt: updatedAt ?? null, pending: dirty });
   }).catch(error => {
     dirty = true;
     announce('offline', { error: error instanceof Error ? error.message : String(error) });
-  }).finally(() => {
-    if (uploadInFlight === run) uploadInFlight = null;
   });
   uploadInFlight = run;
+  void run.finally(() => {
+    if (uploadInFlight === run) uploadInFlight = null;
+    if (dirty) queueFlush(50);
+  });
   return run;
 }
 
 function scheduleUpload() {
+  changeRevision += 1;
   dirty = true;
   announce('dirty');
-  if (!activeMember || typeof window === 'undefined') return;
-  if (uploadTimer !== null) window.clearTimeout(uploadTimer);
-  uploadTimer = window.setTimeout(() => {
-    uploadTimer = null;
-    void flushNow();
-  }, 350);
+  queueFlush();
 }
 
 function installMemoryLocalStorage(initial: Record<string, string>) {
