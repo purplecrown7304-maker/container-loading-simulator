@@ -9,6 +9,7 @@ import { loadContainer, type LoadingStrategy } from './engine/loadingEngine';
 import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
+import { shouldRenderGuidedViewer, useGuidedWorkflowState } from './guidedWorkflowState';
 import { clearLatestInertiaCertification } from './inertiaCertification';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { openPalletLoadingReport } from './palletWorkerReport';
@@ -70,6 +71,7 @@ export default function App() {
   const [optimizationMessage, setOptimizationMessage] = useState('');
   const [physicsScore, setPhysicsScore] = useState<number | null>(null);
   const [physicsStrategy, setPhysicsStrategy] = useState<LoadingStrategy | null>(null);
+  const guidedWorkflowState = useGuidedWorkflowState();
 
   const totalVolume = container.length * container.width * container.height;
   const fillRate = totalVolume > 0 ? result.usedVolumeM3 / totalVolume * 100 : 0;
@@ -82,6 +84,7 @@ export default function App() {
   const hasConstraintWarning = constraintChecks.some(check => check.status === 'warn');
   const addresses = useMemo(() => buildPlacementAddresses(result.placements, container.length), [result.placements, container.length]);
   const maxLayer = useMemo(() => addresses.reduce((max, item) => Math.max(max, item?.layer ?? 0), 0), [addresses]);
+  const renderViewer = shouldRenderGuidedViewer(guidedWorkflowState);
 
   const announce = (tone: StatusTone, text: string) => setStatusMessage({ tone, text });
   const invalidatePhysics = () => {
@@ -100,6 +103,10 @@ export default function App() {
   };
   const scrollToViewer = () => {
     setNavSection('viewer');
+    if (guidedWorkflowState.active && guidedWorkflowState.step !== 5) {
+      announce('info', '3D 적재 화면은 자동 적재 단계에서 표시됩니다.');
+      return;
+    }
     document.querySelector('.viewer-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
   const scrollToDashboard = () => {
@@ -187,9 +194,9 @@ export default function App() {
     }
     const activeCargo = preflight.cargo;
     if (!activeCargo.length) return announce('warning', '적재할 화물이 없습니다. 본인의 박스 목록에서 화물을 등록하거나 선택하세요.');
-    const guidedWorkflow = typeof document !== 'undefined' && document.documentElement.dataset.guidedWorkflow === 'true';
-    const preferredStrategy = guidedWorkflow ? readLoadingStrategyPreference() : null;
-    if (guidedWorkflow && !preferredStrategy) return announce('warning', '적재 방식을 먼저 선택해 주세요.');
+    const guidedWorkflowActive = guidedWorkflowState.active;
+    const preferredStrategy = guidedWorkflowActive ? readLoadingStrategyPreference() : null;
+    if (guidedWorkflowActive && !preferredStrategy) return announce('warning', '적재 방식을 먼저 선택해 주세요.');
     if (mode === 'pallets') {
       invalidatePhysics();
       requestNextPalletCertification();
@@ -234,7 +241,7 @@ export default function App() {
       : openLoadingReport(container, cargo, result);
     if (!opened) announce('error', '팝업이 차단되어 작업지시서를 열지 못했습니다.');
   };
-  const saveLocal = () => { writeStoredState({ container, cargo }); announce('success', '현재 데이터가 이 브라우저에 저장되었습니다.'); };
+  const saveLocal = () => { writeStoredState({ container, cargo }); announce('success', '현재 작업을 저장했습니다.'); };
   const loadLocal = () => {
     const state = readStoredState();
     if (!state) return announce('warning', '저장된 데이터가 없습니다.');
@@ -271,7 +278,7 @@ export default function App() {
     };
     window.addEventListener(APP_ACTION_EVENT, onAppAction);
     return () => window.removeEventListener(APP_ACTION_EVENT, onAppAction);
-  }, [container, cargo, result, mode, isRunning, navSection]);
+  }, [container, cargo, result, mode, isRunning, navSection, guidedWorkflowState.active, guidedWorkflowState.step]);
 
   return <main className="app-shell mockup-dashboard">
     <header className="topbar mockup-topbar">
@@ -366,7 +373,7 @@ export default function App() {
       </aside>
 
       <section className="dashboard-center">
-        <section className="dashboard-card viewer-card">
+        {renderViewer && <section className="dashboard-card viewer-card">
           <div className="viewer-host">
             {isRunning && <div className="calculation-overlay"><b>물리 기반 최적 적재 계산 중</b><span>{optimizationMessage || '후보 적재안을 만들고 있습니다.'}</span></div>}
             <Suspense fallback={<LoadingFallback />}>
@@ -378,7 +385,7 @@ export default function App() {
             <PalletFooterSummary active={mode === 'pallets'} />
             <span>{physicsScore !== null ? `Rapier ${physicsScore}점 · ${physicsStrategy ? strategyLabel(physicsStrategy) : ''}` : '자동 적재 실행 시 후보를 물리 검증해 최종안을 선택합니다.'}</span>
           </div>
-        </section>
+        </section>}
       </section>
 
       <aside className="dashboard-right">
