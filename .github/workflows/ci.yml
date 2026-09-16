@@ -1,14 +1,21 @@
 name: CI
 
-# GitHub Actions billing is unavailable until September 2026.
-# Keep this workflow manual-only during August development.
-# Re-enable push/pull_request triggers when Actions usage resumes.
+# September 2026 release-candidate validation.
+# Pull requests into main must pass the same checks required immediately before deployment.
 on:
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -20,7 +27,7 @@ jobs:
           package-manager-cache: false
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Record dependency versions
         run: npm ls --depth=0
