@@ -27,14 +27,6 @@ function selectionLabel() {
   return productCount ? `${productCount}종 · ${units.toLocaleString()} EA` : '선택 제품 없음';
 }
 
-function clickUnderlyingMode(unit: GuidedLoadingUnit) {
-  const label = unit === 'boxes' ? '박스' : '팔레트';
-  const target = [...document.querySelectorAll<HTMLButtonElement>('.mode-tabs button')]
-    .find(button => (button.textContent ?? '').trim() === label);
-  target?.click();
-  return Boolean(target);
-}
-
 export default function GuidedLoadingUnitEnhancer() {
   const guidedWorkflow = useGuidedWorkflowState();
   const unit = useGuidedLoadingUnit();
@@ -47,14 +39,8 @@ export default function GuidedLoadingUnitEnhancer() {
     }
 
     if (guidedWorkflow.step === 4 && unit === null) {
-      const initial = readGuidedLoadingUnit() ?? 'boxes';
-      publishGuidedLoadingUnit(initial);
-      clickUnderlyingMode(initial);
+      publishGuidedLoadingUnit(readGuidedLoadingUnit() ?? 'boxes');
       return;
-    }
-
-    if ((guidedWorkflow.step === 5 || guidedWorkflow.step === 6) && unit) {
-      clickUnderlyingMode(unit);
     }
 
     // PalletModePanel은 3D 화면이 unmount될 때 legacy window mirror를 비운다.
@@ -95,10 +81,7 @@ export default function GuidedLoadingUnitEnhancer() {
     return () => { delete document.documentElement.dataset.guidedLoadingUnit; };
   }, [unit]);
 
-  const choose = (next: GuidedLoadingUnit) => {
-    if (!clickUnderlyingMode(next)) return;
-    publishGuidedLoadingUnit(next);
-  };
+  const choose = (next: GuidedLoadingUnit) => publishGuidedLoadingUnit(next);
 
   const selectedStrategyLabel = useMemo(
     () => strategyLabel(),
