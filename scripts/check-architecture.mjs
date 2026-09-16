@@ -188,22 +188,34 @@ if (reviewCssNames.length > 0) {
 }
 
 const tsxFiles = readdirSync('src').filter((name) => name.endsWith('.tsx')).map((name) => join('src', name));
-const legacyWorkspaceClasses = [
-  ['workspace', /className\s*=\s*["'][^"']*\bworkspace\b/],
-  ['panel', /className\s*=\s*["'][^"']*\bpanel\b/],
-  ['left-panel', /className\s*=\s*["'][^"']*\bleft-panel\b/],
-  ['right-panel', /className\s*=\s*["'][^"']*\bright-panel\b/],
-];
+const legacyWorkspaceClassNames = ['workspace', 'panel', 'left-panel', 'right-panel'];
+
+function staticClassNameTokens(source) {
+  const tokens = [];
+  const direct = /className\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+  const template = /className\s*=\s*\{\s*`([^`]*)`\s*\}/g;
+  for (const match of source.matchAll(direct)) {
+    const value = match[1] ?? match[2] ?? '';
+    tokens.push(...value.trim().split(/\s+/).filter(Boolean));
+  }
+  for (const match of source.matchAll(template)) {
+    const value = (match[1] ?? '').replace(/\$\{[^}]*\}/g, ' ');
+    tokens.push(...value.trim().split(/\s+/).filter(Boolean));
+  }
+  return tokens;
+}
+
 for (const path of tsxFiles) {
   const source = readFileSync(path, 'utf8');
-  for (const [className, pattern] of legacyWorkspaceClasses) {
-    if (pattern.test(source)) fail(`${path} restored legacy .${className}; use dashboard/workspace-tools layout classes instead.`);
+  const tokens = new Set(staticClassNameTokens(source));
+  for (const className of legacyWorkspaceClassNames) {
+    if (tokens.has(className)) fail(`${path} restored legacy .${className}; use dashboard/workspace-tools layout classes instead.`);
   }
 }
 
 const stylesSource = readFileSync('src/styles.css', 'utf8');
-for (const [className] of legacyWorkspaceClasses) {
-  const selectorPattern = new RegExp(`\\.${className}\\b`);
+for (const className of legacyWorkspaceClassNames) {
+  const selectorPattern = new RegExp(`\\.${className}(?![A-Za-z0-9_-])`);
   if (selectorPattern.test(stylesSource)) {
     fail(`src/styles.css restored legacy .${className} layout rules; keep the dashboard/workspace-tools layout as the only owner.`);
   }
