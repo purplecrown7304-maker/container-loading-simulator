@@ -47,7 +47,7 @@ export function isLegacySyntheticCatalogBox(value: unknown): boolean {
 /**
  * 예전 범용 박스 추천 기능이 추천 결과를 개인 박스 목록에 자동 저장하던 항목.
  * REC 코드만으로 지우지 않고 자동생성 이름, 규격, 기본 안전값까지 모두 맞을 때만 제거한다.
- * 따라서 사용자가 REC 코드를 실제 박스 코드로 재사용한 경우에는 보존된다.
+ * 오래된 저장값은 quantity/allowRotation 필드가 생략된 버전도 있어 UI 기본값과 동일하게 해석한다.
  */
 export function isLegacyAutoRecommendedPersonalBox(value: unknown): boolean {
   const item = asRecord(value);
@@ -65,14 +65,17 @@ export function isLegacyAutoRecommendedPersonalBox(value: unknown): boolean {
   if (dimensionsMm.some(dimension => !Number.isFinite(dimension) || dimension <= 0)) return false;
 
   const [lengthMm, widthMm, heightMm] = dimensionsMm;
+  const quantityIsLegacyDefault = item.quantity == null || item.quantity === 0;
+  const rotationIsLegacyDefault = item.allowRotation == null || item.allowRotation === true;
+
   return closeEnough(item.length, lengthMm / 1000)
     && closeEnough(item.width, widthMm / 1000)
     && closeEnough(item.height, heightMm / 1000)
     && closeEnough(item.weightKg, 22)
-    && item.quantity === 0
+    && quantityIsLegacyDefault
     && item.maxStackLayers === 1
     && closeEnough(item.maxTopLoadKg, 0)
-    && item.allowRotation === true;
+    && rotationIsLegacyDefault;
 }
 
 const LEGACY_SAMPLE_BOXES: Array<{
