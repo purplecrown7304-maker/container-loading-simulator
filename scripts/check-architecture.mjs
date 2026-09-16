@@ -58,4 +58,47 @@ for (const path of tokenizedCss) {
   }
 }
 
-if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected.`);
+const uxReviewCss = [
+  'src/ux-review-improvements.css',
+  'src/ux-review-phase2.css',
+];
+for (const path of uxReviewCss) {
+  if (!existsSync(path)) fail(`${path} is required while the UX review migration is active.`);
+  const source = existsSync(path) ? readFileSync(path, 'utf8') : '';
+  if (/font-size\s*:\s*(?:[0-9](?:\.\d+)?)px\b/.test(source)) {
+    fail(`${path} must not introduce typography below 10px. Use shared font tokens instead.`);
+  }
+}
+
+if (existsSync('src/ux-review-phase2.css')) {
+  const phase2 = readFileSync('src/ux-review-phase2.css', 'utf8');
+  if (/!important\b/.test(phase2)) {
+    fail('src/ux-review-phase2.css must not add new !important declarations. Resolve specificity in the owning feature stylesheet instead.');
+  }
+}
+
+const mainSource = readFileSync('src/main.tsx', 'utf8');
+const review1Import = "import './ux-review-improvements.css';";
+const review2Import = "import './ux-review-phase2.css';";
+const review1Index = mainSource.indexOf(review1Import);
+const review2Index = mainSource.indexOf(review2Import);
+if (review1Index < 0 || review2Index < 0) {
+  fail('main.tsx must load both UX review stylesheets while the staged migration is active.');
+} else if (review2Index < review1Index) {
+  fail('ux-review-phase2.css must load after ux-review-improvements.css.');
+}
+
+const reviewCssNames = readdirSync('src').filter((name) => /^ux-review.*\.css$/.test(name));
+if (reviewCssNames.length > 2) {
+  fail(`Do not add another UX override layer (${reviewCssNames.join(', ')}). Move new rules into an existing review file or the owning feature stylesheet.`);
+}
+
+const reviewCssCombined = uxReviewCss
+  .filter((path) => existsSync(path))
+  .map((path) => readFileSync(path, 'utf8'))
+  .join('\n');
+if (!/grid-template-columns\s*:\s*repeat\(6,\s*minmax\(118px,\s*1fr\)\)/.test(reviewCssCombined)) {
+  fail('The mobile guided step rail must remain a six-step layout.');
+}
+
+if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · ${reviewCssNames.length} UX review stylesheet(s) guarded.`);
