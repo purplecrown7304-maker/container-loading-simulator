@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { readProductSelection } from './productWorkflow';
+import { useGuidedWorkflowState } from './guidedWorkflowState';
 
 export type GuidedLoadingUnit = 'boxes' | 'pallets';
 
@@ -9,7 +10,6 @@ export const GUIDED_LOADING_UNIT_KEY = 'container-loading:guided-loading-unit';
 export const GUIDED_LOADING_UNIT_EVENT = 'container-loading:guided-loading-unit-updated';
 
 type Anchor = { left: number; top: number; width: number };
-
 type GuidedStep = '1' | '2' | '3' | '4' | '5' | '6' | '';
 
 function modeLabel(unit: GuidedLoadingUnit) {
@@ -65,18 +65,11 @@ function sameAnchor(a: Anchor | null, b: Anchor | null) {
 }
 
 export default function GuidedLoadingUnitEnhancer() {
-  const [step, setStep] = useState<GuidedStep>(() => typeof document === 'undefined' ? '' : (document.documentElement.dataset.guidedStep as GuidedStep) ?? '');
+  const guidedWorkflow = useGuidedWorkflowState();
+  const step: GuidedStep = guidedWorkflow.active ? String(guidedWorkflow.step) as GuidedStep : '';
   const [unit, setUnit] = useState<GuidedLoadingUnit | null>(() => typeof window === 'undefined' ? null : readPersistedUnit());
   const [selectorAnchor, setSelectorAnchor] = useState<Anchor | null>(null);
   const [viewerAnchor, setViewerAnchor] = useState<Anchor | null>(null);
-
-  useEffect(() => {
-    const syncStep = () => setStep((document.documentElement.dataset.guidedStep as GuidedStep) ?? '');
-    syncStep();
-    const observer = new MutationObserver(syncStep);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-guided-step'] });
-    return () => observer.disconnect();
-  }, []);
 
   useEffect(() => {
     if (step === '1' || step === '2' || step === '3') {
