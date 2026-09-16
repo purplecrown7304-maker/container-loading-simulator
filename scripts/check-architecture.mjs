@@ -29,6 +29,7 @@ for (const path of removedFiles) {
 if (!existsSync('src/tokens.css')) fail('src/tokens.css is required for the shared typography scale.');
 if (!existsSync('src/store/externalStore.ts')) fail('src/store/externalStore.ts is required for domain state migration.');
 if (!existsSync('src/palletSnapshotStore.ts')) fail('src/palletSnapshotStore.ts is required for pallet domain state.');
+if (!existsSync('src/guidedWorkflowState.ts')) fail('src/guidedWorkflowState.ts is required while guided-step DOM state is being migrated into React state.');
 
 const bridgeFiles = readdirSync('src')
   .filter((name) => name.endsWith('Bridge.tsx'))
@@ -46,6 +47,14 @@ for (const path of bridgeFiles) {
   for (const [label, pattern] of forbiddenBridgePatterns) {
     if (pattern.test(source)) fail(`${path} uses ${label}; Bridge components must not discover or mutate React DOM.`);
   }
+}
+
+const loadingUnitEnhancer = readFileSync('src/GuidedLoadingUnitEnhancer.tsx', 'utf8');
+if (!loadingUnitEnhancer.includes("useGuidedWorkflowState")) {
+  fail('GuidedLoadingUnitEnhancer must consume the centralized guided workflow state instead of observing data-guided-step itself.');
+}
+if (/observe\(document\.documentElement[\s\S]*data-guided-step/.test(loadingUnitEnhancer)) {
+  fail('GuidedLoadingUnitEnhancer restored its own data-guided-step MutationObserver; keep that compatibility observation centralized in guidedWorkflowState.ts.');
 }
 
 const tokenizedCss = [
@@ -126,4 +135,4 @@ if (!/\.guided-result-grid>div:nth-child\(-n \+ 3\)\s*\{[^}]*min-height\s*:\s*96
   fail('src/guided-result-tabs-enhancer.css must keep the three primary result metrics visually prioritized.');
 }
 
-if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · temporary UX review styles removed.`);
+if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · temporary UX review styles removed · guided-step observation centralized.`);
