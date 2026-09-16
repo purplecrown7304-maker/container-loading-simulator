@@ -1,4 +1,4 @@
-import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult } from './types';
+import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
 import { validatePlacements } from './constraints';
 import { centerPlacementsOnContainer } from './containerCentering';
 import { packByHybridOptimizer } from './hybridLoadingOptimizer';
@@ -33,6 +33,52 @@ function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], resu
   const detail = { container, cargo, result };
   (window as CorrectionWindow).__containerLoadingLatestResult = detail;
   window.dispatchEvent(new CustomEvent(LOADING_RESULT_EVENT, { detail }));
+}
+
+function averageDepthByPriority(cargo: CargoItem[], placements: Placement[]) {
+  const priorities = new Map(
+    cargo
+      .filter(item => Number.isFinite(item.unloadPriority) && (item.unloadPriority ?? 0) > 0)
+      .map(item => [item.id, item.unloadPriority as number]),
+  );
+  const grouped = new Map<number, number[]>();
+  for (const placement of placements) {
+    const priority = priorities.get(placement.cargoId);
+    if (priority == null) continue;
+    const list = grouped.get(priority) ?? [];
+    list.push(placement.x + placement.length / 2);
+    grouped.set(priority, list);
+  }
+  return [...grouped.entries()]
+    .map(([priority, xs]) => ({ priority, x: xs.reduce((sum, value) => sum + value, 0) / xs.length }))
+    .sort((a, b) => a.priority - b.priority);
+}
+
+/**
+ * The door is the +X end of the container. Higher unloadPriority means later unloading,
+ * so those items should sit deeper toward X=0. Some dense packers can produce the exact
+ * reverse order while still scoring well on utilization. A whole-plan X reflection keeps
+ * every collision/support/stack relation identical while correcting that reversed flow.
+ */
+function orientForUnloading(container: ContainerSpec, cargo: CargoItem[], placements: Placement[]) {
+  const rows = averageDepthByPriority(cargo, placements);
+  if (rows.length < 2) return placements;
+
+  let priorityDelta = 0;
+  let depthDelta = 0;
+  for (let index = 1; index < rows.length; index += 1) {
+    const previous = rows[index - 1];
+    const current = rows[index];
+    priorityDelta += current.priority - previous.priority;
+    depthDelta += current.x - previous.x;
+  }
+
+  // Desired relation is negative: later-unloaded cargo (higher priority) is deeper (smaller X).
+  if (priorityDelta <= 0 || depthDelta <= 1e-9) return placements;
+  return placements.map(placement => ({
+    ...placement,
+    x: Math.round((container.length - placement.x - placement.length) * 1_000_000) / 1_000_000,
+  }));
 }
 
 /**
@@ -88,7 +134,10 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   }
 
   const packed = packByHybridOptimizer(container, normalizedCargo, strategy);
-  const finalPlacements = centerPlacementsOnContainer(container, packed.placements);
+  const centered = centerPlacementsOnContainer(container, packed.placements);
+  const finalPlacements = strategy === 'unloading'
+    ? orientForUnloading(container, normalizedCargo, centered)
+    : centered;
   const result: LoadingResult = {
     placements: finalPlacements,
     remaining: [
