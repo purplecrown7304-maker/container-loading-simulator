@@ -71,7 +71,7 @@ html[data-guided-workflow="true"][data-guided-step="6"] .dashboard-center>.guide
 
 .guided-strategy-card {
   position: relative;
-  min-height: 190px;
+  min-height: 200px;
   padding: 22px 18px 18px;
   border: 1px solid #dfe3ea;
   border-radius: 14px;
@@ -177,9 +177,9 @@ html[data-guided-workflow="true"][data-guided-step="6"] .dashboard-center>.guide
   }
 }
 
-@media (max-width: 760px) {
-  .guided-step-list {
-    grid-template-columns: repeat(6, minmax(118px, 1fr));
-    min-width: 730px;
+@media (prefers-reduced-motion: reduce) {
+  .guided-strategy-card {
+    transition: none;
+    transform: none!important;
   }
 }
