@@ -10,6 +10,7 @@ describe('guided workflow step normalization', () => {
 
   it('falls back to step 1 for invalid or fractional values', () => {
     expect(normalizeGuidedWorkflowStep(undefined)).toBe(1);
+    expect(normalizeGuidedWorkflowStep('')).toBe(1);
     expect(normalizeGuidedWorkflowStep('0')).toBe(1);
     expect(normalizeGuidedWorkflowStep('7')).toBe(1);
     expect(normalizeGuidedWorkflowStep('2.5')).toBe(1);
