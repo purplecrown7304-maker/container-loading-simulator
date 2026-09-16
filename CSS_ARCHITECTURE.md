@@ -10,8 +10,9 @@
 - 새 UX 규칙은 처음부터 해당 기능 CSS 또는 공용 토큰에 넣습니다.
 - 적재 알고리즘, 물리 검증, Supabase 상태 모델을 CSS 수정과 섞지 않습니다.
 - 단계에 따라 컴포넌트를 보여주거나 숨기는 판단은 CSS가 아니라 React 상태/렌더링이 소유합니다.
+- 데이터가 없는 UI를 그럴듯하게 보이게 하기 위해 안전 판정이나 적재 결과를 임의로 생성하지 않습니다.
 
-## 2. 스타일 소유권
+## 2. 스타일 및 상태 소유권
 
 ### 전역 토큰
 - `src/tokens.css`
@@ -25,23 +26,36 @@
 - `src/guided-loading-unit.css`
 - `src/guided-result-tabs-enhancer.css`
 - `src/guidedWorkflowState.ts`
+- `src/guidedLoadingUnitState.ts`
 
 단계 표시, 제품 선택, 제품 포장, 적재 방식, 자동 적재, 결과 확인의 기본 스타일과 단계 상태를 이 그룹이 소유합니다.
 
 세부 소유권:
 - 전체 가이드 shell 비율, 모바일 6단계 rail, 키보드 focus, 하단 CTA, 제품 검색 결과 스크롤/고정 헤더: `guided-workflow-v2.css`
 - 적재 전략 카드/전략 반응형/모션 감소: `guided-loading-strategy.css`
-- 박스·파렛트 적재 유형 카드/자동 적재 상태 배지: `guided-loading-unit.css`
+- 박스·파렛트 적재 유형 카드/자동 적재 실행 설정 확인: `guided-loading-unit.css`
+- 적재 유형의 실제 상태 원본: `guidedLoadingUnitState.ts`
 - 결과 탭, 핵심 결과 지표, 미적재 목록 스크롤, 결과 반응형: `guided-result-tabs-enhancer.css`
 - 가이드 활성 여부/현재 단계/3D Viewer 렌더 정책과 DOM 호환 미러: `guidedWorkflowState.ts`
 - 실제 단계 발행: `GuidedWorkflowShell.tsx`
-- 실제 대시보드 3D Viewer mount/unmount: `App.tsx`
+- 실제 대시보드 3D Viewer mount/unmount와 적재 유형 적용: `App.tsx`
 
-`GuidedWorkflowShell`은 현재 단계를 `publishGuidedWorkflowState()`로 직접 발행합니다. `guidedWorkflowState.ts`가 `data-guided-workflow` / `data-guided-step`을 호환용 DOM 미러로 갱신하므로 개별 컴포넌트가 dataset을 직접 쓰지 않습니다.
+`GuidedWorkflowShell`은 현재 단계를 `publishGuidedWorkflowState()`로 발행합니다. `guidedWorkflowState.ts`의 외부 store가 상태 원본이며 `data-guided-workflow` / `data-guided-step`은 기존 CSS 호환을 위한 출력 미러일 뿐입니다. DOM attribute를 관찰해 React 상태를 역산하지 않습니다.
+
+적재 유형도 `guidedLoadingUnitState.ts`의 외부 store가 원본입니다. `GuidedLoadingUnitEnhancer`는 숨겨진 `.mode-tabs` 버튼을 클릭해 App 상태를 우회하지 않고, `App.tsx`가 같은 store를 구독해 `boxes` / `pallets` 모드를 직접 적용합니다.
+
+### 자동 적재 진행 표시
+- `src/loading-progress.css`
+- `src/App.tsx`
+
+DIRECT BOX 자동 적재 중 후보 계산과 Rapier 물리검증 진행률을 원형 게이지로 표시하고, 관측된 경과시간/진행률로 남은 시간을 추정합니다. ETA는 확정 시간이 아니라 진행 중 갱신되는 추정값으로만 표시합니다.
+
+5단계 진입 전에는 `guided-loading-unit.css`의 실행 설정 확인 바에서 `적재 유형 + 적재 전략 + 선택 제품 수량`을 보여 줍니다.
 
 ### 박스 / 파렛트 기본 모드
 - `src/mode.css`
-- `.mode-tabs`와 기본 박스/파렛트 모드 선택 표현을 소유합니다.
+- 일반 대시보드의 `.mode-tabs` 표현을 소유합니다.
+- 가이드 적재 유형 상태의 원본으로 사용하지 않습니다.
 
 ### 3D 뷰어
 - `src/reference-viewer.css`
@@ -89,32 +103,27 @@
 - 작은 보조 버튼도 가능한 경우 `--control-height-sm`(32px) 이상을 확보합니다.
 - `:focus-visible` 상태를 제거하지 않습니다.
 - 모션이 필수가 아니면 `prefers-reduced-motion`에서 비활성화합니다.
+- 진행 상태는 색만으로 전달하지 않고 퍼센트/문구를 함께 표시합니다.
 
-## 6. 구조 정리 순서
-
-완료한 단계:
+## 6. 완료된 구조 정리
 
 1. 3D Viewer, Workspace, 적재공간 선택의 임시 override를 기능 CSS로 이동
 2. 제품 목록, mode tabs, 모바일 6단계 rail, 적재 유형/전략 규칙을 기능 CSS로 이동
 3. 가이드 shell, 결과 핵심 지표, 결과 목록, 하단 CTA 규칙을 기능 CSS로 이동
 4. `ux-review-improvements.css`, `ux-review-phase2.css`와 import 제거
-5. 현재 `App.tsx` 렌더 구조를 점검해 구형 `.workspace` / `.panel` wrapper를 더 이상 사용하지 않는 것을 확인
-6. `.workspace`, `.panel`, `.left-panel`, `.right-panel` 재도입을 architecture check에서 차단
-7. `styles.css`의 구형 workspace/panel 규칙과 관련 반응형 잔재 제거
-8. `styles.css`의 10px 보조 텍스트를 `--font-2xs`(11px)로 올리고 inspector 보조 버튼에 32px 최소 높이 적용
-9. 중앙 `guidedWorkflowState.ts` 추가, `GuidedLoadingUnitEnhancer`의 독립 단계 MutationObserver 제거
-10. `App.tsx`가 중앙 상태를 구독해 3D Viewer를 가이드 자동 적재 5단계에서만 React로 mount
-11. 단계별 Viewer/Stage `display:none/block!important` 전환 제거
-12. 제품/포장 보조 텍스트를 최소 11px로 통일
-13. `GuidedWorkflowShell`이 `publishGuidedWorkflowState()`로 현재 단계를 직접 발행하고 unmount 시 상태를 종료하도록 전환
-14. Shell의 `document.documentElement.dataset.guided*` 직접 쓰기를 제거하고 architecture check로 재도입 차단
-
-다음 단계:
-
-1. `GuidedLoadingUnitEnhancer`의 적재 유형 선택 UI를 body portal + 좌표 측정 방식에서 `LoadingStrategyStage` 내부 React 구성으로 이동
-2. 적재 유형 상태도 DOM의 `.mode-tabs` 클릭 프록시 대신 명시적 React 상태/이벤트 경계로 이전
-3. `guidedWorkflowState.ts`의 dataset MutationObserver를 제거하고 DOM dataset을 완전한 출력 미러로 축소
-4. 남은 중복 `!important`와 상충 반응형 규칙을 단계적으로 축소
+5. 구형 `.workspace` / `.panel` wrapper 및 관련 CSS 제거와 재도입 방지
+6. `styles.css`의 초소형 보조 텍스트를 최소 11px 토큰으로 통일
+7. 중앙 `guidedWorkflowState.ts` 추가 후 DOM observer 기반 단계 역산 제거
+8. `App.tsx`가 중앙 상태를 구독해 3D Viewer를 가이드 자동 적재 5단계에서만 React로 mount
+9. 단계별 Viewer/Stage `display:none/block!important` 전환 제거
+10. `GuidedWorkflowShell`이 `publishGuidedWorkflowState()`로 현재 단계를 직접 발행
+11. 적재 유형을 `guidedLoadingUnitState.ts`로 분리하고 `App.tsx`가 직접 구독
+12. `GuidedLoadingUnitEnhancer`의 숨겨진 `.mode-tabs` 클릭 프록시와 화면 좌표/스크롤 추적 제거
+13. 적재 유형 선택 UI를 전략 단계의 정상 문서 흐름 안으로 이동
+14. 팔레트 3D Viewer unmount 뒤에도 결과 snapshot store를 통해 결과 단계가 데이터를 유지하도록 보완
+15. `uiEvents.ts`가 `data-guided-step` 대신 중앙 workflow state로 5단계 자동 적재 동기화를 판단하도록 수정
+16. DIRECT BOX 자동 적재에 원형 진행 게이지와 ETA 추정 표시 추가
+17. 가이드 적재 유형/Viewer 정책에 단위 테스트와 architecture guard 추가
 
 ## 7. 자동 검사
 
@@ -122,12 +131,28 @@
 
 - Bridge 컴포넌트의 React DOM 직접 탐색/조작 금지
 - `GuidedWorkflowShell`이 중앙 상태를 직접 발행하고 dataset을 직접 쓰지 않음
-- `GuidedLoadingUnitEnhancer`가 중앙 가이드 상태를 사용
-- `App.tsx`가 `shouldRenderGuidedViewer()` 정책으로 Viewer를 렌더링
+- `guidedWorkflowState.ts`가 DOM MutationObserver를 다시 사용하지 않음
+- `GuidedLoadingUnitEnhancer`가 중앙 가이드/적재유형 상태를 사용
+- 적재 유형 enhancer가 `.mode-tabs` DOM 클릭 프록시를 다시 만들지 않음
+- 화면 좌표를 계속 측정하는 `ResizeObserver/getBoundingClientRect/scroll` 방식 재도입 금지
+- `App.tsx`가 `shouldRenderGuidedViewer()` 정책과 `useGuidedLoadingUnit()`을 사용
+- `uiEvents.ts`가 DOM dataset 대신 중앙 상태를 사용
 - `data-guided-step` CSS가 `.viewer-card` / `.guided-stage-panel` display를 다시 제어하지 않음
 - 토큰화 CSS에 8~10px 폰트 재도입 금지
 - 삭제된 임시/구형 CSS와 selector 재도입 금지
 - 모바일 6단계 step rail, 제품 목록 bounded scroll, 44px CTA 유지
+- 자동 적재 원형 진행 게이지와 ETA 피드백 유지
 - 미적재 목록 bounded scroll과 핵심 결과 3개 지표 강조 유지
 
-이 검사는 `npm run verify:predeploy`의 기존 architecture check에 포함됩니다.
+이 검사는 `npm run verify:predeploy`의 architecture check에 포함됩니다.
+
+## 8. 배포 직전 필수 게이트
+
+코드 정리가 끝났더라도 아래 명령을 실행해 모두 통과하기 전에는 배포하지 않습니다.
+
+```bash
+npm run verify:predeploy
+npm run test:e2e
+```
+
+`verify:predeploy`는 단위 테스트, TypeScript typecheck, architecture check, production build, bundle-size check를 순서대로 실행합니다. E2E까지 통과한 커밋만 배포 후보로 취급합니다.
