@@ -34,9 +34,10 @@
 ### 적재공간 선택
 - `src/transport-equipment.css`
 - `src/transport-equipment-selection-ux.css`
-- `src/transport-equipment-scroll-fix.css`
 
-적재공간 카드, 선택 모달, 경고, 모바일 탐색을 소유합니다.
+`transport-equipment.css`가 선택 모달의 외곽 크기, 카드 그리드, 내부 스크롤, 경고, 반응형 규칙과 키보드 포커스 상태를 소유합니다.
+`transport-equipment-selection-ux.css`는 가이드 적재공간 선택 화면에서 선택된 장비 라벨의 배치만 소유합니다.
+기존 `transport-equipment-scroll-fix.css`는 `transport-equipment.css`에 통합했으며 다시 만들지 않습니다.
 
 ### 박스/차량/안전점검 도구
 - `src/workspace-tools.css`
@@ -68,6 +69,7 @@
 - Small mobile: 460px 이하
 
 가이드 작업 단계는 현재 6단계이므로 모바일 step rail도 항상 6개 기준이어야 합니다.
+적재공간 선택 모달도 같은 760px 모바일 기준을 사용하고, 460px 이하에서 장비 카드를 1열로 전환합니다.
 
 ## 5. 접근성 기준
 
@@ -92,6 +94,8 @@
 
 - Bridge 컴포넌트의 React DOM 직접 탐색/조작 금지
 - 이미 토큰화한 CSS에 8~10px 폰트 재도입 금지
+- 제거된 `transport-equipment-scroll-fix.css` 재생성/재import 금지
+- UX review CSS가 3D Viewer, Workspace, 적재공간 선택 소유 selector를 다시 덮어쓰지 않는지 확인
 - UX review CSS의 10px 미만 신규 폰트 금지
 - `ux-review-phase2.css`의 신규 `!important` 금지
 - review CSS import 순서 고정
