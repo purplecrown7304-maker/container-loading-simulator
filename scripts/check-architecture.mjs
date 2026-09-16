@@ -52,6 +52,9 @@ const tokenizedCss = [
   'src/reference-viewer.css',
   'src/transport-equipment.css',
   'src/transport-equipment-selection-ux.css',
+  'src/guided-workflow-v2.css',
+  'src/guided-loading-strategy.css',
+  'src/guided-loading-unit.css',
   'src/minimap.css',
   'src/pallet-footer-summary.css',
 ];
@@ -88,6 +91,11 @@ const migratedOwnerRules = [
   ['.catalog-wrap', 'src/workspace-tools.css'],
   ['.guided-equipment-type-label', 'src/transport-equipment-selection-ux.css'],
   ['.transport-selector-modal', 'src/transport-equipment.css'],
+  ['.guided-product-table', 'src/guided-workflow-v2.css'],
+  ['.mode-tabs', 'src/mode.css'],
+  ['.guided-loading-unit-grid', 'src/guided-loading-unit.css'],
+  ['.guided-loading-unit-running-badge', 'src/guided-loading-unit.css'],
+  ['.guided-strategy-card', 'src/guided-loading-strategy.css'],
 ];
 for (const reviewPath of uxReviewCss) {
   const source = existsSync(reviewPath) ? readFileSync(reviewPath, 'utf8') : '';
@@ -118,12 +126,12 @@ if (reviewCssNames.length > 2) {
   fail(`Do not add another UX override layer (${reviewCssNames.join(', ')}). Move new rules into an existing review file or the owning feature stylesheet.`);
 }
 
-const reviewCssCombined = uxReviewCss
-  .filter((path) => existsSync(path))
-  .map((path) => readFileSync(path, 'utf8'))
-  .join('\n');
-if (!/grid-template-columns\s*:\s*repeat\(6,\s*minmax\(118px,\s*1fr\)\)/.test(reviewCssCombined)) {
-  fail('The mobile guided step rail must remain a six-step layout.');
+const guidedWorkflowV2 = readFileSync('src/guided-workflow-v2.css', 'utf8');
+if (!/grid-template-columns\s*:\s*repeat\(6,\s*minmax\(118px,\s*1fr\)\)/.test(guidedWorkflowV2)) {
+  fail('src/guided-workflow-v2.css must own the mobile six-step guided rail.');
+}
+if (!/max-height\s*:\s*clamp\(320px,\s*42vh,\s*560px\)/.test(guidedWorkflowV2)) {
+  fail('src/guided-workflow-v2.css must keep product results inside a bounded scrolling region.');
 }
 
 if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · ${reviewCssNames.length} UX review stylesheet(s) guarded.`);
