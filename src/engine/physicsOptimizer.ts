@@ -35,6 +35,10 @@ const STRATEGIES: LoadingStrategy[] = ['stability', 'capacity', 'unloading'];
 const MIN_TRANSPORT_PHYSICS_SCORE = 85;
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
 
+export function resolveOptimizationStrategies(preferredStrategy?: LoadingStrategy): LoadingStrategy[] {
+  return preferredStrategy ? [preferredStrategy] : [...STRATEGIES];
+}
+
 function totalUnstable(physics: PhysicsValidationSuite) {
   return physics.unstableCount + physics.supportUnstableCount;
 }
@@ -102,29 +106,32 @@ export function comparePhysicsOptimizationCandidates(a: PhysicsOptimizationCandi
 /**
  * 후보 적재안을 여러 개 만든 뒤 Rapier 3D 운송 시나리오로 실제 움직임을 비교한다.
  * 동일한 placement 좌표가 전략 이름만 다르게 생성된 경우에는 물리 결과를 재사용한다.
+ * preferredStrategy가 주어지면 사용자가 선택한 전략만 생성·검증한다.
  */
 export async function optimizeLoadingWithPhysics(
   container: ContainerSpec,
   cargo: CargoItem[],
   onProgress?: (progress: PhysicsOptimizationProgress) => void,
+  preferredStrategy?: LoadingStrategy,
 ): Promise<PhysicsOptimizedLoading> {
   const activeCargo = cargo.filter(item => item.quantity > 0);
   const candidates: PhysicsOptimizationCandidate[] = [];
   const physicsByLayout = new Map<string, PhysicsValidationSuite>();
+  const strategies = resolveOptimizationStrategies(preferredStrategy);
 
-  for (let index = 0; index < STRATEGIES.length; index += 1) {
-    const strategy = STRATEGIES[index];
+  for (let index = 0; index < strategies.length; index += 1) {
+    const strategy = strategies[index];
     const result = loadContainer(container, activeCargo, { strategy, publish: false });
     const signature = placementSignature(result);
     let physics = physicsByLayout.get(signature);
 
     if (physics) {
-      onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: STRATEGIES.length, physicsProgress: 1 });
+      onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: strategies.length, physicsProgress: 1 });
     } else {
       physics = await runPhysicsValidationSuite(
         container,
         result.placements,
-        value => onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: STRATEGIES.length, physicsProgress: value }),
+        value => onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: strategies.length, physicsProgress: value }),
       );
       physicsByLayout.set(signature, physics);
     }
@@ -147,9 +154,10 @@ export async function optimizeLoadingWithPhysics(
 
   const best = candidates[0];
   if (!best) {
-    const result = loadContainer(container, activeCargo, { strategy: 'stability', publish: false });
+    const fallbackStrategy = preferredStrategy ?? 'stability';
+    const result = loadContainer(container, activeCargo, { strategy: fallbackStrategy, publish: false });
     const physics = await runPhysicsValidationSuite(container, result.placements);
-    return { strategy: 'stability', score: physics.score, result, physics, candidates: [] };
+    return { strategy: fallbackStrategy, score: physics.score, result, physics, candidates: [] };
   }
 
   return { strategy: best.strategy, score: best.score, result: best.result, physics: best.physics, candidates };
