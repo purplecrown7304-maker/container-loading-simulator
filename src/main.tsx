@@ -28,6 +28,7 @@ import RemainingLengthIndicator from './RemainingLengthIndicator';
 import OperationalRightSummary from './OperationalRightSummary';
 import DashboardCommandDock from './DashboardCommandDock';
 import GuidedWorkflowShell from './GuidedWorkflowShell';
+import GuidedLoadingUnitEnhancer from './GuidedLoadingUnitEnhancer';
 import GuidedResultTabsEnhancer from './GuidedResultTabsEnhancer';
 import DiagnosticExportResultButton from './DiagnosticExportResultButton';
 import DiagnosticAutoMailBridge from './DiagnosticAutoMailBridge';
@@ -102,6 +103,7 @@ import './ux-polish.css';
 import './guided-workflow.css';
 import './guided-workflow-v2.css';
 import './guided-loading-strategy.css';
+import './guided-loading-unit.css';
 import './guided-result-tabs-enhancer.css';
 import './workflow-usability-fixes.css';
 
@@ -138,6 +140,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <DashboardCommandDock />
       <TransportEquipmentDashboardSummary />
       <GuidedWorkflowShell />
+      <GuidedLoadingUnitEnhancer />
       <SavedWorkQuickList />
       <EquipmentVisualAdminEditor />
       <GuidedResultTabsEnhancer />
