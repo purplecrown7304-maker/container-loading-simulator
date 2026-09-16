@@ -41,6 +41,18 @@ const legacyRecommendedBox: CargoItem = {
   allowRotation: true,
 };
 
+const legacyRecommendedBoxWithImplicitDefaults: CargoItem = {
+  id: 'REC-650X330X390',
+  name: '범용 추천 650×330×390 (강도확인)',
+  length: 0.65,
+  width: 0.33,
+  height: 0.39,
+  weightKg: 22,
+  quantity: 0,
+  maxStackLayers: 1,
+  maxTopLoadKg: 0,
+};
+
 const realUserRecommendedCode: CargoItem = {
   ...legacyRecommendedBox,
   name: '사용자가 직접 등록한 대형 박스',
@@ -89,6 +101,10 @@ describe('legacy unregistered box cleanup', () => {
     })).toBe(true);
   });
 
+  it('treats omitted allowRotation as the old UI default of allowed', () => {
+    expect(isLegacyAutoRecommendedPersonalBox(legacyRecommendedBoxWithImplicitDefaults)).toBe(true);
+  });
+
   it('does not delete a real user box just because it reuses a REC code', () => {
     expect(isLegacyAutoRecommendedPersonalBox(realUserRecommendedCode)).toBe(false);
     expect(isLegacyAutoRecommendedPersonalBox(modifiedRecommendedBox)).toBe(false);
@@ -99,6 +115,7 @@ describe('legacy unregistered box cleanup', () => {
       legacySeed,
       realUserBoxSameId,
       legacyRecommendedBox,
+      legacyRecommendedBoxWithImplicitDefaults,
       realUserRecommendedCode,
       modifiedRecommendedBox,
     ]);
