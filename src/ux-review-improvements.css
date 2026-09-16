@@ -131,7 +131,7 @@
 
 /* The selected loading mode / strategy summary should live on the viewer's right side. */
 .guided-loading-unit-running-badge {
-  right: max(24px, calc((100vw - min(1720px, 100vw)) / 2 + 400px));
+  right: max(24px, calc((100vw - 1720px) / 2 + 400px));
   max-width: min(520px, calc(100vw - 48px));
   min-height: 40px;
   padding: 10px 14px;
