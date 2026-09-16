@@ -51,6 +51,7 @@ import ProductToolsCenter from './ProductToolsCenter';
 import ProductMenuActions from './ProductMenuActions';
 import EquipmentVisualAdminEditor from './EquipmentVisualAdminEditor';
 import WorkflowIntegrationBridge from './WorkflowIntegrationBridge';
+import { cleanupLegacyUnregisteredBoxes } from './legacyBoxCleanup';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -106,6 +107,8 @@ import './guided-loading-strategy.css';
 import './guided-loading-unit.css';
 import './guided-result-tabs-enhancer.css';
 import './workflow-usability-fixes.css';
+
+cleanupLegacyUnregisteredBoxes();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

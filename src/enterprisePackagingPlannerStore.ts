@@ -8,6 +8,7 @@ import {
 } from './engine/enterprisePackagingOptimizer';
 import type { BoxCatalogItem, ProductItem } from './engine/productPackagingOptimizer';
 import type { ContainerSpec } from './engine/types';
+import { removeLegacyPlannerSampleBoxes } from './legacyBoxCleanup';
 import { operatorScopedStorageKey, readLocalOperator } from './localOperator';
 
 export const ENTERPRISE_PACKAGING_PLANNER_KEY = 'container-loading-product-packaging-v1';
@@ -53,7 +54,9 @@ function cleanPlannerState(state: EnterprisePackagingPlannerState) {
     }
     return [product];
   });
-  return changed ? { ...state, products } : state;
+  const boxes = removeLegacyPlannerSampleBoxes(state.boxes ?? []);
+  if (boxes.length !== (state.boxes ?? []).length) changed = true;
+  return changed ? { ...state, products, boxes } : state;
 }
 
 function activePlannerKey() {
