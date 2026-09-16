@@ -44,6 +44,20 @@ html[data-guided-workflow="true"][data-guided-step="4"] .viewer-bottom-actions{d
 .guided-package-choice select{height:34px;padding:0 9px;border:1px solid var(--gw-border-strong);border-radius:9px;background:#fff;font-size:11.5px;outline:0}
 .guided-package-choice strong{font-size:12px}
 .guided-step-list{gap:3px}
+
+/* Guided shell UX ownership migrated from the temporary review layer. */
+.guided-step-list button.current{box-shadow:inset 3px 0 0 var(--gw-blue)}
+.guided-step-list button.complete:not(.current) .guided-step-copy b{color:var(--gw-green)}
+.guided-bottom-bar{padding-bottom:max(12px,env(safe-area-inset-bottom))}
+.guided-primary-cta{min-height:var(--control-height-lg,44px);box-shadow:0 5px 16px rgba(0,113,227,.18)}
+.guided-stage-panel button:focus-visible,.guided-stage-panel input:focus-visible,.guided-stage-panel select:focus-visible,.guided-bottom-bar button:focus-visible{outline:3px solid rgba(37,99,235,.28);outline-offset:2px}
+
+@media(min-width:1181px){
+  html[data-guided-workflow="true"] .dashboard-grid{grid-template-columns:280px minmax(720px,1fr) 360px!important;gap:20px!important;max-width:1720px!important;padding:20px!important}
+}
+@media(max-width:1179px) and (min-width:761px){
+  html[data-guided-workflow="true"] .dashboard-grid{grid-template-columns:200px minmax(0,1fr)!important}
+}
 @media(max-width:1100px){
   .guided-product-table-head,.guided-product-table article{grid-template-columns:minmax(200px,1fr) minmax(100px,.45fr) minmax(210px,1fr) 140px}
   .guided-equipment-specs{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -59,4 +73,10 @@ html[data-guided-workflow="true"][data-guided-step="4"] .viewer-bottom-actions{d
   .guided-packaging-list article{grid-template-columns:1fr}
   .guided-equipment-specs{grid-template-columns:repeat(2,minmax(0,1fr))}
   .guided-stage-panel button,.guided-primary-cta,.guided-secondary-button,.guided-product-qty button,.guided-package-choice select{min-height:var(--control-height-lg,44px)}
+}
+@media(max-width:700px){
+  .guided-step-rail{scroll-snap-type:x proximity;overscroll-behavior-inline:contain}
+  .guided-step-list button{min-height:56px;scroll-snap-align:start}
+  .guided-bottom-bar{min-height:68px;padding-top:8px;padding-right:10px;padding-left:10px}
+  .guided-primary-cta{min-width:0;width:min(100%,360px)}
 }
