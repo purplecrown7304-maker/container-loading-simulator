@@ -31,6 +31,7 @@ if (!existsSync('src/store/externalStore.ts')) fail('src/store/externalStore.ts 
 if (!existsSync('src/palletSnapshotStore.ts')) fail('src/palletSnapshotStore.ts is required for pallet domain state.');
 if (!existsSync('src/guidedWorkflowState.ts')) fail('src/guidedWorkflowState.ts is required for React-owned guided workflow state.');
 if (!existsSync('src/guidedLoadingUnitState.ts')) fail('src/guidedLoadingUnitState.ts is required for guided loading-unit state.');
+if (!existsSync('src/loading-progress.css')) fail('src/loading-progress.css is required for automatic-loading progress feedback.');
 
 const bridgeFiles = readdirSync('src')
   .filter((name) => name.endsWith('Bridge.tsx'))
@@ -62,6 +63,9 @@ const loadingUnitState = readFileSync('src/guidedLoadingUnitState.ts', 'utf8');
 if (!loadingUnitState.includes('createExternalStore')) {
   fail('guidedLoadingUnitState.ts must use the shared external store.');
 }
+if (!loadingUnitState.includes('normalizeGuidedLoadingUnit')) {
+  fail('guidedLoadingUnitState.ts must normalize persisted loading-unit values before use.');
+}
 
 const loadingUnitEnhancer = readFileSync('src/GuidedLoadingUnitEnhancer.tsx', 'utf8');
 if (!loadingUnitEnhancer.includes('useGuidedWorkflowState')) {
@@ -72,6 +76,9 @@ if (!loadingUnitEnhancer.includes('useGuidedLoadingUnit')) {
 }
 if (/getBoundingClientRect|ResizeObserver|addEventListener\(['"]scroll/.test(loadingUnitEnhancer)) {
   fail('GuidedLoadingUnitEnhancer must not continuously measure viewport geometry; keep the selector in normal document flow.');
+}
+if (/\.mode-tabs|clickUnderlyingMode/.test(loadingUnitEnhancer)) {
+  fail('GuidedLoadingUnitEnhancer must not proxy loading-unit selection through hidden .mode-tabs DOM clicks.');
 }
 
 const guidedShellSource = readFileSync('src/GuidedWorkflowShell.tsx', 'utf8');
@@ -100,6 +107,7 @@ const tokenizedCss = [
   'src/guided-loading-strategy.css',
   'src/guided-loading-unit.css',
   'src/guided-result-tabs-enhancer.css',
+  'src/loading-progress.css',
   'src/minimap.css',
   'src/pallet-footer-summary.css',
 ];
@@ -121,12 +129,23 @@ if (!loadingUnitCss.includes('.guided-loading-run-confirmation')) {
   fail('guided-loading-unit.css must keep the step-5 execution confirmation visible above the CTA.');
 }
 
+const loadingProgressCss = readFileSync('src/loading-progress.css', 'utf8');
+if (!loadingProgressCss.includes('.calculation-progress-ring')) {
+  fail('loading-progress.css must keep the circular automatic-loading progress gauge.');
+}
+if (!loadingProgressCss.includes('.calculation-progress-copy')) {
+  fail('loading-progress.css must keep progress details and remaining-time feedback readable.');
+}
+
 const mainSource = readFileSync('src/main.tsx', 'utf8');
 if (mainSource.includes("import './transport-equipment-scroll-fix.css';")) {
   fail('main.tsx must not restore transport-equipment-scroll-fix.css; scrolling belongs to transport-equipment.css.');
 }
 if (/import ['"]\.\/ux-review.*\.css['"]/.test(mainSource)) {
   fail('main.tsx must not import temporary ux-review stylesheets after ownership migration.');
+}
+if (!mainSource.includes("import './loading-progress.css';")) {
+  fail('main.tsx must load the automatic-loading progress UI stylesheet.');
 }
 
 const reviewCssNames = readdirSync('src').filter((name) => /^ux-review.*\.css$/.test(name));
@@ -162,6 +181,20 @@ if (!appSource.includes('useGuidedWorkflowState')) {
 }
 if (!appSource.includes('shouldRenderGuidedViewer(guidedWorkflowState)')) {
   fail('App.tsx must use the guided viewer render policy instead of relying on CSS to hide/show the viewer.');
+}
+if (!appSource.includes('useGuidedLoadingUnit')) {
+  fail('App.tsx must apply the guided loading-unit store directly instead of relying on hidden DOM mode clicks.');
+}
+if (!appSource.includes('optimizationEtaSeconds') || !appSource.includes('calculation-progress-ring')) {
+  fail('App.tsx must expose automatic-loading progress and ETA feedback while the optimizer is running.');
+}
+
+const uiEventsSource = readFileSync('src/uiEvents.ts', 'utf8');
+if (!uiEventsSource.includes('getGuidedWorkflowSnapshot')) {
+  fail('uiEvents.ts must use centralized guided workflow state for the run-loading synchronization boundary.');
+}
+if (/dataset\.guidedStep/.test(uiEventsSource)) {
+  fail('uiEvents.ts must not infer workflow state from DOM data-guided-step attributes.');
 }
 
 const guidedWorkflowCss = readFileSync('src/guided-workflow.css', 'utf8');
@@ -202,4 +235,4 @@ if (!/\.guided-result-grid>div:nth-child\(-n \+ 3\)\s*\{[^}]*min-height\s*:\s*96
   fail('src/guided-result-tabs-enhancer.css must keep the three primary result metrics visually prioritized.');
 }
 
-if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · guided workflow state React-owned · loading-unit overlays simplified.`);
+if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · guided workflow state React-owned · loading-unit DOM proxy removed · progress/ETA feedback locked.`);
