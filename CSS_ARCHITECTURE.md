@@ -102,6 +102,7 @@
 10. `styles.css`도 tokenized CSS 검사 대상에 포함해 8~10px 폰트 재도입을 차단
 11. `guidedWorkflowState.ts`를 추가해 가이드 단계 attribute 관찰을 중앙화
 12. `GuidedLoadingUnitEnhancer`의 독립 `data-guided-step` MutationObserver를 제거하고 React 외부 상태 구독으로 전환
+13. 단계 문자열 정규화 테스트를 추가해 1~6 이외 값과 소수 단계가 상태로 유입되지 않도록 고정
 
 다음 단계:
 
