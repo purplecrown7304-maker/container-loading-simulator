@@ -1,0 +1,239 @@
+/* UX/UI review improvements, 2026-09-16.
+ * Keep this file loaded last so the current multi-layer stylesheet stack can be
+ * improved without changing loading, physics, or persistence behavior.
+ */
+
+/* Desktop information hierarchy: more room for the 3D/work area and readable right summary. */
+@media (min-width: 1181px) {
+  html[data-guided-workflow="true"] .dashboard-grid {
+    grid-template-columns: 280px minmax(720px, 1fr) 360px !important;
+    gap: 20px !important;
+    max-width: 1720px !important;
+    padding: 20px !important;
+  }
+}
+
+/* Product search results stay inside the task card instead of growing the whole page. */
+.guided-product-table {
+  max-height: clamp(320px, 42vh, 560px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
+.guided-product-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  border-bottom: 1px solid var(--gw-border);
+}
+
+/* Minimum readable sizes for controls that were previously 7-9px. */
+.preview-view-controls button {
+  min-width: 38px;
+  height: var(--control-height-sm, 32px) !important;
+  min-height: var(--control-height-sm, 32px) !important;
+  padding: 0 10px !important;
+  font-size: var(--font-2xs, 11px) !important;
+}
+
+.reference-clearance-strip span,
+.reference-clearance-strip b,
+.reference-selected,
+.equipment-view-badge b,
+.equipment-view-badge span,
+.equipment-special-warning,
+.static-setting small,
+.fixed-option-list b {
+  font-size: var(--font-2xs, 11px) !important;
+  line-height: 1.4;
+}
+
+.reference-selected {
+  max-width: 40%;
+  min-height: 32px;
+  box-sizing: border-box;
+}
+
+/* Reserve separate viewer zones instead of solving collisions only with z-index. */
+.preview-view-controls {
+  max-width: 55%;
+}
+
+.equipment-special-warning {
+  top: auto;
+  right: 12px;
+  bottom: 12px;
+  max-width: min(360px, 42%);
+  white-space: normal;
+}
+
+/* Equipment label moves away from the viewer's top-left controls. */
+.guided-equipment-type-label {
+  top: auto;
+  bottom: 12px;
+  left: 50%;
+  max-width: calc(100% - 180px);
+  transform: translateX(-50%);
+  font-size: var(--font-xs, 13px);
+}
+
+/* Box / pallet is a primary operating mode, so make it visually stronger than minor tabs. */
+.mode-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #dbe3ee;
+  border-radius: 11px;
+  background: #f3f6fa;
+}
+
+.mode-tabs button {
+  min-height: 36px;
+  padding: 0 14px !important;
+  border: 0 !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: #64748b !important;
+  font-size: var(--font-xs, 13px) !important;
+  font-weight: 750 !important;
+  box-shadow: none !important;
+}
+
+.mode-tabs button.active {
+  background: #fff !important;
+  color: var(--color-primary, #2563eb) !important;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, .12) !important;
+}
+
+/* Keep loading type and strategy as two clearly separated decisions. */
+.guided-loading-unit-floating .guided-loading-unit-block {
+  padding: 20px;
+}
+
+.guided-loading-unit-heading b,
+.guided-loading-unit-grid b,
+.guided-strategy-card b,
+.guided-strategy-card small,
+.guided-strategy-note b,
+.guided-strategy-note span {
+  font-size: var(--font-2xs, 11px);
+}
+
+.guided-loading-unit-grid button {
+  min-height: 112px;
+}
+
+.guided-strategy-card {
+  min-height: 200px;
+}
+
+/* The selected loading mode / strategy summary should live on the viewer's right side. */
+.guided-loading-unit-running-badge {
+  right: max(24px, calc((100vw - min(1720px, 100vw)) / 2 + 400px));
+  max-width: min(520px, calc(100vw - 48px));
+  min-height: 40px;
+  padding: 10px 14px;
+}
+
+.guided-loading-unit-running-badge b {
+  font-size: var(--font-xs, 13px);
+}
+
+.guided-loading-unit-running-badge span {
+  font-size: var(--font-2xs, 11px);
+}
+
+/* Results: requested / loaded / unloaded are the first things operators need to scan. */
+.guided-result-grid > div:nth-child(-n + 3) {
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.guided-result-grid > div:nth-child(-n + 3) b {
+  font-size: 24px;
+}
+
+/* Consistent keyboard focus, without changing the app's click behavior. */
+.guided-stage-panel button:focus-visible,
+.guided-stage-panel input:focus-visible,
+.guided-stage-panel select:focus-visible,
+.guided-bottom-bar button:focus-visible,
+.mode-tabs button:focus-visible,
+.transport-selector-modal button:focus-visible,
+.transport-selector-modal input:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, .28);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1179px) and (min-width: 761px) {
+  html[data-guided-workflow="true"] .dashboard-grid {
+    grid-template-columns: 200px minmax(0, 1fr) !important;
+  }
+
+  .guided-loading-unit-running-badge {
+    right: 20px;
+  }
+}
+
+@media (max-width: 760px) {
+  .guided-step-list {
+    grid-template-columns: repeat(6, minmax(118px, 1fr));
+    min-width: 730px;
+  }
+
+  .guided-product-table {
+    max-height: 56vh;
+  }
+
+  .preview-view-controls {
+    max-width: none;
+  }
+
+  .reference-selected {
+    top: 48px;
+    right: auto;
+    left: 6px;
+    max-width: calc(100% - 12px);
+  }
+
+  .equipment-special-warning {
+    right: 8px;
+    bottom: 46px;
+    max-width: calc(100% - 16px);
+  }
+
+  .guided-equipment-type-label {
+    bottom: 8px;
+    max-width: calc(100% - 24px);
+  }
+
+  .guided-loading-unit-running-badge {
+    right: 12px;
+    max-width: calc(100vw - 24px);
+  }
+
+  .guided-stage-panel button,
+  .guided-primary-cta,
+  .guided-secondary-button,
+  .guided-product-qty button,
+  .guided-package-choice select {
+    min-height: var(--control-height-lg, 44px);
+  }
+
+  .guided-result-grid > div:nth-child(-n + 3) b {
+    font-size: 21px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guided-strategy-card,
+  .guided-loading-unit-grid button,
+  .transport-equipment-card {
+    transition: none !important;
+    transform: none !important;
+  }
+}
