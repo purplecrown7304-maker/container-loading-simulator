@@ -29,7 +29,8 @@ for (const path of removedFiles) {
 if (!existsSync('src/tokens.css')) fail('src/tokens.css is required for the shared typography scale.');
 if (!existsSync('src/store/externalStore.ts')) fail('src/store/externalStore.ts is required for domain state migration.');
 if (!existsSync('src/palletSnapshotStore.ts')) fail('src/palletSnapshotStore.ts is required for pallet domain state.');
-if (!existsSync('src/guidedWorkflowState.ts')) fail('src/guidedWorkflowState.ts is required while guided-step DOM state is being migrated into React state.');
+if (!existsSync('src/guidedWorkflowState.ts')) fail('src/guidedWorkflowState.ts is required for React-owned guided workflow state.');
+if (!existsSync('src/guidedLoadingUnitState.ts')) fail('src/guidedLoadingUnitState.ts is required for guided loading-unit state.');
 
 const bridgeFiles = readdirSync('src')
   .filter((name) => name.endsWith('Bridge.tsx'))
@@ -49,12 +50,28 @@ for (const path of bridgeFiles) {
   }
 }
 
+const guidedWorkflowState = readFileSync('src/guidedWorkflowState.ts', 'utf8');
+if (/\bMutationObserver\b/.test(guidedWorkflowState)) {
+  fail('guidedWorkflowState.ts must be React/store-owned and must not reconstruct state by observing DOM attributes.');
+}
+if (!guidedWorkflowState.includes('createExternalStore')) {
+  fail('guidedWorkflowState.ts must use the shared external store as the source of truth.');
+}
+
+const loadingUnitState = readFileSync('src/guidedLoadingUnitState.ts', 'utf8');
+if (!loadingUnitState.includes('createExternalStore')) {
+  fail('guidedLoadingUnitState.ts must use the shared external store.');
+}
+
 const loadingUnitEnhancer = readFileSync('src/GuidedLoadingUnitEnhancer.tsx', 'utf8');
 if (!loadingUnitEnhancer.includes('useGuidedWorkflowState')) {
-  fail('GuidedLoadingUnitEnhancer must consume the centralized guided workflow state instead of observing data-guided-step itself.');
+  fail('GuidedLoadingUnitEnhancer must consume the centralized guided workflow state.');
 }
-if (/observe\(document\.documentElement[\s\S]*data-guided-step/.test(loadingUnitEnhancer)) {
-  fail('GuidedLoadingUnitEnhancer restored its own data-guided-step MutationObserver; keep compatibility observation centralized in guidedWorkflowState.ts.');
+if (!loadingUnitEnhancer.includes('useGuidedLoadingUnit')) {
+  fail('GuidedLoadingUnitEnhancer must consume the centralized loading-unit state.');
+}
+if (/getBoundingClientRect|ResizeObserver|addEventListener\(['"]scroll/.test(loadingUnitEnhancer)) {
+  fail('GuidedLoadingUnitEnhancer must not continuously measure viewport geometry; keep the selector in normal document flow.');
 }
 
 const guidedShellSource = readFileSync('src/GuidedWorkflowShell.tsx', 'utf8');
@@ -91,6 +108,17 @@ for (const path of tokenizedCss) {
   if (/font-size\s*:\s*(?:8|9|10)px\b/.test(source)) {
     fail(`${path} reintroduced 8-10px typography after token migration.`);
   }
+}
+
+const loadingUnitCss = readFileSync('src/guided-loading-unit.css', 'utf8');
+if (/guided-loading-unit-floating|guided-loading-unit-running-badge/.test(loadingUnitCss)) {
+  fail('guided-loading-unit.css restored the old viewport-positioned loading-unit overlays.');
+}
+if (!loadingUnitCss.includes('.guided-loading-unit-inline')) {
+  fail('guided-loading-unit.css must keep the step-4 loading-unit selector in normal document flow.');
+}
+if (!loadingUnitCss.includes('.guided-loading-run-confirmation')) {
+  fail('guided-loading-unit.css must keep the step-5 execution confirmation visible above the CTA.');
 }
 
 const mainSource = readFileSync('src/main.tsx', 'utf8');
@@ -174,4 +202,4 @@ if (!/\.guided-result-grid>div:nth-child\(-n \+ 3\)\s*\{[^}]*min-height\s*:\s*96
   fail('src/guided-result-tabs-enhancer.css must keep the three primary result metrics visually prioritized.');
 }
 
-if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · guided state published from React shell · viewer visibility owned by React.`);
+if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · guided workflow state React-owned · loading-unit overlays simplified.`);
