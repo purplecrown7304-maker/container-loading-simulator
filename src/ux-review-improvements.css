@@ -1,8 +1,9 @@
 /* UX/UI review improvements, 2026-09-16.
- * Temporary guided-workflow review layer. Viewer, workspace, and transport rules
- * now live in their owning stylesheets instead of this cross-feature override file.
+ * Temporary shell/result layer only. Product, mode, strategy, loading-unit,
+ * viewer, workspace, and transport rules live in their owning stylesheets.
  */
 
+/* Desktop shell proportions remain here until the legacy guided shell is split safely. */
 @media (min-width: 1181px) {
   html[data-guided-workflow="true"] .dashboard-grid {
     grid-template-columns: 280px minmax(720px, 1fr) 360px !important;
@@ -12,84 +13,7 @@
   }
 }
 
-.guided-product-table {
-  max-height: clamp(320px, 42vh, 560px);
-  overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-  overscroll-behavior: contain;
-}
-
-.guided-product-table-head {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  border-bottom: 1px solid var(--gw-border);
-}
-
-.mode-tabs {
-  display: inline-flex;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid #dbe3ee;
-  border-radius: 11px;
-  background: #f3f6fa;
-}
-
-.mode-tabs button {
-  min-height: 36px;
-  padding: 0 14px !important;
-  border: 0 !important;
-  border-radius: 8px !important;
-  background: transparent !important;
-  color: #64748b !important;
-  font-size: var(--font-xs, 13px) !important;
-  font-weight: 750 !important;
-  box-shadow: none !important;
-}
-
-.mode-tabs button.active {
-  background: #fff !important;
-  color: var(--color-primary, #2563eb) !important;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, .12) !important;
-}
-
-.guided-loading-unit-floating .guided-loading-unit-block {
-  padding: 20px;
-}
-
-.guided-loading-unit-heading b,
-.guided-loading-unit-grid b,
-.guided-strategy-card b,
-.guided-strategy-card small,
-.guided-strategy-note b,
-.guided-strategy-note span {
-  font-size: var(--font-2xs, 11px);
-}
-
-.guided-loading-unit-grid button {
-  min-height: 112px;
-}
-
-.guided-strategy-card {
-  min-height: 200px;
-}
-
-.guided-loading-unit-running-badge {
-  right: max(24px, calc((100vw - 1720px) / 2 + 400px));
-  max-width: min(520px, calc(100vw - 48px));
-  min-height: 40px;
-  padding: 10px 14px;
-}
-
-.guided-loading-unit-running-badge b {
-  font-size: var(--font-xs, 13px);
-}
-
-.guided-loading-unit-running-badge span {
-  font-size: var(--font-2xs, 11px);
-}
-
+/* Results: requested / loaded / unloaded are the first numbers operators scan. */
 .guided-result-grid > div:nth-child(-n + 3) {
   min-height: 96px;
   display: flex;
@@ -101,11 +25,11 @@
   font-size: 24px;
 }
 
+/* Shared guided-shell keyboard focus until these controls move into one owner file. */
 .guided-stage-panel button:focus-visible,
 .guided-stage-panel input:focus-visible,
 .guided-stage-panel select:focus-visible,
-.guided-bottom-bar button:focus-visible,
-.mode-tabs button:focus-visible {
+.guided-bottom-bar button:focus-visible {
   outline: 3px solid rgba(37, 99, 235, .28);
   outline-offset: 2px;
 }
@@ -114,44 +38,10 @@
   html[data-guided-workflow="true"] .dashboard-grid {
     grid-template-columns: 200px minmax(0, 1fr) !important;
   }
-
-  .guided-loading-unit-running-badge {
-    right: 20px;
-  }
 }
 
 @media (max-width: 760px) {
-  .guided-step-list {
-    grid-template-columns: repeat(6, minmax(118px, 1fr));
-    min-width: 730px;
-  }
-
-  .guided-product-table {
-    max-height: 56vh;
-  }
-
-  .guided-loading-unit-running-badge {
-    right: 12px;
-    max-width: calc(100vw - 24px);
-  }
-
-  .guided-stage-panel button,
-  .guided-primary-cta,
-  .guided-secondary-button,
-  .guided-product-qty button,
-  .guided-package-choice select {
-    min-height: var(--control-height-lg, 44px);
-  }
-
   .guided-result-grid > div:nth-child(-n + 3) b {
     font-size: 21px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .guided-strategy-card,
-  .guided-loading-unit-grid button {
-    transition: none !important;
-    transform: none !important;
   }
 }
