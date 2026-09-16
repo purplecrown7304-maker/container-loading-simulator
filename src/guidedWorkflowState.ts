@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { createExternalStore } from './store/externalStore';
 
 export type GuidedWorkflowStep = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -8,47 +8,11 @@ export type GuidedWorkflowSnapshot = {
 };
 
 const DEFAULT_SNAPSHOT: GuidedWorkflowSnapshot = { active: false, step: 1 };
-let snapshot: GuidedWorkflowSnapshot = DEFAULT_SNAPSHOT;
-let observer: MutationObserver | null = null;
-const listeners = new Set<() => void>();
+const store = createExternalStore<GuidedWorkflowSnapshot>(DEFAULT_SNAPSHOT);
 
 export function normalizeGuidedWorkflowStep(value: string | number | undefined): GuidedWorkflowStep {
   const numeric = Number(value);
   return Number.isInteger(numeric) && numeric >= 1 && numeric <= 6 ? numeric as GuidedWorkflowStep : 1;
-}
-
-function notifyIfChanged(next: GuidedWorkflowSnapshot) {
-  if (next.active === snapshot.active && next.step === snapshot.step) return;
-  snapshot = next;
-  listeners.forEach(listener => listener());
-}
-
-function readDocumentSnapshot(): GuidedWorkflowSnapshot {
-  if (typeof document === 'undefined') return snapshot;
-  const root = document.documentElement;
-  return {
-    active: root.dataset.guidedWorkflow === 'true',
-    step: normalizeGuidedWorkflowStep(root.dataset.guidedStep),
-  };
-}
-
-function emitDocumentSnapshot() {
-  notifyIfChanged(readDocumentSnapshot());
-}
-
-function ensureObserver() {
-  if (observer || typeof document === 'undefined' || typeof MutationObserver === 'undefined') return;
-  observer = new MutationObserver(emitDocumentSnapshot);
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['data-guided-workflow', 'data-guided-step'],
-  });
-}
-
-function stopObserverIfIdle() {
-  if (listeners.size > 0 || !observer) return;
-  observer.disconnect();
-  observer = null;
 }
 
 export function publishGuidedWorkflowState(next: GuidedWorkflowSnapshot) {
@@ -56,8 +20,10 @@ export function publishGuidedWorkflowState(next: GuidedWorkflowSnapshot) {
     active: Boolean(next.active),
     step: normalizeGuidedWorkflowStep(next.step),
   };
-  notifyIfChanged(normalized);
+  store.setSnapshot(current => current.active === normalized.active && current.step === normalized.step ? current : normalized);
 
+  // CSS는 아직 가이드 전용 전역 스타일을 위해 data attribute를 읽는다.
+  // 단, 상태의 원본은 React 외부 store이며 DOM attribute를 다시 읽어 상태를 만들지는 않는다.
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   if (normalized.active) {
@@ -74,23 +40,13 @@ export function shouldRenderGuidedViewer(state: GuidedWorkflowSnapshot) {
 }
 
 export function subscribeGuidedWorkflow(listener: () => void) {
-  listeners.add(listener);
-  ensureObserver();
-  emitDocumentSnapshot();
-  return () => {
-    listeners.delete(listener);
-    stopObserverIfIdle();
-  };
+  return store.subscribe(listener);
 }
 
 export function getGuidedWorkflowSnapshot() {
-  return snapshot;
+  return store.getSnapshot();
 }
 
 export function useGuidedWorkflowState() {
-  return useSyncExternalStore(
-    subscribeGuidedWorkflow,
-    getGuidedWorkflowSnapshot,
-    () => DEFAULT_SNAPSHOT,
-  );
+  return store.useSnapshot();
 }
