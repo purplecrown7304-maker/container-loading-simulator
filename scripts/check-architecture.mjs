@@ -48,6 +48,7 @@ for (const path of bridgeFiles) {
 const tokenizedCss = [
   'src/dashboard-mockup.css',
   'src/workspace-tools.css',
+  'src/reference-viewer.css',
   'src/minimap.css',
   'src/pallet-footer-summary.css',
 ];
@@ -74,6 +75,21 @@ if (existsSync('src/ux-review-phase2.css')) {
   const phase2 = readFileSync('src/ux-review-phase2.css', 'utf8');
   if (/!important\b/.test(phase2)) {
     fail('src/ux-review-phase2.css must not add new !important declarations. Resolve specificity in the owning feature stylesheet instead.');
+  }
+}
+
+const migratedOwnerRules = [
+  ['.reference-selected', 'src/reference-viewer.css'],
+  ['.preview-view-controls', 'src/reference-viewer.css'],
+  ['.workspace-modal', 'src/workspace-tools.css'],
+  ['.catalog-wrap', 'src/workspace-tools.css'],
+];
+for (const reviewPath of uxReviewCss) {
+  const source = existsSync(reviewPath) ? readFileSync(reviewPath, 'utf8') : '';
+  for (const [selector, owner] of migratedOwnerRules) {
+    if (source.includes(selector)) {
+      fail(`${reviewPath} reintroduced ${selector}; keep that rule in ${owner}.`);
+    }
   }
 }
 
