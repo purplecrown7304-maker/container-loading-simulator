@@ -51,6 +51,7 @@ import ProductToolsCenter from './ProductToolsCenter';
 import ProductMenuActions from './ProductMenuActions';
 import EquipmentVisualAdminEditor from './EquipmentVisualAdminEditor';
 import WorkflowIntegrationBridge from './WorkflowIntegrationBridge';
+import MemberCloudDataBridge from './MemberCloudDataBridge';
 import { cleanupLegacyUnregisteredBoxes } from './legacyBoxCleanup';
 import './tokens.css';
 import './styles.css';
@@ -114,6 +115,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
       <RuntimeDiagnosticRecorder />
+      <MemberCloudDataBridge />
       <WorkflowIntegrationBridge />
       <ReferenceWorkspaceBar />
       <ProductMenuActions />
