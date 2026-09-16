@@ -9,7 +9,7 @@
 - 새로운 UX 전용 override CSS 파일을 추가하지 않습니다.
 - 새 UX 규칙은 처음부터 해당 기능 CSS 또는 공용 토큰에 넣습니다.
 - 적재 알고리즘, 물리 검증, Supabase 상태 모델을 CSS 수정과 섞지 않습니다.
-- 가이드 단계 정보는 단계별 컴포넌트가 제각각 DOM attribute를 감시하지 않고 중앙 상태 계층을 통해 읽도록 이전합니다.
+- 단계에 따라 컴포넌트를 보여주거나 숨기는 판단은 CSS가 아니라 React 상태/렌더링이 소유합니다.
 
 ## 2. 스타일 소유권
 
@@ -26,16 +26,17 @@
 - `src/guided-result-tabs-enhancer.css`
 - `src/guidedWorkflowState.ts`
 
-단계 표시, 제품 선택, 제품 포장, 적재 방식, 자동 적재, 결과 확인의 기본 스타일은 이 그룹이 소유합니다.
+단계 표시, 제품 선택, 제품 포장, 적재 방식, 자동 적재, 결과 확인의 기본 스타일과 단계 상태를 이 그룹이 소유합니다.
 
 세부 소유권:
 - 전체 가이드 shell 비율, 모바일 6단계 rail, 키보드 focus, 하단 CTA, 제품 검색 결과 스크롤/고정 헤더: `guided-workflow-v2.css`
 - 적재 전략 카드/전략 반응형/모션 감소: `guided-loading-strategy.css`
 - 박스·파렛트 적재 유형 카드/자동 적재 상태 배지: `guided-loading-unit.css`
 - 결과 탭, 핵심 결과 지표, 미적재 목록 스크롤, 결과 반응형: `guided-result-tabs-enhancer.css`
-- 가이드 활성 여부와 현재 단계의 React 구독 경계: `guidedWorkflowState.ts`
+- 가이드 활성 여부/현재 단계/3D Viewer 렌더 정책: `guidedWorkflowState.ts`
+- 실제 대시보드 3D Viewer mount/unmount: `App.tsx`
 
-`guidedWorkflowState.ts`는 현재 기존 `data-guided-workflow` / `data-guided-step` 속성을 하나의 호환 계층에서만 관찰합니다. 개별 enhancer가 같은 attribute를 각각 `MutationObserver`로 감시하지 않습니다. 이후 `GuidedWorkflowShell`이 이 상태를 직접 발행하도록 바꾸면 DOM attribute 관찰 자체를 제거할 예정입니다.
+`guidedWorkflowState.ts`는 아직 기존 `data-guided-workflow` / `data-guided-step` 속성을 호환 계층에서 관찰하지만, `App.tsx`와 enhancer는 이 중앙 상태를 구독합니다. 다음 단계에서 `GuidedWorkflowShell`이 상태를 직접 발행하면 DOM attribute는 스타일 호환용 미러로만 남깁니다.
 
 ### 박스 / 파렛트 기본 모드
 - `src/mode.css`
@@ -45,6 +46,7 @@
 - `src/reference-viewer.css`
 - 뷰어 조작 버튼, 선택 정보, 간격 표시, 오버레이 위치를 소유합니다.
 - 같은 모서리에 두 개 이상의 독립 오버레이를 배치하지 않습니다.
+- 가이드 단계에서 Viewer를 표시할지 여부는 이 CSS가 결정하지 않습니다.
 
 ### 적재공간 선택
 - `src/transport-equipment.css`
@@ -59,14 +61,15 @@
 
 ## 3. !important 규칙
 
-기존 코드에 남은 `!important`는 한 번에 제거하지 않습니다. 기존 가이드 단계 표시와 뷰어 노출이 load order에 의존하는 부분이 있기 때문입니다.
+기존 코드에 남은 `!important`는 한 번에 제거하지 않습니다. 기존 헤더/레이아웃 일부가 load order에 의존하는 부분이 있기 때문입니다.
 
 새로운 규칙은 다음 기준을 따릅니다.
 
 1. 기능 CSS에서 selector 구조로 해결할 수 있으면 `!important`를 사용하지 않습니다.
 2. 기존 `!important` 제거는 해당 화면의 데스크톱/태블릿/모바일 회귀 확인과 함께 진행합니다.
 3. 단순히 마지막에 더 강한 selector를 하나 더 추가하는 방식으로 문제를 덮지 않습니다.
-4. 단계 노출을 제어하기 위한 `display:none/block!important`는 React 상태 렌더링으로 점진적으로 줄입니다.
+4. `data-guided-step`에 따라 `.viewer-card` 또는 `.guided-stage-panel`을 `display:none/block!important`로 전환하지 않습니다.
+5. 현재 단계는 React 렌더링으로 결정하고 CSS는 배치/표현만 담당합니다.
 
 ## 4. 반응형 기준
 
@@ -99,30 +102,31 @@
 7. `styles.css`에서 구형 `.workspace`, `.panel`, `.left-panel`, `.right-panel` 규칙과 관련 반응형 잔재 제거
 8. 같은 구형 selector가 `styles.css`에 다시 들어오면 architecture check에서 실패하도록 가드 추가
 9. `styles.css`의 10px 보조 텍스트를 `--font-2xs`(11px)로 올리고 inspector 보조 버튼에 32px 최소 높이를 적용
-10. `styles.css`도 tokenized CSS 검사 대상에 포함해 8~10px 폰트 재도입을 차단
-11. `guidedWorkflowState.ts`를 추가해 가이드 단계 attribute 관찰을 중앙화
-12. `GuidedLoadingUnitEnhancer`의 독립 `data-guided-step` MutationObserver를 제거하고 React 외부 상태 구독으로 전환
-13. 단계 문자열 정규화 테스트를 추가해 1~6 이외 값과 소수 단계가 상태로 유입되지 않도록 고정
+10. 중앙 `guidedWorkflowState.ts`를 추가하고 `GuidedLoadingUnitEnhancer`의 독립 단계 MutationObserver 제거
+11. `App.tsx`가 중앙 가이드 상태를 구독해 3D Viewer를 자동 적재 5단계에서만 React로 mount하도록 변경
+12. `guided-workflow.css`, `guided-workflow-v2.css`, `guided-loading-strategy.css`에서 단계별 Viewer/Stage `display:none/block!important` 전환 제거
+13. 10.8px로 남아 있던 제품/포장 보조 텍스트를 11px로 통일
 
 다음 단계:
 
-1. `GuidedWorkflowShell`이 현재 단계를 `guidedWorkflowState.ts`에 직접 발행하도록 바꾸고 DOM attribute를 호환 출력으로만 유지
-2. `App` 중앙 3D Viewer를 가이드 상태에 따라 React에서 조건부 렌더링하도록 변경
-3. 위 변경이 안정화되면 단계별 `display:none/block!important` 규칙 제거
-4. 적재 유형 enhancer의 화면 위치 계산용 DOM 탐색도 단계 컴포넌트 내부 렌더링으로 축소
+1. `GuidedWorkflowShell`이 DOM dataset을 우회하지 않고 `publishGuidedWorkflowState()`로 중앙 상태를 직접 발행하도록 전환
+2. `GuidedLoadingUnitEnhancer`의 적재 유형 선택 UI를 body portal + 좌표 측정 방식에서 `LoadingStrategyStage` 내부 React 구성으로 이동
+3. `data-guided-step`은 레거시 CSS 호환용 읽기 전용 미러로 축소
+4. 남은 중복 `!important`와 상충 반응형 규칙을 단계적으로 축소
 
 ## 7. 자동 검사
 
 `scripts/check-architecture.mjs`가 다음을 검사합니다.
 
 - Bridge 컴포넌트의 React DOM 직접 탐색/조작 금지
-- `GuidedLoadingUnitEnhancer`가 중앙 가이드 상태를 사용하고 독립 `data-guided-step` observer를 복원하지 않는지 검사
 - `styles.css`를 포함한 토큰화 CSS에 8~10px 폰트 재도입 금지
 - 삭제된 `transport-equipment-scroll-fix.css` 재도입 금지
 - 삭제된 `ux-review-*.css`와 import 재도입 금지
-- 구형 `.workspace`, `.panel`, `.left-panel`, `.right-panel` JSX 클래스 재도입 금지
-- `styles.css`의 구형 workspace/panel selector 재도입 금지
-- 모바일 6단계 step rail을 `guided-workflow-v2.css`가 직접 소유
+- 구형 `.workspace`, `.panel`, `.left-panel`, `.right-panel` JSX/CSS 재도입 금지
+- `GuidedLoadingUnitEnhancer`가 중앙 가이드 상태를 사용
+- `App.tsx`가 중앙 상태의 `shouldRenderGuidedViewer()` 정책으로 Viewer를 렌더링
+- `data-guided-step` CSS가 `.viewer-card` / `.guided-stage-panel` display를 다시 제어하지 않음
+- 모바일 6단계 step rail 유지
 - 제품 결과 목록의 bounded scroll 유지
 - 가이드 desktop shell 비율과 44px 주요 CTA 유지
 - 미적재 목록 bounded scroll과 핵심 결과 3개 지표 강조 유지
