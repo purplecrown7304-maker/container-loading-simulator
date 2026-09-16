@@ -89,13 +89,13 @@
 3. 가이드 shell, 결과 핵심 지표, 결과 목록, 하단 CTA 규칙을 기능 CSS로 이동
 4. `ux-review-improvements.css`, `ux-review-phase2.css`와 import 제거
 5. 현재 `App.tsx` 렌더 구조를 점검해 구형 `.workspace` / `.panel` wrapper를 더 이상 사용하지 않는 것을 확인
+6. `.workspace`, `.panel`, `.left-panel`, `.right-panel`이 TSX에 다시 등장하면 architecture check에서 차단하도록 가드 추가
 
 다음 단계:
 
 1. `styles.css`에 남은 구형 `.workspace`, `.panel`, `.left-panel`, `.right-panel` 규칙을 안전하게 제거
-2. 해당 구형 selector가 다시 JSX/TSX에 등장하지 않도록 architecture check 추가
-3. 중복 `!important`와 상충하는 반응형 규칙을 단계적으로 축소
-4. 단계 표시를 CSS 강제 display 전환에서 React 상태 기반 렌더링으로 바꾸는 별도 리팩터링 진행
+2. 중복 `!important`와 상충하는 반응형 규칙을 단계적으로 축소
+3. 단계 표시를 CSS 강제 display 전환에서 React 상태 기반 렌더링으로 바꾸는 별도 리팩터링 진행
 
 ## 7. 자동 검사
 
@@ -105,6 +105,7 @@
 - 이미 토큰화한 CSS에 8~10px 폰트 재도입 금지
 - 삭제된 `transport-equipment-scroll-fix.css` 재도입 금지
 - 삭제된 `ux-review-*.css`와 import 재도입 금지
+- 구형 `.workspace`, `.panel`, `.left-panel`, `.right-panel` JSX 클래스 재도입 금지
 - 모바일 6단계 step rail을 `guided-workflow-v2.css`가 직접 소유
 - 제품 결과 목록의 bounded scroll 유지
 - 가이드 desktop shell 비율과 44px 주요 CTA 유지
