@@ -52,4 +52,9 @@ describe('personal box stacking policy', () => {
     expect(effectivePlannerTopLoadKg(plannerBox, { maxStackLayers: 10, maxTopLoadKg: 0 })).toBe(198);
     expect(effectivePlannerTopLoadKg(plannerBox, { maxStackLayers: 10, maxTopLoadKg: 80 })).toBe(80);
   });
+
+  it('does not let an old derived planner value block a later higher personal layer setting', () => {
+    const previouslyDerived = { ...plannerBox, maxTopLoadKg: 198 };
+    expect(effectivePlannerTopLoadKg(previouslyDerived, { maxStackLayers: 12, maxTopLoadKg: 0 })).toBe(242);
+  });
 });
