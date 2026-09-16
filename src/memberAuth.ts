@@ -1,8 +1,8 @@
 import { adoptRemoteOperator, logoutLocalOperator, type LocalOperator } from './localOperator';
 import { CONTAINER_MEMBER_API_URL, supabasePublicHeaders } from './supabaseConfig';
 
-const MEMBER_SESSION_KEY = 'container-loading:supabase-member-session:v2';
-const LEGACY_MEMBER_SESSION_KEY = 'container-loading:supabase-member-session:v1';
+export const MEMBER_SESSION_KEY = 'container-loading:supabase-member-session:v2';
+export const LEGACY_MEMBER_SESSION_KEY = 'container-loading:supabase-member-session:v1';
 export const MEMBER_AUTH_EVENT = 'container-loading:supabase-member-auth-updated';
 
 type MemberApiProfile = {
@@ -20,7 +20,7 @@ type MemberApiResponse = {
   error?: string;
 };
 
-type StoredMemberSession = {
+export type StoredMemberSession = {
   token: string;
   expiresAt: string;
   userId: string;
@@ -37,10 +37,10 @@ export type MemberAuthResult = {
 function readStoredSession(): StoredMemberSession | null {
   if (typeof window === 'undefined') return null;
   try {
-    const parsed = JSON.parse(localStorage.getItem(MEMBER_SESSION_KEY) || 'null') as Partial<StoredMemberSession> | null;
+    const parsed = JSON.parse(sessionStorage.getItem(MEMBER_SESSION_KEY) || 'null') as Partial<StoredMemberSession> | null;
     if (!parsed?.token || !parsed.expiresAt || !parsed.userId || !parsed.displayName) return null;
     if (new Date(parsed.expiresAt).getTime() <= Date.now()) {
-      localStorage.removeItem(MEMBER_SESSION_KEY);
+      sessionStorage.removeItem(MEMBER_SESSION_KEY);
       return null;
     }
     return parsed as StoredMemberSession;
@@ -50,10 +50,26 @@ function readStoredSession(): StoredMemberSession | null {
 }
 
 function writeStoredSession(session: StoredMemberSession | null) {
-  if (session) localStorage.setItem(MEMBER_SESSION_KEY, JSON.stringify(session));
-  else localStorage.removeItem(MEMBER_SESSION_KEY);
-  localStorage.removeItem(LEGACY_MEMBER_SESSION_KEY);
+  if (session) sessionStorage.setItem(MEMBER_SESSION_KEY, JSON.stringify(session));
+  else sessionStorage.removeItem(MEMBER_SESSION_KEY);
+  sessionStorage.removeItem(LEGACY_MEMBER_SESSION_KEY);
   window.dispatchEvent(new CustomEvent(MEMBER_AUTH_EVENT, { detail: session }));
+}
+
+/**
+ * 회원 세션은 영구 업무 데이터가 아니라 인증 자격 증명이므로 sessionStorage에만 둔다.
+ * 브라우저 localStorage는 업무 데이터 저장소로 사용하지 않는다.
+ */
+export function seedTransientMemberSession(raw: string | null) {
+  if (typeof window === 'undefined' || sessionStorage.getItem(MEMBER_SESSION_KEY) || !raw) return;
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredMemberSession> | null;
+    if (!parsed?.token || !parsed.expiresAt || !parsed.userId || !parsed.displayName) return;
+    if (new Date(parsed.expiresAt).getTime() <= Date.now()) return;
+    sessionStorage.setItem(MEMBER_SESSION_KEY, JSON.stringify(parsed));
+  } catch {
+    // 손상된 예전 세션은 마이그레이션하지 않는다.
+  }
 }
 
 function apiMessage(error: string | undefined, fallback: string) {
@@ -92,7 +108,7 @@ export function hasSupabaseMemberSession(): boolean {
 
 /**
  * loading_members 전용 opaque session token이다.
- * Supabase Auth JWT가 아니므로 브라우저 외부로 노출하지 않고 container-member-api 호출에만 사용한다.
+ * Supabase Auth JWT가 아니며 container-member-api 호출에만 사용한다.
  */
 export function readSupabaseMemberSessionToken(): string | null {
   return readStoredSession()?.token ?? null;
@@ -173,6 +189,6 @@ export async function logoutMember(): Promise<void> {
   try {
     await postMemberAction({ action: 'logout' }, session.token);
   } catch {
-    // 서버 연결이 끊겨도 브라우저의 회원 세션은 즉시 해제한다.
+    // 서버 연결이 끊겨도 이 탭의 회원 세션은 즉시 해제한다.
   }
 }
