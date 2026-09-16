@@ -51,8 +51,8 @@ import ProductToolsCenter from './ProductToolsCenter';
 import ProductMenuActions from './ProductMenuActions';
 import EquipmentVisualAdminEditor from './EquipmentVisualAdminEditor';
 import WorkflowIntegrationBridge from './WorkflowIntegrationBridge';
-import MemberCloudDataBridge from './MemberCloudDataBridge';
 import { cleanupLegacyUnregisteredBoxes } from './legacyBoxCleanup';
+import { initializeSupabasePersistence } from './supabasePersistence';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -109,61 +109,78 @@ import './guided-loading-unit.css';
 import './guided-result-tabs-enhancer.css';
 import './workflow-usability-fixes.css';
 
-cleanupLegacyUnregisteredBoxes();
+function renderApplication() {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <RuntimeDiagnosticRecorder />
+        <WorkflowIntegrationBridge />
+        <ReferenceWorkspaceBar />
+        <ProductMenuActions />
+        <ProductToolsCenter />
+        <HeaderLoadingStatusBoard />
+        <TransportEquipmentSelector />
+        <TransportEquipmentSelectionUxBridge />
+        <TransportEquipmentSpecManager />
+        <TransportEquipmentSafetyGuard />
+        <TransportEquipmentRecalculationNotice />
+        <ResultsOverlay />
+        <CertificationInvalidationBridge />
+        <FinalCertificationGate />
+        <FinalWorkflowRecoveryBridge />
+        <FinalWorkOrderOptimizer />
+        <DirectWorkOrderOptimizer />
+        <PalletResultsOptimizer />
+        <EquipmentLoadingConsistencyGuard />
+        <PackagingDataIntegrityGuard />
+        <ConfirmedPackagingLoadingBridge />
+        <App />
+        <RemainingLengthIndicator />
+        <PalletWeightDistributionDock />
+        <PalletWeightDistributionLauncher />
+        <InspectionStatusPanel />
+        <OperationalRightSummary />
+        <DashboardCommandDock />
+        <TransportEquipmentDashboardSummary />
+        <GuidedWorkflowShell />
+        <GuidedLoadingUnitEnhancer />
+        <SavedWorkQuickList />
+        <EquipmentVisualAdminEditor />
+        <GuidedResultTabsEnhancer />
+        <DiagnosticExportResultButton />
+        <DiagnosticAutoMailBridge />
+        <EnterprisePackagingPlannerHost />
+        <EnterpriseTransportEquipmentAdapter />
+        <ProductPackagingExcelActions />
+        <EnterprisePackagingOutputActions />
+        <EnterpriseManufacturingSettings />
+        <EnterprisePackagingStrategyExplorer />
+        <EnterpriseCartonApprovalCenter />
+        <SecuringMaterialSettingsPanel />
+        <SafetyInspectionCenter />
+        <PhysicsValidationTool />
+        <InertiaTestTool />
+        <ExcelImportActions />
+        <ExcelExportActions />
+      </ErrorBoundary>
+    </React.StrictMode>,
+  );
+}
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <RuntimeDiagnosticRecorder />
-      <MemberCloudDataBridge />
-      <WorkflowIntegrationBridge />
-      <ReferenceWorkspaceBar />
-      <ProductMenuActions />
-      <ProductToolsCenter />
-      <HeaderLoadingStatusBoard />
-      <TransportEquipmentSelector />
-      <TransportEquipmentSelectionUxBridge />
-      <TransportEquipmentSpecManager />
-      <TransportEquipmentSafetyGuard />
-      <TransportEquipmentRecalculationNotice />
-      <ResultsOverlay />
-      <CertificationInvalidationBridge />
-      <FinalCertificationGate />
-      <FinalWorkflowRecoveryBridge />
-      <FinalWorkOrderOptimizer />
-      <DirectWorkOrderOptimizer />
-      <PalletResultsOptimizer />
-      <EquipmentLoadingConsistencyGuard />
-      <PackagingDataIntegrityGuard />
-      <ConfirmedPackagingLoadingBridge />
-      <App />
-      <RemainingLengthIndicator />
-      <PalletWeightDistributionDock />
-      <PalletWeightDistributionLauncher />
-      <InspectionStatusPanel />
-      <OperationalRightSummary />
-      <DashboardCommandDock />
-      <TransportEquipmentDashboardSummary />
-      <GuidedWorkflowShell />
-      <GuidedLoadingUnitEnhancer />
-      <SavedWorkQuickList />
-      <EquipmentVisualAdminEditor />
-      <GuidedResultTabsEnhancer />
-      <DiagnosticExportResultButton />
-      <DiagnosticAutoMailBridge />
-      <EnterprisePackagingPlannerHost />
-      <EnterpriseTransportEquipmentAdapter />
-      <ProductPackagingExcelActions />
-      <EnterprisePackagingOutputActions />
-      <EnterpriseManufacturingSettings />
-      <EnterprisePackagingStrategyExplorer />
-      <EnterpriseCartonApprovalCenter />
-      <SecuringMaterialSettingsPanel />
-      <SafetyInspectionCenter />
-      <PhysicsValidationTool />
-      <InertiaTestTool />
-      <ExcelImportActions />
-      <ExcelExportActions />
-    </ErrorBoundary>
-  </React.StrictMode>,
-);
+async function bootstrap() {
+  const root = document.getElementById('root');
+  try {
+    // 모든 영구 데이터는 React가 시작되기 전에 Supabase에서 복원한다.
+    // 이후 기존 localStorage API는 디스크가 아니라 메모리 shim을 가리킨다.
+    await initializeSupabasePersistence();
+    cleanupLegacyUnregisteredBoxes();
+    renderApplication();
+  } catch (error) {
+    console.error('Supabase persistence bootstrap failed', error);
+    if (root) {
+      root.innerHTML = '<main style="font-family:system-ui;padding:32px;max-width:720px;margin:auto"><h2>데이터 저장소 연결 실패</h2><p>Supabase 데이터 저장소를 준비하지 못해 로컬 저장 방식으로 대체하지 않았습니다. 인터넷 연결을 확인한 뒤 새로고침하세요.</p></main>';
+    }
+  }
+}
+
+void bootstrap();
