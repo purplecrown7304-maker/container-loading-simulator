@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
+import { readPalletSnapshot, publishPalletSnapshot } from './palletSnapshotStore';
 import { readProductSelection } from './productWorkflow';
 import { useGuidedWorkflowState } from './guidedWorkflowState';
 import {
@@ -54,6 +55,14 @@ export default function GuidedLoadingUnitEnhancer() {
 
     if ((guidedWorkflow.step === 5 || guidedWorkflow.step === 6) && unit) {
       clickUnderlyingMode(unit);
+    }
+
+    // PalletModePanel은 3D 화면이 unmount될 때 legacy window mirror를 비운다.
+    // 실제 snapshot store는 결과를 유지하므로 6단계 진입 시 검증된 snapshot을 다시 mirror하고
+    // 기존 결과/리포트 소비자에게 같은 업데이트 이벤트를 전달한다.
+    if (guidedWorkflow.step === 6 && unit === 'pallets') {
+      const snapshot = readPalletSnapshot();
+      if (snapshot) publishPalletSnapshot(snapshot, { preserveCertification: true });
     }
   }, [guidedWorkflow.active, guidedWorkflow.step, unit]);
 
