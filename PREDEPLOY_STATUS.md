@@ -54,16 +54,34 @@ npm run test:e2e
 
 `npm run test:e2e`는 Playwright 전체 E2E입니다.
 
+## CI 준비
+
+`.github/workflows/ci.yml`은 2026-09 릴리스 후보 검증 기준으로 정리했습니다.
+
+- `pull_request` → `main` 검증 트리거
+- 수동 `workflow_dispatch` 유지
+- `npm ci` 사용
+- `npm audit --audit-level=high`
+- `npm run verify:predeploy`
+- Chromium 설치 후 `npm run test:e2e`
+- 성공 시 production `dist` artifact 업로드
+- 동일 PR의 오래된 CI는 concurrency로 취소
+
+이 변경은 애플리케이션 프로덕션 배포를 수행하지 않습니다.
+
 ## 현재 검증 상태
 
 - 코드/테스트/architecture guard 작성: 완료
 - GitHub Draft PR 구성: 완료
-- `npm run verify:predeploy` 실제 실행: 미실행
-- `npm run test:e2e` 실제 실행: 미실행
+- CI workflow 배포직전 검증 정의: 완료
+- `npm run verify:predeploy` 실제 실행: 대기
+- `npm run test:e2e` 실제 실행: 대기
 - `main` 병합: 미실행
 - Vercel 프로덕션 배포: 미실행
 
-현재 연결 환경에서는 GitHub 저장소를 로컬 clone할 네트워크가 없고 GitHub Actions workflow도 수동 실행 전용이므로, 실제 명령을 실행하지 않은 상태에서 통과했다고 간주하지 않습니다.
+ChatGPT 실행 환경에서 2026-09-16에 저장소 clone을 다시 시도했지만 `Could not resolve host: github.com`으로 실패했습니다. 이 환경에서는 GitHub와 npm registry DNS를 사용할 수 없어 로컬 명령 실행을 통과했다고 간주하지 않습니다.
+
+현재 PR의 Vercel 상태가 실패로 보이더라도 target이 `upgradeToPro=build-rate-limit`이면 코드 빌드 실패가 아니라 Vercel build-rate-limit 차단으로 구분합니다.
 
 ## 릴리스 규칙
 
@@ -72,3 +90,4 @@ npm run test:e2e
 3. 배포 직전 `main`과의 차이를 다시 확인합니다.
 4. 배포 후에는 새 기능을 바로 추가하지 않고 로그인/데이터 동기화/제품 선택/포장/적재 방식/자동 적재/결과/작업지시서 순서로 smoke test를 먼저 수행합니다.
 5. 기존 브라우저 데이터는 Supabase migration이 실제 실행되어 서버 저장을 확인하기 전 임의 삭제하지 않습니다.
+6. Vercel quota/rate-limit 상태와 애플리케이션 compile/test 실패를 같은 원인으로 취급하지 않습니다.
