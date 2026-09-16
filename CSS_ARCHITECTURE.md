@@ -88,11 +88,12 @@
 2. 제품 목록, mode tabs, 모바일 6단계 rail, 적재 유형/전략 규칙을 기능 CSS로 이동
 3. 가이드 shell, 결과 핵심 지표, 결과 목록, 하단 CTA 규칙을 기능 CSS로 이동
 4. `ux-review-improvements.css`, `ux-review-phase2.css`와 import 제거
+5. 현재 `App.tsx` 렌더 구조를 점검해 구형 `.workspace` / `.panel` wrapper를 더 이상 사용하지 않는 것을 확인
 
 다음 단계:
 
-1. 실제 JSX/TSX에서 사용되지 않는 구형 selector 확인
-2. `styles.css`의 구형 `.workspace` / `.panel` 계열 제거
+1. `styles.css`에 남은 구형 `.workspace`, `.panel`, `.left-panel`, `.right-panel` 규칙을 안전하게 제거
+2. 해당 구형 selector가 다시 JSX/TSX에 등장하지 않도록 architecture check 추가
 3. 중복 `!important`와 상충하는 반응형 규칙을 단계적으로 축소
 4. 단계 표시를 CSS 강제 display 전환에서 React 상태 기반 렌더링으로 바꾸는 별도 리팩터링 진행
 
