@@ -1,0 +1,185 @@
+html[data-guided-workflow="true"][data-guided-step="4"] .dashboard-center>.viewer-card {
+  display: none!important;
+}
+
+html[data-guided-workflow="true"][data-guided-step="4"] .dashboard-center>.guided-stage-panel {
+  display: block!important;
+}
+
+html[data-guided-workflow="true"][data-guided-step="5"] .dashboard-center>.guided-stage-panel {
+  display: none!important;
+}
+
+html[data-guided-workflow="true"][data-guided-step="5"] .dashboard-center>.viewer-card {
+  display: block!important;
+  min-height: 560px!important;
+  padding: 16px!important;
+  border: 1px solid var(--gw-border)!important;
+  border-radius: 18px!important;
+  background: #fff!important;
+}
+
+html[data-guided-workflow="true"][data-guided-step="5"] .viewer-host {
+  height: calc(100vh - 184px)!important;
+  min-height: 520px!important;
+  margin: 0!important;
+  border-radius: 18px!important;
+  overflow: hidden!important;
+  background: #0b0b0c!important;
+}
+
+html[data-guided-workflow="true"][data-guided-step="5"] .viewer-bottom-actions {
+  display: none!important;
+}
+
+html[data-guided-workflow="true"][data-guided-step="6"] .dashboard-center>.viewer-card {
+  display: none!important;
+}
+
+html[data-guided-workflow="true"][data-guided-step="6"] .dashboard-center>.guided-stage-panel {
+  display: block!important;
+}
+
+.guided-strategy-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.guided-strategy-status {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border: 1px solid #d8dee8;
+  border-radius: 999px;
+  background: #f7f8fa;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.guided-strategy-status.ready {
+  border-color: #b8dfc4;
+  background: #edf8f0;
+  color: #1f7a3d;
+}
+
+.guided-strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.guided-strategy-card {
+  position: relative;
+  min-height: 190px;
+  padding: 22px 18px 18px;
+  border: 1px solid #dfe3ea;
+  border-radius: 14px;
+  background: #fff;
+  color: #202936;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease, background .16s ease;
+}
+
+.guided-strategy-card:hover {
+  border-color: #9dbbe9;
+  box-shadow: 0 8px 22px rgba(40, 72, 120, .10);
+  transform: translateY(-1px);
+}
+
+.guided-strategy-card.selected {
+  border: 2px solid #2f6fc5;
+  background: #f4f8ff;
+  box-shadow: 0 8px 24px rgba(47, 111, 197, .13);
+  padding: 21px 17px 17px;
+}
+
+.guided-strategy-card strong,
+.guided-strategy-card b,
+.guided-strategy-card small {
+  display: block;
+}
+
+.guided-strategy-card strong {
+  margin: 5px 28px 15px 0;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.guided-strategy-card b {
+  margin-bottom: 10px;
+  color: #3d4c60;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.guided-strategy-card small {
+  color: #758094;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.guided-strategy-check {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid #d6dce5;
+  border-radius: 50%;
+  background: #fff;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.guided-strategy-card.selected .guided-strategy-check {
+  border-color: #2f6fc5;
+  background: #2f6fc5;
+}
+
+.guided-strategy-note {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 14px 16px;
+  border: 1px solid #e2e6ed;
+  border-radius: 12px;
+  background: #fafbfc;
+}
+
+.guided-strategy-note b {
+  color: #3b4656;
+  font-size: 12px;
+}
+
+.guided-strategy-note span {
+  color: #687386;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+@media (max-width: 900px) {
+  .guided-strategy-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .guided-strategy-card {
+    min-height: 0;
+  }
+
+  .guided-strategy-note {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .guided-step-list {
+    grid-template-columns: repeat(6, minmax(118px, 1fr));
+    min-width: 730px;
+  }
+}
