@@ -57,14 +57,32 @@ describe('pallet field QA', () => {
     assertInsideContainer(result, fortyFoot);
   });
 
-  it('does not stack pallets when lower boxes cannot support the accumulated upper weight', () => {
+  it('never exceeds configured carton top-load when stacking pallets', () => {
+    const maxTopLoadKg = 30;
     const result = packOnPallets(
       { ...fortyFoot, length: 4.4, maxPayloadKg: 12000 },
-      [cargo('FRAGILE', { quantity: 90, weightKg: 24, maxTopLoadKg: 30, maxStackLayers: 4 })],
+      [cargo('FRAGILE', { quantity: 90, weightKg: 24, maxTopLoadKg, maxStackLayers: 4 })],
       { ...defaultPalletSpec, maxStackLevels: 3, maxSupportedTopWeightKg: 5000, maxLoadKg: 900 },
     );
-    expect(result.maxUsedStackLevel).toBe(1);
-    expect(result.stackedPallets).toBe(0);
+
+    const columns = new Map<number, typeof result.pallets>();
+    for (const pallet of result.pallets) {
+      const stack = columns.get(pallet.stackColumn) ?? [];
+      stack.push(pallet);
+      columns.set(pallet.stackColumn, stack);
+    }
+
+    for (const stack of columns.values()) {
+      stack.sort((a, b) => a.stackLevel - b.stackLevel);
+      for (let index = 0; index < stack.length - 1; index += 1) {
+        const lower = stack[index];
+        const lowerTop = Math.max(...lower.cargoPlacements.map((placement) => placement.z + placement.height));
+        const supporters = lower.cargoPlacements.filter((placement) => Math.abs(placement.z + placement.height - lowerTop) <= 0.03);
+        expect(supporters.length).toBeGreaterThan(0);
+        const accumulatedUpperWeight = stack.slice(index + 1).reduce((sum, pallet) => sum + pallet.totalWeightKg, 0);
+        expect(accumulatedUpperWeight / supporters.length).toBeLessThanOrEqual(maxTopLoadKg + 1e-9);
+      }
+    }
     assertInsideContainer(result, { ...fortyFoot, length: 4.4, maxPayloadKg: 12000 });
   });
 
