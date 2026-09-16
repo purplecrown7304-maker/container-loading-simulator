@@ -5,6 +5,7 @@ import {
   requestCertifiedResults,
   type InertiaCertification,
 } from './inertiaCertification';
+import { restorePalletPhysicsTarget } from './palletTargetRestore';
 import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
 export const OPEN_RESULTS_MODAL_EVENT = 'container-loading-open-results-modal';
@@ -27,8 +28,16 @@ export function certificationMatchesTarget(certification: InertiaCertification |
 }
 
 export function openResultsModal(detail: ResultsModalDetail) {
-  const target = readPhysicsTarget();
   const certification = detail.certification ?? readLatestInertiaCertification();
+  let target = readPhysicsTarget();
+
+  // Guided step 6 unmounts the pallet viewer and therefore clears its live target.
+  // A pallet certification tells us which mode owns the persisted snapshot, so the
+  // exact target can be restored before deciding whether to open or re-validate.
+  if (!target && certification?.mode === 'pallets') {
+    target = restorePalletPhysicsTarget(detail.container, detail.cargo);
+  }
+
   const effectiveDetail: ResultsModalDetail = target?.mode === 'pallets'
     ? { container: target.container, cargo: target.cargo, result: target.result, certification }
     : { ...detail, certification };
