@@ -21,7 +21,7 @@ describe('loading work order', () => {
     expect(html).toContain('3단계 진행 그림');
     expect(html).toContain('작업 순서');
     expect(html).toContain('필요 보조자재');
-    expect(html).toContain('문 닫힘 간섭 없음');
+    expect(html).toContain('도어 닫힘 간섭 없음');
     expect(html).toContain('안쪽부터');
     expect(html).toContain('바닥부터');
   });
