@@ -100,6 +100,7 @@
 5. 단계 표시를 CSS 강제 display 전환에서 React 상태 기반 렌더링으로 바꾸는 작업은 별도 리팩터링으로 진행
 
 현재까지 Viewer, Workspace, 적재공간, 제품 목록, mode tabs, 모바일 6단계 rail, 적재 유형/전략의 소유권 이동을 완료했습니다.
+다음 정리 대상은 review CSS에 남은 shell/result 규칙과 실제 미사용 구형 selector입니다.
 
 ## 7. 자동 검사
 
