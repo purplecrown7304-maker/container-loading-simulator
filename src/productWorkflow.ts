@@ -3,7 +3,6 @@ import { randomUniqueCargoColor } from './cargoColors';
 import { requiresBoxPackaging, type CompanyProductItem } from './companyProduct';
 import {
   defaultProductPackagingOptions,
-  optimizeProductPackaging,
   type BoxCatalogItem,
   type ProductPackagingAssignment,
 } from './engine/productPackagingOptimizer';
@@ -22,6 +21,9 @@ export const PRODUCT_PACKAGING_EVENT = 'container-loading:product-packaging-upda
 const ADMIN_SELECTION_KEY = `${PRODUCT_SELECTION_KEY}:admin`;
 const GUEST_SELECTION_KEY = `${PRODUCT_SELECTION_KEY}:guest`;
 const QUICK_EPS = 1e-9;
+const PACKAGING_CANDIDATE_CACHE_LIMIT = 300;
+const packagingCandidateCache = new Map<string, ProductPackagingAssignment[]>();
+const boxCatalogFingerprintCache = new WeakMap<BoxCatalogItem[], string>();
 
 export type ProductSelectionMap = Record<string, number>;
 
@@ -81,44 +83,6 @@ export function plannerContainer(): ContainerSpec {
   return state?.container ?? { length: 12.032, width: 2.35, height: 2.7, maxPayloadKg: 28600, floorLoadLimitKgPerM2: 1500, floorLoadWarningMultiplier: 3 };
 }
 
-export function packagingCandidates(
-  container: ContainerSpec,
-  product: CompanyProductItem,
-  boxes: BoxCatalogItem[],
-  state?: EnterprisePackagingPlannerState | null,
-): ProductPackagingAssignment[] {
-  if (!requiresBoxPackaging(product)) return [];
-  const planner = state ?? readEnterprisePackagingPlannerState();
-  const sourceState: EnterprisePackagingPlannerState = {
-    container,
-    products: [product],
-    boxes,
-    settings: planner?.settings,
-  };
-  const enterprise = enterprisePackagingOptionsFromPlanner(sourceState);
-  const packaging = enterprise.packaging ?? defaultProductPackagingOptions;
-  const candidates: ProductPackagingAssignment[] = [];
-
-  for (const box of boxes) {
-    const plan = optimizeProductPackaging(container, [product], [box], { ...packaging, allowCustomBoxDesign: false });
-    if (plan.assignments[0]) candidates.push(plan.assignments[0]);
-  }
-
-  const generated = optimizeProductPackaging(container, [product], [], { ...packaging, allowCustomBoxDesign: true }).assignments[0];
-  if (generated) candidates.push(generated);
-
-  const unique = new Map<string, ProductPackagingAssignment>();
-  for (const candidate of candidates) {
-    const key = `${candidate.boxId}:${candidate.outerLength.toFixed(4)}:${candidate.outerWidth.toFixed(4)}:${candidate.outerHeight.toFixed(4)}`;
-    const previous = unique.get(key);
-    if (!previous || candidate.score > previous.score) unique.set(key, candidate);
-  }
-
-  return [...unique.values()]
-    .sort((a, b) => b.score - a.score || a.boxesNeeded - b.boxesNeeded || b.productFillRate - a.productFillRate)
-    .slice(0, 3);
-}
-
 type QuickOrientation = [number, number, number];
 
 function quickOrientations(product: CompanyProductItem): QuickOrientation[] {
@@ -150,13 +114,14 @@ function quickTileEfficiency(container: ContainerSpec, l: number, w: number, h: 
 
 function quickUnitsInBox(product: CompanyProductItem, box: BoxCatalogItem) {
   const layerLimit = product.maxInternalLayers ?? (product.fragile ? 1 : Number.POSITIVE_INFINITY);
+  const perBoxLimit = product.maxUnitsPerBox ?? Number.POSITIVE_INFINITY;
   let best = 0;
   for (const [pl, pw, ph] of quickOrientations(product)) {
     const nx = Math.floor((box.innerLength + QUICK_EPS) / pl);
     const ny = Math.floor((box.innerWidth + QUICK_EPS) / pw);
     const nz = Math.min(layerLimit, Math.floor((box.innerHeight + QUICK_EPS) / ph));
     const byWeight = Math.floor((box.maxGrossWeightKg - box.tareWeightKg + QUICK_EPS) / product.weightKg);
-    best = Math.max(best, Math.min(nx * ny * nz, byWeight));
+    best = Math.max(best, Math.min(nx * ny * nz, byWeight, perBoxLimit));
   }
   return Math.max(0, Math.floor(best));
 }
@@ -175,6 +140,7 @@ function quickAssignment(container: ContainerSpec, product: CompanyProductItem, 
     : Math.max(1, Math.min(geometryStack, 1 + Math.floor((box.maxTopLoadKg + QUICK_EPS) / grossWeightKg)));
   const maxStackLayers = source === 'generated' ? 1 : declaredStack;
   const requiredTopLoadKg = Math.max(0, grossWeightKg * (geometryStack - 1));
+  // 포장 단계에서는 빠른 기하/중량 평가만 한다. 실제 컨테이너 배치는 자동 적재 단계에서 검증한다.
   const score = productFillRate * 0.55 + containerTileEfficiency * 0.35 + Math.min(1, unitsPerBox / 24) * 0.10;
   return {
     productId: product.id,
@@ -208,24 +174,59 @@ function roundUpQuick(value: number, step: number) {
   return !Number.isFinite(step) || step <= 0 ? value : Math.ceil((value - QUICK_EPS) / step) * step;
 }
 
-/**
- * 제품 검색 화면 전용 빠른 미리보기. loadContainer 시뮬레이션을 전혀 실행하지 않는다.
- * 실제 포장 확정 단계에서는 packagingCandidates()가 다시 정밀 계산한다.
- */
-export function previewPackagingCandidate(
+function boxCatalogFingerprint(boxes: BoxCatalogItem[]) {
+  const cached = boxCatalogFingerprintCache.get(boxes);
+  if (cached) return cached;
+  const fingerprint = boxes.map(box => [
+    box.id,
+    box.innerLength,
+    box.innerWidth,
+    box.innerHeight,
+    box.outerLength,
+    box.outerWidth,
+    box.outerHeight,
+    box.tareWeightKg,
+    box.maxGrossWeightKg,
+    box.maxTopLoadKg ?? '',
+    box.unitCost ?? '',
+  ].join(':')).join('|');
+  boxCatalogFingerprintCache.set(boxes, fingerprint);
+  return fingerprint;
+}
+
+function packagingCacheKey(
+  container: ContainerSpec,
+  product: CompanyProductItem,
+  boxes: BoxCatalogItem[],
+  planner?: EnterprisePackagingPlannerState | null,
+) {
+  return JSON.stringify({
+    c: [container.length, container.width, container.height, container.maxPayloadKg],
+    p: [
+      product.id, product.length, product.width, product.height, product.weightKg, product.quantity,
+      product.allowRotation, product.orientationPolicy, product.maxUnitsPerBox, product.cushioningM,
+      product.maxInternalLayers, product.fragile,
+    ],
+    b: boxCatalogFingerprint(boxes),
+    s: planner?.settings ?? null,
+  });
+}
+
+function rememberPackagingCandidates(key: string, candidates: ProductPackagingAssignment[]) {
+  if (packagingCandidateCache.size >= PACKAGING_CANDIDATE_CACHE_LIMIT) {
+    const oldest = packagingCandidateCache.keys().next().value as string | undefined;
+    if (oldest) packagingCandidateCache.delete(oldest);
+  }
+  packagingCandidateCache.set(key, candidates);
+  return candidates;
+}
+
+function generatedQuickCandidates(
   container: ContainerSpec,
   product: CompanyProductItem,
   boxes: BoxCatalogItem[],
   state?: EnterprisePackagingPlannerState | null,
-): ProductPackagingAssignment | undefined {
-  if (!requiresBoxPackaging(product)) return undefined;
-
-  const catalogCandidates = boxes
-    .map(box => quickAssignment(container, product, box, 'catalog'))
-    .filter((item): item is ProductPackagingAssignment => Boolean(item))
-    .sort((a, b) => b.score - a.score || b.unitsPerBox - a.unitsPerBox || a.boxesNeeded - b.boxesNeeded);
-  if (catalogCandidates[0]) return catalogCandidates[0];
-
+): ProductPackagingAssignment[] {
   const planner = state ?? readEnterprisePackagingPlannerState();
   const packaging = enterprisePackagingOptionsFromPlanner({
     container,
@@ -233,17 +234,22 @@ export function previewPackagingCandidate(
     boxes,
     settings: planner?.settings,
   }).packaging ?? defaultProductPackagingOptions;
-  if (!packaging.allowCustomBoxDesign) return undefined;
+  if (!packaging.allowCustomBoxDesign) return [];
 
   const step = Math.max(0.001, packaging.generatedDimensionStepM ?? 0.005);
   const layerLimit = Math.min(6, product.maxInternalLayers ?? (product.fragile ? 1 : 6));
+  const maxUnits = Math.min(
+    product.maxUnitsPerBox ?? packaging.maxGeneratedUnitsPerBox,
+    packaging.maxGeneratedUnitsPerBox,
+  );
   const generated: ProductPackagingAssignment[] = [];
+  const seen = new Set<string>();
   let index = 0;
 
   for (const [pl, pw, ph] of quickOrientations(product)) {
     for (let nx = 1; nx <= 4; nx += 1) for (let ny = 1; ny <= 4; ny += 1) for (let nz = 1; nz <= layerLimit; nz += 1) {
       const units = nx * ny * nz;
-      if (units * product.weightKg + packaging.generatedBoxTareKg > packaging.maxGeneratedGrossWeightKg + QUICK_EPS) continue;
+      if (units > maxUnits || units * product.weightKg + packaging.generatedBoxTareKg > packaging.maxGeneratedGrossWeightKg + QUICK_EPS) continue;
       const innerLength = roundUpQuick(pl * nx + packaging.clearanceM * 2, step);
       const innerWidth = roundUpQuick(pw * ny + packaging.clearanceM * 2, step);
       const innerHeight = roundUpQuick(ph * nz + packaging.clearanceM * 2, step);
@@ -254,10 +260,13 @@ export function previewPackagingCandidate(
       const floorFits = (outerLength <= container.length + QUICK_EPS && outerWidth <= container.width + QUICK_EPS)
         || (outerWidth <= container.length + QUICK_EPS && outerLength <= container.width + QUICK_EPS);
       if (!floorFits) continue;
+      const dimensionKey = [innerLength, innerWidth, innerHeight, outerLength, outerWidth, outerHeight].map(value => value.toFixed(4)).join(':');
+      if (seen.has(dimensionKey)) continue;
+      seen.add(dimensionKey);
       index += 1;
       const box: BoxCatalogItem = {
-        id: `PREVIEW-${product.id}-${index}`,
-        name: `자동 추천 ${Math.round(outerLength * 1000)}×${Math.round(outerWidth * 1000)}×${Math.round(outerHeight * 1000)}mm`,
+        id: `AUTO-${product.id}-${index}`,
+        name: `자동설계 ${Math.round(outerLength * 1000)}×${Math.round(outerWidth * 1000)}×${Math.round(outerHeight * 1000)}mm`,
         innerLength,
         innerWidth,
         innerHeight,
@@ -274,7 +283,50 @@ export function previewPackagingCandidate(
     }
   }
 
-  return generated.sort((a, b) => b.score - a.score || b.unitsPerBox - a.unitsPerBox || a.boxesNeeded - b.boxesNeeded)[0];
+  return generated
+    .sort((a, b) => b.score - a.score || b.unitsPerBox - a.unitsPerBox || a.boxesNeeded - b.boxesNeeded)
+    .slice(0, 3);
+}
+
+/**
+ * 가이드 제품 포장 화면용 후보 계산.
+ * 예전에는 제품 × 보유박스마다 loadContainer()를 실행해 제품 수가 늘수록 화면 전환이 급격히 느려졌다.
+ * 여기서는 포장 적합성(치수/중량/적층)만 즉시 계산하고 실제 차량 배치와 물리 검증은 자동 적재 단계에 맡긴다.
+ */
+export function packagingCandidates(
+  container: ContainerSpec,
+  product: CompanyProductItem,
+  boxes: BoxCatalogItem[],
+  state?: EnterprisePackagingPlannerState | null,
+): ProductPackagingAssignment[] {
+  if (!requiresBoxPackaging(product)) return [];
+  const planner = state ?? readEnterprisePackagingPlannerState();
+  const cacheKey = packagingCacheKey(container, product, boxes, planner);
+  const cached = packagingCandidateCache.get(cacheKey);
+  if (cached) return cached;
+
+  // 보유 박스를 항상 먼저 사용한다. 유효한 보유 박스가 하나라도 있으면 자동설계 박스를 만들지 않는다.
+  const catalogCandidates = boxes
+    .map(box => quickAssignment(container, product, box, 'catalog'))
+    .filter((candidate): candidate is ProductPackagingAssignment => Boolean(candidate))
+    .sort((a, b) => b.score - a.score || a.boxesNeeded - b.boxesNeeded || b.productFillRate - a.productFillRate)
+    .slice(0, 3);
+
+  if (catalogCandidates.length > 0) return rememberPackagingCandidates(cacheKey, catalogCandidates);
+  return rememberPackagingCandidates(cacheKey, generatedQuickCandidates(container, product, boxes, planner));
+}
+
+/**
+ * 제품 검색 화면 전용 빠른 미리보기. loadContainer 시뮬레이션을 전혀 실행하지 않는다.
+ * 실제 차량 배치/물리 검증은 자동 적재 단계에서 수행한다.
+ */
+export function previewPackagingCandidate(
+  container: ContainerSpec,
+  product: CompanyProductItem,
+  boxes: BoxCatalogItem[],
+  state?: EnterprisePackagingPlannerState | null,
+): ProductPackagingAssignment | undefined {
+  return packagingCandidates(container, product, boxes, state)[0];
 }
 
 export function bestPackagingAssignments(
