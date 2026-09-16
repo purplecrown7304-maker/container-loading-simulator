@@ -107,8 +107,6 @@ import './guided-loading-strategy.css';
 import './guided-loading-unit.css';
 import './guided-result-tabs-enhancer.css';
 import './workflow-usability-fixes.css';
-import './ux-review-improvements.css';
-import './ux-review-phase2.css';
 
 function renderApplication() {
   ReactDOM.createRoot(document.getElementById('root')!).render(
