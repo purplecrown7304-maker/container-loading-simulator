@@ -57,11 +57,14 @@ async function memberDataRequest(payload: Record<string, unknown>) {
 export async function fetchMemberCloudData(): Promise<MemberCloudData | null> {
   const result = await memberDataRequest({ action: 'get_data' });
   if (!result.data) return null;
+  const schemaVersion = typeof result.data.schemaVersion === 'number' && Number.isInteger(result.data.schemaVersion)
+    ? result.data.schemaVersion
+    : MEMBER_APP_STATE_SCHEMA_VERSION;
   return {
     plannerState: result.data.plannerState ?? null,
     personalBoxes: Array.isArray(result.data.personalBoxes) ? result.data.personalBoxes : [],
     appState: normalizeAppState(result.data.appState),
-    schemaVersion: Number.isInteger(result.data.schemaVersion) ? Number(result.data.schemaVersion) : MEMBER_APP_STATE_SCHEMA_VERSION,
+    schemaVersion,
     updatedAt: result.data.updatedAt,
   };
 }
