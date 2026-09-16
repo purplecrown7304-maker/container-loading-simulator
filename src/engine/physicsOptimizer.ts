@@ -1,4 +1,5 @@
 import { loadContainer, type LoadingStrategy } from './loadingEngine';
+import { LOADING_STRATEGIES } from './loadingStrategies';
 import { runPhysicsValidationSuite, type PhysicsValidationSuite } from './physicsValidation';
 import { assessShapeQuality } from './shapeQuality';
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
@@ -31,7 +32,7 @@ export type PhysicsOptimizationProgress = {
   physicsProgress: number;
 };
 
-const STRATEGIES: LoadingStrategy[] = ['stability', 'capacity', 'unloading'];
+const ALL_STRATEGIES: LoadingStrategy[] = LOADING_STRATEGIES.map((item) => item.id);
 const MIN_TRANSPORT_PHYSICS_SCORE = 85;
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
 
@@ -47,11 +48,11 @@ function placementSignature(result: LoadingResult) {
 }
 
 /**
- * 안전 등급은 적재율/그룹핑 같은 운영 효율보다 항상 먼저 비교한다.
- * 0: 운송 안전 목표 충족
- * 1: 붕괴는 없지만 점수 목표 미달
- * 2: 종료 시 잔류 움직임 존재
- * 3: 실제 불안정 위치 존재
+ * Safety tier always outranks operational efficiency.
+ * 0: transport target satisfied
+ * 1: no collapse but target score missed
+ * 2: residual motion at the end of simulation
+ * 3: unstable cargo/support detected
  */
 function safetyTier(physics: PhysicsValidationSuite) {
   if (totalUnstable(physics) > 0) return 3;
@@ -100,31 +101,34 @@ export function comparePhysicsOptimizationCandidates(a: PhysicsOptimizationCandi
 }
 
 /**
- * 후보 적재안을 여러 개 만든 뒤 Rapier 3D 운송 시나리오로 실제 움직임을 비교한다.
- * 동일한 placement 좌표가 전략 이름만 다르게 생성된 경우에는 물리 결과를 재사용한다.
+ * Generates hybrid layouts and validates their actual motion with Rapier. When the user
+ * has explicitly selected one of the six strategies, only that strategy is executed;
+ * otherwise all six are available for comparison. Identical layouts reuse physics output.
  */
 export async function optimizeLoadingWithPhysics(
   container: ContainerSpec,
   cargo: CargoItem[],
   onProgress?: (progress: PhysicsOptimizationProgress) => void,
+  preferredStrategy?: LoadingStrategy,
 ): Promise<PhysicsOptimizedLoading> {
   const activeCargo = cargo.filter(item => item.quantity > 0);
   const candidates: PhysicsOptimizationCandidate[] = [];
   const physicsByLayout = new Map<string, PhysicsValidationSuite>();
+  const strategies = preferredStrategy ? [preferredStrategy] : ALL_STRATEGIES;
 
-  for (let index = 0; index < STRATEGIES.length; index += 1) {
-    const strategy = STRATEGIES[index];
+  for (let index = 0; index < strategies.length; index += 1) {
+    const strategy = strategies[index];
     const result = loadContainer(container, activeCargo, { strategy, publish: false });
     const signature = placementSignature(result);
     let physics = physicsByLayout.get(signature);
 
     if (physics) {
-      onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: STRATEGIES.length, physicsProgress: 1 });
+      onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: strategies.length, physicsProgress: 1 });
     } else {
       physics = await runPhysicsValidationSuite(
         container,
         result.placements,
-        value => onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: STRATEGIES.length, physicsProgress: value }),
+        value => onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: strategies.length, physicsProgress: value }),
       );
       physicsByLayout.set(signature, physics);
     }
@@ -147,9 +151,10 @@ export async function optimizeLoadingWithPhysics(
 
   const best = candidates[0];
   if (!best) {
-    const result = loadContainer(container, activeCargo, { strategy: 'stability', publish: false });
+    const strategy = preferredStrategy ?? 'balanced';
+    const result = loadContainer(container, activeCargo, { strategy, publish: false });
     const physics = await runPhysicsValidationSuite(container, result.placements);
-    return { strategy: 'stability', score: physics.score, result, physics, candidates: [] };
+    return { strategy, score: physics.score, result, physics, candidates: [] };
   }
 
   return { strategy: best.strategy, score: best.score, result: best.result, physics: best.physics, candidates };

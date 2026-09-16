@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compareHybridCandidates, packByHybridOptimizer } from './hybridLoadingOptimizer';
+import { LOADING_STRATEGIES } from './loadingStrategies';
 import type { CargoItem, ContainerSpec, Placement } from './types';
 
 const container: ContainerSpec = {
@@ -50,6 +51,25 @@ describe('hybrid loading optimizer', () => {
     expect(candidates.map((candidate) => candidate.engine).sort()).toEqual(['ems-beam-v2', 'strict-wall']);
     expect(candidates.every((candidate) => candidate.validationIssueCount === 0)).toBe(true);
     expect(candidates[0].score).toBeGreaterThanOrEqual(candidates[1].score);
+  });
+
+  it('keeps both PR #50 solvers active for every non-fast-path strategy', () => {
+    for (const strategy of LOADING_STRATEGIES.map((item) => item.id)) {
+      const candidates = compareHybridCandidates(container, cargo, strategy);
+      expect(candidates).toHaveLength(2);
+      expect(candidates.map((candidate) => candidate.engine).sort()).toEqual(['ems-beam-v2', 'strict-wall']);
+      expect(candidates.every((candidate) => candidate.validationIssueCount === 0)).toBe(true);
+      expect(candidates.every((candidate) => candidate.output.loadedWeightKg <= container.maxPayloadKg)).toBe(true);
+    }
+  });
+
+  it('applies different objective weights across the six strategies', () => {
+    const strictScores = LOADING_STRATEGIES.map(({ id }) => {
+      const candidate = compareHybridCandidates(container, cargo, id).find((row) => row.engine === 'strict-wall');
+      expect(candidate).toBeTruthy();
+      return Number(candidate?.score.toFixed(6));
+    });
+    expect(new Set(strictScores).size).toBeGreaterThan(1);
   });
 
   it('returns a deterministic best plan for identical inputs', () => {

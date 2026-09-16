@@ -1,9 +1,10 @@
 name: CI
 
-# GitHub Actions billing is unavailable until September 2026.
-# Keep this workflow manual-only during August development.
-# Re-enable push/pull_request triggers when Actions usage resumes.
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -18,6 +19,9 @@ jobs:
         with:
           node-version: 22
           package-manager-cache: false
+
+      - name: Pin npm for deterministic install
+        run: npm install --global npm@11.6.0
 
       - name: Install dependencies
         run: npm install

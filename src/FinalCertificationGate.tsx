@@ -1,7 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { buildDirectResultReoptimizationCandidates, type DirectResultReoptimizationCandidate } from './engine/finalResultOptimization';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
+import { LOADING_STRATEGY_STORAGE_KEY } from './engine/loadingEngine';
+import { normalizeLoadingStrategy } from './engine/loadingStrategies';
 import { writeManualOverride } from './engine/manualOverride';
+import {
+  applyPalletAdaptiveCandidate,
+  betterPalletEvaluation,
+  buildPalletAdaptiveCandidates,
+  palletCertificationRisk,
+  readPalletSnapshot,
+  type EvaluatedPalletCandidate,
+} from './engine/palletAdaptiveSearch';
+import { runPhysicsValidationSuite } from './engine/physicsValidation';
+import { publishFinalLayout } from './finalLayout';
 import {
   INERTIA_CERTIFICATION_EVENT,
   INERTIA_PASS_PALLET_CARGO_SLIP_M,
@@ -19,6 +31,7 @@ import {
   type SecuringUsage,
 } from './inertiaCertification';
 import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
+import { publishLoadingWorkflowProgress } from './loadingWorkflow';
 import { publishPhysicsTarget, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { openResultsModal } from './resultsModalEvents';
 import { STORAGE_UPDATED_EVENT, type StoredState } from './storage';
@@ -31,6 +44,7 @@ const SCENARIO_LABEL = {
 
 const EPS = 1e-9;
 const MAX_DIRECT_REPOSITION_CANDIDATES = 6;
+const MAX_PALLET_REPOSITION_CANDIDATES = 6;
 
 type CachedCertification = {
   signature: string;
@@ -43,6 +57,11 @@ type EvaluatedDirectCandidate = DirectResultReoptimizationCandidate & {
 };
 
 type CertificationWindow = Window & { __containerLoadingLatestCertification?: InertiaCertification };
+
+function activeStrategy() {
+  if (typeof window === 'undefined') return normalizeLoadingStrategy(undefined);
+  return normalizeLoadingStrategy(window.localStorage.getItem(LOADING_STRATEGY_STORAGE_KEY));
+}
 
 function targetFromRequest(detail: CertificationRequestDetail): PhysicsTarget {
   return readPhysicsTarget() ?? {
@@ -93,6 +112,31 @@ function applyDirectCandidate(candidate: EvaluatedDirectCandidate) {
   publishCertification(candidate.certification);
 }
 
+function publishVerifiedFinal(target: PhysicsTarget, certification: InertiaCertification, source: 'baseline' | 'auto-rearranged') {
+  publishFinalLayout({
+    mode: target.mode,
+    strategy: activeStrategy(),
+    container: target.container,
+    cargo: target.cargo,
+    result: target.result,
+    certification,
+    verifiedAt: new Date().toISOString(),
+    source,
+  });
+  publishLoadingWorkflowProgress({
+    mode: target.mode,
+    strategy: activeStrategy(),
+    phase: 'complete',
+    percent: 100,
+    title: '최종 적재 확정',
+    detail: `${source === 'auto-rearranged' ? '자동 재배치 검증안' : '기본 검증안'} · finalLayout 생성 완료`,
+  });
+}
+
+function physicsRejected(physics: Awaited<ReturnType<typeof runPhysicsValidationSuite>>) {
+  return physics.unstableCount + physics.supportUnstableCount > 0 || !physics.settled;
+}
+
 export default function FinalCertificationGate() {
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
@@ -121,6 +165,14 @@ export default function FinalCertificationGate() {
     setRepositionAttempt({ index: 0, label: '' });
     setProgress({ level: 1, levelLabel: buildSecuringUsage(nextTarget, 1).levelLabel, scenario: 'acceleration', scenarioIndex: 1, scenarioCount: 3, physicsProgress: 0 });
     setUsage(buildSecuringUsage(nextTarget, 1));
+    publishLoadingWorkflowProgress({
+      mode: nextTarget.mode,
+      strategy: activeStrategy(),
+      phase: 'inertia-validation',
+      percent: 72,
+      title: '관성 테스트 자동 실행',
+      detail: '출발 가속 · 급정거 · 급회전',
+    });
 
     try {
       const result = await runInertiaCertification(
@@ -154,6 +206,7 @@ export default function FinalCertificationGate() {
       setUsage(result.securing);
       if (result.status === 'passed') {
         cache.current = { signature: requestedSignature, certification: result };
+        publishVerifiedFinal(nextTarget, result, 'baseline');
         setRunning(false);
         setOpen(false);
         openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: result });
@@ -163,12 +216,102 @@ export default function FinalCertificationGate() {
       if (!result.payloadWithinLimit) {
         setRunning(false);
         setError('보강 자재 중량까지 포함하면 컨테이너 최대 허용중량을 초과합니다. 적재량 또는 보강안을 조정해야 합니다.');
+        publishLoadingWorkflowProgress({ mode: nextTarget.mode, strategy: activeStrategy(), phase: 'failed', percent: 100, title: '최종 검증 실패', detail: '최대 허용중량 초과 · finalLayout 미확정' });
         return;
       }
 
-      if (nextTarget.mode !== 'boxes') {
+      if (nextTarget.mode === 'pallets') {
+        const snapshot = readPalletSnapshot();
+        if (!snapshot) {
+          setRunning(false);
+          setError('팔레트 재배치에 필요한 현재 팔레트 스냅샷을 찾지 못했습니다. 기존 확정 배치를 유지합니다.');
+          publishLoadingWorkflowProgress({ mode: 'pallets', strategy: activeStrategy(), phase: 'failed', percent: 100, title: '팔레트 재배치 실패', detail: '스냅샷 없음 · finalLayout 미확정' });
+          return;
+        }
+        const palletCandidates = buildPalletAdaptiveCandidates(nextTarget, snapshot, MAX_PALLET_REPOSITION_CANDIDATES);
+        let bestFailed: EvaluatedPalletCandidate | null = null;
+        let attempted = 0;
+
+        for (const candidate of palletCandidates) {
+          if (cancelled()) return;
+          attempted += 1;
+          setTarget(candidate.target);
+          setRepositionAttempt({ index: attempted, label: candidate.label });
+          setUsage(buildSecuringUsage(candidate.target, 1));
+          setLatestResult(null);
+          publishLoadingWorkflowProgress({
+            mode: 'pallets',
+            strategy: activeStrategy(),
+            phase: 'rearranging',
+            percent: 74 + Math.round((attempted - 1) / Math.max(1, palletCandidates.length) * 16),
+            title: '팔레트 자동 재배치',
+            detail: `${candidate.label} · ${attempted}/${palletCandidates.length}`,
+            attempt: attempted,
+            attemptTotal: palletCandidates.length,
+          });
+
+          const physics = await runPhysicsValidationSuite(
+            candidate.target.container,
+            candidate.target.result.placements,
+            undefined,
+            candidate.target.supports ?? [],
+          );
+          if (cancelled()) return;
+          if (physicsRejected(physics)) continue;
+
+          publishLoadingWorkflowProgress({
+            mode: 'pallets',
+            strategy: activeStrategy(),
+            phase: 'revalidation',
+            percent: 82 + Math.round((attempted - 1) / Math.max(1, palletCandidates.length) * 14),
+            title: '팔레트 물리·관성 재검증',
+            detail: `${candidate.label} · Rapier PASS 후 관성 3종`,
+            attempt: attempted,
+            attemptTotal: palletCandidates.length,
+          });
+
+          const candidateCertification = await runInertiaCertification(
+            candidate.target,
+            nextProgress => {
+              if (cancelled()) return;
+              setProgress(nextProgress);
+              setUsage(buildSecuringUsage(candidate.target, nextProgress.level));
+            },
+            (scenarioResult, level) => {
+              if (cancelled()) return;
+              setLatestResult(scenarioResult);
+              setUsage(buildSecuringUsage(candidate.target, level));
+            },
+            cancelled,
+          );
+          if (cancelled()) return;
+          setCertification(candidateCertification);
+          setUsage(candidateCertification.securing);
+          const evaluated: EvaluatedPalletCandidate = {
+            ...candidate,
+            certification: candidateCertification,
+            risk: palletCertificationRisk(candidateCertification),
+          };
+
+          if (candidateCertification.status === 'passed') {
+            publishLoadingWorkflowProgress({ mode: 'pallets', strategy: activeStrategy(), phase: 'finalizing', percent: 98, title: '검증된 팔레트 배치 확정', detail: candidate.label });
+            applyPalletAdaptiveCandidate(candidate, candidateCertification);
+            publishVerifiedFinal(candidate.target, candidateCertification, 'auto-rearranged');
+            cache.current = { signature: candidateCertification.targetSignature, certification: candidateCertification };
+            setTarget(candidate.target);
+            setCertification(candidateCertification);
+            setRunning(false);
+            setOpen(false);
+            openResultsModal({ ...resultDetailFromTarget(candidate.target), certification: candidateCertification });
+            return;
+          }
+          if (!bestFailed || betterPalletEvaluation(evaluated, bestFailed)) bestFailed = evaluated;
+        }
+
         setRunning(false);
-        setError('최대 보강까지 적용했지만 전체 이동·기울기·화물-팔레트 상대 미끄럼·팔레트 자체 이동 중 하나 이상이 내부 안정 기준을 넘었습니다. 팔레트 작업지시서 최종화에서 제한된 상위 재배치 후보를 비교할 수 있습니다.');
+        const diagnostic = bestFailed ? ` 가장 낮은 위험 후보: ${bestFailed.label}.` : '';
+        setError(`팔레트 자동 재배치 ${attempted}개를 물리·관성 재검증했지만 PASS에 도달하지 못했습니다.${diagnostic} 실패 후보는 적용하지 않고 기존 확정 배치를 유지합니다.`);
+        publishLoadingWorkflowProgress({ mode: 'pallets', strategy: activeStrategy(), phase: 'failed', percent: 100, title: '팔레트 최종 검증 실패', detail: '실패 후보는 finalLayout으로 확정하지 않았습니다.' });
         return;
       }
 
@@ -189,7 +332,13 @@ export default function FinalCertificationGate() {
         setRepositionAttempt({ index: attempted, label: candidate.label });
         setUsage(buildSecuringUsage(candidate.target, 1));
         setLatestResult(null);
+        publishLoadingWorkflowProgress({ mode: 'boxes', strategy: activeStrategy(), phase: 'rearranging', percent: 76, title: '상자 자동 재배치', detail: candidate.label, attempt: attempted, attemptTotal: candidates.length });
 
+        const physics = await runPhysicsValidationSuite(candidate.target.container, candidate.target.result.placements, undefined, candidate.target.supports ?? []);
+        if (cancelled()) return;
+        if (physicsRejected(physics)) continue;
+
+        publishLoadingWorkflowProgress({ mode: 'boxes', strategy: activeStrategy(), phase: 'revalidation', percent: 85, title: '재배치 재검증', detail: `${candidate.label} · Rapier PASS 후 관성 3종`, attempt: attempted, attemptTotal: candidates.length });
         const candidateCertification = await runInertiaCertification(
           candidate.target,
           nextProgress => {
@@ -216,6 +365,7 @@ export default function FinalCertificationGate() {
 
         if (candidateCertification.status === 'passed') {
           applyDirectCandidate(evaluated);
+          publishVerifiedFinal(evaluated.target, evaluated.certification, 'auto-rearranged');
           cache.current = { signature: evaluated.certification.targetSignature, certification: evaluated.certification };
           setTarget(evaluated.target);
           setCertification(evaluated.certification);
@@ -229,23 +379,16 @@ export default function FinalCertificationGate() {
         if (!bestFailed || betterCandidate(evaluated, bestFailed)) bestFailed = evaluated;
       }
 
-      if (bestFailed) {
-        applyDirectCandidate(bestFailed);
-        setTarget(bestFailed.target);
-        setCertification(bestFailed.certification);
-        setUsage(bestFailed.certification.securing);
-        setRunning(false);
-        setError(`기본 적재안이 관성 3종을 통과하지 못해 안전성이 높은 상위 재배치 ${attempted}개를 추가 비교했습니다. PASS에는 도달하지 못해 가장 안전한 후보를 적용했습니다. 적재량·박스 적층조건 또는 보조자재 조건을 조정한 뒤 다시 검증하세요.`);
-        return;
-      }
-
       setRunning(false);
-      setError('자동 재배치 후보를 평가하지 못했습니다. 적재안을 수정한 뒤 다시 실행하세요.');
+      const diagnostic = bestFailed ? ` 가장 낮은 위험 후보: ${bestFailed.label}.` : '';
+      setError(`상자 재배치 ${attempted}개를 재검증했지만 PASS에 도달하지 못했습니다.${diagnostic} 실패 후보는 적용하지 않고 기존 확정 배치를 유지합니다.`);
+      publishLoadingWorkflowProgress({ mode: 'boxes', strategy: activeStrategy(), phase: 'failed', percent: 100, title: '최종 검증 실패', detail: '실패 후보는 finalLayout으로 확정하지 않았습니다.' });
     } catch (reason) {
       if (cancelled()) return;
       console.error('Final inertia certification failed', reason);
       setRunning(false);
-      setError('최종 관성 검증 또는 자동 재배치를 완료하지 못했습니다. 현재 적재안을 유지한 채 다시 실행할 수 있습니다.');
+      setError('최종 관성 검증 또는 자동 재배치를 완료하지 못했습니다. 기존 확정 배치를 유지합니다.');
+      publishLoadingWorkflowProgress({ mode: nextTarget.mode, strategy: activeStrategy(), phase: 'failed', percent: 100, title: '최종 검증 오류', detail: '오류 후보는 finalLayout으로 확정하지 않았습니다.' });
     }
   }, []);
 
@@ -264,6 +407,7 @@ export default function FinalCertificationGate() {
       }
       const signature = createPhysicsTargetSignature(nextTarget);
       if (cache.current?.signature === signature && cache.current.certification.status === 'passed') {
+        publishVerifiedFinal(nextTarget, cache.current.certification, 'baseline');
         openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: cache.current.certification });
         return;
       }
@@ -280,6 +424,7 @@ export default function FinalCertificationGate() {
   const scenarioLabel = progress ? SCENARIO_LABEL[progress.scenario] : '-';
   const progressPercent = progress ? Math.round(progress.physicsProgress * 100) : 0;
   const palletMode = target?.mode === 'pallets';
+  const maxReposition = palletMode ? MAX_PALLET_REPOSITION_CANDIDATES : MAX_DIRECT_REPOSITION_CANDIDATES;
 
   return <div className="final-cert-backdrop">
     <section className="final-cert-modal" role="dialog" aria-modal="true" aria-labelledby="final-cert-title">
@@ -287,7 +432,7 @@ export default function FinalCertificationGate() {
         <div>
           <span>FINAL SAFETY GATE · RAPIER 3D · {palletMode ? 'PALLET' : 'DIRECT BOX'}</span>
           <h2 id="final-cert-title">최종 적재 결과 전 관성 검증</h2>
-          <p>출발 가속 · 급정거 · 급회전을 모두 검증합니다. 기본 적재안이 실패하면 DIRECT BOX는 정적 안전점수가 높은 상위 {MAX_DIRECT_REPOSITION_CANDIDATES}개 재배치만 추가 비교해 브라우저가 장시간 멈추는 것을 방지합니다.</p>
+          <p>출발 가속 · 급정거 · 급회전을 모두 검증합니다. 실패하면 제한된 재배치 후보를 Rapier 물리검증부터 다시 실행하며, 검증을 통과한 후보만 최종 결과로 확정합니다.</p>
         </div>
         {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
       </header>
@@ -299,13 +444,13 @@ export default function FinalCertificationGate() {
         <i />
         <div className={progress?.scenarioIndex === 3 ? 'active' : certification?.passedScenarios === 3 ? 'done' : ''}><b>3</b><span>급회전</span></div>
         <i />
-        <div className={certification?.status === 'passed' ? 'done' : ''}><b>✓</b><span>결과 공개</span></div>
+        <div className={certification?.status === 'passed' ? 'done' : ''}><b>✓</b><span>finalLayout</span></div>
       </div>
 
       {running && <div className="final-cert-running">
         <div className="physics-spinner" />
         <div>
-          <b>{repositionAttempt.index > 0 ? `재배치 ${repositionAttempt.index}/${MAX_DIRECT_REPOSITION_CANDIDATES} · 안전 후보 비교 · ${repositionAttempt.label}` : `${progress?.levelLabel ?? '기본 적재'} · ${scenarioLabel}`}</b>
+          <b>{repositionAttempt.index > 0 ? `재배치 ${repositionAttempt.index}/${maxReposition} · ${repositionAttempt.label}` : `${progress?.levelLabel ?? '기본 적재'} · ${scenarioLabel}`}</b>
           <span>{repositionAttempt.index > 0 ? `${progress?.levelLabel ?? ''} · ${scenarioLabel} · 물리 계산 ${progressPercent}%` : `물리 계산 ${progressPercent}%`}</span>
         </div>
         <progress max="100" value={progressPercent} />
@@ -332,7 +477,7 @@ export default function FinalCertificationGate() {
           {!palletMode && currentUsage.dunnageBlocks > 0 && <div><span>블로킹재</span><b>{currentUsage.dunnageBlocks} EA</b><small>빈 공간 이동 억제</small></div>}
           {currentUsage.loadBars > 0 && <div><span>고정바</span><b>{currentUsage.loadBars} EA</b><small>길이 방향 고정</small></div>}
         </div>
-        <p>보조자재 중량은 ‘적재 보조자재 실제 중량 설정’의 현장값으로 계산합니다. 계산된 구속력은 내부 물리모델 비교값이며 실제 자재 정격을 대체하지 않습니다.</p>
+        <p>보조자재 중량은 현장 설정값으로 계산합니다. 계산된 구속력은 내부 물리모델 비교값이며 실제 자재 정격을 대체하지 않습니다.</p>
       </article>}
 
       {error && <div className="final-cert-error"><b>최종 결과 잠금 유지</b><span>{error}</span></div>}
