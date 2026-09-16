@@ -17,6 +17,7 @@ const removedFiles = [
   'src/CertifiedExportConsistencyBridge.tsx',
   'src/DashboardRuntimeEnhancer.tsx',
   'src/dashboard-runtime.css',
+  'src/transport-equipment-scroll-fix.css',
 ];
 
 for (const path of removedFiles) {
@@ -49,6 +50,8 @@ const tokenizedCss = [
   'src/dashboard-mockup.css',
   'src/workspace-tools.css',
   'src/reference-viewer.css',
+  'src/transport-equipment.css',
+  'src/transport-equipment-selection-ux.css',
   'src/minimap.css',
   'src/pallet-footer-summary.css',
 ];
@@ -83,6 +86,8 @@ const migratedOwnerRules = [
   ['.preview-view-controls', 'src/reference-viewer.css'],
   ['.workspace-modal', 'src/workspace-tools.css'],
   ['.catalog-wrap', 'src/workspace-tools.css'],
+  ['.guided-equipment-type-label', 'src/transport-equipment-selection-ux.css'],
+  ['.transport-selector-modal', 'src/transport-equipment.css'],
 ];
 for (const reviewPath of uxReviewCss) {
   const source = existsSync(reviewPath) ? readFileSync(reviewPath, 'utf8') : '';
@@ -94,6 +99,10 @@ for (const reviewPath of uxReviewCss) {
 }
 
 const mainSource = readFileSync('src/main.tsx', 'utf8');
+if (mainSource.includes("import './transport-equipment-scroll-fix.css';")) {
+  fail('main.tsx must not restore transport-equipment-scroll-fix.css; scrolling belongs to transport-equipment.css.');
+}
+
 const review1Import = "import './ux-review-improvements.css';";
 const review2Import = "import './ux-review-phase2.css';";
 const review1Index = mainSource.indexOf(review1Import);
