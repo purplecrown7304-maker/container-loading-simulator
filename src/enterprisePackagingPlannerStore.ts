@@ -8,7 +8,7 @@ import {
 } from './engine/enterprisePackagingOptimizer';
 import type { BoxCatalogItem, ProductItem } from './engine/productPackagingOptimizer';
 import type { ContainerSpec } from './engine/types';
-import { removeLegacyPlannerSampleBoxes } from './legacyBoxCleanup';
+import { isLegacyAutoRecommendedPersonalBox, removeLegacyPlannerSampleBoxes } from './legacyBoxCleanup';
 import { operatorScopedStorageKey, readLocalOperator } from './localOperator';
 
 export const ENTERPRISE_PACKAGING_PLANNER_KEY = 'container-loading-product-packaging-v1';
@@ -54,7 +54,9 @@ function cleanPlannerState(state: EnterprisePackagingPlannerState) {
     }
     return [product];
   });
-  const boxes = removeLegacyPlannerSampleBoxes(state.boxes ?? []);
+  const withoutSamples = removeLegacyPlannerSampleBoxes(state.boxes ?? []);
+  // 추천 결과는 사용자가 등록 버튼을 누르기 전까지 보유 박스로 취급하지 않는다.
+  const boxes = withoutSamples.filter(box => !isLegacyAutoRecommendedPersonalBox(box));
   if (boxes.length !== (state.boxes ?? []).length) changed = true;
   return changed ? { ...state, products, boxes } : state;
 }
