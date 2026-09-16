@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT } from './adminAccess';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
-import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
+import { LOADING_RESULT_EVENT, type LoadingStrategy } from './engine/loadingEngine';
 import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState } from './storage';
 import {
   OPEN_TRANSPORT_SELECTOR_EVENT,
@@ -32,6 +32,7 @@ import {
 } from './productWorkflow';
 import ProductPackagingPreview3D from './ProductPackagingPreview3D';
 import { writeShipmentInstructionSnapshot } from './shipmentInstruction';
+import { writeLoadingStrategyPreference } from './loadingStrategyPreference';
 
 type LiveDetail = { container: ContainerSpec; cargo: CargoItem[]; result?: LoadingResult };
 type PalletSnapshotLite = {
@@ -48,7 +49,7 @@ type WorkflowWindow = Window & {
 };
 
 type HostSet = { left: HTMLElement | null; center: HTMLElement | null; right: HTMLElement | null };
-type StepId = 1 | 2 | 3 | 4 | 5;
+type StepId = 1 | 2 | 3 | 4 | 5 | 6;
 type PackagingBundle = {
   products: CompanyProductItem[];
   assignments: ProductPackagingAssignment[];
@@ -60,9 +61,40 @@ const steps: Array<{ id: StepId; label: string }> = [
   { id: 1, label: '적재공간 선택' },
   { id: 2, label: '제품 선택' },
   { id: 3, label: '제품 포장' },
-  { id: 4, label: '자동 적재' },
-  { id: 5, label: '결과 확인' },
+  { id: 4, label: '적재 방식 선택' },
+  { id: 5, label: '자동 적재' },
+  { id: 6, label: '결과 확인' },
 ];
+
+const loadingStrategyOptions: Array<{
+  id: LoadingStrategy;
+  title: string;
+  summary: string;
+  detail: string;
+}> = [
+  {
+    id: 'stability',
+    title: '무게중심·안정성 우선형',
+    summary: '낮은 무게중심과 좌우·전후 균형을 우선',
+    detail: '무거운 화물을 낮게 두고 중량 편중과 불안정한 접촉을 줄이는 방향으로 배치합니다.',
+  },
+  {
+    id: 'capacity',
+    title: '공간효율·적재량 우선형',
+    summary: '안전 조건 안에서 빈 공간과 미적재를 최소화',
+    detail: '물리 안전 조건은 그대로 지키면서 컨테이너 공간 사용률과 적재 수량을 더 강하게 평가합니다.',
+  },
+  {
+    id: 'unloading',
+    title: '하역 순서 우선형',
+    summary: '현장 하역 동선과 출고 순서를 우선',
+    detail: '문쪽 접근성과 하역 순서를 더 크게 반영하되 중량·지지·충돌 같은 안전 조건은 유지합니다.',
+  },
+];
+
+function strategyLabel(strategy: LoadingStrategy) {
+  return loadingStrategyOptions.find(item => item.id === strategy)?.title ?? strategy;
+}
 
 function readLive(): LiveDetail {
   if (typeof window !== 'undefined') {
@@ -122,11 +154,13 @@ function EquipmentIllustration({ equipment }: { equipment: TransportEquipment })
   </button>;
 }
 
-function StepRail({ step, furthest, selectionCount, packagedReady, finalReady, onStep }: {
+function StepRail({ step, furthest, selectionCount, packagedReady, strategy, running, finalReady, onStep }: {
   step: StepId;
   furthest: StepId;
   selectionCount: number;
   packagedReady: boolean;
+  strategy: LoadingStrategy | null;
+  running: boolean;
   finalReady: boolean;
   onStep: (step: StepId) => void;
 }) {
@@ -134,13 +168,17 @@ function StepRail({ step, furthest, selectionCount, packagedReady, finalReady, o
     <h2>작업 준비</h2>
     <div className="guided-step-list">
       {steps.map(item => {
-        const complete = item.id < step || (item.id === 3 && packagedReady && step > 3) || (item.id === 5 && finalReady);
+        const complete = item.id < step
+          || (item.id === 3 && packagedReady && step > 3)
+          || (item.id === 4 && Boolean(strategy) && step > 4)
+          || (item.id === 6 && finalReady);
         const current = item.id === step;
         const enabled = item.id <= furthest;
         const meta = item.id === 1 ? '공간 확인'
           : item.id === 2 ? (selectionCount ? `${selectionCount}종 선택` : '미선택')
           : item.id === 3 ? (packagedReady ? '포장안 준비' : '대기')
-          : item.id === 4 ? (finalReady ? '검사 완료' : '대기')
+          : item.id === 4 ? (strategy ? strategyLabel(strategy) : '미선택')
+          : item.id === 5 ? (finalReady ? '검사 완료' : running ? '검사 중' : '대기')
           : finalReady ? '확인 가능' : '-';
         return <button key={item.id} type="button" className={`${current ? 'current' : ''} ${complete ? 'complete' : ''}`} disabled={!enabled} onClick={() => enabled && onStep(item.id)}>
           <span className="guided-step-dot">{complete ? '✓' : item.id}</span>
@@ -278,6 +316,40 @@ function PackagingStage({ container, selection, onBundle }: {
   </section>;
 }
 
+function LoadingStrategyStage({ strategy, onStrategy }: {
+  strategy: LoadingStrategy | null;
+  onStrategy: (strategy: LoadingStrategy) => void;
+}) {
+  return <section className="guided-stage-panel guided-strategy-stage">
+    <div className="guided-panel-title">
+      <div>
+        <h1>적재 방식 선택</h1>
+        <p>이번 작업에서 가장 중요한 목표를 선택합니다. 안전 제약은 어떤 전략에서도 동일하게 유지됩니다.</p>
+      </div>
+      <span className={`guided-strategy-status ${strategy ? 'ready' : ''}`}>{strategy ? '전략 선택 완료' : '전략 선택 필요'}</span>
+    </div>
+    <div className="guided-strategy-grid" role="radiogroup" aria-label="적재 전략 선택">
+      {loadingStrategyOptions.map(option => {
+        const selected = strategy === option.id;
+        return <button
+          key={option.id}
+          type="button"
+          role="radio"
+          aria-checked={selected}
+          className={`guided-strategy-card ${selected ? 'selected' : ''}`}
+          onClick={() => onStrategy(option.id)}
+        >
+          <span className="guided-strategy-check">{selected ? '✓' : ''}</span>
+          <strong>{option.title}</strong>
+          <b>{option.summary}</b>
+          <small>{option.detail}</small>
+        </button>;
+      })}
+    </div>
+    <div className="guided-strategy-note"><b>선택 전략 적용 범위</b><span>박스 위치 · 방향 · 공간 사용률 · 무게중심 · 하역 우선순위의 평가 가중치가 바뀝니다. 충돌, 지지율, 적층, 최대중량 같은 안전 제한은 완화하지 않습니다.</span></div>
+  </section>;
+}
+
 function ResultStage({ live }: { live: LiveDetail }) {
   const result = live.result;
   const total = live.cargo.reduce((sum, item) => sum + item.quantity, 0);
@@ -300,12 +372,14 @@ function ResultStage({ live }: { live: LiveDetail }) {
   </section>;
 }
 
-function StagePanel({ step, live, selection, onSelection, onBundle }: {
+function StagePanel({ step, live, selection, strategy, onSelection, onBundle, onStrategy }: {
   step: StepId;
   live: LiveDetail;
   selection: ProductSelectionMap;
+  strategy: LoadingStrategy | null;
   onSelection: (next: ProductSelectionMap) => void;
   onBundle: (bundle: PackagingBundle) => void;
+  onStrategy: (strategy: LoadingStrategy) => void;
 }) {
   const equipment = useTransportEquipment();
   if (step === 1) return <section className="guided-stage-panel guided-equipment-stage">
@@ -318,16 +392,18 @@ function StagePanel({ step, live, selection, onSelection, onBundle }: {
   </section>;
   if (step === 2) return <ProductSelectionStage container={live.container} selection={selection} onSelection={onSelection} />;
   if (step === 3) return <PackagingStage container={live.container} selection={selection} onBundle={onBundle} />;
-  if (step === 5) return <ResultStage live={live} />;
+  if (step === 4) return <LoadingStrategyStage strategy={strategy} onStrategy={onStrategy} />;
+  if (step === 6) return <ResultStage live={live} />;
   return <section className="guided-stage-panel guided-loading-placeholder" aria-hidden="true" />;
 }
 
-function JobSummary({ live, mode, finalReady, running, selection }: {
+function JobSummary({ live, mode, finalReady, running, selection, strategy }: {
   live: LiveDetail;
   mode: 'boxes' | 'pallets';
   finalReady: boolean;
   running: boolean;
   selection: ProductSelectionMap;
+  strategy: LoadingStrategy | null;
 }) {
   const equipment = useTransportEquipment();
   const palletSnapshot = typeof window === 'undefined' ? undefined : (window as WorkflowWindow).__containerLoadingPalletSnapshot;
@@ -340,13 +416,14 @@ function JobSummary({ live, mode, finalReady, running, selection }: {
   const usedVolume = boxResult?.usedVolumeM3 ?? 0;
   const fillRate = maxVolume > 0 && usedVolume > 0 ? usedVolume / maxVolume * 100 : 0;
   const status = finalReady ? '작업 가능' : running ? '검사 중' : loaded ? '검증 대기' : '대기';
-  return <section className="guided-job-summary"><h2>현재 작업</h2><dl><div><dt>적재공간</dt><dd>{equipment.shortName}</dd></div><div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div><div><dt>포장 적재단위</dt><dd>{live.cargo.length ? `${live.cargo.length}종` : '-'}</dd></div><div><dt>적재</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div><div><dt>미적재</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div><div><dt>총 중량</dt><dd>{weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div><div><dt>공간 사용률</dt><dd>{mode === 'boxes' && usedVolume ? `${fillRate.toFixed(1)}%` : '-'}</dd></div><div className="guided-status-row"><dt>상태</dt><dd><i className={finalReady ? 'good' : running ? 'running' : ''}/>{status}</dd></div></dl></section>;
+  return <section className="guided-job-summary"><h2>현재 작업</h2><dl><div><dt>적재공간</dt><dd>{equipment.shortName}</dd></div><div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div><div><dt>포장 적재단위</dt><dd>{live.cargo.length ? `${live.cargo.length}종` : '-'}</dd></div><div><dt>적재 전략</dt><dd>{strategy ? strategyLabel(strategy) : '-'}</dd></div><div><dt>적재</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div><div><dt>미적재</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div><div><dt>총 중량</dt><dd>{weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div><div><dt>공간 사용률</dt><dd>{mode === 'boxes' && usedVolume ? `${fillRate.toFixed(1)}%` : '-'}</dd></div><div className="guided-status-row"><dt>상태</dt><dd><i className={finalReady ? 'good' : running ? 'running' : ''}/>{status}</dd></div></dl></section>;
 }
 
-function BottomBar({ step, selectionCount, packagedReady, running, finalReady, onAdvance, onApplyPackaging }: {
+function BottomBar({ step, selectionCount, packagedReady, strategy, running, finalReady, onAdvance, onApplyPackaging }: {
   step: StepId;
   selectionCount: number;
   packagedReady: boolean;
+  strategy: LoadingStrategy | null;
   running: boolean;
   finalReady: boolean;
   onAdvance: (step: StepId) => void;
@@ -356,12 +433,13 @@ function BottomBar({ step, selectionCount, packagedReady, running, finalReady, o
   let disabled = false;
   let action = () => onAdvance(2);
   if (step === 2) { label = '다음: 제품 포장'; disabled = selectionCount < 1; action = () => onAdvance(3); }
-  else if (step === 3) { label = '포장 확정 · 다음: 자동 적재'; disabled = !packagedReady; action = onApplyPackaging; }
-  else if (step === 4) {
-    if (finalReady) { label = '결과 확인'; action = () => onAdvance(5); }
-    else { label = running ? '최종 적재 검사 중…' : '최종 적재 진행'; disabled = running; action = () => dispatchAppAction('run-loading'); }
-  } else if (step === 5) { label = '통합 출하·적재 작업지시서 보기'; disabled = !finalReady; action = () => dispatchAppAction('print-report'); }
-  return <div className="guided-bottom-bar"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 5 ? '  ›' : ''}</button><span className="guided-bottom-spacer"/></div>;
+  else if (step === 3) { label = '포장 확정 · 다음: 적재 방식 선택'; disabled = !packagedReady; action = onApplyPackaging; }
+  else if (step === 4) { label = strategy ? '선택 완료 · 다음: 자동 적재' : '적재 방식을 선택하세요'; disabled = !strategy; action = () => onAdvance(5); }
+  else if (step === 5) {
+    if (finalReady) { label = '결과 확인'; action = () => onAdvance(6); }
+    else { label = running ? '최종 적재 검사 중…' : '최종 적재 진행'; disabled = running || !strategy; action = () => dispatchAppAction('run-loading'); }
+  } else if (step === 6) { label = '통합 출하·적재 작업지시서 보기'; disabled = !finalReady; action = () => dispatchAppAction('print-report'); }
+  return <div className="guided-bottom-bar"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 6 ? '  ›' : ''}</button><span className="guided-bottom-spacer"/></div>;
 }
 
 export default function GuidedWorkflowShell() {
@@ -371,6 +449,7 @@ export default function GuidedWorkflowShell() {
   const [mode, setMode] = useState<'boxes' | 'pallets'>(() => typeof document === 'undefined' ? 'boxes' : currentMode());
   const [selection, setSelection] = useState<ProductSelectionMap>(initialSelection);
   const [packaging, setPackaging] = useState<PackagingBundle>({ products: [], assignments: [], cargo: [], ready: false });
+  const [strategy, setStrategy] = useState<LoadingStrategy | null>(null);
   // 이전 선택 기록이 있어도 앱 진입은 항상 1단계에서 시작한다.
   const [step, setStep] = useState<StepId>(1);
   const [furthest, setFurthest] = useState<StepId>(1);
@@ -384,7 +463,16 @@ export default function GuidedWorkflowShell() {
     writeStoredState({ container: live.container, cargo: packaging.cargo }, true);
     clickMode('boxes');
     setMode('boxes');
+    setStrategy(null);
+    writeLoadingStrategyPreference(null);
+    setFinalReady(false);
     advance(4);
+  };
+  const chooseStrategy = (next: LoadingStrategy) => {
+    setStrategy(next);
+    writeLoadingStrategyPreference(next);
+    setFinalReady(false);
+    setFurthest(previous => previous > 5 ? 5 : previous);
   };
 
   useEffect(() => {
@@ -392,6 +480,11 @@ export default function GuidedWorkflowShell() {
     document.documentElement.dataset.guidedStep = String(step);
     return () => { delete document.documentElement.dataset.guidedWorkflow; delete document.documentElement.dataset.guidedStep; };
   }, [step]);
+
+  useEffect(() => {
+    writeLoadingStrategyPreference(null);
+    return () => writeLoadingStrategyPreference(null);
+  }, []);
 
   useEffect(() => {
     let frame = 0;
@@ -418,6 +511,8 @@ export default function GuidedWorkflowShell() {
     const refreshIdentity = () => {
       setSelection(readProductSelection());
       setPackaging({ products: [], assignments: [], cargo: [], ready: false });
+      setStrategy(null);
+      writeLoadingStrategyPreference(null);
       setStep(1);
       setFurthest(1);
       setRunning(false);
@@ -437,7 +532,7 @@ export default function GuidedWorkflowShell() {
       const activeRun = Boolean(document.querySelector('.calculation-overlay')) || rows.some(row => /진행/.test(row.textContent ?? ''));
       setFinalReady(ready);
       setRunning(activeRun && !ready);
-      if (ready) setFurthest(previous => Math.max(previous, 5) as StepId);
+      if (ready) setFurthest(previous => Math.max(previous, 6) as StepId);
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'disabled'] });
     refresh();
@@ -454,8 +549,8 @@ export default function GuidedWorkflowShell() {
   }, []);
 
   const selectionCount = Object.keys(selection).length;
-  const rail = useMemo(() => hosts.left ? createPortal(<StepRail step={step} furthest={furthest} selectionCount={selectionCount} packagedReady={packaging.ready} finalReady={finalReady} onStep={setStep}/>, hosts.left) : null, [hosts.left, step, furthest, selectionCount, packaging.ready, finalReady]);
-  const center = useMemo(() => hosts.center ? createPortal(<StagePanel step={step} live={live} selection={selection} onSelection={setSelection} onBundle={setPackaging}/>, hosts.center) : null, [hosts.center, step, live, selection]);
-  const summary = useMemo(() => hosts.right ? createPortal(<JobSummary live={live} mode={mode} finalReady={finalReady} running={running} selection={selection}/>, hosts.right) : null, [hosts.right, live, mode, finalReady, running, selection]);
-  return <>{rail}{center}{summary}{typeof document !== 'undefined' ? createPortal(<BottomBar step={step} selectionCount={selectionCount} packagedReady={packaging.ready} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>, document.body) : null}</>;
+  const rail = useMemo(() => hosts.left ? createPortal(<StepRail step={step} furthest={furthest} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onStep={setStep}/>, hosts.left) : null, [hosts.left, step, furthest, selectionCount, packaging.ready, strategy, running, finalReady]);
+  const center = useMemo(() => hosts.center ? createPortal(<StagePanel step={step} live={live} selection={selection} strategy={strategy} onSelection={setSelection} onBundle={setPackaging} onStrategy={chooseStrategy}/>, hosts.center) : null, [hosts.center, step, live, selection, strategy]);
+  const summary = useMemo(() => hosts.right ? createPortal(<JobSummary live={live} mode={mode} finalReady={finalReady} running={running} selection={selection} strategy={strategy}/>, hosts.right) : null, [hosts.right, live, mode, finalReady, running, selection, strategy]);
+  return <>{rail}{center}{summary}{typeof document !== 'undefined' ? createPortal(<BottomBar step={step} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>, document.body) : null}</>;
 }
