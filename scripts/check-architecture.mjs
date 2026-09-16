@@ -49,6 +49,7 @@ for (const path of bridgeFiles) {
 }
 
 const tokenizedCss = [
+  'src/styles.css',
   'src/dashboard-mockup.css',
   'src/workspace-tools.css',
   'src/reference-viewer.css',
@@ -95,15 +96,12 @@ for (const path of tsxFiles) {
   }
 }
 
-const stylesCss = readFileSync('src/styles.css', 'utf8');
-const removedLegacyStyleSelectors = [
-  ['.workspace', /(^|[},\s])\.workspace(?:\s|\{|:|,)/m],
-  ['.panel', /(^|[},\s])\.panel(?:\s|\{|:|,)/m],
-  ['.left-panel', /(^|[},\s])\.left-panel(?:\s|\{|:|,)/m],
-  ['.right-panel', /(^|[},\s])\.right-panel(?:\s|\{|:|,)/m],
-];
-for (const [selector, pattern] of removedLegacyStyleSelectors) {
-  if (pattern.test(stylesCss)) fail(`src/styles.css restored unused legacy ${selector} rules; keep layout in dashboard/guided owners.`);
+const stylesSource = readFileSync('src/styles.css', 'utf8');
+for (const [className] of legacyWorkspaceClasses) {
+  const selectorPattern = new RegExp(`\\.${className}\\b`);
+  if (selectorPattern.test(stylesSource)) {
+    fail(`src/styles.css restored legacy .${className} layout rules; keep the dashboard/workspace-tools layout as the only owner.`);
+  }
 }
 
 const guidedWorkflowV2 = readFileSync('src/guided-workflow-v2.css', 'utf8');
@@ -128,4 +126,4 @@ if (!/\.guided-result-grid>div:nth-child\(-n \+ 3\)\s*\{[^}]*min-height\s*:\s*96
   fail('src/guided-result-tabs-enhancer.css must keep the three primary result metrics visually prioritized.');
 }
 
-if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · temporary UX review styles removed · legacy workspace CSS absent.`);
+if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · temporary UX review styles removed.`);
