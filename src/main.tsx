@@ -101,6 +101,7 @@ import './operational-right-summary.css';
 import './ux-polish.css';
 import './guided-workflow.css';
 import './guided-workflow-v2.css';
+import './guided-loading-strategy.css';
 import './guided-result-tabs-enhancer.css';
 import './workflow-usability-fixes.css';
 
