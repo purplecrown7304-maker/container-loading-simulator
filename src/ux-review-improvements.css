@@ -1,6 +1,6 @@
 /* UX/UI review improvements, 2026-09-16.
- * Temporary guided-workflow review layer. Viewer and workspace rules now live
- * in their owning stylesheets instead of this cross-feature override file.
+ * Temporary guided-workflow review layer. Viewer, workspace, and transport rules
+ * now live in their owning stylesheets instead of this cross-feature override file.
  */
 
 @media (min-width: 1181px) {
@@ -25,15 +25,6 @@
   top: 0;
   z-index: 3;
   border-bottom: 1px solid var(--gw-border);
-}
-
-.guided-equipment-type-label {
-  top: auto;
-  bottom: 12px;
-  left: 50%;
-  max-width: calc(100% - 180px);
-  transform: translateX(-50%);
-  font-size: var(--font-xs, 13px);
 }
 
 .mode-tabs {
@@ -137,11 +128,6 @@
 
   .guided-product-table {
     max-height: 56vh;
-  }
-
-  .guided-equipment-type-label {
-    bottom: 8px;
-    max-width: calc(100% - 24px);
   }
 
   .guided-loading-unit-running-badge {
