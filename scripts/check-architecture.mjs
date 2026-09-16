@@ -94,6 +94,15 @@ if (!/publishGuidedWorkflowState\(\{\s*active:\s*true,\s*step\s*\}\)/.test(guide
 if (!/publishGuidedWorkflowState\(\{\s*active:\s*false,\s*step:\s*1\s*\}\)/.test(guidedShellSource)) {
   fail('GuidedWorkflowShell must clear the centralized guided workflow state when it unmounts.');
 }
+if (!guidedShellSource.includes('useGuidedLoadingUnit') || !guidedShellSource.includes('usePalletSnapshot')) {
+  fail('GuidedWorkflowShell must consume loading-unit and pallet snapshot stores instead of reading hidden mode/result DOM state.');
+}
+if (/currentMode\s*\(|clickMode\s*\(|\.mode-tabs|inspection-status-table|workOrderRow/.test(guidedShellSource)) {
+  fail('GuidedWorkflowShell restored DOM-derived mode or inspection status scraping; use domain stores/events instead.');
+}
+if (!guidedShellSource.includes('INERTIA_CERTIFICATION_EVENT') || !guidedShellSource.includes('FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT')) {
+  fail('GuidedWorkflowShell must use explicit validation/certification events for step-5 running/ready state.');
+}
 
 const tokenizedCss = [
   'src/styles.css',
@@ -235,4 +244,4 @@ if (!/\.guided-result-grid>div:nth-child\(-n \+ 3\)\s*\{[^}]*min-height\s*:\s*96
   fail('src/guided-result-tabs-enhancer.css must keep the three primary result metrics visually prioritized.');
 }
 
-if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · guided workflow state React-owned · loading-unit DOM proxy removed · progress/ETA feedback locked.`);
+if (!process.exitCode) console.log(`Architecture check passed · ${bridgeFiles.length} remaining Bridge component(s) inspected · guided workflow state React-owned · shell status scraping removed · loading-unit DOM proxy removed · progress/ETA feedback locked.`);
