@@ -31,6 +31,14 @@ function currentTargetIsCertified() {
   return certification.targetSignature === createPhysicsTargetSignature(target);
 }
 
+function guidedResultButton(target: Element) {
+  const primary = target.closest('.guided-primary-cta');
+  if (primary instanceof HTMLButtonElement && (primary.textContent ?? '').includes('결과 확인')) return primary;
+  const rail = target.closest('.guided-step-list button');
+  if (rail instanceof HTMLButtonElement && (rail.textContent ?? '').includes('결과 확인')) return rail;
+  return null;
+}
+
 /**
  * 최종 적재 흐름의 안전망.
  * 정상 흐름에서는 App이 적재 결과 직후 physics target을 발행하므로 아무 일도 하지 않는다.
@@ -94,12 +102,11 @@ export default function FinalWorkflowRecoveryBridge() {
       if (document.documentElement.dataset.guidedStep !== '5') return;
       const target = event.target;
       if (!(target instanceof Element)) return;
-      const button = target.closest('.guided-primary-cta');
-      if (!(button instanceof HTMLButtonElement) || button.disabled) return;
-      if (!(button.textContent ?? '').includes('결과 확인')) return;
-      if (currentTargetIsCertified()) return;
+      const button = guidedResultButton(target);
+      if (!button || button.disabled || currentTargetIsCertified()) return;
 
       // InspectionStatusPanel의 '경고 발급 가능' 문구만 보고 결과 단계로 넘어가는 것을 차단한다.
+      // 하단 CTA뿐 아니라 왼쪽 단계 레일의 '결과 확인' 직접 클릭도 같은 인증 게이트를 거친다.
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
