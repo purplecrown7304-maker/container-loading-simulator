@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
+import { readProductSelection } from './productWorkflow';
 
 export type GuidedLoadingUnit = 'boxes' | 'pallets';
 
@@ -21,6 +22,13 @@ function strategyLabel() {
   if (strategy === 'capacity') return '공간효율·적재량 우선형';
   if (strategy === 'unloading') return '하역 순서 우선형';
   return '전략 미선택';
+}
+
+function selectionLabel() {
+  const selection = readProductSelection();
+  const productCount = Object.keys(selection).length;
+  const units = Object.values(selection).reduce((sum, quantity) => sum + quantity, 0);
+  return productCount ? `${productCount}종 · ${units.toLocaleString()} EA` : '선택 제품 없음';
 }
 
 function currentUnderlyingMode(): GuidedLoadingUnit {
@@ -173,6 +181,7 @@ export default function GuidedLoadingUnitEnhancer() {
   };
 
   const selectedStrategyLabel = useMemo(() => strategyLabel(), [step, unit]);
+  const selectedProductsLabel = useMemo(() => selectionLabel(), [step, unit]);
 
   const selector = step === '4' && selectorAnchor && typeof document !== 'undefined' ? createPortal(
     <section
@@ -204,9 +213,10 @@ export default function GuidedLoadingUnitEnhancer() {
       className="guided-loading-unit-running-badge"
       style={{ left: viewerAnchor.left, top: viewerAnchor.top, maxWidth: viewerAnchor.width }}
       aria-live="polite"
+      aria-label="자동 적재 실행 설정 확인"
     >
-      <b>자동 적재 유형 · {modeLabel(unit)}</b>
-      <span>{selectedStrategyLabel}</span>
+      <b>자동 적재 · {modeLabel(unit)}</b>
+      <span>{selectedStrategyLabel} · {selectedProductsLabel}</span>
     </div>,
     document.body,
   ) : null;
