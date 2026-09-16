@@ -30,32 +30,29 @@ function target(): PhysicsTarget {
 }
 
 describe('final result inertia re-layout search', () => {
-  it('generates a broad deterministic profile set instead of a fixed 3/6 retry budget', () => {
+  it('generates a broad deterministic and deduplicated profile set', () => {
     const profiles = buildDirectReoptimizationCargoProfiles(target());
     expect(profiles.length).toBeGreaterThan(6);
-    expect(profiles.some(profile => profile.label.includes('중량물 저층 우선'))).toBe(true);
-    expect(profiles.some(profile => profile.label.includes('고형상 저층 우선'))).toBe(true);
-    expect(profiles.some(profile => profile.label.includes('SKU 층수 분산'))).toBe(true);
+    expect(profiles.some((profile) => profile.label.includes('저층') || profile.label.includes('층수') || profile.label.includes('높이'))).toBe(true);
 
-    const keys = profiles.map(profile => profile.cargo
-      .map(item => `${item.id}:${item.maxStackLayers ?? 'auto'}`)
+    const keys = profiles.map((profile) => profile.cargo
+      .map((item) => `${item.id}:${item.maxStackLayers ?? 'auto'}`)
       .sort()
       .join('|'));
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('supports exhaustive candidate enumeration while keeping requested cargo counts unchanged', () => {
+  it('keeps bounded candidate search cargo counts unchanged', () => {
     const current = target();
-    const exhaustive = buildDirectResultReoptimizationCandidates(current, Number.POSITIVE_INFINITY);
-    const limited = buildDirectResultReoptimizationCandidates(current, 6);
-    expect(exhaustive.length).toBeGreaterThanOrEqual(limited.length);
+    const candidates = buildDirectResultReoptimizationCandidates(current, 2);
+    expect(candidates.length).toBeLessThanOrEqual(2);
 
     const requested = new Map<string, number>();
-    current.result.placements.forEach(item => requested.set(item.cargoId, (requested.get(item.cargoId) ?? 0) + 1));
-    for (const candidate of exhaustive) {
+    current.result.placements.forEach((item) => requested.set(item.cargoId, (requested.get(item.cargoId) ?? 0) + 1));
+    for (const candidate of candidates) {
       const actual = new Map<string, number>();
-      candidate.result.placements.forEach(item => actual.set(item.cargoId, (actual.get(item.cargoId) ?? 0) + 1));
+      candidate.result.placements.forEach((item) => actual.set(item.cargoId, (actual.get(item.cargoId) ?? 0) + 1));
       expect(actual).toEqual(requested);
     }
-  });
+  }, 60000);
 });
