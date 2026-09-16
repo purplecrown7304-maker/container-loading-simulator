@@ -5,6 +5,7 @@ import { operatorScopedStorageKey, type LocalOperator } from './localOperator';
 
 export const PERSONAL_BOX_CATALOG_KEY = 'container-loading-user-box-catalog-v1';
 export const PERSONAL_BOX_CATALOG_EVENT = 'container-loading:personal-box-catalog-updated';
+const PLANNER_KEY_PREFIX = 'container-loading-product-packaging-v1';
 
 export type PersonalBoxCatalogItem = CargoItem & {
   catalogOrigin?: 'manual' | 'excel' | 'recommendation';
@@ -45,6 +46,30 @@ export function writePersonalBoxCatalog(operator: LocalOperator, items: Personal
   window.dispatchEvent(new CustomEvent(PERSONAL_BOX_CATALOG_EVENT, { detail: items }));
 }
 
+function markPlannerRecommendationExplicit(box: BoxCatalogItem) {
+  if (typeof window === 'undefined') return;
+  const keys = Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index))
+    .filter((key): key is string => Boolean(key) && (key === PLANNER_KEY_PREFIX || key.startsWith(`${PLANNER_KEY_PREFIX}:`)));
+
+  for (const key of keys) {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw) as { boxes?: Array<Record<string, unknown>> };
+      if (!Array.isArray(parsed.boxes)) continue;
+      let changed = false;
+      const nextBoxes = parsed.boxes.map(existing => {
+        if (existing.id !== box.id || existing.name !== box.name) return existing;
+        changed = true;
+        return { ...existing, recommendationRegistration: 'explicit' };
+      });
+      if (changed) window.localStorage.setItem(key, JSON.stringify({ ...parsed, boxes: nextBoxes }));
+    } catch {
+      // 다른 작업자/손상된 플래너 데이터는 건드리지 않는다.
+    }
+  }
+}
+
 /** 추천 화면의 '회사 박스로 등록' 버튼을 사용자가 직접 눌렀을 때만 개인 목록에 추가한다. */
 export function registerRecommendedPersonalBox(operator: LocalOperator, box: BoxCatalogItem) {
   const current = readPersonalBoxCatalog(operator);
@@ -69,5 +94,7 @@ export function registerRecommendedPersonalBox(operator: LocalOperator, box: Box
     ? current.map(existing => existing.id === box.id ? item : existing)
     : [...current, item];
   writePersonalBoxCatalog(operator, next);
+  // ProductToolsCenter가 같은 클릭에서 먼저 플래너에 박스를 저장하므로, 그 저장본에도 명시 등록 표식을 남긴다.
+  markPlannerRecommendationExplicit(box);
   return item;
 }
