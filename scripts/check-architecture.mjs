@@ -81,6 +81,20 @@ if (reviewCssNames.length > 0) {
   fail(`Temporary UX review stylesheets must stay removed (${reviewCssNames.join(', ')}). Put rules in the owning feature stylesheet.`);
 }
 
+const tsxFiles = readdirSync('src').filter((name) => name.endsWith('.tsx')).map((name) => join('src', name));
+const legacyWorkspaceClasses = [
+  ['workspace', /className\s*=\s*["'][^"']*\bworkspace\b/],
+  ['panel', /className\s*=\s*["'][^"']*\bpanel\b/],
+  ['left-panel', /className\s*=\s*["'][^"']*\bleft-panel\b/],
+  ['right-panel', /className\s*=\s*["'][^"']*\bright-panel\b/],
+];
+for (const path of tsxFiles) {
+  const source = readFileSync(path, 'utf8');
+  for (const [className, pattern] of legacyWorkspaceClasses) {
+    if (pattern.test(source)) fail(`${path} restored legacy .${className}; use dashboard/workspace-tools layout classes instead.`);
+  }
+}
+
 const guidedWorkflowV2 = readFileSync('src/guided-workflow-v2.css', 'utf8');
 if (!/grid-template-columns\s*:\s*repeat\(6,\s*minmax\(118px,\s*1fr\)\)/.test(guidedWorkflowV2)) {
   fail('src/guided-workflow-v2.css must own the mobile six-step guided rail.');
