@@ -185,16 +185,21 @@ function slotFor(
     .sort((a, b) => (b.colsX * b.colsY) - (a.colsX * a.colsY) || Number(a.rotated) - Number(b.rotated));
 
   const baseSurface = { x: load.x, y: load.y, z: load.z + pallet.height, length: pallet.length, width: pallet.width };
+  // Mixed-height cartons must sit on real surfaces, not multiples of their own height.
+  // Support and cumulative layer/top-load checks below remain mandatory at every surface.
+  const surfaces = [...new Set([baseSurface.z, ...load.cargoPlacements.map(placement => placement.z + placement.height)])]
+    .filter(z => z + item.height + reserveHeight <= container.height + EPS)
+    .sort((a, b) => a - b);
 
   for (const option of options) {
-    for (let layer = 0; layer < maxLayers; layer += 1) {
+    for (const z of surfaces) {
       for (let row = 0; row < option.colsX; row += 1) {
         for (let col = 0; col < option.colsY; col += 1) {
           const candidate: Placement = {
             cargoId: item.id,
             x: load.x + option.offsetX + row * option.length,
             y: load.y + option.offsetY + col * option.width,
-            z: load.z + pallet.height + layer * item.height,
+            z,
             length: option.length,
             width: option.width,
             height: item.height,

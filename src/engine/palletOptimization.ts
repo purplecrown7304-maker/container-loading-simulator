@@ -127,21 +127,22 @@ function packagingReserve(pallet: PalletSpec) {
 function cargoForStackTarget(container: ContainerSpec, cargo: CargoItem[], pallet: PalletSpec, targetLevels: number) {
   const reserve = packagingReserve(pallet);
   const physicalCargoHeight = Math.max(0, container.height - pallet.height - reserve);
-  const stableCargoHeight = Math.min(
-    physicalCargoHeight,
-    Math.min(pallet.length, pallet.width) * STABLE_UNIT_LOAD_HEIGHT_RATIO,
-  );
+  // Low height is a preference, not a declared carton constraint. When minimizing
+  // materials, use the permitted height before creating extra pallet bases.
+  const preferredCargoHeight = pallet.minimizePackaging
+    ? physicalCargoHeight
+    : Math.min(physicalCargoHeight, Math.min(pallet.length, pallet.width) * STABLE_UNIT_LOAD_HEIGHT_RATIO);
   const perPalletHeight = targetLevels <= 1
     ? physicalCargoHeight
     : Math.max(0, container.height / targetLevels - pallet.height - reserve);
 
   return cargo.map((item) => {
-    const stableLayers = Math.max(1, Math.floor((stableCargoHeight + EPS) / item.height));
+    const preferredLayers = Math.max(1, Math.floor((preferredCargoHeight + EPS) / item.height));
     const targetLayers = Math.max(0, Math.floor((perPalletHeight + EPS) / item.height));
     const configured = item.maxStackLayers ?? Number.POSITIVE_INFINITY;
     return {
       ...item,
-      maxStackLayers: Math.max(1, Math.min(configured, stableLayers, Math.max(1, targetLayers))),
+      maxStackLayers: Math.max(1, Math.min(configured, preferredLayers, Math.max(1, targetLayers))),
     };
   });
 }
@@ -233,7 +234,7 @@ function consolidateUntilStable(
         if (packed.palletCount !== 1 || packed.placements.length !== expected || packed.remaining.some((item) => item.quantity > 0)) continue;
         const merged = packed.pallets[0];
         const originalHeight = Math.max(loadCargoHeight(target), loadCargoHeight(source));
-        if (loadCargoHeight(merged) > originalHeight + CONSOLIDATION_HEIGHT_TOLERANCE_M) continue;
+        if (!pallet.minimizePackaging && loadCargoHeight(merged) > originalHeight + CONSOLIDATION_HEIGHT_TOLERANCE_M) continue;
         const shifted = moveLoad(
           { ...merged, stackLevel: 1, stackColumn: target.stackColumn },
           target.x,
@@ -351,10 +352,14 @@ function candidateScoreTuple(result: PalletPackingResult) {
   };
 }
 
-function betterCandidate(a: PalletPackingResult, b: PalletPackingResult) {
+function betterCandidate(a: PalletPackingResult, b: PalletPackingResult, minimizePackaging: boolean) {
   const A = candidateScoreTuple(a);
   const B = candidateScoreTuple(b);
   if (A.loaded !== B.loaded) return A.loaded > B.loaded;
+  if (minimizePackaging) {
+    if (A.pallets !== B.pallets) return A.pallets < B.pallets;
+    if (Math.abs(a.totalPackagingWeightKg - b.totalPackagingWeightKg) > EPS) return a.totalPackagingWeightKg < b.totalPackagingWeightKg;
+  }
   if (A.stacked !== B.stacked) return A.stacked < B.stacked;
   if (A.maxStackLevel !== B.maxStackLevel) return A.maxStackLevel < B.maxStackLevel;
   if (Math.abs(A.maxUnitHeight - B.maxUnitHeight) > EPS) return A.maxUnitHeight < B.maxUnitHeight;
@@ -396,7 +401,7 @@ export function packOnPallets(
     passes: 0,
   };
   for (const candidate of candidates.slice(1)) {
-    if (betterCandidate(candidate.result, selected.result)) selected = candidate;
+    if (betterCandidate(candidate.result, selected.result, pallet.minimizePackaging)) selected = candidate;
   }
 
   const floorSpread = spreadStacksToFreeFloor(selected.result, container, pallet);

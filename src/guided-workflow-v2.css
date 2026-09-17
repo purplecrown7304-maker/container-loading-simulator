@@ -43,7 +43,7 @@
 .guided-stage-panel button:focus-visible,.guided-stage-panel input:focus-visible,.guided-stage-panel select:focus-visible,.guided-bottom-bar button:focus-visible{outline:3px solid rgba(37,99,235,.28);outline-offset:2px}
 
 @media(min-width:1181px){
-  html[data-guided-workflow="true"] .dashboard-grid{grid-template-columns:280px minmax(720px,1fr) 360px!important;gap:20px!important;max-width:1720px!important;padding:20px!important}
+  html[data-guided-workflow="true"] .dashboard-grid{grid-template-columns:clamp(200px,16vw,280px) minmax(0,1fr) clamp(260px,20vw,360px)!important;gap:20px!important;max-width:1720px!important;padding:20px!important}
 }
 @media(max-width:1179px) and (min-width:761px){
   html[data-guided-workflow="true"] .dashboard-grid{grid-template-columns:200px minmax(0,1fr)!important}
