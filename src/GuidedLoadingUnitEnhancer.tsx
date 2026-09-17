@@ -1,8 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { readPalletSnapshot, publishPalletSnapshot } from './palletSnapshotStore';
-import { readProductSelection } from './productWorkflow';
 import { useGuidedWorkflowState } from './guidedWorkflowState';
 import {
   guidedLoadingUnitLabel,
@@ -11,21 +9,6 @@ import {
   useGuidedLoadingUnit,
   type GuidedLoadingUnit,
 } from './guidedLoadingUnitState';
-
-function strategyLabel() {
-  const strategy = readLoadingStrategyPreference();
-  if (strategy === 'stability') return '무게중심·안정성 우선형';
-  if (strategy === 'capacity') return '공간효율·적재량 우선형';
-  if (strategy === 'unloading') return '하역 순서 우선형';
-  return '전략 미선택';
-}
-
-function selectionLabel() {
-  const selection = readProductSelection();
-  const productCount = Object.keys(selection).length;
-  const units = Object.values(selection).reduce((sum, quantity) => sum + quantity, 0);
-  return productCount ? `${productCount}종 · ${units.toLocaleString()} EA` : '선택 제품 없음';
-}
 
 export default function GuidedLoadingUnitEnhancer() {
   const guidedWorkflow = useGuidedWorkflowState();
@@ -83,15 +66,6 @@ export default function GuidedLoadingUnitEnhancer() {
 
   const choose = (next: GuidedLoadingUnit) => publishGuidedLoadingUnit(next);
 
-  const selectedStrategyLabel = useMemo(
-    () => strategyLabel(),
-    [guidedWorkflow.step, unit],
-  );
-  const selectedProductsLabel = useMemo(
-    () => selectionLabel(),
-    [guidedWorkflow.step, unit],
-  );
-
   const selector = guidedWorkflow.active && guidedWorkflow.step === 4 && strategyHost ? createPortal(
     <section className="guided-loading-unit-inline" aria-label="적재 유형 선택">
       <div className="guided-loading-unit-block">
@@ -113,14 +87,5 @@ export default function GuidedLoadingUnitEnhancer() {
     strategyHost,
   ) : null;
 
-  const runningBadge = guidedWorkflow.active && guidedWorkflow.step === 5 && unit && typeof document !== 'undefined' ? createPortal(
-    <div className="guided-loading-run-confirmation" aria-live="polite" aria-label="자동 적재 실행 설정 확인">
-      <b>실행 설정 확인</b>
-      <span>{guidedLoadingUnitLabel(unit)} · {selectedStrategyLabel} · {selectedProductsLabel}</span>
-      <small>아래의 ‘최종 적재 진행’을 누르면 이 설정으로 관성·물리 검증을 시작합니다.</small>
-    </div>,
-    document.body,
-  ) : null;
-
-  return <>{selector}{runningBadge}</>;
+  return selector;
 }

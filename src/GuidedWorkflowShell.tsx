@@ -385,7 +385,8 @@ function StagePanel({ step, live, selection, strategy, onSelection, onBundle, on
   return <section className="guided-stage-panel guided-loading-placeholder" aria-hidden="true" />;
 }
 
-function JobSummary({ live, mode, finalReady, running, selection, strategy }: {
+function JobSummary({ step, live, mode, finalReady, running, selection, strategy }: {
+  step: StepId;
   live: LiveDetail;
   mode: 'boxes' | 'pallets';
   finalReady: boolean;
@@ -404,7 +405,31 @@ function JobSummary({ live, mode, finalReady, running, selection, strategy }: {
   const usedVolume = boxResult?.usedVolumeM3 ?? 0;
   const fillRate = maxVolume > 0 && usedVolume > 0 ? usedVolume / maxVolume * 100 : 0;
   const status = finalReady ? '작업 가능' : running ? '검사 중' : loaded ? '검증 대기' : '대기';
-  return <section className="guided-job-summary"><h2>현재 작업</h2><dl><div><dt>적재공간</dt><dd>{equipment.shortName}</dd></div><div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div><div><dt>포장 적재단위</dt><dd>{live.cargo.length ? `${live.cargo.length}종` : '-'}</dd></div><div><dt>적재 유형</dt><dd>{mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재'}</dd></div><div><dt>적재 전략</dt><dd>{strategy ? strategyLabel(strategy) : '-'}</dd></div><div><dt>적재</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div><div><dt>미적재</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div><div><dt>총 중량</dt><dd>{weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div><div><dt>공간 사용률</dt><dd>{mode === 'boxes' && usedVolume ? `${fillRate.toFixed(1)}%` : '-'}</dd></div><div className="guided-status-row"><dt>상태</dt><dd><i className={finalReady ? 'good' : running ? 'running' : ''}/>{status}</dd></div></dl></section>;
+  const restrictedCount = live.cargo.filter(item => item.quantity > 0 && (item.maxStackLayers === 1 || item.maxTopLoadKg === 0)).length;
+  return <section className="guided-job-summary">
+    <h2>현재 작업</h2>
+    <dl>
+      <div><dt>적재공간</dt><dd>{equipment.shortName}</dd></div>
+      <div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div>
+      <div><dt>포장 적재단위</dt><dd>{live.cargo.length ? `${live.cargo.length}종` : '-'}</dd></div>
+      <div><dt>적재 유형</dt><dd>{mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재'}</dd></div>
+      <div><dt>적재 전략</dt><dd>{strategy ? strategyLabel(strategy) : '-'}</dd></div>
+      {mode === 'pallets' && <div><dt>사용 파렛트</dt><dd>{palletSnapshot ? `${palletSnapshot.result.palletCount}개` : '-'}</dd></div>}
+      <div><dt>적재</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div>
+      <div><dt>미적재</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div>
+      <div><dt>총 중량</dt><dd>{weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div>
+      <div><dt>공간 사용률</dt><dd>{mode === 'boxes' && usedVolume ? `${fillRate.toFixed(1)}%` : '-'}</dd></div>
+      <div className="guided-status-row"><dt>상태</dt><dd><i className={finalReady ? 'good' : running ? 'running' : ''}/>{status}</dd></div>
+    </dl>
+    {step === 5 && !running && !finalReady && <div className="guided-loading-run-confirmation" aria-label="자동 적재 실행 설정 확인">
+      <b>실행 설정 확인</b>
+      <span>{mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재'} · {strategy ? strategyLabel(strategy) : '전략 미선택'}</span>
+      <small>설정을 확인한 뒤 ‘최종 적재 진행’을 눌러 관성·물리 검증을 시작하세요.</small>
+    </div>}
+    {step === 5 && mode === 'pallets' && restrictedCount > 0 && <p className="guided-pallet-stack-note">
+      {restrictedCount}종은 1단 또는 상부 적재 금지로 설정되어 있습니다. 더 쌓으려면 박스 관리에 검증된 최대 적층단과 상부 허용중량을 등록하세요.
+    </p>}
+  </section>;
 }
 
 function BottomBar({ step, selectionCount, packagedReady, strategy, running, finalReady, onAdvance, onApplyPackaging }: {
@@ -568,6 +593,6 @@ export default function GuidedWorkflowShell() {
   const selectionCount = Object.keys(selection).length;
   const rail = useMemo(() => hosts.left ? createPortal(<StepRail step={step} furthest={furthest} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onStep={setStep}/>, hosts.left) : null, [hosts.left, step, furthest, selectionCount, packaging.ready, strategy, running, finalReady]);
   const center = useMemo(() => hosts.center ? createPortal(<StagePanel step={step} live={live} selection={selection} strategy={strategy} onSelection={setSelection} onBundle={setPackaging} onStrategy={chooseStrategy}/>, hosts.center) : null, [hosts.center, step, live, selection, strategy]);
-  const summary = useMemo(() => hosts.right ? createPortal(<JobSummary live={live} mode={mode} finalReady={finalReady} running={running} selection={selection} strategy={strategy}/>, hosts.right) : null, [hosts.right, live, mode, finalReady, running, selection, strategy]);
+  const summary = useMemo(() => hosts.right ? createPortal(<JobSummary step={step} live={live} mode={mode} finalReady={finalReady} running={running} selection={selection} strategy={strategy}/>, hosts.right) : null, [hosts.right, step, live, mode, finalReady, running, selection, strategy]);
   return <>{rail}{center}{summary}{typeof document !== 'undefined' ? createPortal(<BottomBar step={step} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>, document.body) : null}</>;
 }

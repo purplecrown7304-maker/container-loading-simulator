@@ -94,7 +94,10 @@ describe('product packaging optimizer', () => {
   });
 
   it('prefers a verified catalog carton when its logistics score is effectively equivalent to auto design', () => {
-    const auto = optimizeProductPackaging(container, [product], [], defaultProductPackagingOptions).assignments[0];
+    // Exercise the score tie-break with a small real packing search. The full-size
+    // generated-carton and safety scenarios are covered independently above.
+    const tieProduct: ProductItem = { ...product, quantity: 12, maxUnitsPerBox: 4 };
+    const auto = optimizeProductPackaging(container, [tieProduct], [], defaultProductPackagingOptions).assignments[0];
     expect(auto.source).toBe('generated');
     const verified: BoxCatalogItem = {
       id: 'VERIFIED-AUTO',
@@ -109,7 +112,8 @@ describe('product packaging optimizer', () => {
       maxGrossWeightKg: 22,
       maxTopLoadKg: Math.max(50, auto.requiredTopLoadKg),
     };
-    const selected = optimizeProductPackaging(container, [product], [verified], defaultProductPackagingOptions).assignments[0];
+    const selected = optimizeProductPackaging(container, [tieProduct], [verified], defaultProductPackagingOptions).assignments[0];
+    expect(Math.abs(selected.score - auto.score)).toBeLessThanOrEqual(0.005);
     expect(selected.boxId).toBe('VERIFIED-AUTO');
     expect(selected.strengthStatus).toBe('catalog');
   });

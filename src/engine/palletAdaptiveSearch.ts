@@ -256,7 +256,10 @@ export function buildPalletAdaptiveCandidates(
   const physicalMax = Math.max(1, Math.floor((current.container.height + EPS) / Math.max(snapshot.spec.height, EPS)));
   const maxLevels = Math.min(configuredMax, physicalMax);
   const levelOptions = Array.from({ length: maxLevels }, (_, index) => index + 1);
-  const heightRatios = [0.6, 0.72, 0.84, 0.96, 1.05, 1.15];
+  const fullHeightRatio = (current.container.height - snapshot.spec.height) / Math.min(snapshot.spec.length, snapshot.spec.width);
+  const heightRatios = snapshot.spec.minimizePackaging
+    ? [...new Set([Math.max(1.15, fullHeightRatio), 1.15, 1.05, 0.96, 0.84, 0.72, 0.6])]
+    : [0.6, 0.72, 0.84, 0.96, 1.05, 1.15];
   const combinations: PalletSearchCombination[] = [];
 
   for (const variant of orientationVariants(current.cargo)) {
@@ -279,7 +282,11 @@ export function buildPalletAdaptiveCandidates(
     addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, true), `문쪽 밀착 2열 · ${baseLabel}`);
   }
 
-  const sorted = list.sort((a, b) => a.staticPenalty - b.staticPenalty || a.label.localeCompare(b.label));
+  // Try compact material-efficient candidates first; each still has to pass
+  // the same physical and inertia certification before it can be accepted.
+  const sorted = list.sort((a, b) =>
+    (snapshot.spec.minimizePackaging ? a.result.palletCount - b.result.palletCount : 0)
+    || a.staticPenalty - b.staticPenalty || a.label.localeCompare(b.label));
   return Number.isFinite(limit) ? sorted.slice(0, Math.max(1, Math.floor(limit))) : sorted;
 }
 
