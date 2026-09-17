@@ -13,7 +13,7 @@ test('changing the active transport equipment invalidates stale physics state', 
     (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = { score: 999 };
   });
 
-  await page.locator('.guided-equipment-card.selected').click();
+  await page.locator('.guided-stage-panel:visible .guided-equipment-card.selected').click();
   const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
   await expect(dialog).toBeVisible();
   const cards = dialog.locator('.transport-equipment-card');
