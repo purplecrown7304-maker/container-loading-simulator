@@ -60,7 +60,7 @@ npm run test:e2e
 
 - `pull_request` → `main` 검증 트리거
 - 수동 `workflow_dispatch` 유지
-- `npm ci` 사용
+- `npm install --legacy-peer-deps --no-fund --no-audit` 사용 (현재 저장소에는 lockfile 없음)
 - `npm audit --audit-level=high`
 - `npm run verify:predeploy`
 - Chromium 설치 후 `npm run test:e2e`
@@ -69,17 +69,15 @@ npm run test:e2e
 
 이 변경은 애플리케이션 프로덕션 배포를 수행하지 않습니다.
 
-## 현재 검증 상태
+## 2026-09-17 배포 전 보완
 
-- 코드/테스트/architecture guard 작성: 완료
-- GitHub Draft PR 구성: 완료
-- CI workflow 배포직전 검증 정의: 완료
-- `npm run verify:predeploy` 실제 실행: 대기
-- `npm run test:e2e` 실제 실행: 대기
-- `main` 병합: 미실행
-- Vercel 프로덕션 배포: 미실행
+- `0e7b29d`의 [CI #230](https://github.com/purplecrown7304-maker/container-loading-simulator/actions/runs/35179469330)은 단위 테스트 344개, TypeScript, architecture, production build, bundle-size, 보안 audit을 통과했습니다.
+- 해당 CI의 브라우저 테스트는 34개 중 33개 성공, 모바일 장비 선택창 재열기/닫기 1개 실패였습니다. 상단 메뉴가 닫기 버튼의 클릭을 가로챘습니다.
+- 장비 선택창 backdrop의 z-index를 기존 workspace dialog와 동일한 5000으로 맞췄습니다. 전역 헤더(3200)와 하단 작업바(3900)보다 앞에서 표시됩니다.
+- 실패했던 브라우저 테스트를 제외하거나 강제 클릭으로 우회하지 않고 그대로 유지합니다.
+- 수정 후 로컬 `npm run verify:predeploy` 통과: 단위 테스트 344개 / 106개 파일, TypeScript, architecture, production build, bundle-size. `npm audit --audit-level=high`도 통과했습니다.
 
-ChatGPT 실행 환경에서 2026-09-16에 저장소 clone을 다시 시도했지만 `Could not resolve host: github.com`으로 실패했습니다. 이 환경에서는 GitHub와 npm registry DNS를 사용할 수 없어 로컬 명령 실행을 통과했다고 간주하지 않습니다.
+이 문서의 로컬 결과만으로 병합하지 않습니다. 수정 커밋의 전체 브라우저 테스트를 포함한 최신 CI 결과는 [PR #65](https://github.com/purplecrown7304-maker/container-loading-simulator/pull/65)에서 확인하며, 동일 커밋의 모든 필수 검증이 성공한 뒤 main 병합과 프로덕션 배포를 진행합니다. 최종 배포 결과는 병합 커밋의 Vercel 상태와 운영 사이트에서 확인합니다.
 
 현재 PR의 Vercel 상태가 실패로 보이더라도 target이 `upgradeToPro=build-rate-limit`이면 코드 빌드 실패가 아니라 Vercel build-rate-limit 차단으로 구분합니다.
 
