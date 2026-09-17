@@ -75,6 +75,15 @@ function mergeWorkbookDuplicates(items: CargoItem[], firstRowById: Map<string, n
 }
 
 export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
+  return parseWorkbook(file);
+}
+
+export async function parseBoxCatalogWorkbook(file: File): Promise<ImportResult> {
+  // Catalog registration does not select cargo for loading. Quantities are chosen later.
+  return parseWorkbook(file, 0);
+}
+
+async function parseWorkbook(file: File, defaultQuantity?: number): Promise<ImportResult> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
   const firstSheetName = workbook.SheetNames[0];
@@ -94,7 +103,10 @@ export async function parseCargoWorkbook(file: File): Promise<ImportResult> {
     const width = toNumber(row['폭(m)'] ?? row['폭'] ?? row['Width']);
     const height = toNumber(row['높이(m)'] ?? row['높이'] ?? row['Height']);
     const weightKg = toNumber(row['중량(kg)'] ?? row['중량'] ?? row['Weight']);
-    const quantity = toNumber(row['수량'] ?? row['Quantity']);
+    const quantityValue = row['수량'] ?? row['Quantity'];
+    const quantity = defaultQuantity != null && (quantityValue == null || String(quantityValue).trim() === '')
+      ? defaultQuantity
+      : toNumber(quantityValue);
     const maxStackLayers = toNumber(row['최대적층단'] ?? row['최대 적층단'] ?? row['MaxStackLayers']);
     const maxTopLoadKg = toNumber(row['상부허용중량(kg)'] ?? row['상부허용'] ?? row['MaxTopLoadKg']);
     const unloadPriority = toNumber(row['하역순서'] ?? row['하역 순서'] ?? row['UnloadPriority']);
@@ -166,4 +178,20 @@ export function downloadCargoTemplate() {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Cargo');
   XLSX.writeFile(workbook, 'container-loading-cargo-template.xlsx');
+}
+
+export function createBoxCatalogTemplate(): XLSX.WorkBook {
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ['코드', '이름', '길이(m)', '폭(m)', '높이(m)', '중량(kg)', '최대적층단', '상부허용중량(kg)', '90도회전허용'],
+    ['BOX-A', 'BOX A', 0.6, 0.4, 0.35, 18, 7, 100, 'Y'],
+    ['BOX-B', 'BOX B', 0.5, 0.35, 0.3, 12, 7, 80, 'N'],
+  ]);
+  worksheet['!cols'] = [12, 18, 12, 12, 12, 12, 14, 20, 16].map((wch) => ({ wch }));
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Boxes');
+  return workbook;
+}
+
+export function downloadBoxCatalogTemplate() {
+  XLSX.writeFile(createBoxCatalogTemplate(), 'container-loading-box-template.xlsx');
 }

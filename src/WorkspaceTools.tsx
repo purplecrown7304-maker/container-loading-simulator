@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { cargoColor, randomUniqueCargoColor } from './cargoColors';
-import { parseCargoWorkbook } from './excel';
+import { downloadBoxCatalogTemplate, parseBoxCatalogWorkbook } from './excel';
 import { operatorScopedStorageKey, readLocalOperator, type LocalOperator } from './localOperator';
 import { readStoredState, writeStoredState, type StoredState } from './storage';
-import { EXCEL_IMPORT_EVENT, OPEN_WORKSPACE_EVENT, type WorkspaceOpenDetail } from './uiEvents';
+import { OPEN_WORKSPACE_EVENT, type WorkspaceOpenDetail } from './uiEvents';
 
 const BOX_KEY = 'container-loading-workspace-boxes-v1';
 const VEHICLE_KEY = 'container-loading-workspace-vehicles-v1';
@@ -171,7 +171,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
   const importCatalogWorkbook = async (file: File | undefined) => {
     if (!file || !requireLogin()) return;
     try {
-      const result = await parseCargoWorkbook(file);
+      const result = await parseBoxCatalogWorkbook(file);
       if (!result.items.length) {
         const firstIssue = result.issues[0]?.message;
         setMessage(`추가 가능한 박스가 없습니다.${firstIssue ? ` ${firstIssue}` : ''}`);
@@ -343,7 +343,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
             <div className="box-selector-actions">
               <div>
                 {operator ? <button onClick={() => setRegisterOpen(value => !value)}>신규 박스 등록</button> : <button disabled title="로그인 후 개인 박스 목록을 사용할 수 있습니다.">로그인 후 개인 박스 등록</button>}
-                <button onClick={() => window.dispatchEvent(new CustomEvent(EXCEL_IMPORT_EVENT, { detail: { action: 'template' } }))}>기초 엑셀 다운로드</button>
+                <button onClick={downloadBoxCatalogTemplate}>기초 엑셀 다운로드</button>
                 {operator && catalogBackup && <button onClick={restoreCatalogBackup}>직전 변경 되돌리기</button>}
               </div>
               <button className="blue" onClick={importSelected} disabled={!operator || chosen.length === 0}>수량 입력 박스 적재 투입</button>

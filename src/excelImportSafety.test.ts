@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
-import { parseCargoWorkbook } from './excel';
+import { createBoxCatalogTemplate, parseBoxCatalogWorkbook, parseCargoWorkbook } from './excel';
 
 function workbookFile(rows: Array<Record<string, unknown>>) {
   const workbook = XLSX.utils.book_new();
@@ -16,6 +16,38 @@ const base = {
 };
 
 describe('Excel cargo import safety', () => {
+  it('imports the box catalog template without quantity or unloading order', async () => {
+    const workbook = createBoxCatalogTemplate();
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
+    expect(rows[0]).not.toContain('수량');
+    expect(rows[0]).not.toContain('하역순서');
+    const bytes = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+    const parsed = await parseBoxCatalogWorkbook({ arrayBuffer: async () => bytes } as File);
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.items).toHaveLength(2);
+    expect(parsed.items[0]).toMatchObject({ id: 'BOX-A', quantity: 0, maxStackLayers: 7, maxTopLoadKg: 100, allowRotation: true });
+    expect(parsed.items[1]).toMatchObject({ id: 'BOX-B', quantity: 0, maxStackLayers: 7, maxTopLoadKg: 80, allowRotation: false });
+    expect(parsed.items.every(item => item.unloadPriority === undefined)).toBe(true);
+  });
+
+  it('continues to accept legacy box templates with quantity and unloading order', async () => {
+    const parsed = await parseBoxCatalogWorkbook(workbookFile([base]));
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.items[0]).toMatchObject({ quantity: 2, unloadPriority: 1 });
+  });
+
+  it('defaults only a missing catalog quantity and keeps cargo quantity required', async () => {
+    const { 수량: _quantity, 하역순서: _unload, ...catalogRow } = base;
+    const file = workbookFile([catalogRow]);
+    expect((await parseBoxCatalogWorkbook(file)).items[0]?.quantity).toBe(0);
+    const cargo = await parseCargoWorkbook(file);
+    expect(cargo.items).toEqual([]);
+    expect(cargo.issues[0]?.message).toContain('수량');
+    const invalid = await parseBoxCatalogWorkbook(workbookFile([{ ...catalogRow, 수량: 'invalid' }]));
+    expect(invalid.items).toEqual([]);
+    expect(invalid.issues[0]?.message).toContain('수량');
+  });
+
   it('preserves zero top-load as a real no-load-above constraint', async () => {
     const parsed = await parseCargoWorkbook(workbookFile([{ ...base, '상부허용중량(kg)': 0 }]));
     expect(parsed.issues).toEqual([]);
