@@ -87,6 +87,33 @@ test('results pallet settings keep the seven-level range and close results after
   await expect(page.locator('.results-modal')).toHaveCount(0);
 });
 
+test('completed loading keeps result quantities visible after switching result tabs', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await advanceToStrategy(page, 'E2E-FINAL-RESULT');
+  await page.getByRole('radio', { name: /무게중심·안정성 우선형/ }).click();
+  await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
+  await page.getByRole('button', { name: /최종 적재 진행/ }).click();
+
+  const showResults = page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ });
+  await expect(showResults).toBeEnabled({ timeout: 60_000 });
+  await showResults.click();
+
+  const stage = page.locator('.guided-result-stage');
+  const quantities = stage.locator('.guided-result-grid.enhanced');
+  await expect(quantities).toBeVisible();
+  await expect(quantities.locator(':scope > div').nth(0)).toContainText('3 EA');
+  await expect(quantities.locator(':scope > div').nth(1)).toContainText('3 EA');
+  await expect(quantities.locator(':scope > div').nth(2)).toContainText('0 EA');
+
+  await stage.getByRole('tab', { name: '무게 분포', exact: true }).click();
+  await expect(stage.locator('.guided-weight-grid')).toBeVisible();
+  await stage.getByRole('tab', { name: '적재 결과', exact: true }).click();
+  await expect(quantities).toBeVisible();
+  await expect(quantities.locator(':scope > div').nth(1)).toContainText('3 EA');
+  await expect(page.getByRole('button', { name: /통합 출하·적재 작업지시서 보기/ })).toBeEnabled();
+});
+
 test('mobile guided dashboard remains usable without horizontal body overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
