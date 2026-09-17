@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 async function openEquipment(page: import('@playwright/test').Page) {
-  await page.locator('.guided-equipment-card.selected').click();
+  await page.locator('.guided-stage-panel:visible .guided-equipment-card.selected').click();
   const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
   await expect(dialog).toBeVisible();
   return dialog;
