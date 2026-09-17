@@ -59,9 +59,11 @@ export default function GuidedResultTabsEnhancer() {
           setHost(null);
           return;
         }
-        const originalTabs = nextStage.querySelector<HTMLElement>('.guided-result-tabs');
-        const originalGrid = nextStage.querySelector<HTMLElement>('.guided-result-grid');
-        const originalUnloaded = nextStage.querySelector<HTMLElement>('.guided-unloaded-list');
+        // Only hide the stage's original children. The portal below uses the same
+        // classes, so descendant queries would hide the live result on the next mutation.
+        const originalTabs = nextStage.querySelector<HTMLElement>(':scope > .guided-result-tabs');
+        const originalGrid = nextStage.querySelector<HTMLElement>(':scope > .guided-result-grid');
+        const originalUnloaded = nextStage.querySelector<HTMLElement>(':scope > .guided-unloaded-list');
         if (originalTabs) originalTabs.style.display = 'none';
         if (originalGrid) originalGrid.style.display = 'none';
         if (originalUnloaded) originalUnloaded.style.display = 'none';
@@ -96,8 +98,8 @@ export default function GuidedResultTabsEnhancer() {
 
   useEffect(() => {
     if (!stage) return;
-    const grid = stage.querySelector<HTMLElement>('.guided-result-grid');
-    const unloaded = stage.querySelector<HTMLElement>('.guided-unloaded-list');
+    const grid = stage.querySelector<HTMLElement>(':scope > .guided-result-grid');
+    const unloaded = stage.querySelector<HTMLElement>(':scope > .guided-unloaded-list');
     if (grid) grid.style.display = 'none';
     if (unloaded) unloaded.style.display = 'none';
   }, [stage, tab]);
