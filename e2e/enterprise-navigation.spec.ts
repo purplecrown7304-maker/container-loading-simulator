@@ -1,37 +1,33 @@
 import { expect, test } from '@playwright/test';
 
-test('enterprise planner can return to the main simulator without losing the document', async ({ page }) => {
-  await page.addInitScript(() => localStorage.clear());
+async function openProductManager(page: import('@playwright/test').Page) {
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('container-loading:open-product-tool', { detail: 'products' }));
+  });
+  return page.getByRole('dialog', { name: '회사 제품 관리' });
+}
+
+test('guided workflow starts at equipment and advances to product selection without route churn', async ({ page }) => {
   await page.goto('/');
+  await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
+  await expect(page.locator('.guided-step-list button')).toHaveCount(6);
+  const url = page.url();
 
-  const shortcut = page.locator('.product-packaging-shortcut');
-  await expect(shortcut).toBeVisible();
-  await shortcut.click();
-
-  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('#product-packaging-planner');
-  await expect(page.locator('#product-packaging-planner')).toBeInViewport();
-
-  const actions = page.locator('.enterprise-packaging-planner .packaging-actions');
-  const back = page.getByRole('button', { name: '메인 적재 화면으로' });
-  await expect(back).toBeVisible();
-  await expect(actions.locator('button').first()).toHaveClass(/enterprise-back-to-main/);
-  await expect(page.getByText('입력한 제품/박스 정보는 유지됩니다.')).toHaveCount(0);
-
-  await back.click();
-
-  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('');
-  await expect(page.locator('.mockup-dashboard')).toBeInViewport();
+  await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
+  await expect(page.getByRole('heading', { name: '제품 선택' })).toBeVisible();
+  expect(page.url()).toBe(url);
 });
 
-test('browser back also returns from enterprise planner to the main simulator', async ({ page }) => {
-  await page.addInitScript(() => localStorage.clear());
+test('company product manager is an in-place modal and closes back to the guided workflow', async ({ page }) => {
   await page.goto('/');
+  const url = page.url();
+  const dialog = await openProductManager(page);
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: '회사 제품 관리' })).toBeVisible();
+  expect(page.url()).toBe(url);
 
-  await page.locator('.product-packaging-shortcut').click();
-  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('#product-packaging-planner');
-
-  await page.goBack();
-
-  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('');
-  await expect(page.locator('.mockup-dashboard')).toBeInViewport();
+  await dialog.locator('header button').click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
+  expect(page.url()).toBe(url);
 });
