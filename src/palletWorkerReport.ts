@@ -3,18 +3,17 @@ export * from './palletWorkerReportV2';
 import type { CargoItem, ContainerSpec } from './engine/types';
 import { createPhysicsTargetSignature, readLatestInertiaCertification } from './inertiaCertification';
 import { requestFinalWorkOrder } from './finalWorkOrderEvents';
-import { readPhysicsTarget } from './physicsTarget';
+import { restorePalletPhysicsTarget } from './palletTargetRestore';
 import { openPalletLoadingReport as openPalletLoadingReportV2 } from './palletWorkerReportV2';
 
 /**
  * A work-order request must always lead to a document for an existing pallet loading
- * result. When the current pallet target already has a matching inertia snapshot we
- * open it immediately. Otherwise start the final work-order certification flow; the
- * optimizer will record the available PASS/caution/danger result and open the report
- * without using that safety grade as an output gate.
+ * result. Guided step 6 unmounts the 3D pallet viewer, so restore the exact physics
+ * target from palletSnapshotStore before checking certification or starting a new
+ * work-order verification. This never recalculates the pallet plan.
  */
 export function openPalletLoadingReport(container: ContainerSpec, cargo: CargoItem[]): boolean {
-  const target = readPhysicsTarget();
+  const target = restorePalletPhysicsTarget(container, cargo);
   const certification = readLatestInertiaCertification();
   const matches = Boolean(
     target
@@ -24,6 +23,7 @@ export function openPalletLoadingReport(container: ContainerSpec, cargo: CargoIt
   );
 
   if (matches) return openPalletLoadingReportV2(container, cargo);
+  if (!target) return false;
   requestFinalWorkOrder(container, cargo);
   return true;
 }

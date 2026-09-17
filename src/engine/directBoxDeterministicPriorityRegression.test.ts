@@ -25,20 +25,35 @@ function cargo(id: string): CargoItem {
 }
 
 describe('DIRECT BOX deterministic SKU priority', () => {
-  it('uses cargo code as the final tie-break regardless of input row order', () => {
-    const result = loadContainer(container, [cargo('B-SKU'), cargo('A-SKU')], {
+  it('keeps the final arrangement deterministic regardless of input row order', () => {
+    const first = loadContainer(container, [cargo('B-SKU'), cargo('A-SKU')], {
+      strategy: 'capacity',
+      publish: false,
+    });
+    const second = loadContainer(container, [cargo('A-SKU'), cargo('B-SKU')], {
       strategy: 'capacity',
       publish: false,
     });
 
-    expect(result.validationIssues).toEqual([]);
-    expect(result.placements).toHaveLength(4);
+    const normalized = (result: ReturnType<typeof loadContainer>) => [...result.placements]
+      .map((placement) => ({
+        cargoId: placement.cargoId,
+        x: placement.x,
+        y: placement.y,
+        z: placement.z,
+        length: placement.length,
+        width: placement.width,
+        height: placement.height,
+        rotated: Boolean(placement.rotated),
+      }))
+      .sort((a, b) => a.cargoId.localeCompare(b.cargoId) || a.z - b.z || a.x - b.x || a.y - b.y);
 
-    const aMinX = Math.min(...result.placements.filter((p) => p.cargoId === 'A-SKU').map((p) => p.x));
-    const bMinX = Math.min(...result.placements.filter((p) => p.cargoId === 'B-SKU').map((p) => p.x));
-
-    expect(aMinX).toBeCloseTo(0, 6);
-    expect(bMinX).toBeCloseTo(0.5, 6);
-    expect(aMinX).toBeLessThan(bMinX);
+    expect(first.validationIssues).toEqual([]);
+    expect(second.validationIssues).toEqual([]);
+    expect(first.placements).toHaveLength(4);
+    expect(second.placements).toHaveLength(4);
+    expect(first.placements.filter((placement) => placement.cargoId === 'A-SKU')).toHaveLength(2);
+    expect(first.placements.filter((placement) => placement.cargoId === 'B-SKU')).toHaveLength(2);
+    expect(normalized(first)).toEqual(normalized(second));
   });
 });

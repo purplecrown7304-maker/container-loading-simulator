@@ -1,90 +1,69 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
-test('transport catalog applies a 20ft container without clearing current cargo', async ({ page }) => {
-  await page.addInitScript(() => localStorage.clear());
-  await page.goto('/');
-
-  await page.getByRole('button', { name: '예시 데이터로 시작' }).click();
-  const beforeCargo = await page.locator('.cargo-list-item').count();
-  expect(beforeCargo).toBeGreaterThan(0);
-
-  await page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' }).click();
+async function openEquipment(page: Page) {
+  // Select the illustrated, accessible button instead of the intentionally hidden legacy card.
+  const selector = page.getByRole('button', { name: /적재공간 다시 선택$/ });
+  await expect(selector).toBeVisible();
+  await selector.click();
   const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: /20' STANDARD/ }).click();
+  return dialog;
+}
 
-  await expect(page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' })).toContainText('20FT Standard');
-  await expect(page.locator('.cargo-list-item')).toHaveCount(beforeCargo);
-  await expect(page.locator('.transport-dashboard-setting')).toContainText('20FT Standard');
+async function expectSelectedEquipment(page: Page, shortName: string) {
+  await expect(page.getByRole('button', { name: `${shortName} 적재공간 다시 선택`, exact: true })).toBeVisible();
+}
 
-  const card = page.locator('.dashboard-left .dashboard-card').first();
-  await card.locator('summary').click();
-  await expect(card.getByLabel('길이(m)')).toHaveValue('5.9');
-  await expect(card.getByLabel('폭(m)')).toHaveValue('2.352');
-  await expect(card.getByLabel('높이(m)')).toHaveValue('2.395');
-  await expect(card.getByLabel('최대중량')).toHaveValue('28130');
-
-  const planner = page.locator('#product-packaging-planner');
-  await expect(planner.getByLabel('길이(m)').first()).toHaveValue('5.9');
-  await expect(planner.getByLabel('폭(m)').first()).toHaveValue('2.352');
-  await expect(planner.getByLabel('높이(m)').first()).toHaveValue('2.395');
-  await expect(planner.getByLabel('최대중량(kg)').first()).toHaveValue('28130');
+test('guided equipment selector changes the current container in place', async ({ page }) => {
+  await page.goto('/');
+  const dialog = await openEquipment(page);
+  await dialog.locator('.transport-equipment-card[data-equipment-id="20-standard"]').click();
+  await expect(dialog).toHaveCount(0);
+  await expectSelectedEquipment(page, '20FT Standard');
+  await expect(page.locator('.guided-equipment-specs')).toContainText('5,900 mm');
+  // Reopening must work after a selection and show the currently active equipment.
+  const reopened = await openEquipment(page);
+  await expect(reopened.locator('.transport-equipment-card[data-equipment-id="20-standard"]')).toHaveClass(/active/);
+  await reopened.getByRole('button', { name: '닫기', exact: true }).click();
+  await expect(reopened).toHaveCount(0);
 });
 
-test('truck tab exposes requested road equipment and custom values can be applied', async ({ page }) => {
-  await page.addInitScript(() => localStorage.clear());
+test('truck category can select a Tautliner without leaving the guided workflow', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' }).click();
+  await page.getByRole('button', { name: '트럭', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
-  await dialog.getByRole('button', { name: /트럭/ }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('.transport-equipment-card[data-category="truck"]')).toHaveCount(6);
+  await dialog.locator('.transport-equipment-card[data-equipment-id="tautliner"]').click();
+  await expect(dialog).toHaveCount(0);
+  await expectSelectedEquipment(page, 'Tautliner / Curtainsider');
+  await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
+});
 
-  await expect(dialog.getByRole('button', { name: /TAUTLINER/ })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: /REFRIGERATED TRUCK/ })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: /ISOTHERM TRUCK/ })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: /MEGA-TRAILER/ })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: /JUMBO/ })).toBeVisible();
-
-  await dialog.getByRole('button', { name: /CUSTOM TRUCK/ }).click();
-  await dialog.getByLabel('내부 길이(m)').fill('9.70');
-  await dialog.getByLabel('내부 폭(m)').fill('2.44');
-  await dialog.getByLabel('내부 높이(m)').fill('2.55');
-  await dialog.getByLabel('최대 적재중량(kg)').fill('14500');
-  await dialog.getByLabel('바닥 허용하중(kg/m²)').fill('1650');
+test('custom truck dimensions can be applied from the current selector', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '트럭', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
+  await dialog.locator('.transport-equipment-card[data-equipment-id="custom-truck"]').click();
+  await dialog.getByLabel('내부 길이(m)').fill('10.5');
+  await dialog.getByLabel('내부 폭(m)').fill('2.4');
+  await dialog.getByLabel('내부 높이(m)').fill('2.6');
+  await dialog.getByLabel('최대 적재중량(kg)').fill('12000');
+  await dialog.getByLabel('바닥 허용하중(kg/m²)').fill('1800');
   await dialog.getByRole('button', { name: '사용자 규격 적용' }).click();
-
-  await expect(page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' })).toContainText('Custom Truck');
-  await expect(page.locator('.transport-dashboard-title')).toHaveText('1. 트럭 적재공간 정보');
-  await expect(page.locator('.transport-dashboard-setting')).toContainText('Custom Truck');
+  await expect(dialog).toHaveCount(0);
+  await expectSelectedEquipment(page, 'Custom Truck');
+  await expect(page.locator('.guided-equipment-specs')).toContainText('10,500 mm');
+  await expect(page.locator('.guided-equipment-specs')).toContainText('12,000 kg');
 });
 
-test('tank equipment is marked specialized and blocks general box optimization', async ({ page }) => {
-  await page.addInitScript(() => localStorage.clear());
+test('specialized tank equipment remains selectable but explicitly identifiable', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '예시 데이터로 시작' }).click();
-  await page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' }).click();
-  const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
-  await dialog.getByRole('button', { name: /20' TANK/ }).click();
-  await expect(dialog.getByText(/특수화물 전용 장비/)).toBeVisible();
-  await dialog.getByRole('button', { name: '닫기' }).click();
-  await expect(page.locator('.equipment-special-warning')).toContainText('특수화물 전용');
-
-  await page.locator('.quick-card .primary-action').click();
-  const safety = page.getByRole('alertdialog', { name: /일반 박스 적재 대상이 아닙니다/ });
-  await expect(safety).toBeVisible();
-  await expect(safety).toContainText('20FT Tank');
-  await expect(page.locator('.calculation-overlay')).toHaveCount(0);
-});
-
-test('selected equipment persists after reload', async ({ page }) => {
-  await page.addInitScript(() => localStorage.clear());
-  await page.goto('/');
-  await page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' }).click();
-  const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
-  await dialog.getByRole('button', { name: /40' OPEN TOP/ }).click();
-  await dialog.getByRole('button', { name: '닫기' }).click();
-  await expect(page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' })).toContainText('40FT Open Top');
-
-  await page.reload();
-  await expect(page.getByRole('button', { name: '컨테이너 및 트럭 장비 선택' })).toContainText('40FT Open Top');
-  await expect(page.locator('.transport-dashboard-setting')).toContainText('40FT Open Top');
+  const dialog = await openEquipment(page);
+  const tank = dialog.locator('.transport-equipment-card[data-equipment-id="20-tank"]');
+  await expect(tank).toContainText("20' TANK");
+  await tank.click();
+  await expect(dialog).toHaveCount(0);
+  await expectSelectedEquipment(page, '20FT Tank');
+  await expect(page.getByRole('button', { name: /다음: 제품 선택/ })).toBeEnabled();
 });

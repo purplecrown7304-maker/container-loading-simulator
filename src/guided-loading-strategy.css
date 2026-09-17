@@ -1,45 +1,3 @@
-html[data-guided-workflow="true"][data-guided-step="4"] .dashboard-center>.viewer-card {
-  display: none!important;
-}
-
-html[data-guided-workflow="true"][data-guided-step="4"] .dashboard-center>.guided-stage-panel {
-  display: block!important;
-}
-
-html[data-guided-workflow="true"][data-guided-step="5"] .dashboard-center>.guided-stage-panel {
-  display: none!important;
-}
-
-html[data-guided-workflow="true"][data-guided-step="5"] .dashboard-center>.viewer-card {
-  display: block!important;
-  min-height: 560px!important;
-  padding: 16px!important;
-  border: 1px solid var(--gw-border)!important;
-  border-radius: 18px!important;
-  background: #fff!important;
-}
-
-html[data-guided-workflow="true"][data-guided-step="5"] .viewer-host {
-  height: calc(100vh - 184px)!important;
-  min-height: 520px!important;
-  margin: 0!important;
-  border-radius: 18px!important;
-  overflow: hidden!important;
-  background: #0b0b0c!important;
-}
-
-html[data-guided-workflow="true"][data-guided-step="5"] .viewer-bottom-actions {
-  display: none!important;
-}
-
-html[data-guided-workflow="true"][data-guided-step="6"] .dashboard-center>.viewer-card {
-  display: none!important;
-}
-
-html[data-guided-workflow="true"][data-guided-step="6"] .dashboard-center>.guided-stage-panel {
-  display: block!important;
-}
-
 .guided-strategy-stage {
   display: flex;
   flex-direction: column;
@@ -71,7 +29,7 @@ html[data-guided-workflow="true"][data-guided-step="6"] .dashboard-center>.guide
 
 .guided-strategy-card {
   position: relative;
-  min-height: 190px;
+  min-height: 200px;
   padding: 22px 18px 18px;
   border: 1px solid #dfe3ea;
   border-radius: 14px;
@@ -177,9 +135,9 @@ html[data-guided-workflow="true"][data-guided-step="6"] .dashboard-center>.guide
   }
 }
 
-@media (max-width: 760px) {
-  .guided-step-list {
-    grid-template-columns: repeat(6, minmax(118px, 1fr));
-    min-width: 730px;
+@media (prefers-reduced-motion: reduce) {
+  .guided-strategy-card {
+    transition: none;
+    transform: none!important;
   }
 }

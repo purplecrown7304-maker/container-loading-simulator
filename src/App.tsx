@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { requestExactCertification, requestNextPalletCertification } from './autoCertification';
 import { cargoColor, cargoTint, randomUniqueCargoColor } from './cargoColors';
 import { analyzeConstraints } from './engine/constraintAnalysis';
@@ -9,6 +9,8 @@ import { loadContainer, type LoadingStrategy } from './engine/loadingEngine';
 import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
+import { useGuidedLoadingUnit } from './guidedLoadingUnitState';
+import { shouldRenderGuidedViewer, useGuidedWorkflowState } from './guidedWorkflowState';
 import { clearLatestInertiaCertification } from './inertiaCertification';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { openPalletLoadingReport } from './palletWorkerReport';
@@ -68,8 +70,13 @@ export default function App() {
   );
   const [isRunning, setIsRunning] = useState(false);
   const [optimizationMessage, setOptimizationMessage] = useState('');
+  const [optimizationProgress, setOptimizationProgress] = useState(0);
+  const [optimizationEtaSeconds, setOptimizationEtaSeconds] = useState<number | null>(null);
   const [physicsScore, setPhysicsScore] = useState<number | null>(null);
   const [physicsStrategy, setPhysicsStrategy] = useState<LoadingStrategy | null>(null);
+  const optimizationStartedAt = useRef<number | null>(null);
+  const guidedWorkflowState = useGuidedWorkflowState();
+  const guidedLoadingUnit = useGuidedLoadingUnit();
 
   const totalVolume = container.length * container.width * container.height;
   const fillRate = totalVolume > 0 ? result.usedVolumeM3 / totalVolume * 100 : 0;
@@ -82,12 +89,16 @@ export default function App() {
   const hasConstraintWarning = constraintChecks.some(check => check.status === 'warn');
   const addresses = useMemo(() => buildPlacementAddresses(result.placements, container.length), [result.placements, container.length]);
   const maxLayer = useMemo(() => addresses.reduce((max, item) => Math.max(max, item?.layer ?? 0), 0), [addresses]);
+  const renderViewer = shouldRenderGuidedViewer(guidedWorkflowState);
 
   const announce = (tone: StatusTone, text: string) => setStatusMessage({ tone, text });
   const invalidatePhysics = () => {
     setPhysicsScore(null);
     setPhysicsStrategy(null);
     setOptimizationMessage('');
+    setOptimizationProgress(0);
+    setOptimizationEtaSeconds(null);
+    optimizationStartedAt.current = null;
     clearLatestInertiaCertification();
     clearPhysicsTarget();
     if (typeof window !== 'undefined') (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = undefined;
@@ -100,12 +111,23 @@ export default function App() {
   };
   const scrollToViewer = () => {
     setNavSection('viewer');
+    if (guidedWorkflowState.active && guidedWorkflowState.step !== 5) {
+      announce('info', '3D 적재 화면은 자동 적재 단계에서 표시됩니다.');
+      return;
+    }
     document.querySelector('.viewer-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
   const scrollToDashboard = () => {
     setNavSection('dashboard');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  useEffect(() => {
+    if (!guidedWorkflowState.active || !guidedLoadingUnit || guidedLoadingUnit === mode) return;
+    invalidatePhysics();
+    setMode(guidedLoadingUnit);
+    announce('info', guidedLoadingUnit === 'boxes' ? '박스 직접 적재 유형을 적용했습니다.' : '파렛트 적재 유형을 적용했습니다.');
+  }, [guidedWorkflowState.active, guidedLoadingUnit, mode]);
 
   useEffect(() => {
     const onStorageUpdated = (event: Event) => {
@@ -187,9 +209,9 @@ export default function App() {
     }
     const activeCargo = preflight.cargo;
     if (!activeCargo.length) return announce('warning', '적재할 화물이 없습니다. 본인의 박스 목록에서 화물을 등록하거나 선택하세요.');
-    const guidedWorkflow = typeof document !== 'undefined' && document.documentElement.dataset.guidedWorkflow === 'true';
-    const preferredStrategy = guidedWorkflow ? readLoadingStrategyPreference() : null;
-    if (guidedWorkflow && !preferredStrategy) return announce('warning', '적재 방식을 먼저 선택해 주세요.');
+    const guidedWorkflowActive = guidedWorkflowState.active;
+    const preferredStrategy = guidedWorkflowActive ? readLoadingStrategyPreference() : null;
+    if (guidedWorkflowActive && !preferredStrategy) return announce('warning', '적재 방식을 먼저 선택해 주세요.');
     if (mode === 'pallets') {
       invalidatePhysics();
       requestNextPalletCertification();
@@ -201,16 +223,32 @@ export default function App() {
     setPhysicsScore(null);
     setPhysicsStrategy(null);
     setOptimizationMessage('후보 적재안 생성 중…');
+    setOptimizationProgress(0);
+    setOptimizationEtaSeconds(null);
+    optimizationStartedAt.current = performance.now();
     announce('info', preferredStrategy ? `${strategyLabel(preferredStrategy)} 전략으로 물리 기반 적재 계산 중…` : '물리 기반 최적 적재 계산 중…');
     try {
       const optimized = await optimizeLoadingWithPhysics(container, activeCargo, progress => {
-        setOptimizationMessage(`후보 ${progress.candidateIndex}/${progress.candidateCount} · ${strategyLabel(progress.strategy)} · 물리검증 ${Math.round(progress.physicsProgress * 100)}%`);
+        const candidateCount = Math.max(1, progress.candidateCount);
+        const candidateIndex = Math.max(1, progress.candidateIndex);
+        const physicsProgress = Math.max(0, Math.min(1, progress.physicsProgress));
+        const overallProgress = Math.max(0, Math.min(99, ((candidateIndex - 1 + physicsProgress) / candidateCount) * 100));
+        setOptimizationProgress(overallProgress);
+        setOptimizationMessage(`후보 ${candidateIndex}/${candidateCount} · ${strategyLabel(progress.strategy)} · 물리검증 ${Math.round(physicsProgress * 100)}%`);
+        const startedAt = optimizationStartedAt.current;
+        if (startedAt !== null && overallProgress >= 3) {
+          const elapsedSeconds = Math.max(0.1, (performance.now() - startedAt) / 1000);
+          const remainingSeconds = Math.max(0, Math.round(elapsedSeconds * (100 - overallProgress) / overallProgress));
+          setOptimizationEtaSeconds(Math.min(3599, remainingSeconds));
+        }
       }, preferredStrategy ?? undefined);
       const published = loadContainer(container, activeCargo, { strategy: optimized.strategy });
       setResult(published);
       requestExactCertification({ mode: 'boxes', container, cargo: activeCargo, result: published });
       setPhysicsScore(optimized.physics.score);
       setPhysicsStrategy(optimized.strategy);
+      setOptimizationProgress(100);
+      setOptimizationEtaSeconds(0);
       (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = optimized.physics;
       window.dispatchEvent(new CustomEvent('container-loading:physics-validation-result', { detail: { mode: 'boxes', result: optimized.physics } }));
       announce('success', `최적 적재 계산 완료 · ${published.placements.length}EA · 관성 3종 최종검증 진행 중`);
@@ -223,6 +261,7 @@ export default function App() {
       announce('warning', `물리 최적화 실행 중 오류가 발생해 ${strategyLabel(fallbackStrategy)} 기본 적재안을 표시했습니다. 최종 결과로 사용하기 전 물리 검증을 다시 실행하세요.`);
       setOptimizationMessage('');
     } finally {
+      optimizationStartedAt.current = null;
       setIsRunning(false);
     }
   };
@@ -234,7 +273,7 @@ export default function App() {
       : openLoadingReport(container, cargo, result);
     if (!opened) announce('error', '팝업이 차단되어 작업지시서를 열지 못했습니다.');
   };
-  const saveLocal = () => { writeStoredState({ container, cargo }); announce('success', '현재 데이터가 이 브라우저에 저장되었습니다.'); };
+  const saveLocal = () => { writeStoredState({ container, cargo }); announce('success', '현재 작업을 저장했습니다.'); };
   const loadLocal = () => {
     const state = readStoredState();
     if (!state) return announce('warning', '저장된 데이터가 없습니다.');
@@ -271,7 +310,13 @@ export default function App() {
     };
     window.addEventListener(APP_ACTION_EVENT, onAppAction);
     return () => window.removeEventListener(APP_ACTION_EVENT, onAppAction);
-  }, [container, cargo, result, mode, isRunning, navSection]);
+  }, [container, cargo, result, mode, isRunning, navSection, guidedWorkflowState.active, guidedWorkflowState.step]);
+
+  const progressLabel = optimizationEtaSeconds === null
+    ? '남은 시간 계산 중'
+    : optimizationEtaSeconds <= 0
+      ? '마무리 중'
+      : `약 ${optimizationEtaSeconds}초 남음`;
 
   return <main className="app-shell mockup-dashboard">
     <header className="topbar mockup-topbar">
@@ -366,9 +411,12 @@ export default function App() {
       </aside>
 
       <section className="dashboard-center">
-        <section className="dashboard-card viewer-card">
+        {renderViewer && <section className="dashboard-card viewer-card">
           <div className="viewer-host">
-            {isRunning && <div className="calculation-overlay"><b>물리 기반 최적 적재 계산 중</b><span>{optimizationMessage || '후보 적재안을 만들고 있습니다.'}</span></div>}
+            {isRunning && <div className="calculation-overlay" role="status" aria-live="polite">
+              <div className="calculation-progress-ring" style={{ background: `conic-gradient(#2563eb ${optimizationProgress}%, #dbe3ee 0)` }}><span>{Math.round(optimizationProgress)}%</span></div>
+              <div className="calculation-progress-copy"><b>물리 기반 최적 적재 계산 중</b><span>{optimizationMessage || '후보 적재안을 만들고 있습니다.'}</span><small>{progressLabel}</small></div>
+            </div>}
             <Suspense fallback={<LoadingFallback />}>
               {mode === 'boxes' ? <BoxLoadingViewer result={result} container={container} /> : <section className="viewer pallet-viewer"><PalletModePanel container={container} cargo={cargo} runToken={palletRunToken} /></section>}
             </Suspense>
@@ -378,7 +426,7 @@ export default function App() {
             <PalletFooterSummary active={mode === 'pallets'} />
             <span>{physicsScore !== null ? `Rapier ${physicsScore}점 · ${physicsStrategy ? strategyLabel(physicsStrategy) : ''}` : '자동 적재 실행 시 후보를 물리 검증해 최종안을 선택합니다.'}</span>
           </div>
-        </section>
+        </section>}
       </section>
 
       <aside className="dashboard-right">

@@ -1,48 +1,33 @@
 import { expect, test } from '@playwright/test';
 
-test('unlimited top load remains distinct from explicit zero after edit and save', async ({ page }) => {
+test('product selection cannot advance until at least one product quantity is selected', async ({ page }) => {
   await page.goto('/');
-
-  const panel = page.locator('.cargo-add-panel');
-  await panel.locator('summary').click();
-  await panel.getByLabel('코드').fill('SAFE-A');
-  await panel.getByLabel('이름').fill('Safety A');
-
-  const topLoad = panel.getByLabel('상부 허용중량(kg)');
-  await topLoad.fill('');
-  await panel.getByRole('button', { name: '박스 추가' }).click();
-
-  const row = page.locator('.cargo-list-item').filter({ hasText: 'SAFE-A' });
-  await expect(row).toContainText('상부허용 제한없음');
-
-  await row.getByRole('button', { name: '수정' }).click();
-  await expect(panel.getByLabel('상부 허용중량(kg)')).toHaveValue('');
-
-  await panel.getByLabel('상부 허용중량(kg)').fill('0');
-  await panel.getByRole('button', { name: '수정 저장' }).click();
-  await expect(row).toContainText('상부허용 0 kg');
-
-  await row.getByRole('button', { name: '수정' }).click();
-  await expect(panel.getByLabel('상부 허용중량(kg)')).toHaveValue('0');
+  await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
+  await expect(page.getByRole('heading', { name: '제품 선택' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /다음: 제품 포장/ })).toBeDisabled();
 });
 
-test('editing a planning input clears the stale physics target immediately', async ({ page }) => {
+test('changing the active transport equipment invalidates stale physics state', async ({ page }) => {
   await page.goto('/');
+  // The illustrated button is the user-facing selector; the legacy summary card is hidden.
+  const selector = page.getByRole('button', { name: /적재공간 다시 선택$/ });
+  await expect(selector).toBeVisible();
+  await selector.click();
+  const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
+  await expect(dialog).toBeVisible();
+  const standard = dialog.locator('.transport-equipment-card[data-equipment-id="20-standard"]');
+  await expect(standard).toBeVisible();
+
+  // Seed stale state only after the initial page and selector have mounted.
   await page.evaluate(() => {
-    (window as typeof window & { __containerLoadingPhysicsTarget?: unknown }).__containerLoadingPhysicsTarget = {
-      mode: 'boxes',
-      container: { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 },
-      cargo: [],
-      result: { placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0, validationIssues: [] },
-    };
+    (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = { score: 999 };
   });
+  await standard.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '20FT Standard 적재공간 다시 선택', exact: true })).toBeVisible();
+  await expect(page.locator('.guided-equipment-specs')).toContainText('5,900 mm');
 
-  await page.getByText('상세 규격 / 직접 수정').click();
-  const containerCard = page.locator('.dashboard-left .dashboard-card').first();
-  await containerCard.getByLabel('길이(m)').fill('12.04');
-
-  const targetExists = await page.evaluate(() => Boolean(
-    (window as typeof window & { __containerLoadingPhysicsTarget?: unknown }).__containerLoadingPhysicsTarget,
-  ));
-  expect(targetExists).toBe(false);
+  await expect.poll(async () => page.evaluate(() => (
+    (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics
+  ))).toBeUndefined();
 });

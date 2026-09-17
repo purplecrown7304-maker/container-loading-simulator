@@ -92,7 +92,6 @@ import './enterprise-strategy.css';
 import './enterprise-approval.css';
 import './enterprise-manufacturing.css';
 import './transport-equipment.css';
-import './transport-equipment-scroll-fix.css';
 import './transport-equipment-selection-ux.css';
 import './topbar-cleanup.css';
 import './login-segmented.css';
@@ -108,6 +107,7 @@ import './guided-loading-strategy.css';
 import './guided-loading-unit.css';
 import './guided-result-tabs-enhancer.css';
 import './workflow-usability-fixes.css';
+import './loading-progress.css';
 
 function renderApplication() {
   ReactDOM.createRoot(document.getElementById('root')!).render(

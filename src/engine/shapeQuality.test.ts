@@ -15,11 +15,13 @@ describe('assessShapeQuality', () => {
     expect(result.fragmentedCargoTypes).toBe(0);
   });
 
-  it('detects an isolated box placed in the middle', () => {
+  it('leaves isolated-middle stability to the physics validator', () => {
     const placements = [box({ x: 1.2, y: 1.0 })];
     const result = assessShapeQuality(container, placements);
-    expect(result.isolatedMiddleBoxes).toBe(1);
-    expect(result.shapePenalty).toBeGreaterThan(0);
+    expect(result.isolatedMiddleBoxes).toBe(0);
+    expect(result.protrudingTowers).toBe(0);
+    expect(result.shapePenalty).toBe(0);
+    expect(result.messages.join(' ')).toContain('물리 검증');
   });
 
   it('detects the same cargo fragmented into several disconnected regions', () => {

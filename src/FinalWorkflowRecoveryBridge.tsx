@@ -4,6 +4,7 @@ import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import { runPhysicsValidationSuite } from './engine/physicsValidation';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
+import { getGuidedWorkflowSnapshot } from './guidedWorkflowState';
 import {
   createPhysicsTargetSignature,
   INERTIA_CERTIFICATION_EVENT,
@@ -99,7 +100,8 @@ export default function FinalWorkflowRecoveryBridge() {
     };
 
     const onGuidedResultClick = (event: MouseEvent) => {
-      if (document.documentElement.dataset.guidedStep !== '5') return;
+      const guided = getGuidedWorkflowSnapshot();
+      if (!guided.active || guided.step !== 5) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       const button = guidedResultButton(target);

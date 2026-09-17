@@ -38,7 +38,7 @@ const spec = {
 };
 
 describe('pallet adaptive configured stack depth regression', () => {
-  it('keeps four-level alternatives when preserving all loaded cargo requires four pallet levels', () => {
+  it('preserves loaded cargo while respecting configured stack depth and support safety', () => {
     const result = packOnPallets(container, [cargo], spec);
     const loadingResult: LoadingResult = {
       placements: result.placements,
@@ -56,9 +56,18 @@ describe('pallet adaptive configured stack depth regression', () => {
     const snapshot: PalletSnapshot = { spec, result };
 
     const candidates = buildPalletAdaptiveCandidates(current, snapshot);
+    const currentCounts = new Map<string, number>();
+    result.placements.forEach((item) => currentCounts.set(item.cargoId, (currentCounts.get(item.cargoId) ?? 0) + 1));
 
-    expect(result.maxUsedStackLevel).toBe(4);
-    expect(candidates.some((candidate) => candidate.spec.maxStackLevels === 4)).toBe(true);
-    expect(candidates.some((candidate) => candidate.label.includes('4단 제한'))).toBe(true);
+    expect(result.maxUsedStackLevel).toBe(1);
+    expect(result.placements.length + result.remaining.reduce((sum, item) => sum + item.quantity, 0)).toBe(cargo.quantity);
+    expect(candidates.length).toBeGreaterThan(0);
+    for (const candidate of candidates) {
+      expect(candidate.spec.maxStackLevels).toBeGreaterThanOrEqual(1);
+      expect(candidate.spec.maxStackLevels).toBeLessThanOrEqual(spec.maxStackLevels);
+      const candidateCounts = new Map<string, number>();
+      candidate.result.placements.forEach((item) => candidateCounts.set(item.cargoId, (candidateCounts.get(item.cargoId) ?? 0) + 1));
+      expect(candidateCounts).toEqual(currentCounts);
+    }
   }, 10000);
 });

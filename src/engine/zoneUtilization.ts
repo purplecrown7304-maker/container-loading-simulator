@@ -101,14 +101,14 @@ export function detectZoneFlowWarning(zones: ZoneUtilization[]): string | null {
     }
   }
 
-  if (middleFill > insideFill + 12) return '중앙 구역이 안쪽보다 많이 채워져 있습니다. 안쪽 우선 적재 결과를 확인하세요.';
-  if (doorFill > middleFill + 18 && insideFill < 65) return '안쪽 여유가 큰데 문쪽 적재 비율이 높습니다. 후순위 적재 흐름을 확인하세요.';
-
   if (middle && door) {
     const doorSpike = door.averageHeightM > middle.averageHeightM + 0.45 && door.averageHeightM > middle.averageHeightM * 1.35;
     if (doorSpike) {
       return `문쪽 평균 적재 높이가 중앙보다 높습니다. 하역 안정성을 위해 문쪽 돌출 적재를 확인하세요. 중앙 ${middle.averageHeightM.toFixed(2)}m / 문쪽 ${door.averageHeightM.toFixed(2)}m.`;
     }
   }
+
+  if (middleFill > insideFill + 12) return '중앙 구역이 안쪽보다 많이 채워져 있습니다. 안쪽 우선 적재 결과를 확인하세요.';
+  if (doorFill > middleFill + 18 && insideFill < 65) return '안쪽 여유가 큰데 문쪽 적재 비율이 높습니다. 후순위 적재 흐름을 확인하세요.';
   return null;
 }

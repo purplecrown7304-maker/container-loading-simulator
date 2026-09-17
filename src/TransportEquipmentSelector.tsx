@@ -201,6 +201,7 @@ export default function TransportEquipmentSelector() {
     selectTransportEquipment(item);
     setCustom(editable(item));
     setMessage(item.specializedCargo ? `${item.shortName}은 특수화물 전용 장비입니다. 박스 적재 결과는 참고용입니다.` : `${item.shortName} 규격을 현재 적재계획에 적용했습니다. 자동 적재를 다시 실행하세요.`);
+    setOpen(false);
   };
 
   const applyCustom = () => {
@@ -216,6 +217,7 @@ export default function TransportEquipmentSelector() {
     }
     selectTransportEquipment(item);
     setMessage(`${item.shortName} 사용자 규격을 적용했습니다. 자동 적재를 다시 실행하세요.`);
+    setOpen(false);
   };
 
   if (!open) return null;

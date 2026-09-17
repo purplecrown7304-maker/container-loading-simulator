@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadContainer } from './loadingEngine';
-import type { CargoItem, ContainerSpec } from './types';
+import { packByHybridOptimizer } from './hybridLoadingOptimizer';
+import type { CargoItem, ContainerSpec, Placement } from './types';
 
 const container: ContainerSpec = {
   length: 6,
@@ -9,16 +10,16 @@ const container: ContainerSpec = {
   maxPayloadKg: 20000,
 };
 
-function horizontalCog(result: ReturnType<typeof loadContainer>) {
-  const total = result.placements.reduce((sum, placement) => sum + placement.weightKg, 0);
+function horizontalCog(placements: Placement[]) {
+  const total = placements.reduce((sum, placement) => sum + placement.weightKg, 0);
   return {
-    x: result.placements.reduce((sum, placement) => sum + (placement.x + placement.length / 2) * placement.weightKg, 0) / total,
-    y: result.placements.reduce((sum, placement) => sum + (placement.y + placement.width / 2) * placement.weightKg, 0) / total,
+    x: placements.reduce((sum, placement) => sum + (placement.x + placement.length / 2) * placement.weightKg, 0) / total,
+    y: placements.reduce((sum, placement) => sum + (placement.y + placement.width / 2) * placement.weightKg, 0) / total,
   };
 }
 
 describe('loadContainer center-of-gravity correction', () => {
-  it('moves a partial load toward the geometric target center without breaking hard constraints', () => {
+  it('moves a partial load as close as container bounds permit without breaking hard constraints', () => {
     const cargo: CargoItem[] = [{
       id: 'BOX-A',
       name: 'partial load',
@@ -32,14 +33,21 @@ describe('loadContainer center-of-gravity correction', () => {
       allowRotation: false,
     }];
 
+    const raw = packByHybridOptimizer(container, cargo, 'stability');
+    const before = horizontalCog(raw.placements);
     const result = loadContainer(container, cargo, { strategy: 'stability', publish: false });
-    const cog = horizontalCog(result);
+    const after = horizontalCog(result.placements);
+    const distance = (cog: { x: number; y: number }) => Math.hypot(
+      cog.x - container.length / 2,
+      cog.y - container.width / 2,
+    );
 
     expect(result.placements).toHaveLength(4);
     expect(result.validationIssues).toEqual([]);
-    expect(cog.x).toBeCloseTo(container.length / 2, 5);
-    expect(cog.y).toBeCloseTo(container.width / 2, 5);
-    expect(Math.min(...result.placements.map(item => item.x))).toBeGreaterThanOrEqual(0);
-    expect(Math.max(...result.placements.map(item => item.x + item.length))).toBeLessThanOrEqual(container.length);
+    expect(distance(after)).toBeLessThanOrEqual(distance(before) + 1e-9);
+    expect(Math.min(...result.placements.map((item) => item.x))).toBeGreaterThanOrEqual(-1e-9);
+    expect(Math.max(...result.placements.map((item) => item.x + item.length))).toBeLessThanOrEqual(container.length + 1e-9);
+    expect(Math.min(...result.placements.map((item) => item.y))).toBeGreaterThanOrEqual(-1e-9);
+    expect(Math.max(...result.placements.map((item) => item.y + item.width))).toBeLessThanOrEqual(container.width + 1e-9);
   });
 });

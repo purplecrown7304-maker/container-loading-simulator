@@ -15,6 +15,10 @@ export type RestraintModel = {
 
 export type HorizontalState = { x: number; z: number };
 
+function normalizeZero(value: number) {
+  return Math.abs(value) <= EPS ? 0 : value;
+}
+
 export function horizontalRestraintForce(
   massKg: number,
   current: HorizontalState,
@@ -37,8 +41,8 @@ export function horizontalRestraintForce(
     ax *= scale;
     az *= scale;
   }
-  const x = ax * massKg;
-  const z = az * massKg;
+  const x = normalizeZero(ax * massKg);
+  const z = normalizeZero(az * massKg);
   return { x, z, magnitudeN: Math.hypot(x, z) };
 }
 

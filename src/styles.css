@@ -21,10 +21,6 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color:
 .excel-report-list article { display: grid; grid-template-columns: 70px 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid #eef1f5; font-size: 12px; }
 .excel-report-list article b { color: #b42318; }
 .excel-report-list article span { color: #596579; line-height: 1.45; }
-.workspace { display: grid; grid-template-columns: 320px minmax(0, 1fr) 300px; gap: 12px; height: calc(100vh - 64px); padding: 12px; }
-.panel { background: white; border: 1px solid #e3e7ee; border-radius: 14px; padding: 16px; overflow: auto; }
-.panel h2 { margin: 0 0 12px; font-size: 15px; }
-.panel h2:not(:first-child) { margin-top: 24px; }
 .section-count { font-size: 12px; color: #7a8495; font-weight: 600; margin-left: 4px; }
 .viewer { position: relative; min-width: 0; overflow: hidden; background: white; border: 1px solid #e3e7ee; border-radius: 14px; }
 .viewer-direction { position: absolute; top: 14px; left: 14px; z-index: 5; display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-radius: 10px; background: rgba(255,255,255,.9); box-shadow: 0 8px 24px rgba(23,32,51,.08); font-size: 12px; pointer-events: none; backdrop-filter: blur(8px); }
@@ -32,10 +28,10 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color:
 .cargo-inspector { position: absolute; right: 14px; bottom: 14px; z-index: 6; width: min(300px, calc(100% - 28px)); display: flex; flex-direction: column; gap: 5px; padding: 12px 13px; border-radius: 12px; background: rgba(255,255,255,.95); box-shadow: 0 12px 32px rgba(23,32,51,.16); backdrop-filter: blur(10px); }
 .cargo-inspector-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .cargo-inspector-head b { font-size: 13px; }
-.cargo-inspector-head button { padding: 5px 8px; border-radius: 7px; background: #eef1f5; color: #52617a; font-size: 10px; }
+.cargo-inspector-head button { min-height: var(--control-height-sm, 32px); padding: 5px 8px; border-radius: 7px; background: #eef1f5; color: #52617a; font-size: var(--font-2xs, 11px); }
 .cargo-inspector > strong { font-size: 14px; }
 .cargo-inspector > span { color: #52617a; font-size: 11px; }
-.cargo-inspector > small { color: #7a8495; font-size: 10px; line-height: 1.4; }
+.cargo-inspector > small { color: #7a8495; font-size: var(--font-2xs, 11px); line-height: 1.4; }
 .zone-summary { position: absolute; top: 14px; right: 14px; z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .zone-summary span { padding: 7px 9px; border-radius: 9px; background: rgba(255,255,255,.9); box-shadow: 0 8px 24px rgba(23,32,51,.08); color: #52617a; font-size: 11px; font-weight: 700; backdrop-filter: blur(8px); }
 .cargo-legend { position: absolute; left: 14px; bottom: 14px; z-index: 5; width: min(320px, calc(100% - 28px)); max-height: 180px; overflow: auto; padding: 11px 12px; border-radius: 12px; background: rgba(255,255,255,.92); box-shadow: 0 8px 24px rgba(23,32,51,.1); font-size: 12px; backdrop-filter: blur(8px); }
@@ -44,7 +40,7 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color:
 .legend-item { display: grid; grid-template-columns: 12px minmax(0,1fr) auto; gap: 7px; align-items: center; min-width: 0; }
 .legend-item i { width: 12px; height: 12px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
 .legend-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #39445a; }
-.legend-item small { color: #8a93a3; font-size: 10px; }
+.legend-item small { color: #8a93a3; font-size: var(--font-2xs, 11px); }
 .cargo-form { padding: 12px; border-radius: 12px; background: #f7f9fc; border: 1px solid #e7ebf1; }
 .cargo-form > label { margin-bottom: 10px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -73,7 +69,7 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color:
 .location-row:last-child { border-bottom: 0; }
 .location-row b { font-size: 11px; }
 .location-row span { color: #52617a; }
-.location-row small { color: #8a93a3; font-size: 10px; }
+.location-row small { color: #8a93a3; font-size: var(--font-2xs, 11px); }
 .quality-score { display: flex; justify-content: space-between; align-items: center; padding: 14px; margin-bottom: 4px; border-radius: 12px; background: #eef4ff; font-size: 13px; }
 .quality-score span { color: #52617a; }
 .quality-score strong { font-size: 15px; }
@@ -107,16 +103,12 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color:
 .pallet-list article small { grid-column: 2; color: #8a93a3; }
 .pallet-remaining { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; padding: 10px; border-radius: 10px; background: #fff7e8; font-size: 11px; }
 .pallet-remaining span { color: #80601e; line-height: 1.4; }
-@media (max-width: 1100px) { .workspace { grid-template-columns: 290px minmax(0, 1fr) 270px; } }
 @media (max-width: 900px) {
   .topbar { align-items: flex-start; flex-direction: column; }
   .top-actions { width: 100%; }
   .top-actions button { flex: 1; }
   .excel-mode-select { flex: 1; }
-  .workspace { grid-template-columns: 1fr; height: auto; }
   .viewer { height: 58vh; order: 1; }
-  .left-panel { order: 2; }
-  .right-panel { order: 3; }
   .topbar span { display: none; }
   .pallet-metrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
 }

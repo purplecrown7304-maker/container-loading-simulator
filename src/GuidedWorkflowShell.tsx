@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT } from './adminAccess';
+import {
+  FINAL_PHYSICS_VALIDATION_ERROR_EVENT,
+  FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT,
+} from './autoCertification';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { LOADING_RESULT_EVENT, type LoadingStrategy } from './engine/loadingEngine';
+import { publishGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingUnitState';
+import { publishGuidedWorkflowState } from './guidedWorkflowState';
+import { INERTIA_CERTIFICATION_EVENT, type InertiaCertification } from './inertiaCertification';
+import { usePalletSnapshot } from './palletSnapshotStore';
+import { OPEN_RESULTS_MODAL_EVENT } from './resultsModalEvents';
 import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState } from './storage';
 import {
   OPEN_TRANSPORT_SELECTOR_EVENT,
@@ -11,7 +20,7 @@ import {
   type TransportCategory,
   type TransportEquipment,
 } from './transportEquipment';
-import { dispatchAppAction } from './uiEvents';
+import { APP_ACTION_EVENT, dispatchAppAction, type AppActionDetail } from './uiEvents';
 import {
   ENTERPRISE_PACKAGING_PLANNER_EVENT,
   readEnterprisePackagingPlannerState,
@@ -35,17 +44,8 @@ import { writeShipmentInstructionSnapshot } from './shipmentInstruction';
 import { writeLoadingStrategyPreference } from './loadingStrategyPreference';
 
 type LiveDetail = { container: ContainerSpec; cargo: CargoItem[]; result?: LoadingResult };
-type PalletSnapshotLite = {
-  result?: {
-    placements?: unknown[];
-    remaining?: Array<{ cargoId: string; quantity: number; reason: string }>;
-    totalPalletizedWeightKg?: number;
-    palletCount?: number;
-  };
-};
 type WorkflowWindow = Window & {
   __containerLoadingLatestResult?: { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
-  __containerLoadingPalletSnapshot?: PalletSnapshotLite;
 };
 
 type HostSet = { left: HTMLElement | null; center: HTMLElement | null; right: HTMLElement | null };
@@ -106,18 +106,6 @@ function readLive(): LiveDetail {
     container: stored?.container ?? { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 },
     cargo: stored?.cargo ?? [],
   };
-}
-
-function currentMode(): 'boxes' | 'pallets' {
-  const active = document.querySelector<HTMLButtonElement>('.mode-tabs button.active');
-  return (active?.textContent ?? '').includes('팔레트') ? 'pallets' : 'boxes';
-}
-
-function clickMode(mode: 'boxes' | 'pallets') {
-  const label = mode === 'boxes' ? '박스' : '팔레트';
-  const target = [...document.querySelectorAll<HTMLButtonElement>('.mode-tabs button')]
-    .find(button => (button.textContent ?? '').trim() === label);
-  target?.click();
 }
 
 function openEquipment(category?: TransportCategory) {
@@ -406,7 +394,7 @@ function JobSummary({ live, mode, finalReady, running, selection, strategy }: {
   strategy: LoadingStrategy | null;
 }) {
   const equipment = useTransportEquipment();
-  const palletSnapshot = typeof window === 'undefined' ? undefined : (window as WorkflowWindow).__containerLoadingPalletSnapshot;
+  const palletSnapshot = usePalletSnapshot();
   const boxResult = live.result;
   const loaded = mode === 'pallets' ? palletSnapshot?.result?.placements?.length ?? 0 : boxResult?.placements.length ?? 0;
   const remaining = mode === 'pallets' ? palletSnapshot?.result?.remaining?.reduce((sum, item) => sum + item.quantity, 0) ?? 0 : boxResult?.remaining.reduce((sum, item) => sum + item.quantity, 0) ?? 0;
@@ -416,7 +404,7 @@ function JobSummary({ live, mode, finalReady, running, selection, strategy }: {
   const usedVolume = boxResult?.usedVolumeM3 ?? 0;
   const fillRate = maxVolume > 0 && usedVolume > 0 ? usedVolume / maxVolume * 100 : 0;
   const status = finalReady ? '작업 가능' : running ? '검사 중' : loaded ? '검증 대기' : '대기';
-  return <section className="guided-job-summary"><h2>현재 작업</h2><dl><div><dt>적재공간</dt><dd>{equipment.shortName}</dd></div><div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div><div><dt>포장 적재단위</dt><dd>{live.cargo.length ? `${live.cargo.length}종` : '-'}</dd></div><div><dt>적재 전략</dt><dd>{strategy ? strategyLabel(strategy) : '-'}</dd></div><div><dt>적재</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div><div><dt>미적재</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div><div><dt>총 중량</dt><dd>{weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div><div><dt>공간 사용률</dt><dd>{mode === 'boxes' && usedVolume ? `${fillRate.toFixed(1)}%` : '-'}</dd></div><div className="guided-status-row"><dt>상태</dt><dd><i className={finalReady ? 'good' : running ? 'running' : ''}/>{status}</dd></div></dl></section>;
+  return <section className="guided-job-summary"><h2>현재 작업</h2><dl><div><dt>적재공간</dt><dd>{equipment.shortName}</dd></div><div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div><div><dt>포장 적재단위</dt><dd>{live.cargo.length ? `${live.cargo.length}종` : '-'}</dd></div><div><dt>적재 유형</dt><dd>{mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재'}</dd></div><div><dt>적재 전략</dt><dd>{strategy ? strategyLabel(strategy) : '-'}</dd></div><div><dt>적재</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div><div><dt>미적재</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div><div><dt>총 중량</dt><dd>{weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div><div><dt>공간 사용률</dt><dd>{mode === 'boxes' && usedVolume ? `${fillRate.toFixed(1)}%` : '-'}</dd></div><div className="guided-status-row"><dt>상태</dt><dd><i className={finalReady ? 'good' : running ? 'running' : ''}/>{status}</dd></div></dl></section>;
 }
 
 function BottomBar({ step, selectionCount, packagedReady, strategy, running, finalReady, onAdvance, onApplyPackaging }: {
@@ -444,13 +432,13 @@ function BottomBar({ step, selectionCount, packagedReady, strategy, running, fin
 
 export default function GuidedWorkflowShell() {
   const initialSelection = readProductSelection();
+  const guidedLoadingUnit = useGuidedLoadingUnit();
+  const mode = guidedLoadingUnit ?? 'boxes';
   const [hosts, setHosts] = useState<HostSet>({ left: null, center: null, right: null });
   const [live, setLive] = useState<LiveDetail>(() => readLive());
-  const [mode, setMode] = useState<'boxes' | 'pallets'>(() => typeof document === 'undefined' ? 'boxes' : currentMode());
   const [selection, setSelection] = useState<ProductSelectionMap>(initialSelection);
   const [packaging, setPackaging] = useState<PackagingBundle>({ products: [], assignments: [], cargo: [], ready: false });
   const [strategy, setStrategy] = useState<LoadingStrategy | null>(null);
-  // 이전 선택 기록이 있어도 앱 진입은 항상 1단계에서 시작한다.
   const [step, setStep] = useState<StepId>(1);
   const [furthest, setFurthest] = useState<StepId>(1);
   const [running, setRunning] = useState(false);
@@ -461,8 +449,7 @@ export default function GuidedWorkflowShell() {
     if (!packaging.ready) return;
     writeShipmentInstructionSnapshot(packaging.products, packaging.assignments, packaging.cargo);
     writeStoredState({ container: live.container, cargo: packaging.cargo }, true);
-    clickMode('boxes');
-    setMode('boxes');
+    publishGuidedLoadingUnit('boxes');
     setStrategy(null);
     writeLoadingStrategyPreference(null);
     setFinalReady(false);
@@ -476,10 +463,13 @@ export default function GuidedWorkflowShell() {
   };
 
   useEffect(() => {
-    document.documentElement.dataset.guidedWorkflow = 'true';
-    document.documentElement.dataset.guidedStep = String(step);
-    return () => { delete document.documentElement.dataset.guidedWorkflow; delete document.documentElement.dataset.guidedStep; };
+    publishGuidedWorkflowState({ active: true, step });
   }, [step]);
+
+  useEffect(() => () => {
+    publishGuidedWorkflowState({ active: false, step: 1 });
+    publishGuidedLoadingUnit(null);
+  }, []);
 
   useEffect(() => {
     writeLoadingStrategyPreference(null);
@@ -506,11 +496,12 @@ export default function GuidedWorkflowShell() {
   }, []);
 
   useEffect(() => {
-    const refresh = () => { setLive(readLive()); setMode(currentMode()); };
+    const refresh = () => setLive(readLive());
     const refreshSelection = () => setSelection(readProductSelection());
     const refreshIdentity = () => {
       setSelection(readProductSelection());
       setPackaging({ products: [], assignments: [], cargo: [], ready: false });
+      publishGuidedLoadingUnit(null);
       setStrategy(null);
       writeLoadingStrategyPreference(null);
       setStep(1);
@@ -525,19 +516,8 @@ export default function GuidedWorkflowShell() {
     window.addEventListener(LOCAL_OPERATOR_EVENT, refreshIdentity);
     window.addEventListener(ADMIN_ACCESS_EVENT, refreshIdentity);
     window.addEventListener('container-loading:pallet-snapshot-updated', refresh);
-    const observer = new MutationObserver(() => {
-      const rows = [...document.querySelectorAll<HTMLElement>('.inspection-status-table tbody tr')];
-      const workOrderRow = rows.find(row => (row.textContent ?? '').includes('작업지시서'));
-      const ready = Boolean(workOrderRow && /발급 가능|보기 가능|완료|경고 발급/.test(workOrderRow.textContent ?? ''));
-      const activeRun = Boolean(document.querySelector('.calculation-overlay')) || rows.some(row => /진행/.test(row.textContent ?? ''));
-      setFinalReady(ready);
-      setRunning(activeRun && !ready);
-      if (ready) setFurthest(previous => Math.max(previous, 6) as StepId);
-    });
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'disabled'] });
     refresh();
     return () => {
-      observer.disconnect();
       window.removeEventListener(LOADING_RESULT_EVENT, refresh);
       window.removeEventListener(STORAGE_UPDATED_EVENT, refresh);
       window.removeEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
@@ -547,6 +527,43 @@ export default function GuidedWorkflowShell() {
       window.removeEventListener('container-loading:pallet-snapshot-updated', refresh);
     };
   }, []);
+
+  useEffect(() => {
+    if (step !== 5) return;
+
+    const markRunning = () => {
+      setRunning(true);
+      setFinalReady(false);
+    };
+    const markReady = () => {
+      setRunning(false);
+      setFinalReady(true);
+      setFurthest(previous => Math.max(previous, 6) as StepId);
+      setLive(readLive());
+    };
+    const onAppAction = (event: Event) => {
+      if ((event as CustomEvent<AppActionDetail>).detail?.action === 'run-loading') markRunning();
+    };
+    const onPhysicsError = () => setRunning(false);
+    const onCertification = (event: Event) => {
+      const certification = (event as CustomEvent<InertiaCertification | undefined>).detail;
+      if (certification) markReady();
+      else setFinalReady(false);
+    };
+
+    window.addEventListener(APP_ACTION_EVENT, onAppAction);
+    window.addEventListener(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, markRunning);
+    window.addEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
+    window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
+    window.addEventListener(OPEN_RESULTS_MODAL_EVENT, markReady);
+    return () => {
+      window.removeEventListener(APP_ACTION_EVENT, onAppAction);
+      window.removeEventListener(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, markRunning);
+      window.removeEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
+      window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
+      window.removeEventListener(OPEN_RESULTS_MODAL_EVENT, markReady);
+    };
+  }, [step]);
 
   const selectionCount = Object.keys(selection).length;
   const rail = useMemo(() => hosts.left ? createPortal(<StepRail step={step} furthest={furthest} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onStep={setStep}/>, hosts.left) : null, [hosts.left, step, furthest, selectionCount, packaging.ready, strategy, running, finalReady]);
