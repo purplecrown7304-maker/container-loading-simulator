@@ -9,17 +9,23 @@ test('product selection cannot advance until at least one product quantity is se
 
 test('changing the active transport equipment invalidates stale physics state', async ({ page }) => {
   await page.goto('/');
+  // The illustrated button is the user-facing selector; the legacy summary card is hidden.
+  const selector = page.getByRole('button', { name: /적재공간 다시 선택$/ });
+  await expect(selector).toBeVisible();
+  await selector.click();
+  const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
+  await expect(dialog).toBeVisible();
+  const standard = dialog.locator('.transport-equipment-card[data-equipment-id="20-standard"]');
+  await expect(standard).toBeVisible();
+
+  // Seed stale state only after the initial page and selector have mounted.
   await page.evaluate(() => {
     (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = { score: 999 };
   });
-
-  await page.locator('.guided-stage-panel:visible .guided-equipment-card.selected').click();
-  const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
-  await expect(dialog).toBeVisible();
-  const cards = dialog.locator('.transport-equipment-card');
-  await expect(cards.first()).toBeVisible();
-  await cards.nth(1).click();
+  await standard.click();
   await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '20FT Standard 적재공간 다시 선택', exact: true })).toBeVisible();
+  await expect(page.locator('.guided-equipment-specs')).toContainText('5,900 mm');
 
   await expect.poll(async () => page.evaluate(() => (
     (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics
