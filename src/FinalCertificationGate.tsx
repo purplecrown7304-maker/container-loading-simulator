@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { buildDirectResultReoptimizationCandidatesAsync, type DirectResultReoptimizationCandidate } from './engine/finalResultOptimization';
+import { buildDirectResultReoptimizationCandidatesAsync, type DirectResultReoptimizationCandidate, type DirectSearchProgress } from './engine/finalResultOptimization';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import { writeManualOverride } from './engine/manualOverride';
 import {
@@ -104,6 +104,7 @@ export default function FinalCertificationGate() {
   const [certification, setCertification] = useState<InertiaCertification | null>(null);
   const [error, setError] = useState('');
   const [repositionAttempt, setRepositionAttempt] = useState({ index: 0, label: '' });
+  const [search, setSearch] = useState<DirectSearchProgress | null>(null);
   const runId = useRef(0);
   const cache = useRef<CachedCertification | null>(null);
 
@@ -111,6 +112,10 @@ export default function FinalCertificationGate() {
     const id = ++runId.current;
     const requestedSignature = createPhysicsTargetSignature(nextTarget);
     const cancelled = () => runId.current !== id;
+    const checkCurrent = () => {
+      const live = readPhysicsTarget();
+      if (!live || createPhysicsTargetSignature(live) !== requestedSignature) throw new Error('LOADING_TARGET_CHANGED');
+    };
     setRequest(detail);
     setTarget(nextTarget);
     setOpen(true);
@@ -119,6 +124,7 @@ export default function FinalCertificationGate() {
     setLatestResult(null);
     setError('');
     setRepositionAttempt({ index: 0, label: '' });
+    setSearch(null);
     setProgress({ level: 1, levelLabel: buildSecuringUsage(nextTarget, 1).levelLabel, scenario: 'acceleration', scenarioIndex: 1, scenarioCount: 3, physicsProgress: 0 });
     setUsage(buildSecuringUsage(nextTarget, 1));
 
@@ -172,11 +178,19 @@ export default function FinalCertificationGate() {
         return;
       }
 
-      const candidates = await buildDirectResultReoptimizationCandidatesAsync(nextTarget, MAX_DIRECT_REPOSITION_CANDIDATES, cancelled);
+      setProgress(null);
+      const searchResult = await buildDirectResultReoptimizationCandidatesAsync(nextTarget, MAX_DIRECT_REPOSITION_CANDIDATES, cancelled, {
+        onProgress: next => { if (!cancelled()) setSearch(next); },
+      });
       if (cancelled()) return;
+      setSearch(null);
+      checkCurrent();
+      const candidates = searchResult.candidates;
       if (!candidates.length) {
         setRunning(false);
-        setError('보강재만으로 통과하지 못했고, 같은 화물 수량을 유지하면서 만들 수 있는 추가 고유 재배치안이 없습니다. 적재량 또는 화물 조건을 조정해야 합니다.');
+        setError(searchResult.timedOut
+          ? '추가 배치 계산 시간 제한에 도달했습니다. 현재 적재안은 관성 기준을 통과하지 못했습니다. 적재량 또는 화물 조건을 조정한 뒤 다시 검증하세요.'
+          : '보강재만으로 통과하지 못했고, 같은 화물 수량을 유지하면서 만들 수 있는 추가 고유 재배치안이 없습니다. 적재량 또는 화물 조건을 조정해야 합니다.');
         return;
       }
 
@@ -185,6 +199,7 @@ export default function FinalCertificationGate() {
 
       for (const candidate of candidates) {
         if (cancelled()) return;
+        checkCurrent();
         attempted += 1;
         setTarget(candidate.target);
         setRepositionAttempt({ index: attempted, label: candidate.label });
@@ -206,6 +221,7 @@ export default function FinalCertificationGate() {
           cancelled,
         );
         if (cancelled()) return;
+        checkCurrent();
 
         setCertification(candidateCertification);
         setUsage(candidateCertification.securing);
@@ -290,7 +306,7 @@ export default function FinalCertificationGate() {
           <h2 id="final-cert-title">최종 적재 결과 전 관성 검증</h2>
           <p>출발 가속 · 급정거 · 급회전을 모두 검증합니다. 기본 적재안이 실패하면 DIRECT BOX는 정적 안전점수가 높은 상위 {MAX_DIRECT_REPOSITION_CANDIDATES}개 재배치만 추가 비교해 브라우저가 장시간 멈추는 것을 방지합니다.</p>
         </div>
-        {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
+        <button type="button" onClick={() => { runId.current += 1; setRunning(false); setOpen(false); }}>{running ? '계산 취소' : '닫기'}</button>
       </header>
 
       <div className="final-cert-flow">
@@ -306,10 +322,10 @@ export default function FinalCertificationGate() {
       {running && <div className="final-cert-running">
         <div className="physics-spinner" />
         <div>
-          <b>{repositionAttempt.index > 0 ? `재배치 ${repositionAttempt.index}/${MAX_DIRECT_REPOSITION_CANDIDATES} · 안전 후보 비교 · ${repositionAttempt.label}` : `${progress?.levelLabel ?? '기본 적재'} · ${scenarioLabel}`}</b>
-          <span>{repositionAttempt.index > 0 ? `${progress?.levelLabel ?? ''} · ${scenarioLabel} · 물리 계산 ${progressPercent}%` : `물리 계산 ${progressPercent}%`}</span>
+          <b>{search ? '추가 안전 배치 계산 중' : repositionAttempt.index > 0 ? `재배치 ${repositionAttempt.index}/${MAX_DIRECT_REPOSITION_CANDIDATES} · 안전 후보 비교 · ${repositionAttempt.label}` : `${progress?.levelLabel ?? '기본 적재'} · ${scenarioLabel}`}</b>
+          <span>{search ? `${search.completed}/${search.total}회 · ${search.label}` : repositionAttempt.index > 0 ? `${progress?.levelLabel ?? ''} · ${scenarioLabel} · 물리 계산 ${progressPercent}%` : `물리 계산 ${progressPercent}%`}</span>
         </div>
-        <progress max="100" value={progressPercent} />
+        <progress max="100" value={search ? Math.min(99, search.completed / Math.max(1, search.total) * 100) : Math.min(99, progressPercent)} />
       </div>}
 
       {latestResult && <div className="final-cert-metrics">

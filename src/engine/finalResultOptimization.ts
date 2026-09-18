@@ -8,6 +8,18 @@ const EPS = 1e-9;
 const STRATEGIES: LoadingStrategy[] = ['stability', 'capacity', 'unloading'];
 const HEIGHT_RATIOS = [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25];
 
+export const DIRECT_SEARCH_TIMEOUT_MS = 20_000;
+export const DIRECT_SEARCH_RUN_TIMEOUT_MS = 5_000;
+export type DirectSearchProgress = { completed: number; total: number; label: string };
+export type DirectSearchOptions = {
+  signal?: AbortSignal;
+  onProgress?: (progress: DirectSearchProgress) => void;
+};
+export type DirectSearchResult = {
+  candidates: DirectResultReoptimizationCandidate[];
+  timedOut: boolean;
+};
+
 type LayerProfileMode = 'all' | 'heavy' | 'tall' | 'staggered';
 
 type CargoSearchProfile = {
@@ -113,10 +125,10 @@ export function buildDirectReoptimizationCargoProfiles(current: PhysicsTarget): 
   return profiles;
 }
 
-function sampleProfiles(profiles: CargoSearchProfile[], budget: number) {
+function sampleProfiles<T>(profiles: T[], budget: number) {
   if (budget >= profiles.length) return profiles;
   if (budget <= 1) return profiles.slice(0, 1);
-  const selected: CargoSearchProfile[] = [];
+  const selected: T[] = [];
   const seen = new Set<number>();
   for (let i = 0; i < budget; i += 1) {
     const index = Math.round(i * (profiles.length - 1) / (budget - 1));
@@ -149,34 +161,35 @@ function staticPenalty(target: PhysicsTarget, result: LoadingResult) {
 function* candidateSearch(
   current: PhysicsTarget,
   limit = Number.POSITIVE_INFINITY,
-): Generator<{ cargo: CargoItem[]; strategy: LoadingStrategy }, DirectResultReoptimizationCandidate[], LoadingResult> {
-  if (current.mode !== 'boxes') return [];
+): Generator<{ cargo: CargoItem[]; strategy: LoadingStrategy; label: string; total: number }, DirectResultReoptimizationCandidate[], LoadingResult | null | 'stop'> {
+  if (current.mode !== 'boxes' || limit <= 0) return [];
   const seen = new Set<string>([createPhysicsTargetSignature(current)]);
   const candidates: DirectResultReoptimizationCandidate[] = [];
   const allProfiles = buildDirectReoptimizationCargoProfiles(current);
-  // A finite result limit also bounds expensive loadContainer generation work.
-  // We sample across the full low/high stack-profile range instead of generating everything then slicing.
+  // Bound actual solver invocations, not just the returned candidate count.
+  // Sample stack heights and strategies deterministically without relaxing constraints.
   const profileBudget = Number.isFinite(limit)
-    ? Math.min(allProfiles.length, Math.max(4, Math.ceil(Math.max(1, limit) * 1.5)))
+    ? Math.min(allProfiles.length, Math.ceil(limit / STRATEGIES.length))
     : allProfiles.length;
   const profiles = sampleProfiles(allProfiles, profileBudget);
-
-  for (const profile of profiles) {
-    for (const strategy of STRATEGIES) {
-      const result = yield { cargo: profile.cargo, strategy };
-      if (result.validationIssues.length > 0) continue;
-      if (!sameLoadedCargo(current.result, result)) continue;
-      const target: PhysicsTarget = { mode: 'boxes', container: current.container, cargo: current.cargo, result };
-      const signature = createPhysicsTargetSignature(target);
-      if (seen.has(signature)) continue;
-      seen.add(signature);
-      candidates.push({
-        label: `${strategy === 'stability' ? '안정성 우선' : strategy === 'capacity' ? '적재율 우선' : '하역 우선'} · ${profile.label}`,
-        result,
-        target,
-        staticPenalty: staticPenalty(current, result),
-      });
-    }
+  const jobs = sampleProfiles(profiles.flatMap(profile => STRATEGIES.map(strategy => ({ profile, strategy }))), limit);
+  for (const { profile, strategy } of jobs) {
+    const label = `${strategy === 'stability' ? '안정성 우선' : strategy === 'capacity' ? '적재율 우선' : '하역 우선'} · ${profile.label}`;
+    const result = yield { cargo: profile.cargo, strategy, label, total: jobs.length };
+    if (result === 'stop') break;
+    if (!result) continue;
+    if (result.validationIssues.length > 0) continue;
+    if (!sameLoadedCargo(current.result, result)) continue;
+    const target: PhysicsTarget = { mode: 'boxes', container: current.container, cargo: current.cargo, result };
+    const signature = createPhysicsTargetSignature(target);
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    candidates.push({
+      label,
+      result,
+      target,
+      staticPenalty: staticPenalty(current, result),
+    });
   }
 
   const sorted = candidates.sort((a, b) => a.staticPenalty - b.staticPenalty || a.label.localeCompare(b.label));
@@ -194,13 +207,46 @@ export function buildDirectResultReoptimizationCandidates(current: PhysicsTarget
   return step.value;
 }
 
-/** Preserve the exact candidate search while keeping each packing run off the UI thread. */
-export async function buildDirectResultReoptimizationCandidatesAsync(current: PhysicsTarget, limit: number, cancelled: () => boolean = () => false) {
+/** Only completed, quantity-preserving layouts may survive the optional search deadline. */
+export async function buildDirectResultReoptimizationCandidatesAsync(
+  current: PhysicsTarget,
+  limit: number,
+  cancelled: () => boolean = () => false,
+  options: DirectSearchOptions = {},
+): Promise<DirectSearchResult> {
   const search = candidateSearch(current, limit);
   let step = search.next();
+  let completed = 0;
+  let timedOut = false;
+  const deadline = Date.now() + DIRECT_SEARCH_TIMEOUT_MS;
   while (!step.done) {
-    if (cancelled()) return [];
-    step = search.next(await loadContainerAsync(current.container, step.value.cargo, step.value.strategy));
+    if (cancelled() || options.signal?.aborted) throw new DOMException('취소됨', 'AbortError');
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) { timedOut = true; step = search.next('stop'); continue; }
+    const job = step.value;
+    options.onProgress?.({ completed, total: job.total, label: job.label });
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    options.signal?.addEventListener('abort', abort, { once: true });
+    const timeout = setTimeout(abort, Math.min(DIRECT_SEARCH_RUN_TIMEOUT_MS, remaining));
+    // Also support existing callers whose cancellation comes from a run identifier.
+    const cancellation = setInterval(() => { if (cancelled()) abort(); }, 100);
+    let result: LoadingResult | null = null;
+    try {
+      result = await loadContainerAsync(current.container, job.cargo, job.strategy, controller.signal);
+    } catch (error) {
+      if (cancelled() || options.signal?.aborted) throw new DOMException('취소됨', 'AbortError');
+      if (!controller.signal.aborted) throw error;
+      timedOut = true;
+    } finally {
+      clearTimeout(timeout);
+      clearInterval(cancellation);
+      options.signal?.removeEventListener('abort', abort);
+    }
+    if (cancelled() || options.signal?.aborted) throw new DOMException('취소됨', 'AbortError');
+    completed += 1;
+    options.onProgress?.({ completed, total: job.total, label: job.label });
+    step = search.next(result);
   }
-  return cancelled() ? [] : step.value;
+  return { candidates: step.value, timedOut };
 }

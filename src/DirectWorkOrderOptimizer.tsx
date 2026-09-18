@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { REQUEST_DIRECT_WORK_ORDER_EVENT, type DirectWorkOrderRequest } from './directWorkOrderEvents';
-import { buildDirectResultReoptimizationCandidatesAsync, type DirectResultReoptimizationCandidate } from './engine/finalResultOptimization';
+import { DIRECT_SEARCH_TIMEOUT_MS, buildDirectResultReoptimizationCandidatesAsync, type DirectResultReoptimizationCandidate, type DirectSearchProgress } from './engine/finalResultOptimization';
 import { writeManualOverride } from './engine/manualOverride';
 import {
   INERTIA_CERTIFICATION_EVENT,
@@ -64,9 +64,48 @@ export default function DirectWorkOrderOptimizer() {
   const [progress, setProgress] = useState<CertificationProgress | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [search, setSearch] = useState<DirectSearchProgress | null>(null);
+  const [notice, setNotice] = useState('');
+  const [readyReport, setReadyReport] = useState<Evaluated | null>(null);
   const runId = useRef(0);
+  const activeSearch = useRef<AbortController | null>(null);
+  const sourceSignature = useRef('');
+
+  const cancel = useCallback(() => {
+    runId.current += 1;
+    activeSearch.current?.abort();
+    setRunning(false);
+    setOpen(false);
+  }, []);
+
+  const finish = useCallback((candidate: Evaluated, automatic: boolean) => {
+    const live = readPhysicsTarget();
+    if (!live || createPhysicsTargetSignature(live) !== sourceSignature.current) {
+      setRunning(false);
+      setOpen(true);
+      setReadyReport(null);
+      setError('적재안이 변경되었습니다. 현재 적재안으로 다시 실행하세요.');
+      return;
+    }
+    applyCandidate(candidate, candidate.certification);
+    sourceSignature.current = candidate.certification.targetSignature;
+    setReadyReport(candidate);
+    setSearch(null);
+    setRunning(false);
+    setMessage(`검증 완료 · ${workOrderApprovalLabel(candidate.certification)} · ${candidate.label}`);
+    if (automatic) { setOpen(false); return; }
+    if (openLoadingReport(candidate.target.container, candidate.target.cargo, candidate.target.result)) {
+      setOpen(false);
+    } else {
+      setOpen(true);
+      setError('팝업이 차단되었습니다. 아래 작업지시서 열기를 누르면 재계산 없이 열 수 있습니다.');
+    }
+  }, []);
 
   const execute = useCallback(async (detail: DirectWorkOrderRequest) => {
+    activeSearch.current?.abort();
+    const controller = new AbortController();
+    activeSearch.current = controller;
     const id = ++runId.current;
     const cancelled = () => runId.current !== id;
     const current = requestTarget(detail);
@@ -74,6 +113,9 @@ export default function DirectWorkOrderOptimizer() {
     setOpen(!automatic);
     setRunning(true);
     setProgress(null);
+    setSearch(null);
+    setReadyReport(null);
+    setNotice('');
     setMessage(automatic
       ? '최종 적재 진행 · 관성 3종과 안전 후보를 자동 검증합니다.'
       : '현재 적재안과 안전성이 높은 소수 재배치 후보를 관성 검증합니다.');
@@ -88,6 +130,11 @@ export default function DirectWorkOrderOptimizer() {
 
     publishPhysicsTarget(current);
     const initialSignature = createPhysicsTargetSignature(current);
+    sourceSignature.current = initialSignature;
+    const checkCurrent = () => {
+      const live = readPhysicsTarget();
+      if (!live || createPhysicsTargetSignature(live) !== initialSignature) throw new Error('LOADING_TARGET_CHANGED');
+    };
     const baseline: Candidate = {
       label: '현재 적재안',
       result: current.result,
@@ -98,6 +145,7 @@ export default function DirectWorkOrderOptimizer() {
     const candidates = [baseline];
     setAttempt({ index: 0, total: candidates.length, label: '' });
     let bestWarning: Evaluated | null = null;
+    let searchNotice = '';
 
     try {
       for (let index = 0; index < candidates.length; index += 1) {
@@ -110,6 +158,8 @@ export default function DirectWorkOrderOptimizer() {
           return;
         }
         const candidate = candidates[index];
+        setSearch(null);
+        setProgress(null);
         setAttempt({ index: index + 1, total: candidates.length, label: candidate.label });
         setMessage(`${automatic ? '최종 적재 자동검증' : '상자 재배치'} ${index + 1}/${candidates.length} · ${candidate.label}`);
         const initialCertification = await runInertiaCertification(
@@ -119,6 +169,7 @@ export default function DirectWorkOrderOptimizer() {
           cancelled,
         );
         if (cancelled()) return;
+        checkCurrent();
 
         const certification = await completeCertificationForWorkOrder(
           candidate.target,
@@ -128,30 +179,30 @@ export default function DirectWorkOrderOptimizer() {
           cancelled,
         );
         if (cancelled()) return;
+        checkCurrent();
 
         const evaluated: Evaluated = { ...candidate, certification, risk: certificationRisk(certification) };
         const approval = assessWorkOrderCertification(certification);
         if (approval === 'pass' || approval === 'caution') {
-          applyCandidate(candidate, certification);
-          setRunning(false);
-          setMessage(`최종 관성검증 ${workOrderApprovalLabel(certification)} · ${candidate.label}`);
-
-          if (automatic) {
-            setOpen(false);
-            return;
-          }
-
-          const opened = openLoadingReport(candidate.target.container, candidate.target.cargo, candidate.target.result);
-          if (opened) setOpen(false);
-          else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
+          finish({ ...evaluated, certification: { ...certification, searchNotice: searchNotice || undefined } }, automatic);
           return;
         }
         if (!bestWarning || better(evaluated, bestWarning)) bestWarning = evaluated;
+        setReadyReport(bestWarning);
         if (index === 0) {
+          setProgress(null);
           setMessage('동일 수량을 유지하는 안전 재배치 후보를 계산 중입니다.');
-          const alternatives = await buildDirectResultReoptimizationCandidatesAsync(current, MAX_DIRECT_WORK_ORDER_CANDIDATES - 1, cancelled);
+          const alternatives = await buildDirectResultReoptimizationCandidatesAsync(current, MAX_DIRECT_WORK_ORDER_CANDIDATES - 1, cancelled, {
+            signal: controller.signal,
+            onProgress: next => { if (!cancelled()) setSearch(next); },
+          });
           if (cancelled()) return;
-          candidates.push(...alternatives);
+          checkCurrent();
+          if (alternatives.timedOut) {
+            searchNotice = '추가 배치 계산 시간 제한에 도달했습니다. 계산과 검증이 완료된 배치만 비교했으며 모든 후보를 탐색한 결과는 아닙니다.';
+            setNotice(searchNotice);
+          }
+          candidates.push(...alternatives.candidates);
         }
       }
 
@@ -163,24 +214,17 @@ export default function DirectWorkOrderOptimizer() {
         return;
       }
 
-      applyCandidate(bestWarning, bestWarning.certification);
-      setMessage(`안전 후보 비교 완료 · 가장 낮은 위험안 적용 · ${bestWarning.label}`);
-      if (automatic) {
-        setOpen(false);
-        return;
-      }
-
-      const opened = openLoadingReport(bestWarning.target.container, bestWarning.target.cargo, bestWarning.target.result);
-      if (opened) setOpen(false);
-      else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
+      finish({ ...bestWarning, certification: { ...bestWarning.certification, searchNotice: searchNotice || undefined } }, automatic);
     } catch (reason) {
       if (cancelled()) return;
       console.error('Direct work-order inertia search failed', reason);
       setRunning(false);
       setOpen(true);
+      setSearch(null);
+      if (reason instanceof Error && reason.message === 'LOADING_TARGET_CHANGED') setReadyReport(null);
       setError('직접 적재 관성 검증을 완료하지 못했습니다. 현재 적재안을 유지합니다.');
     }
-  }, []);
+  }, [finish]);
 
   useEffect(() => {
     const onRequest = (event: Event) => {
@@ -191,10 +235,13 @@ export default function DirectWorkOrderOptimizer() {
     return () => window.removeEventListener(REQUEST_DIRECT_WORK_ORDER_EVENT, onRequest);
   }, [execute]);
 
-  useEffect(() => () => { runId.current += 1; }, []);
+  useEffect(() => () => { runId.current += 1; activeSearch.current?.abort(); }, []);
 
   if (!open) return null;
-  const percent = attempt.total > 0 ? Math.round(attempt.index / attempt.total * 100) : 0;
+  // A completed scenario is not a completed optimization. Never show overall 100% while running.
+  const percent = !running ? (readyReport ? 100 : 0) : search
+    ? Math.min(99, Math.round(search.completed / Math.max(1, search.total) * 100))
+    : Math.min(99, Math.round(((progress?.scenarioIndex ?? 1) - 1 + (progress?.physicsProgress ?? 0)) / 3 * 100));
   return <div className="final-cert-backdrop">
     <section className="final-cert-modal" role="dialog" aria-modal="true" aria-labelledby="direct-work-order-title">
       <header>
@@ -203,12 +250,12 @@ export default function DirectWorkOrderOptimizer() {
           <h2 id="direct-work-order-title">작업지시서 전 상자 안전 후보 비교</h2>
           <p>출발 가속 · 급정거 · 급회전 3종을 비교해 더 안전한 배치를 우선합니다. 모든 후보가 위험이어도 가장 낮은 위험안을 적용하고 위험 경고·보강 권장사항을 포함한 작업지시서를 생성합니다.</p>
         </div>
-        {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
+        <button type="button" onClick={cancel}>{running ? '계산 취소' : '닫기'}</button>
       </header>
 
       <div className="final-cert-running">
         {running && <div className="physics-spinner" />}
-        <div><b>{message}</b><span>{attempt.total ? `배치 ${attempt.index}/${attempt.total} · 비교 ${percent}%` : '후보 생성 중'}</span></div>
+        <div><b>{message}</b><span>{search ? `추가 배치 계산 ${search.completed}/${search.total}회 · 최대 ${DIRECT_SEARCH_TIMEOUT_MS / 1000}초 · ${search.label}` : `배치 ${attempt.index}/${attempt.total} · ${running ? '관성 검사 중' : '비교 완료'}`}</span></div>
         <progress max="100" value={percent} />
       </div>
 
@@ -224,14 +271,23 @@ export default function DirectWorkOrderOptimizer() {
         <div className="final-cert-material-grid">
           <div><span>상자 배치</span><b>안정성/적재율/하역</b><small>전략별 고유 배치만 비교</small></div>
           <div><span>적재 높이</span><b>저중심 후보 우선</b><small>정적 안전점수로 선별</small></div>
-          <div><span>후보 수</span><b>최대 {MAX_DIRECT_WORK_ORDER_CANDIDATES}개</b><small>무제한 반복 없음</small></div>
+          <div><span>후보 수</span><b>최대 {MAX_DIRECT_WORK_ORDER_CANDIDATES}개</b><small>추가 배치 계산 최대 {DIRECT_SEARCH_TIMEOUT_MS / 1000}초</small></div>
           <div><span>관성 검증</span><b>출발·급정거·급회전</b><small>가능한 3종 모두 확인</small></div>
           <div><span>주의 결과</span><b>작업지시서 생성</b><small>권장사항 자동 기입</small></div>
           <div><span>위험 결과</span><b>경고 포함 생성</b><small>가장 낮은 위험안 + 보강 권장</small></div>
         </div>
       </article>
 
+      {notice && <p role="status">{notice}</p>}
       {error && <div className="final-cert-error"><b>검증 처리 확인</b><span>{error}</span></div>}
+      {readyReport && <div className="final-cert-actions">
+        <button type="button" className="primary" onClick={() => {
+          runId.current += 1;
+          activeSearch.current?.abort();
+          finish(running ? { ...readyReport, certification: { ...readyReport.certification, searchNotice: '추가 후보 비교를 중단하고 완료된 관성 검증 결과로 발급했습니다.' } } : readyReport, false);
+        }}>{running ? '비교 중단하고 현재 검증 결과로 발급' : '작업지시서 열기'}</button>
+        <span>검증 등급: {workOrderApprovalLabel(readyReport.certification)} · 경고와 권장사항을 포함합니다.</span>
+      </div>}
     </section>
   </div>;
 }

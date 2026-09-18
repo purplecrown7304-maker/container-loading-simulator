@@ -5,6 +5,7 @@ import { createPhysicsTargetSignature, type InertiaCertification, type SecuringU
 import type { PhysicsTarget } from './physicsTarget';
 import {
   boxResultMatchesCertification,
+  boxResultMatchesWorkOrderCertification,
   palletSnapshotMatchesCertification,
   physicsTargetFromPalletSnapshot,
   type CertifiedPalletSnapshot,
@@ -61,6 +62,15 @@ function certification(signature: string, mode: PhysicsTarget['mode'] = 'pallets
 }
 
 describe('certified direct output identity', () => {
+  it('matches a warning work order without treating it as PASS or accepting stale coordinates', () => {
+    const target: PhysicsTarget = { mode: 'boxes', container, cargo, result: boxResult() };
+    const warning: InertiaCertification = { ...certification(createPhysicsTargetSignature(target), 'boxes'), status: 'failed' };
+    expect(boxResultMatchesCertification(target, target, warning)).toBe(false);
+    expect(boxResultMatchesWorkOrderCertification(target, target, warning)).toBe(true);
+    expect(boxResultMatchesWorkOrderCertification({ ...target, result: boxResult(0.5) }, target, warning)).toBe(false);
+    expect(boxResultMatchesWorkOrderCertification(target, { ...target, result: boxResult(0.5) }, warning)).toBe(false);
+    expect(boxResultMatchesWorkOrderCertification(target, target, undefined)).toBe(false);
+  });
   it('accepts only a direct result that is also the current live certified target', () => {
     const directResult = boxResult();
     const target: PhysicsTarget = { mode: 'boxes', container, cargo, result: directResult };
