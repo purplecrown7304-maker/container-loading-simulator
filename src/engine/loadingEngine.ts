@@ -28,11 +28,30 @@ function publishCorrections(corrections: AutoCorrectionRecord[]) {
   window.dispatchEvent(new CustomEvent(AUTO_CORRECTION_EVENT, { detail: { corrections } }));
 }
 
-function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult) {
+export function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult) {
   if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return;
+  publishCorrections(result.autoCorrections ?? []);
   const detail = { container, cargo, result };
   (window as CorrectionWindow).__containerLoadingLatestResult = detail;
   window.dispatchEvent(new CustomEvent(LOADING_RESULT_EVENT, { detail }));
+}
+
+/** Input changes invalidate the previous layout; packing starts only on an explicit run. */
+export function pendingLoadingResult(container: ContainerSpec, cargo: CargoItem[]): LoadingResult {
+  const result: LoadingResult = {
+    placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0,
+    validationIssues: [], autoCorrections: [],
+  };
+  publishLoadingResult(container, cargo, result);
+  return result;
+}
+
+/** Restore an explicitly applied layout without re-solving it on storage events. */
+export function restoreLoadingResult(container: ContainerSpec, cargo: CargoItem[]): LoadingResult {
+  const manual = readManualOverride(container, cargo);
+  if (!manual) return pendingLoadingResult(container, cargo);
+  publishLoadingResult(container, cargo, manual);
+  return manual;
 }
 
 function averageDepthByPriority(cargo: CargoItem[], placements: Placement[]) {
@@ -118,7 +137,6 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
       autoCorrections: [],
     };
     if (shouldPublish) {
-      publishCorrections([]);
       publishLoadingResult(container, normalizedCargo, result);
     }
     return result;
@@ -127,7 +145,6 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   if (preflight.rejected.length === 0 && shouldPublish && options.strategy === undefined) {
     const manual = readManualOverride(container, normalizedCargo);
     if (manual) {
-      publishCorrections(manual.autoCorrections ?? []);
       publishLoadingResult(container, normalizedCargo, manual);
       return manual;
     }
@@ -151,7 +168,6 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   };
 
   if (shouldPublish) {
-    publishCorrections([]);
     publishLoadingResult(container, normalizedCargo, result);
   }
   return result;

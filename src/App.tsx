@@ -1,11 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { requestExactCertification, requestNextPalletCertification } from './autoCertification';
+import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT, requestExactCertification, requestNextPalletCertification } from './autoCertification';
 import { cargoColor, cargoTint, randomUniqueCargoColor } from './cargoColors';
 import { analyzeConstraints } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import { containerInputError, preflightCargoInput } from './engine/inputPreflight';
-import { loadContainer, type LoadingStrategy } from './engine/loadingEngine';
+import { pendingLoadingResult, publishLoadingResult, restoreLoadingResult, type LoadingStrategy } from './engine/loadingEngine';
 import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
@@ -21,6 +21,7 @@ import { openResultsModal } from './resultsModalEvents';
 import { normalizeCargo, readStoredState, STORAGE_KEY, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
 import WorkspaceTools from './WorkspaceTools';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
+import { useTransportEquipment } from './transportEquipment';
 
 const BoxLoadingViewer = lazy(() => import('./BoxLoadingViewer'));
 const PalletModePanel = lazy(() => import('./PalletModePanel'));
@@ -50,10 +51,6 @@ function LoadingFallback() {
   return <section className="viewer"><div className="viewer-direction"><b>3D 모듈 불러오는 중</b><span>잠시 후 표시됩니다.</span></div></section>;
 }
 
-function isValidContainer(container: ContainerSpec): boolean {
-  return containerInputError(container) === null;
-}
-
 export default function App() {
   const stored = useMemo(() => readStoredState(), []);
   const startingCargo = useMemo(() => normalizeCargo(stored?.cargo ?? []), [stored]);
@@ -64,7 +61,7 @@ export default function App() {
   const [mode, setMode] = useState<LoadingMode>('boxes');
   const [navSection, setNavSection] = useState<NavSection>('dashboard');
   const [palletRunToken, setPalletRunToken] = useState(0);
-  const [result, setResult] = useState<LoadingResult>(() => loadContainer(stored?.container ?? defaultContainer, startingCargo));
+  const [result, setResult] = useState<LoadingResult>(() => pendingLoadingResult(stored?.container ?? defaultContainer, startingCargo));
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(
     stored ? null : { tone: 'info', text: '처음 시작합니다. 컨테이너를 확인한 뒤 본인이 사용할 화물을 등록하세요.' },
   );
@@ -75,8 +72,11 @@ export default function App() {
   const [physicsScore, setPhysicsScore] = useState<number | null>(null);
   const [physicsStrategy, setPhysicsStrategy] = useState<LoadingStrategy | null>(null);
   const optimizationStartedAt = useRef<number | null>(null);
+  const loadingAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => loadingAbort.current?.abort(), []);
   const guidedWorkflowState = useGuidedWorkflowState();
   const guidedLoadingUnit = useGuidedLoadingUnit();
+  const equipment = useTransportEquipment();
 
   const totalVolume = container.length * container.width * container.height;
   const fillRate = totalVolume > 0 ? result.usedVolumeM3 / totalVolume * 100 : 0;
@@ -93,6 +93,9 @@ export default function App() {
 
   const announce = (tone: StatusTone, text: string) => setStatusMessage({ tone, text });
   const invalidatePhysics = () => {
+    loadingAbort.current?.abort();
+    loadingAbort.current = null;
+    setIsRunning(false);
     setPhysicsScore(null);
     setPhysicsStrategy(null);
     setOptimizationMessage('');
@@ -123,6 +126,16 @@ export default function App() {
   };
 
   useEffect(() => {
+    const next = { ...container, length: equipment.length, width: equipment.width, height: equipment.height,
+      maxPayloadKg: equipment.maxPayloadKg, floorLoadLimitKgPerM2: equipment.floorLoadLimitKgPerM2 };
+    // Legacy input adapters may have already updated container, while the published
+    // preview still describes the previous equipment. Always publish this selection.
+    invalidatePhysics();
+    setContainer(next);
+    setResult(pendingLoadingResult(next, cargo));
+  }, [equipment.id, equipment.length, equipment.width, equipment.height, equipment.maxPayloadKg, equipment.floorLoadLimitKgPerM2]);
+
+  useEffect(() => {
     if (!guidedWorkflowState.active || !guidedLoadingUnit || guidedLoadingUnit === mode) return;
     invalidatePhysics();
     setMode(guidedLoadingUnit);
@@ -136,7 +149,7 @@ export default function App() {
       const normalized = normalizeCargo(state.cargo);
       setContainer(state.container);
       setCargo(normalized);
-      if (isValidContainer(state.container)) setResult(loadContainer(state.container, normalized.filter(item => item.quantity > 0)));
+      setResult(restoreLoadingResult(state.container, normalized.filter(item => item.quantity > 0)));
       invalidatePhysics();
       announce('success', '가져온 데이터가 현재 화면에 반영되었습니다.');
       setEditingId(null);
@@ -220,6 +233,8 @@ export default function App() {
       return;
     }
     setIsRunning(true);
+    const controller = new AbortController();
+    loadingAbort.current = controller;
     setPhysicsScore(null);
     setPhysicsStrategy(null);
     setOptimizationMessage('후보 적재안 생성 중…');
@@ -229,6 +244,7 @@ export default function App() {
     announce('info', preferredStrategy ? `${strategyLabel(preferredStrategy)} 전략으로 물리 기반 적재 계산 중…` : '물리 기반 최적 적재 계산 중…');
     try {
       const optimized = await optimizeLoadingWithPhysics(container, activeCargo, progress => {
+        if (controller.signal.aborted) return;
         const candidateCount = Math.max(1, progress.candidateCount);
         const candidateIndex = Math.max(1, progress.candidateIndex);
         const physicsProgress = Math.max(0, Math.min(1, progress.physicsProgress));
@@ -241,8 +257,10 @@ export default function App() {
           const remainingSeconds = Math.max(0, Math.round(elapsedSeconds * (100 - overallProgress) / overallProgress));
           setOptimizationEtaSeconds(Math.min(3599, remainingSeconds));
         }
-      }, preferredStrategy ?? undefined);
-      const published = loadContainer(container, activeCargo, { strategy: optimized.strategy });
+      }, preferredStrategy ?? undefined, controller.signal);
+      controller.signal.throwIfAborted();
+      const published = optimized.result;
+      publishLoadingResult(container, activeCargo, published);
       setResult(published);
       requestExactCertification({ mode: 'boxes', container, cargo: activeCargo, result: published });
       setPhysicsScore(optimized.physics.score);
@@ -254,15 +272,17 @@ export default function App() {
       announce('success', `최적 적재 계산 완료 · ${published.placements.length}EA · 관성 3종 최종검증 진행 중`);
       setOptimizationMessage('');
     } catch (error) {
+      if (controller.signal.aborted) return;
       console.error('Physics optimization failed', error);
-      const fallbackStrategy = preferredStrategy ?? 'stability';
-      const fallback = loadContainer(container, activeCargo, { strategy: fallbackStrategy });
-      setResult(fallback);
-      announce('warning', `물리 최적화 실행 중 오류가 발생해 ${strategyLabel(fallbackStrategy)} 기본 적재안을 표시했습니다. 최종 결과로 사용하기 전 물리 검증을 다시 실행하세요.`);
+      announce('error', '자동 적재 계산을 완료하지 못했습니다. 최종 적재 진행을 다시 눌러 주세요.');
+      window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, { detail: { mode: 'boxes', error: String(error) } }));
       setOptimizationMessage('');
     } finally {
-      optimizationStartedAt.current = null;
-      setIsRunning(false);
+      if (loadingAbort.current === controller) {
+        loadingAbort.current = null;
+        optimizationStartedAt.current = null;
+        setIsRunning(false);
+      }
     }
   };
 
@@ -280,7 +300,7 @@ export default function App() {
     const normalized = normalizeCargo(state.cargo);
     setContainer(state.container);
     setCargo(normalized);
-    if (isValidContainer(state.container)) setResult(loadContainer(state.container, normalized.filter(item => item.quantity > 0)));
+    setResult(restoreLoadingResult(state.container, normalized.filter(item => item.quantity > 0)));
     invalidatePhysics();
     announce('success', '저장된 데이터를 불러왔습니다.');
   };
@@ -288,7 +308,7 @@ export default function App() {
     if (!window.confirm('등록된 화물과 저장 데이터를 모두 초기화할까요?')) return;
     setContainer(defaultContainer);
     setCargo([]);
-    setResult(loadContainer(defaultContainer, []));
+    setResult(pendingLoadingResult(defaultContainer, []));
     localStorage.removeItem(STORAGE_KEY);
     invalidatePhysics();
     announce('success', '현재 작업의 화물 데이터를 모두 초기화했습니다.');

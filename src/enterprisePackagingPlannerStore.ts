@@ -19,8 +19,6 @@ export const ENTERPRISE_PACKAGING_PLANNER_EVENT = 'container-loading:enterprise-
 const ADMIN_PLANNER_KEY = `${ENTERPRISE_PACKAGING_PLANNER_KEY}:admin`;
 const GUEST_PLANNER_KEY = `${ENTERPRISE_PACKAGING_PLANNER_KEY}:guest`;
 
-type PlannerBoxWithStack = BoxCatalogItem & { maxStackLayers?: number };
-
 export type EnterprisePackagingPlannerSettings = {
   allowCustom?: boolean;
   maxGrossKg?: number;
@@ -82,11 +80,10 @@ export function mergePersonalBoxStackingIntoPlanner(
     const maxStackLayers = normalizeDeclaredStackLayers(personal.maxStackLayers);
     if (!maxStackLayers) return box;
 
-    const current = box as PlannerBoxWithStack;
     const maxTopLoadKg = effectivePlannerTopLoadKg(box, personal);
-    if (current.maxStackLayers === maxStackLayers && current.maxTopLoadKg === maxTopLoadKg) return box;
+    if (box.maxStackLayers === maxStackLayers && box.maxTopLoadKg === maxTopLoadKg) return box;
     changed = true;
-    return { ...box, maxStackLayers, maxTopLoadKg } as PlannerBoxWithStack;
+    return { ...box, maxStackLayers, maxTopLoadKg };
   });
   return changed ? { ...state, boxes } : state;
 }

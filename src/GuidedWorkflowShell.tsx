@@ -28,6 +28,7 @@ import {
 import { requiresBoxPackaging, type CompanyProductItem } from './companyProduct';
 import type { ProductPackagingAssignment } from './engine/productPackagingOptimizer';
 import { LOCAL_OPERATOR_EVENT } from './localOperator';
+import { PERSONAL_BOX_CATALOG_EVENT } from './personalBoxCatalog';
 import {
   PRODUCT_SELECTION_EVENT,
   cargoFromProductPackaging,
@@ -187,10 +188,12 @@ function ProductSelectionStage({ container, selection, onSelection }: {
   useEffect(() => {
     const refresh = () => setRevision(value => value + 1);
     window.addEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, refresh);
+    window.addEventListener(PERSONAL_BOX_CATALOG_EVENT, refresh);
     window.addEventListener(LOCAL_OPERATOR_EVENT, refresh);
     window.addEventListener(ADMIN_ACCESS_EVENT, refresh);
     return () => {
       window.removeEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, refresh);
+      window.removeEventListener(PERSONAL_BOX_CATALOG_EVENT, refresh);
       window.removeEventListener(LOCAL_OPERATOR_EVENT, refresh);
       window.removeEventListener(ADMIN_ACCESS_EVENT, refresh);
     };
@@ -249,10 +252,12 @@ function PackagingStage({ container, selection, onBundle }: {
   useEffect(() => {
     const refresh = () => setRevision(value => value + 1);
     window.addEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, refresh);
+    window.addEventListener(PERSONAL_BOX_CATALOG_EVENT, refresh);
     window.addEventListener(LOCAL_OPERATOR_EVENT, refresh);
     window.addEventListener(ADMIN_ACCESS_EVENT, refresh);
     return () => {
       window.removeEventListener(ENTERPRISE_PACKAGING_PLANNER_EVENT, refresh);
+      window.removeEventListener(PERSONAL_BOX_CATALOG_EVENT, refresh);
       window.removeEventListener(LOCAL_OPERATOR_EVENT, refresh);
       window.removeEventListener(ADMIN_ACCESS_EVENT, refresh);
     };
@@ -295,7 +300,7 @@ function PackagingStage({ container, selection, onBundle }: {
         const active = list.find(item => item.boxId === choices[product.id]);
         return <article key={product.id} className={!active ? 'warning' : ''}>
           <div><b>{product.name}</b><span>{product.id} · 제품 {product.quantity}EA</span></div>
-          <div className="guided-package-choice">{list.length ? <><select value={choices[product.id] ?? ''} onChange={event => setChoices(current => ({ ...current, [product.id]: event.target.value }))}>{list.map((item, index) => <option key={`${item.boxId}-${index}`} value={item.boxId}>{index + 1}순위 · {Math.round(item.outerLength * 1000)}×{Math.round(item.outerWidth * 1000)}×{Math.round(item.outerHeight * 1000)} · {item.source === 'catalog' ? '보유' : '신규'}</option>)}</select>{active && <span>{active.unitsPerBox}EA/BOX · 충진율 {Math.round(active.productFillRate * 100)}% · {active.boxName}</span>}</> : <><strong className="warn">추천 가능한 박스 없음</strong><span>제품 관리 또는 박스 관리에서 조건을 확인하세요.</span></>}</div>
+          <div className="guided-package-choice">{list.length ? <><select value={choices[product.id] ?? ''} onChange={event => setChoices(current => ({ ...current, [product.id]: event.target.value }))}>{list.map((item, index) => <option key={`${item.boxId}-${index}`} value={item.boxId}>{index + 1}순위 · {Math.round(item.outerLength * 1000)}×{Math.round(item.outerWidth * 1000)}×{Math.round(item.outerHeight * 1000)} · {item.source === 'catalog' ? '보유' : '신규'}</option>)}</select>{active && <span>{active.unitsPerBox}EA/BOX · 충진율 {Math.round(active.productFillRate * 100)}% · {active.boxName}</span>}{active && <span>자동 적재 최대 {active.maxStackLayers}단{active.strengthStatus === 'design-target' ? ' · 신규 박스 강도 미확인' : ' · 높이·상부하중 반영'}</span>}</> : <><strong className="warn">추천 가능한 박스 없음</strong><span>제품 관리 또는 박스 관리에서 조건을 확인하세요.</span></>}</div>
           <div>{active ? <><b>{active.boxesNeeded} BOX</b><span>포장 후 수량</span></> : <><b>-</b><span>포장 불가</span></>}</div>
         </article>;
       })}

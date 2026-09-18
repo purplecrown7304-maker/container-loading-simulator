@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createEnterprisePackagingManifest, writeEnterprisePackagingManifest } from './enterprisePackagingManifest';
 import {
   defaultEnterprisePackagingOptions,
   optimizeEnterprisePackaging,
@@ -292,6 +293,7 @@ export default function EnterprisePackagingPlanner() {
     const unverified = plan.assignments.filter((item) => item.strengthStatus === 'design-target').length;
     const warning = unverified ? `\n자동설계 ${unverified}종은 강도 미검증 상태이므로 실제 적재에는 1단으로 적용됩니다.` : '';
     if (!window.confirm(`현재 메인 화물 목록을 최적 포장박스 ${plan.totalBoxes}EA로 교체할까요?${warning}`)) return;
+    writeEnterprisePackagingManifest(createEnterprisePackagingManifest(plan, container, products, boxes));
     writeStoredState({ container, cargo: plan.cargo }, true);
     setMessage(`메인 적재 화면에 ${plan.cargo.length}개 화물행 · ${plan.totalBoxes}EA 포장박스를 적용했습니다. 물리 최적 자동 적재와 관성 검증을 다시 실행하세요.`);
     window.scrollTo({ top: 0, behavior: 'smooth' });

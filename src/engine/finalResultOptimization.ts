@@ -1,4 +1,5 @@
 import { loadContainer, type LoadingStrategy } from './loadingEngine';
+import { loadContainerAsync } from './asyncLoading';
 import type { CargoItem, LoadingResult } from './types';
 import type { PhysicsTarget } from '../physicsTarget';
 import { createPhysicsTargetSignature } from '../inertiaCertification';
@@ -145,10 +146,10 @@ function staticPenalty(target: PhysicsTarget, result: LoadingResult) {
   return maxTop(result) * 2.5 + weightedCogHeight(result) * 4 + lateralMoment(target, result) * 2 + result.validationIssues.length * 100;
 }
 
-export function buildDirectResultReoptimizationCandidates(
+function* candidateSearch(
   current: PhysicsTarget,
   limit = Number.POSITIVE_INFINITY,
-): DirectResultReoptimizationCandidate[] {
+): Generator<{ cargo: CargoItem[]; strategy: LoadingStrategy }, DirectResultReoptimizationCandidate[], LoadingResult> {
   if (current.mode !== 'boxes') return [];
   const seen = new Set<string>([createPhysicsTargetSignature(current)]);
   const candidates: DirectResultReoptimizationCandidate[] = [];
@@ -162,7 +163,7 @@ export function buildDirectResultReoptimizationCandidates(
 
   for (const profile of profiles) {
     for (const strategy of STRATEGIES) {
-      const result = loadContainer(current.container, profile.cargo, { strategy, publish: false });
+      const result = yield { cargo: profile.cargo, strategy };
       if (result.validationIssues.length > 0) continue;
       if (!sameLoadedCargo(current.result, result)) continue;
       const target: PhysicsTarget = { mode: 'boxes', container: current.container, cargo: current.cargo, result };
@@ -182,4 +183,24 @@ export function buildDirectResultReoptimizationCandidates(
   return Number.isFinite(limit)
     ? sorted.slice(0, Math.max(1, Math.floor(limit)))
     : sorted;
+}
+
+export function buildDirectResultReoptimizationCandidates(current: PhysicsTarget, limit = Number.POSITIVE_INFINITY) {
+  const search = candidateSearch(current, limit);
+  let step = search.next();
+  while (!step.done) {
+    step = search.next(loadContainer(current.container, step.value.cargo, { strategy: step.value.strategy, publish: false }));
+  }
+  return step.value;
+}
+
+/** Preserve the exact candidate search while keeping each packing run off the UI thread. */
+export async function buildDirectResultReoptimizationCandidatesAsync(current: PhysicsTarget, limit: number, cancelled: () => boolean = () => false) {
+  const search = candidateSearch(current, limit);
+  let step = search.next();
+  while (!step.done) {
+    if (cancelled()) return [];
+    step = search.next(await loadContainerAsync(current.container, step.value.cargo, step.value.strategy));
+  }
+  return cancelled() ? [] : step.value;
 }

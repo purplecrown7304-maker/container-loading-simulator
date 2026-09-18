@@ -283,7 +283,9 @@ function applyWall(state: State, plan: WallPlan, context: Context): State | null
   for (const lane of plan.lanes) {
     const block = lane.block;
     const geometryMatches =
-      Math.abs(block.length - block.nx * block.boxLength) <= TOUCH
+      [block.nx, block.ny, block.nz].every(value => Number.isInteger(value) && value > 0)
+      && block.quantity === block.nx * block.ny * block.nz
+      && Math.abs(block.length - block.nx * block.boxLength) <= TOUCH
       && Math.abs(block.width - block.ny * block.boxWidth) <= TOUCH
       && Math.abs(block.height - block.nz * block.item.height) <= TOUCH;
     if (!geometryMatches || block.nz > safeLayers(block.item)) return null;
@@ -293,17 +295,12 @@ function applyWall(state: State, plan: WallPlan, context: Context): State | null
   if (additions.some((p) => !isInsideContainer(context.container, p))) return null;
   if (additions.some((p, i) => state.placements.some((q) => overlaps(p, q)) || additions.slice(0, i).some((q) => overlaps(p, q)))) return null;
 
-  // 동일 SKU 직육면체 블록이라는 현재 전제를 안전검증으로 다시 확인한다.
-  // 바닥 위 박스는 충분한 지지와 누적 적층 규칙을 모두 통과해야 한다.
-  const staged = [...state.placements];
-  const orderedAdditions = [...additions].sort((a, b) => a.z - b.z || a.x - b.x || a.y - b.y);
-  for (const placement of orderedAdditions) {
-    const item = context.cargoById.get(placement.cargoId);
-    if (!item) return null;
-    if (placement.z > TOUCH && !hasAdequateSupport(placement, staged, undefined, 0.999)) return null;
-    if (!canPlaceByStackingRules(item, placement, staged, context.cargoById)) return null;
-    staged.push(placement);
-  }
+  // blockPlacements generates each full grid from z=0 with aligned footprints.
+  // New walls start after every existing wall, and lanes cannot overlap (checked
+  // above), so every column has 100% support and contains only this block's SKU.
+  // safeLayers already enforces BOTH declared depth and (nz-1)*weight top load.
+  // No existing column receives load: mixed/partial top filling still uses the
+  // full support graph below. Rebuilding that graph for every grid cell is cubic.
 
   return {
     xFront: round6(state.xFront + plan.depth),

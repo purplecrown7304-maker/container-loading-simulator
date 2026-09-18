@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { buildDirectResultReoptimizationCandidates, type DirectResultReoptimizationCandidate } from './engine/finalResultOptimization';
+import { buildDirectResultReoptimizationCandidatesAsync, type DirectResultReoptimizationCandidate } from './engine/finalResultOptimization';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import { writeManualOverride } from './engine/manualOverride';
 import {
@@ -172,7 +172,8 @@ export default function FinalCertificationGate() {
         return;
       }
 
-      const candidates = buildDirectResultReoptimizationCandidates(nextTarget, MAX_DIRECT_REPOSITION_CANDIDATES);
+      const candidates = await buildDirectResultReoptimizationCandidatesAsync(nextTarget, MAX_DIRECT_REPOSITION_CANDIDATES, cancelled);
+      if (cancelled()) return;
       if (!candidates.length) {
         setRunning(false);
         setError('보강재만으로 통과하지 못했고, 같은 화물 수량을 유지하면서 만들 수 있는 추가 고유 재배치안이 없습니다. 적재량 또는 화물 조건을 조정해야 합니다.');

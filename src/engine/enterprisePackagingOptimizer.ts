@@ -2,6 +2,7 @@ import { optimizeCommonCartonFamily, defaultCommonCartonFamilyOptions, type Comm
 import { loadContainer } from './loadingEngine';
 import { packMixedUnitsIntoCarton, residualUnitsForProducts, type MixedCartonPlacement, type MixedCartonUnit } from './mixedCartonPacker';
 import {
+  cartonStackLimits,
   defaultProductPackagingOptions,
   type BoxCatalogItem,
   type ProductItem,
@@ -196,9 +197,7 @@ function mixedBoxCandidates(
 }
 
 function maxStackForCarton(container: ContainerSpec, box: BoxCatalogItem, grossWeightKg: number) {
-  const geometry = Math.max(1, Math.min(7, Math.floor((container.height + EPS) / box.outerHeight)));
-  if (box.maxTopLoadKg == null) return geometry;
-  return Math.max(1, Math.min(geometry, 1 + Math.floor((box.maxTopLoadKg + EPS) / Math.max(EPS, grossWeightKg))));
+  return cartonStackLimits(container, box, grossWeightKg).maxStackLayers;
 }
 
 function dedicatedPartialCargo(
