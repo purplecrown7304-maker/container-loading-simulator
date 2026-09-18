@@ -6,6 +6,7 @@ test('stalled optional re-layout completes and a blocked warning report opens wi
   await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   // Fault injection is isolated to this test: real inertia runs, but optional packing workers never reply.
   await page.addInitScript(() => {
+    sessionStorage.setItem('container-loading-local-operator-v1', JSON.stringify({ id: 'work-order-regression', name: '작업지시서 테스트' }));
     const NativeWorker = window.Worker;
     const state = { started: 0, terminated: 0, popupCalls: 0, events: [] as any[] };
     (window as any).__workOrderRecovery = state;
@@ -38,14 +39,18 @@ test('stalled optional re-layout completes and a blocked warning report opens wi
   await page.getByRole('button', { name: /메뉴$/ }).click();
   await page.getByRole('button', { name: /적재공간 다시 선택$/ }).click();
   await page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' }).locator('[data-equipment-id="20-standard"]').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.container.length)).toBe(5.9);
   await page.evaluate(() => {
-    sessionStorage.setItem('container-loading-local-operator-v1', JSON.stringify({ id: 'work-order-regression', name: '작업지시서 테스트' }));
     const container = (window as any).__containerLoadingLatestResult.container;
     const cargo = [{ id: 'SLENDER', name: '검증용 고적층 박스', length: 0.08, width: 0.08, height: 0.2, weightKg: 1, quantity: 20, maxStackLayers: 10, maxTopLoadKg: 100, allowRotation: false }];
     const placements = Array.from({ length: 20 }, (_, index) => ({ cargoId: 'SLENDER', x: 1 + Math.floor(index / 10) * 2, y: 1, z: index % 10 * 0.2, length: 0.08, width: 0.08, height: 0.2, weightKg: 1 }));
     const result = { placements, remaining: [], loadedWeightKg: 20, usedVolumeM3: 0.0256, validationIssues: [] };
     (window as any).__workOrderFixture = { container, cargo, result };
-    window.dispatchEvent(new CustomEvent('container-loading:request-direct-work-order', { detail: { container, cargo, result } }));
+    window.dispatchEvent(new CustomEvent('container-loading-simulator:storage-updated', { detail: { container, cargo } }));
+  });
+  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.cargo[0]?.id)).toBe('SLENDER');
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('container-loading:request-direct-work-order', { detail: (window as any).__workOrderFixture }));
   });
   // The application's repair bridge first runs the real final physics suite for a new fixture.
   // Begin the manual report request only after that prerequisite is recorded, as on the results screen.
