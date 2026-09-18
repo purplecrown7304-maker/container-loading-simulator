@@ -4,6 +4,7 @@ import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { cargoColor, randomUniqueCargoColor } from './cargoColors';
 import { downloadBoxCatalogTemplate, parseBoxCatalogWorkbook } from './excel';
 import { operatorScopedStorageKey, readLocalOperator, type LocalOperator } from './localOperator';
+import { writePersonalBoxCatalog } from './personalBoxCatalog';
 import { readStoredState, writeStoredState, type StoredState } from './storage';
 import { OPEN_WORKSPACE_EVENT, type WorkspaceOpenDetail } from './uiEvents';
 
@@ -112,7 +113,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
   }, []);
   useEffect(() => {
     if (!operator) return;
-    localStorage.setItem(catalogKey(operator), JSON.stringify(catalog));
+    writePersonalBoxCatalog(operator, catalog);
   }, [catalog, operator]);
 
   useEffect(() => {

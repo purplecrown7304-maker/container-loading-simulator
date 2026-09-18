@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { useTransportEquipment } from './transportEquipment';
-import { APP_ACTION_EVENT } from './uiEvents';
 
 const labels = [
   ['길이(m)', 'length'],
@@ -54,8 +53,8 @@ function inputsFor(labelText: string) {
 /**
  * Transport equipment is the master geometry. Keep both the main loading App and the
  * enterprise packaging planner synchronized with the selected equipment, including
- * floor load. React receives normal input/change events, then the main loading result
- * is recalculated so the equipment badge and the actual ContainerSpec cannot diverge.
+ * floor load. App also subscribes directly to the selected equipment; changing equipment
+ * invalidates the previous layout and never starts an unrequested loading calculation.
  */
 export default function EnterpriseTransportEquipmentAdapter() {
   const equipment = useTransportEquipment();
@@ -69,20 +68,11 @@ export default function EnterpriseTransportEquipmentAdapter() {
         maxPayloadKg: equipment.maxPayloadKg,
         floorLoadLimitKgPerM2: equipment.floorLoadLimitKgPerM2,
       };
-      let changedMain = false;
       labels.forEach(([label, key]) => {
         for (const input of inputsFor(label)) {
-          const isMain = Boolean(input.closest('.dashboard-left'));
-          const changed = setNativeInput(input, values[key]);
-          changedMain = changedMain || (isMain && changed);
+          setNativeInput(input, values[key]);
         }
       });
-
-      if (changedMain) {
-        window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent(APP_ACTION_EVENT, { detail: { action: 'run-loading' } }));
-        }, 50);
-      }
     }, 0);
     return () => window.clearTimeout(timer);
   }, [equipment]);

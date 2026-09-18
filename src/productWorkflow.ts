@@ -2,6 +2,7 @@ import { isAdminSession } from './adminAccess';
 import { randomUniqueCargoColor } from './cargoColors';
 import { requiresBoxPackaging, type CompanyProductItem } from './companyProduct';
 import {
+  cartonStackLimits,
   defaultProductPackagingOptions,
   type BoxCatalogItem,
   type ProductPackagingAssignment,
@@ -134,10 +135,7 @@ function quickAssignment(container: ContainerSpec, product: CompanyProductItem, 
   const innerVolume = Math.max(QUICK_EPS, box.innerLength * box.innerWidth * box.innerHeight);
   const productFillRate = Math.min(1, unitsPerBox * product.length * product.width * product.height / innerVolume);
   const containerTileEfficiency = quickTileEfficiency(container, box.outerLength, box.outerWidth, box.outerHeight);
-  const geometryStack = Math.max(1, Math.min(7, Math.floor((container.height + QUICK_EPS) / box.outerHeight)));
-  const declaredStack = box.maxTopLoadKg == null
-    ? geometryStack
-    : Math.max(1, Math.min(geometryStack, 1 + Math.floor((box.maxTopLoadKg + QUICK_EPS) / grossWeightKg)));
+  const { geometryStack, maxStackLayers: declaredStack } = cartonStackLimits(container, box, grossWeightKg);
   const maxStackLayers = source === 'generated' ? 1 : declaredStack;
   const requiredTopLoadKg = Math.max(0, grossWeightKg * (geometryStack - 1));
   // 포장 단계에서는 빠른 기하/중량 평가만 한다. 실제 컨테이너 배치는 자동 적재 단계에서 검증한다.
@@ -187,6 +185,7 @@ function boxCatalogFingerprint(boxes: BoxCatalogItem[]) {
     box.outerHeight,
     box.tareWeightKg,
     box.maxGrossWeightKg,
+    box.maxStackLayers ?? '',
     box.maxTopLoadKg ?? '',
     box.unitCost ?? '',
   ].join(':')).join('|');
@@ -394,6 +393,8 @@ export function cargoFromProductPackaging(
         quantity,
         maxStackLayers: assignment.maxStackLayers,
         maxTopLoadKg: assignment.maxTopLoadKg,
+        boxId: assignment.boxId,
+        boxName: assignment.boxName,
         productId: product.id,
         productName: product.name,
         unitsPerPackage: unitsInBox,

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { REQUEST_DIRECT_WORK_ORDER_EVENT, type DirectWorkOrderRequest } from './directWorkOrderEvents';
-import { buildDirectResultReoptimizationCandidates, type DirectResultReoptimizationCandidate } from './engine/finalResultOptimization';
+import { buildDirectResultReoptimizationCandidatesAsync, type DirectResultReoptimizationCandidate } from './engine/finalResultOptimization';
 import { writeManualOverride } from './engine/manualOverride';
 import {
   INERTIA_CERTIFICATION_EVENT,
@@ -94,8 +94,8 @@ export default function DirectWorkOrderOptimizer() {
       target: current,
       staticPenalty: 0,
     };
-    const alternatives = buildDirectResultReoptimizationCandidates(current, MAX_DIRECT_WORK_ORDER_CANDIDATES - 1);
-    const candidates = [baseline, ...alternatives];
+    // Validate the current layout first; passing layouts need no additional packing.
+    const candidates = [baseline];
     setAttempt({ index: 0, total: candidates.length, label: '' });
     let bestWarning: Evaluated | null = null;
 
@@ -147,6 +147,12 @@ export default function DirectWorkOrderOptimizer() {
           return;
         }
         if (!bestWarning || better(evaluated, bestWarning)) bestWarning = evaluated;
+        if (index === 0) {
+          setMessage('동일 수량을 유지하는 안전 재배치 후보를 계산 중입니다.');
+          const alternatives = await buildDirectResultReoptimizationCandidatesAsync(current, MAX_DIRECT_WORK_ORDER_CANDIDATES - 1, cancelled);
+          if (cancelled()) return;
+          candidates.push(...alternatives);
+        }
       }
 
       if (cancelled()) return;

@@ -43,6 +43,8 @@ export type BoxCatalogItem = {
   outerHeight: number;
   tareWeightKg: number;
   maxGrossWeightKg: number;
+  /** 사용자가 등록한 박스의 최대 적층단. 미입력 시 기존 7단 기본값을 유지한다. */
+  maxStackLayers?: number;
   maxTopLoadKg?: number;
   /** 박스 1EA 구매/제작 단가. 통화 단위는 기업 설정에서 일관되게 사용한다. */
   unitCost?: number;
@@ -136,6 +138,7 @@ function boxError(box: BoxCatalogItem): string | null {
   if (![box.innerLength, box.innerWidth, box.innerHeight, box.outerLength, box.outerWidth, box.outerHeight].every(finitePositive)) return '박스 내외부 치수는 0보다 커야 합니다.';
   if (box.outerLength + EPS < box.innerLength || box.outerWidth + EPS < box.innerWidth || box.outerHeight + EPS < box.innerHeight) return '박스 외부 치수는 내부 치수보다 작을 수 없습니다.';
   if (!Number.isFinite(box.tareWeightKg) || box.tareWeightKg < 0 || !finitePositive(box.maxGrossWeightKg)) return '박스 자중/최대 총중량을 확인하세요.';
+  if (box.maxStackLayers != null && (!Number.isInteger(box.maxStackLayers) || box.maxStackLayers < 1)) return '최대 적층단은 1 이상의 정수여야 합니다.';
   if (box.maxTopLoadKg != null && (!Number.isFinite(box.maxTopLoadKg) || box.maxTopLoadKg < 0)) return '상부 허용중량은 0 이상이어야 합니다.';
   if (box.unitCost != null && (!Number.isFinite(box.unitCost) || box.unitCost < 0)) return '박스 단가는 0 이상이어야 합니다.';
   return null;
@@ -177,6 +180,15 @@ function tileEfficiency(container: ContainerSpec, l: number, w: number, h: numbe
   return containerVolume > 0 ? Math.min(1, bestCount * volume(l, w, h) / containerVolume) : 0;
 }
 
+/** Both packaging paths must honor the same declared layers, ceiling and top load. */
+export function cartonStackLimits(container: ContainerSpec, box: BoxCatalogItem, grossWeightKg: number) {
+  const declared = box.maxStackLayers == null ? 7 : Math.max(1, Math.floor(box.maxStackLayers));
+  const geometryStack = Math.max(1, Math.min(declared, Math.floor((container.height + EPS) / box.outerHeight)));
+  const maxStackLayers = box.maxTopLoadKg == null ? geometryStack
+    : Math.max(1, Math.min(geometryStack, 1 + Math.floor((box.maxTopLoadKg + EPS) / Math.max(EPS, grossWeightKg))));
+  return { geometryStack, maxStackLayers };
+}
+
 function assignmentFromBox(container: ContainerSpec, product: ProductItem, box: BoxCatalogItem, source: 'catalog' | 'generated'): ProductPackagingAssignment | null {
   let bestUnits = 0;
   const layerLimit = maxInternalLayers(product);
@@ -196,8 +208,7 @@ function assignmentFromBox(container: ContainerSpec, product: ProductItem, box: 
   const grossWeightKg = box.tareWeightKg + unitsPerBox * product.weightKg;
   const productFillRate = Math.min(1, unitsPerBox * volume(product.length, product.width, product.height) / Math.max(EPS, volume(box.innerLength, box.innerWidth, box.innerHeight)));
   const containerTileEfficiency = tileEfficiency(container, box.outerLength, box.outerWidth, box.outerHeight);
-  const geometryStack = Math.max(1, Math.min(7, Math.floor((container.height + EPS) / box.outerHeight)));
-  const declaredStack = box.maxTopLoadKg == null ? geometryStack : Math.max(1, Math.min(geometryStack, 1 + Math.floor((box.maxTopLoadKg + EPS) / grossWeightKg)));
+  const { geometryStack, maxStackLayers: declaredStack } = cartonStackLimits(container, box, grossWeightKg);
   const requiredTopLoadKg = Math.max(0, grossWeightKg * (geometryStack - 1));
   const operationalStack = source === 'generated' ? 1 : declaredStack;
   const operationalTopLoad = source === 'generated' ? 0 : box.maxTopLoadKg;

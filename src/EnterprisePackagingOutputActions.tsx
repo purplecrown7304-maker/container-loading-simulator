@@ -3,10 +3,8 @@ import { createPortal } from 'react-dom';
 import { downloadEnterprisePackagingWorkbook } from './enterprisePackagingExcelExport';
 import {
   clearEnterprisePackagingManifest,
-  createEnterprisePackagingManifest,
   enterprisePackagingManifestMatchesState,
   readEnterprisePackagingManifest,
-  writeEnterprisePackagingManifest,
 } from './enterprisePackagingManifest';
 import {
   buildEnterprisePackagingPlanFromPlanner,
@@ -24,21 +22,10 @@ function buildPlan(): { plan: ReturnType<typeof buildEnterprisePackagingPlanFrom
 
 function persistIfApplied(state?: StoredState | null) {
   const current = state ?? readStoredState();
-  if (!current?.cargo?.length || !current.cargo.some((item) => item.id.startsWith('PKG-'))) {
-    if (readEnterprisePackagingManifest()) clearEnterprisePackagingManifest();
-    return;
-  }
-  const rebuilt = buildPlan();
-  if (!rebuilt) {
-    if (readEnterprisePackagingManifest()) clearEnterprisePackagingManifest();
-    return;
-  }
-  const nextManifest = createEnterprisePackagingManifest(rebuilt.plan, rebuilt.stored.container, rebuilt.stored.products, rebuilt.stored.boxes);
-  if (!enterprisePackagingManifestMatchesState(nextManifest, current.container, current.cargo)) {
-    if (readEnterprisePackagingManifest()) clearEnterprisePackagingManifest();
-    return;
-  }
-  writeEnterprisePackagingManifest(nextManifest);
+  // Applying a plan stores its existing manifest. A storage notification must
+  // never re-run enterprise optimization (including the guided packaging flow).
+  const manifest = readEnterprisePackagingManifest();
+  if (manifest && !enterprisePackagingManifestMatchesState(manifest, current?.container, current?.cargo)) clearEnterprisePackagingManifest();
 }
 
 export default function EnterprisePackagingOutputActions() {

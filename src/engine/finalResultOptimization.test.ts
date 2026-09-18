@@ -4,6 +4,7 @@ import type { CargoItem, ContainerSpec } from './types';
 import {
   buildDirectReoptimizationCargoProfiles,
   buildDirectResultReoptimizationCandidates,
+  buildDirectResultReoptimizationCandidatesAsync,
 } from './finalResultOptimization';
 import type { PhysicsTarget } from '../physicsTarget';
 
@@ -56,10 +57,11 @@ describe('final result inertia re-layout search', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('keeps bounded candidate search cargo counts unchanged', () => {
+  it('keeps bounded candidate search cargo counts unchanged in both execution paths', async () => {
     const current = smallTarget();
     const candidates = buildDirectResultReoptimizationCandidates(current, 2);
     expect(candidates.length).toBeLessThanOrEqual(2);
+    expect(await buildDirectResultReoptimizationCandidatesAsync(current, 2)).toEqual(candidates);
 
     const requested = new Map<string, number>();
     current.result.placements.forEach((item) => requested.set(item.cargoId, (requested.get(item.cargoId) ?? 0) + 1));

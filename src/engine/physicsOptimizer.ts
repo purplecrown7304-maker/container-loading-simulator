@@ -1,4 +1,5 @@
-import { loadContainer, type LoadingStrategy } from './loadingEngine';
+import { type LoadingStrategy } from './loadingEngine';
+import { loadContainerAsync } from './asyncLoading';
 import { runPhysicsValidationSuite, type PhysicsValidationSuite } from './physicsValidation';
 import { assessShapeQuality } from './shapeQuality';
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
@@ -113,6 +114,7 @@ export async function optimizeLoadingWithPhysics(
   cargo: CargoItem[],
   onProgress?: (progress: PhysicsOptimizationProgress) => void,
   preferredStrategy?: LoadingStrategy,
+  signal?: AbortSignal,
 ): Promise<PhysicsOptimizedLoading> {
   const activeCargo = cargo.filter(item => item.quantity > 0);
   const candidates: PhysicsOptimizationCandidate[] = [];
@@ -121,7 +123,9 @@ export async function optimizeLoadingWithPhysics(
 
   for (let index = 0; index < strategies.length; index += 1) {
     const strategy = strategies[index];
-    const result = loadContainer(container, activeCargo, { strategy, publish: false });
+    signal?.throwIfAborted();
+    onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: strategies.length, physicsProgress: 0 });
+    const result = await loadContainerAsync(container, activeCargo, strategy, signal);
     const signature = placementSignature(result);
     let physics = physicsByLayout.get(signature);
 
@@ -135,6 +139,7 @@ export async function optimizeLoadingWithPhysics(
       );
       physicsByLayout.set(signature, physics);
     }
+    signal?.throwIfAborted();
 
     const scored = scoreCandidate(container, activeCargo, result, physics);
     candidates.push({
@@ -155,7 +160,7 @@ export async function optimizeLoadingWithPhysics(
   const best = candidates[0];
   if (!best) {
     const fallbackStrategy = preferredStrategy ?? 'stability';
-    const result = loadContainer(container, activeCargo, { strategy: fallbackStrategy, publish: false });
+    const result = await loadContainerAsync(container, activeCargo, fallbackStrategy, signal);
     const physics = await runPhysicsValidationSuite(container, result.placements);
     return { strategy: fallbackStrategy, score: physics.score, result, physics, candidates: [] };
   }
