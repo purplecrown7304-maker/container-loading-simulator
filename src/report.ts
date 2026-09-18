@@ -1,4 +1,4 @@
-import { boxResultMatchesCertification } from './certifiedExport';
+import { boxResultMatchesWorkOrderCertification } from './certifiedExport';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { confirmUnverifiedExport, hasCurrentPhysicsVerification } from './exportVerification';
 import { readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
@@ -27,7 +27,7 @@ function escapeHtml(value: unknown): string {
 function matchingBoxCertification(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult): InertiaCertification | undefined {
   const target = readPhysicsTarget();
   const certification = readLatestInertiaCertification();
-  return boxResultMatchesCertification({ container, cargo, result }, target, certification) ? certification : undefined;
+  return boxResultMatchesWorkOrderCertification({ container, cargo, result }, target, certification) ? certification : undefined;
 }
 
 function rangeText(min: number, max: number, prefix: string) {

@@ -45,6 +45,8 @@ export type InertiaReinforcementAttempt = {
 };
 
 export type InertiaCertification = {
+  /** Discloses a bounded or operator-stopped optional layout search on the work order. */
+  searchNotice?: string;
   status: CertificationStatus;
   mode: PhysicsTarget['mode'];
   targetSignature: string;

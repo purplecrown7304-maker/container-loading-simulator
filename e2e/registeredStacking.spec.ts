@@ -82,5 +82,11 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ }).click();
   await expect(page.getByRole('heading', { name: '결과 확인' })).toBeVisible();
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestResult.result.placements.length)).toBe(loaded.count);
+  const reportPromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: /통합 출하·적재 작업지시서 보기/ }).click();
+  const report = await reportPromise;
+  await expect(report.getByRole('heading', { name: /통합 출하·적재 작업지시서/ })).toBeVisible();
+  await expect(report.locator('.summary')).toContainText(`${loaded.count} EA`);
+  console.log('bulk work order opened with matching loaded quantity');
   await page.screenshot({ path: test.info().outputPath('registered-stacking.png'), fullPage: true });
 });

@@ -69,6 +69,7 @@ function scenarioLabel(scenario: InertiaScenario) {
 
 export function buildWorkOrderRecommendations(certification: InertiaCertification) {
   const items: string[] = [];
+  if (certification.searchNotice) items.push(certification.searchNotice);
   const level = assessWorkOrderCertification(certification);
 
   if (level === 'danger') {

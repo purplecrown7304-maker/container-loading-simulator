@@ -63,8 +63,19 @@ export function boxResultMatchesCertification(
   target: PhysicsTarget | undefined,
   certification: InertiaCertification | undefined,
 ): certification is InertiaCertification {
+  return certificationMatchesTarget(target, certification)
+    && boxResultMatchesWorkOrderCertification(detail, target, certification);
+}
+
+/** Work orders retain warning/incomplete grades; matching must not restart their optimizer. */
+export function boxResultMatchesWorkOrderCertification(
+  detail: CertifiedBoxResult | undefined,
+  target: PhysicsTarget | undefined,
+  certification: InertiaCertification | undefined,
+): certification is InertiaCertification {
   if (!detail || !target || target.mode !== 'boxes') return false;
-  if (!certificationMatchesTarget(target, certification) || certification.mode !== 'boxes') return false;
+  if (!certification || certification.mode !== 'boxes') return false;
+  if (createPhysicsTargetSignature(target) !== certification.targetSignature) return false;
   const detailTarget: PhysicsTarget = {
     mode: 'boxes',
     container: detail.container,

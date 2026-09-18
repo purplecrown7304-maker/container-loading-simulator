@@ -61,7 +61,7 @@ describe('final result inertia re-layout search', () => {
     const current = smallTarget();
     const candidates = buildDirectResultReoptimizationCandidates(current, 2);
     expect(candidates.length).toBeLessThanOrEqual(2);
-    expect(await buildDirectResultReoptimizationCandidatesAsync(current, 2)).toEqual(candidates);
+    expect((await buildDirectResultReoptimizationCandidatesAsync(current, 2)).candidates).toEqual(candidates);
 
     const requested = new Map<string, number>();
     current.result.placements.forEach((item) => requested.set(item.cargoId, (requested.get(item.cargoId) ?? 0) + 1));
