@@ -1,0 +1,141 @@
+/* Shared interaction motion. No timers, click delays, or viewer remounts. */
+html[data-guided-workflow="true"] {
+  --motion-quick: 140ms;
+  --motion-control: 200ms;
+  --motion-enter: 280ms;
+  --motion-ease: cubic-bezier(.2, .7, .2, 1);
+}
+
+html[data-guided-workflow="true"] button {
+  transition: background-color var(--motion-control) ease,
+    border-color var(--motion-control) ease, color var(--motion-control) ease,
+    box-shadow var(--motion-control) ease, opacity var(--motion-control) ease,
+    translate var(--motion-control) var(--motion-ease),
+    scale var(--motion-quick) var(--motion-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html[data-guided-workflow="true"] button:not(:disabled):not([aria-disabled="true"]):hover {
+    translate: 0 -1px;
+  }
+  html[data-guided-workflow="true"] :is(.studio-equipment-picker, .guided-strategy-card,
+    .guided-loading-unit-grid button, .transport-equipment-card):not(:disabled):hover {
+    translate: 0 -3px;
+    box-shadow: 0 8px 24px #1d1d1f0b;
+  }
+}
+
+html[data-guided-workflow="true"] button:not(:disabled):not([aria-disabled="true"]):active {
+  translate: 0 0;
+  scale: .975;
+  transition-duration: 80ms;
+}
+/* Keep the existing card's transform from doubling its hover movement. */
+html[data-guided-workflow="true"] :is(.guided-strategy-card, .guided-loading-unit-grid button) { transform: none; }
+html[data-guided-workflow="true"] :is(input, select, textarea) {
+  transition: border-color var(--motion-control) ease,
+    background-color var(--motion-control) ease, box-shadow var(--motion-control) ease;
+}
+html[data-guided-workflow="true"] :is(input, select, textarea):focus-visible {
+  box-shadow: 0 0 0 4px #0071e30d;
+}
+html[data-guided-workflow="true"] :is(.studio-change-label, .guided-step-dot,
+  .guided-strategy-status, .guided-product-table article) {
+  transition: color var(--motion-control) ease, background-color var(--motion-control) ease,
+    border-color var(--motion-control) ease, box-shadow var(--motion-control) ease;
+}
+
+/* Entrance effects end without a fill-forwards transform/stacking context. */
+html[data-guided-workflow="true"] .guided-stage-panel:not(.guided-loading-placeholder) {
+  animation: studio-panel-in var(--motion-enter) var(--motion-ease) backwards;
+}
+html[data-guided-workflow="true"][data-guided-step="5"] .viewer-card {
+  animation: studio-fade-in 240ms ease backwards;
+}
+html[data-guided-workflow="true"] :is(.guided-result-tab-panel, .guided-loading-run-confirmation,
+  .transport-custom-editor, .transport-selector-message, .guided-result-empty) {
+  animation: studio-panel-in 220ms var(--motion-ease) backwards;
+}
+
+/* Limit staggering to six rows, even for very large cargo catalogs. */
+html[data-guided-workflow="true"] :is(.guided-result-grid, .guided-equipment-specs,
+  .guided-product-table, .guided-packaging-list) > :nth-child(-n+6) {
+  animation: studio-row-in 240ms var(--motion-ease) backwards;
+  animation-delay: var(--motion-row-delay, 0ms);
+}
+html[data-guided-workflow="true"] :is(.guided-result-grid, .guided-equipment-specs,
+  .guided-product-table, .guided-packaging-list) > :nth-child(2) { --motion-row-delay: 24ms; }
+html[data-guided-workflow="true"] :is(.guided-result-grid, .guided-equipment-specs,
+  .guided-product-table, .guided-packaging-list) > :nth-child(3) { --motion-row-delay: 48ms; }
+html[data-guided-workflow="true"] :is(.guided-result-grid, .guided-equipment-specs,
+  .guided-product-table, .guided-packaging-list) > :nth-child(4) { --motion-row-delay: 72ms; }
+html[data-guided-workflow="true"] :is(.guided-result-grid, .guided-equipment-specs,
+  .guided-product-table, .guided-packaging-list) > :nth-child(5) { --motion-row-delay: 96ms; }
+html[data-guided-workflow="true"] :is(.guided-result-grid, .guided-equipment-specs,
+  .guided-product-table, .guided-packaging-list) > :nth-child(6) { --motion-row-delay: 120ms; }
+
+html[data-guided-workflow="true"] [class*="-backdrop"] {
+  animation: studio-fade-in 180ms ease backwards;
+}
+html[data-guided-workflow="true"] :is([role="dialog"], .results-modal, .box-selector-modal,
+  .inertia-modal, .physics-modal, .admin-login-modal, .excel-report-modal) {
+  animation: studio-dialog-in var(--motion-enter) var(--motion-ease) backwards;
+}
+html[data-guided-workflow="true"] :is(.header-menu-panel, .pallet-content-popover,
+  .unity-inspector, .transport-recalc-notice, .excel-import-toast,
+  .diagnostic-auto-mail-toast) {
+  animation: studio-row-in 200ms var(--motion-ease) backwards;
+}
+html[data-guided-workflow="true"] details[open] > :not(summary) {
+  animation: studio-row-in 180ms var(--motion-ease) backwards;
+}
+html[data-guided-workflow="true"] :is(.guided-step-list button.current .guided-step-dot,
+  .guided-loading-unit-grid button.selected i, .guided-status-row i.good, .guided-strategy-status.ready) {
+  animation: studio-confirm 260ms var(--motion-ease) backwards;
+}
+html[data-guided-workflow="true"] .guided-status-row i.running {
+  animation: studio-working 1600ms ease-in-out infinite;
+}
+html[data-guided-workflow="true"] :is(.calculation-overlay, .unity-loading) {
+  animation: studio-fade-in 180ms ease backwards;
+}
+html[data-guided-workflow="true"] .unity-loading progress {
+  transition: opacity var(--motion-control) ease;
+}
+
+@keyframes studio-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes studio-panel-in {
+  from { opacity: 0; translate: 0 8px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes studio-row-in {
+  from { opacity: 0; translate: 0 5px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes studio-dialog-in {
+  from { opacity: 0; translate: 0 10px; scale: .985; }
+  to { opacity: 1; translate: 0 0; scale: 1; }
+}
+@keyframes studio-confirm {
+  from { scale: .92; }
+  to { scale: 1; }
+}
+@keyframes studio-working {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .4; }
+}
+
+/* Preference changes take effect immediately, including any running effects. */
+@media (prefers-reduced-motion: reduce) {
+  html[data-guided-workflow="true"] *,
+  html[data-guided-workflow="true"] *::before,
+  html[data-guided-workflow="true"] *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  html[data-guided-workflow="true"] button {
+    translate: none !important;
+    scale: none !important;
+  }
+}

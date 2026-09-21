@@ -108,6 +108,7 @@ import './guided-loading-unit.css';
 import './guided-result-tabs-enhancer.css';
 import './workflow-usability-fixes.css';
 import './loading-progress.css';
+import './studio-motion.css';
 
 function renderApplication() {
   ReactDOM.createRoot(document.getElementById('root')!).render(
