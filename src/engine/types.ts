@@ -53,7 +53,7 @@ export type Placement = {
 };
 
 export type ValidationIssue = {
-  type: 'OUT_OF_BOUNDS' | 'COLLISION';
+  type: 'OUT_OF_BOUNDS' | 'COLLISION' | 'INVALID_CARGO' | 'UNSUPPORTED' | 'QUANTITY' | 'STACK_LIMIT' | 'TOP_LOAD' | 'PAYLOAD';
   message: string;
   placementIndexes: number[];
 };

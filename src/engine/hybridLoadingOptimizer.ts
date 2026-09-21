@@ -1,6 +1,6 @@
 import { packByBlockSpaceBeamV2, type BeamPackingOutput } from './blockSpaceBeamPackerV2';
 import { centerPlacementsOnContainer } from './containerCentering';
-import { validatePlacements } from './constraints';
+import { auditLoading } from './loadingAudit';
 import { analyzeFloorLoad } from './floorLoad';
 import { packByStrictWalls, type StrictWallOutput, type StrictWallStrategy } from './strictWallPacker';
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
@@ -27,14 +27,14 @@ export type HybridCandidateAssessment = {
   output: PackingOutput;
 };
 
-function toCenteredResult(container: ContainerSpec, output: PackingOutput): LoadingResult {
+function toCenteredResult(container: ContainerSpec, cargo: CargoItem[], output: PackingOutput): LoadingResult {
   const placements = centerPlacementsOnContainer(container, output.placements);
   return {
     placements,
     remaining: output.remaining,
     loadedWeightKg: output.loadedWeightKg,
     usedVolumeM3: output.usedVolumeM3,
-    validationIssues: validatePlacements(container, placements),
+    validationIssues: auditLoading(container, cargo, placements),
     autoCorrections: [],
   };
 }
@@ -84,7 +84,7 @@ function scoreCandidate(
   engine: HybridPackingEngine,
   output: PackingOutput,
 ): HybridCandidateAssessment {
-  const result = toCenteredResult(container, output);
+  const result = toCenteredResult(container, cargo, output);
   const requestedCount = Math.max(1, cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0));
   const containerVolume = Math.max(EPS, container.length * container.width * container.height);
   const fillRatePct = clamp100(result.usedVolumeM3 / containerVolume * 100);
@@ -148,6 +148,7 @@ function rankCandidates(
   return candidates
     .map(({ engine, output }) => scoreCandidate(container, cargo, strategy, engine, output))
     .sort((a, b) => {
+      if (Number.isFinite(a.score) !== Number.isFinite(b.score)) return Number.isFinite(a.score) ? -1 : 1;
       const scoreDiff = b.score - a.score;
       if (Number.isFinite(scoreDiff) && Math.abs(scoreDiff) > EPS) return scoreDiff;
       return b.output.placements.length - a.output.placements.length
@@ -186,7 +187,7 @@ export function packByHybridOptimizer(
   // Default/capacity runs are the most frequent path. For a large job that StrictWall has
   // already loaded completely, running a second expensive beam search cannot improve the
   // loaded quantity and mostly doubles latency. Stability/unloading still compare both.
-  if (strategy === 'capacity' && requestedCount >= CAPACITY_FAST_PATH_COUNT && strictRemaining === 0) {
+  if (strategy === 'capacity' && requestedCount >= CAPACITY_FAST_PATH_COUNT && strictRemaining === 0 && auditLoading(container, cargo, strict.placements).length === 0) {
     return strict;
   }
 
@@ -194,5 +195,8 @@ export function packByHybridOptimizer(
   return rankCandidates(container, cargo, strategy, [
     { engine: 'strict-wall', output: strict },
     { engine: 'ems-beam-v2', output: beam },
-  ])[0]?.output ?? strict;
+  ]).find(candidate => Number.isFinite(candidate.score))?.output ?? {
+    placements: [], loadedWeightKg: 0, usedVolumeM3: 0,
+    remaining: cargo.map(item => ({ cargoId: item.id, quantity: item.quantity, reason: '적재 규칙 재검사 실패: 안전한 배치를 찾지 못했습니다.' })),
+  };
 }

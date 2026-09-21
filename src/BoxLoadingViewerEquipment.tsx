@@ -1,6 +1,6 @@
 import { Edges } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import BoxSecuringAids3D from './BoxSecuringAids3D';
 import { cargoColor } from './cargoColors';
@@ -28,6 +28,7 @@ import { useTransportEquipment } from './transportEquipment';
 import WeightDistribution3D from './WeightDistribution3D';
 import WeightDistributionPanel from './WeightDistributionPanel';
 import './weight-distribution.css';
+import './loading-space.css';
 
 type IndexedPlacement = { placement: Placement; index: number };
 
@@ -71,6 +72,7 @@ function CargoGroup({
       mesh.setColorAt(instanceIndex, color);
     });
     mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }, [items, container, scale, base, selectedIndex]);
 
@@ -129,6 +131,9 @@ function BoxOutline({ p, container, scale }: { p: Placement; container: Containe
 export default function BoxLoadingViewerEquipment({ result, container }: { result: LoadingResult; container: ContainerSpec }) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [view, setView] = useState<PreviewView>('free');
+  const [cutHeight, setCutHeight] = useState(100);
+  const [showShell, setShowShell] = useState(true);
+  const visiblePlacements = useMemo(() => result.placements.filter(p => p.z < container.height * cutHeight / 100), [result.placements, container.height, cutHeight]);
   const [showLabels, setShowLabels] = useState(readBoxLabelPreference);
   const [showWeightGraph, setShowWeightGraph] = useState(readWeightGraphPreference);
   const [showWeightCenter, setShowWeightCenter] = useState(readWeightCgPreference);
@@ -143,12 +148,13 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
   const groups = useMemo(() => {
     const map = new Map<string, IndexedPlacement[]>();
     result.placements.forEach((placement, index) => {
+      if (placement.z >= container.height * cutHeight / 100) return;
       const list = map.get(placement.cargoId) ?? [];
       list.push({ placement, index });
       map.set(placement.cargoId, list);
     });
     return [...map.entries()];
-  }, [result.placements]);
+  }, [result.placements, container.height, cutHeight]);
   const selected = selectedIndex === null ? undefined : result.placements[selectedIndex];
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
   const weightDistribution = useMemo(() => analyzeWeightDistribution(container, result, 20, 8), [container, result]);
@@ -179,6 +185,12 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
   }, [result.placements]);
 
   return <section className="viewer reference-viewer">
+    <div className="loading-space-toolbar" aria-label="3D 적재 공간 도구">
+      <div><b>3D 적재 공간</b><small>{container.length.toFixed(2)} × {container.width.toFixed(2)} × {container.height.toFixed(2)} m</small></div>
+      <label>높이 단면 <input data-view-only="true" aria-label="높이 단면" type="range" min="1" max="100" value={cutHeight} onChange={e => setCutHeight(Number(e.target.value))}/><output>{cutHeight === 100 ? '전체' : `${(container.height * cutHeight / 100).toFixed(2)} m 아래`}</output></label>
+      <button type="button" aria-pressed={showShell} onClick={() => setShowShell(value => !value)}>{showShell ? '외벽 숨기기' : '외벽 표시'}</button>
+      <span>표시 {visiblePlacements.length} / {result.placements.length} EA</span>
+    </div>
     <div className="reference-3d">
       <PreviewViewControls
         view={view}
@@ -194,9 +206,13 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
         <color attach="background" args={['#edf3f9']} />
         <ambientLight intensity={2.1} />
         <directionalLight castShadow position={[3, 7, 5]} intensity={2.5} />
-        <EquipmentShell3D container={container} scale={scale} />
-        <AxisGuide container={container} scale={scale} />
-        <ClearanceGuide container={container} placements={result.placements} scale={scale} />
+        {showShell && <EquipmentShell3D container={container} scale={scale} />}
+        <mesh position={[0, container.height * scale / 2 + 0.03, 0]} raycast={() => {}}>
+          <boxGeometry args={[container.length * scale, container.height * scale, container.width * scale]}/>
+          <meshBasicMaterial transparent opacity={0} depthWrite={false}/><Edges color="#9cb6cb"/>
+        </mesh>
+        <Suspense fallback={null}><AxisGuide container={container} scale={scale} /></Suspense>
+        <Suspense fallback={null}><ClearanceGuide container={container} placements={result.placements} scale={scale} /></Suspense>
         {groups.map(([id, items]) => <group key={id}>
           <CargoGroup items={items} container={container} scale={scale} selectedIndex={selectedIndex} onSelect={(index) => change(index)} dimmed={showWeightGraph} assignedColor={cargoMap.get(id)?.displayColor} />
           <CargoEdges items={items} container={container} scale={scale} dimmed={showWeightGraph} />
@@ -204,7 +220,7 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
         </group>)}
         <BoxSecuringAids3D container={container} placements={result.placements} usage={securingUsage} scale={scale} />
         {showWeightGraph && <WeightDistribution3D container={container} analysis={weightDistribution} scale={scale} showCenterOfGravity={showWeightCenter} />}
-        {selected && !showWeightGraph && <BoxOutline p={selected} container={container} scale={scale} />}
+        {selected && selected.z < container.height * cutHeight / 100 && !showWeightGraph && <BoxOutline p={selected} container={container} scale={scale} />}
         <PreviewCameraController view={view} container={container} scale={scale} />
       </Canvas>
       {showWeightGraph && <WeightDistributionPanel analysis={weightDistribution} />}
@@ -214,5 +230,12 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
       {clearances && !showWeightGraph && <div className="reference-clearance-strip"><span>안쪽 <b>{clearances.back}</b></span><span>문쪽 <b>{clearances.door}</b></span><span>좌측 <b>{clearances.left}</b></span><span>우측 <b>{clearances.right}</b></span><span>천장 <b>{clearances.top}</b></span></div>}
       {selected && !showWeightGraph && <div className="reference-selected"><i style={{ background: cargoColor(selected.cargoId, cargoMap.get(selected.cargoId)?.displayColor) }} /><b>{cargoMap.get(selected.cargoId)?.name || selected.cargoId}</b><span>{selected.weightKg}kg · {(selected.length * selected.width * selected.height).toFixed(3)} CBM · R{addresses[selectedIndex!]?.row} C{addresses[selectedIndex!]?.column} L{addresses[selectedIndex!]?.layer}</span></div>}
     </div>
+    <div className="loading-space-summary" aria-live="polite">
+      <span>공간 사용 <b>{(result.usedVolumeM3 / Math.max(0.001, container.length * container.width * container.height) * 100).toFixed(1)}%</b></span>
+      <span>잔여 체적 <b>{Math.max(0, container.length * container.width * container.height - result.usedVolumeM3).toFixed(2)} m³</b></span>
+      <span>적재 중량 <b>{result.loadedWeightKg.toLocaleString()} / {container.maxPayloadKg.toLocaleString()} kg</b></span>
+      <span className={result.validationIssues.length ? 'space-rule-error' : ''}>{result.validationIssues.length ? `규칙 위반 ${result.validationIssues.length}건` : result.placements.length ? '적재 규칙 검사 통과' : '화물을 등록하고 자동 적재를 실행하세요'}</span>
+    </div>
+    {result.validationIssues.length > 0 && <details className="loading-space-issues"><summary>규칙 위반 상세</summary><ul>{result.validationIssues.map((issue, index) => <li key={index}>{issue.message}</li>)}</ul></details>}
   </section>;
 }

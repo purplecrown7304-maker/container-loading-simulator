@@ -36,3 +36,10 @@
 @media(max-width:760px){.guided-result-tabs.interactive{gap:14px;overflow-x:auto;white-space:nowrap}.guided-weight-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.guided-safety-list article{grid-template-columns:26px minmax(0,1fr)}.guided-safety-list article>strong{grid-column:2}.guided-result-grid>div:nth-child(-n + 3) b{font-size:21px}}
 @media(max-width:700px){.guided-result-grid{grid-template-columns:1fr 1fr}.guided-unloaded-list{max-height:42vh}}
 @media(max-width:460px){.guided-result-grid{grid-template-columns:1fr}.guided-result-grid>div:nth-child(-n + 3){min-height:78px}}
+
+/* Load Studio visual system — owned by this feature. */
+html[data-guided-workflow="true"] .guided-result-grid>div { background: #fff; border-color: #e4e4eb; border-radius: 16px; padding: 22px; }
+html[data-guided-workflow="true"] .guided-result-grid b { font-size: 27px; font-weight: 550; letter-spacing: -.04em; }
+@media (max-width: 760px) {
+html[data-guided-workflow="true"] .guided-result-grid>div { padding: 18px; }
+}

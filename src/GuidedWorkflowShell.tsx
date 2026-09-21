@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import StudioIcon, { stepIcons } from './StudioIcon';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+const LoadingSpacePreview = lazy(() => import('./LoadingSpacePreview'));
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT } from './adminAccess';
 import {
@@ -154,7 +156,7 @@ function StepRail({ step, furthest, selectionCount, packagedReady, strategy, run
   onStep: (step: StepId) => void;
 }) {
   return <section className="guided-step-rail" aria-label="작업 준비 단계">
-    <h2>작업 준비</h2>
+    <div className="studio-rail-heading"><span>WORKSPACE</span><h2>적재 계획</h2><p>공간 선택부터 출하까지</p></div>
     <div className="guided-step-list">
       {steps.map(item => {
         const complete = item.id < step
@@ -169,12 +171,13 @@ function StepRail({ step, furthest, selectionCount, packagedReady, strategy, run
           : item.id === 4 ? (strategy ? strategyLabel(strategy) : '미선택')
           : item.id === 5 ? (finalReady ? '검사 완료' : running ? '검사 중' : '대기')
           : finalReady ? '확인 가능' : '-';
-        return <button key={item.id} type="button" className={`${current ? 'current' : ''} ${complete ? 'complete' : ''}`} disabled={!enabled} onClick={() => enabled && onStep(item.id)}>
-          <span className="guided-step-dot">{complete ? '✓' : item.id}</span>
-          <span className="guided-step-copy"><b>{item.label}</b><small>{meta}</small></span>
+        return <button key={item.id} type="button" aria-current={current ? 'step' : undefined} className={`${current ? 'current' : ''} ${complete ? 'complete' : ''}`} disabled={!enabled} onClick={() => enabled && onStep(item.id)}>
+          <span className="guided-step-dot">{complete ? '✓' : <StudioIcon name={stepIcons[item.id - 1]}/>}</span>
+          <span className="guided-step-copy"><b>{item.label}</b><small>{String(item.id).padStart(2, '0')} · {meta}</small></span>
         </button>;
       })}
     </div>
+    <div className="studio-rail-progress"><span>현재 단계 <b>{step} / 6</b></span><progress max="6" value={step} aria-label="현재 작업 단계"/></div>
   </section>;
 }
 
@@ -203,11 +206,11 @@ function ProductSelectionStage({ container, selection, onSelection }: {
   const boxes = state?.boxes ?? [];
   const normalizedQuery = query.trim().toLowerCase();
   const filtered = useMemo(() => {
-    if (!normalizedQuery) return [];
+    if (!normalizedQuery) return products.filter(product => (selection[product.id] ?? 0) > 0);
     return products
       .filter(product => `${product.id} ${product.name}`.toLowerCase().includes(normalizedQuery))
       .slice(0, 50);
-  }, [products, normalizedQuery]);
+  }, [products, normalizedQuery, selection]);
   const total = Object.values(selection).reduce((sum, value) => sum + value, 0);
 
   const updateQty = (id: string, quantity: number) => {
@@ -220,8 +223,8 @@ function ProductSelectionStage({ container, selection, onSelection }: {
 
   return <section className="guided-stage-panel guided-product-stage">
     <div className="guided-panel-title"><div><h1>제품 선택</h1><p>등록된 회사 제품에서 이름 또는 제품코드를 찾고 이번 출하 수량만 입력합니다.</p></div><span className="guided-selected-total">{Object.keys(selection).length}종 · {total.toLocaleString()} EA</span></div>
-    <div className="guided-product-search"><span>⌕</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="제품명 또는 제품코드 검색" /></div>
-    {!products.length ? <div className="guided-empty product-empty"><b>등록된 회사 제품이 없습니다.</b><span>제품 등록은 우측 상단 메뉴 → 회사 제품 관리에서 합니다.</span></div> : !normalizedQuery ? <div className="guided-empty product-empty"><b>제품을 검색하세요.</b><span>제품명 또는 제품코드를 입력하면 일치하는 제품만 표시합니다.</span></div> : <div className="guided-product-table">
+    <div className="guided-product-search"><span>⌕</span><input aria-label="제품 검색" value={query} onChange={event => setQuery(event.target.value)} placeholder="제품명 또는 제품코드 검색" /></div>
+    {!products.length ? <div className="guided-empty product-empty"><b>등록된 회사 제품이 없습니다.</b><span>제품 등록은 우측 상단 메뉴 → 회사 제품 관리에서 합니다.</span></div> : !normalizedQuery && !filtered.length ? <div className="guided-empty product-empty"><b>제품을 검색하세요.</b><span>제품명 또는 제품코드를 입력하면 일치하는 제품만 표시합니다.</span></div> : <div className="guided-product-table">
       <div className="guided-product-table-head"><span>제품 정보</span><span>포장</span><span>자동 추천 상자</span><span>이번 출하 수량</span></div>
       {filtered.map(product => {
         const quantity = selection[product.id] ?? 0;
@@ -232,11 +235,11 @@ function ProductSelectionStage({ container, selection, onSelection }: {
           <div className="guided-product-info"><b>{product.name}</b><span>{product.id} · {Math.round(product.length * 1000)}×{Math.round(product.width * 1000)}×{Math.round(product.height * 1000)} mm · {product.weightKg} kg</span></div>
           <div className="guided-product-pack-type">{requiresBoxPackaging(product) ? <><b>박스 필요</b><span>포장 단계에서 확정</span></> : <><b>직접 적재</b><span>박스 없음</span></>}</div>
           <div className="guided-product-auto-box">{requiresBoxPackaging(product) ? candidate ? <><b>{formatBoxSize(candidate)}</b><span>{candidate.source === 'catalog' ? `보유 박스 · ${candidate.boxName}` : '신규 추천 규격'} · {candidate.unitsPerBox}EA/BOX</span></> : <><b className="warn">추천 불가</b><span>제품/박스 조건 확인</span></> : <><b>해당 없음</b><span>제품 실물 규격 사용</span></>}</div>
-          <div className="guided-product-qty"><button type="button" onClick={() => updateQty(product.id, Math.max(0, quantity - 1))}>−</button><input type="number" min="0" step="1" value={quantity} onChange={event => updateQty(product.id, Number(event.target.value))}/><button type="button" onClick={() => updateQty(product.id, quantity + 1)}>＋</button></div>
+          <div className="guided-product-qty"><button type="button" aria-label={`${product.name} 수량 줄이기`} onClick={() => updateQty(product.id, Math.max(0, quantity - 1))}>−</button><input aria-label={`${product.name} 출하 수량`} type="number" min="0" step="1" value={quantity} onChange={event => updateQty(product.id, Number(event.target.value))}/><button type="button" aria-label={`${product.name} 수량 늘리기`} onClick={() => updateQty(product.id, quantity + 1)}>＋</button></div>
         </article>;
       })}
       {!filtered.length && <div className="guided-empty">검색 결과가 없습니다.</div>}
-      {filtered.length === 50 && <div className="guided-empty">검색 결과가 많습니다. 제품명 또는 제품코드를 더 입력해 범위를 줄이세요.</div>}
+      {normalizedQuery && filtered.length === 50 && <div className="guided-empty">검색 결과가 많습니다. 제품명 또는 제품코드를 더 입력해 범위를 줄이세요.</div>}
     </div>}
     <p className="guided-stage-help">검색 결과의 박스는 빠른 미리보기이며, 실제 포장 규격은 다음 제품 포장 단계에서 정밀 계산합니다.</p>
   </section>;
@@ -376,11 +379,11 @@ function StagePanel({ step, live, selection, strategy, onSelection, onBundle, on
 }) {
   const equipment = useTransportEquipment();
   if (step === 1) return <section className="guided-stage-panel guided-equipment-stage">
-    <div className="guided-panel-title"><h1>적재공간 선택</h1></div>
+    <div className="guided-panel-title studio-main-title"><div><span className="studio-eyebrow">01 / SPACE</span><h1>적재공간 선택</h1><p>운송 장비를 선택하고, 실제 적재 공간을 확인하세요.</p></div><span className="studio-step-tag">계획 시작</span></div>
     <div className="guided-segmented"><button type="button" className={equipment.category === 'container' ? 'active' : ''} onClick={() => openEquipment('container')}>컨테이너</button><button type="button" className={equipment.category === 'truck' ? 'active' : ''} onClick={() => openEquipment('truck')}>트럭</button></div>
-    <div className="guided-section-label">현재 선택 적재공간</div>
+    <button type="button" className="studio-equipment-picker" onClick={() => openEquipment(equipment.category)} aria-label="선택한 장비 변경"><span className="studio-equipment-symbol"><StudioIcon /></span><span><small>선택한 장비</small><b>{equipment.shortName}</b></span><span className="studio-change-label">장비 변경 <span aria-hidden="true">↗</span></span></button>
     <button type="button" className="guided-equipment-card selected" onClick={() => openEquipment(equipment.category)}><span className="guided-equipment-icon">{equipment.category === 'truck' ? '▰' : '▥'}</span><span><b>{equipment.shortName}</b><small>{equipment.name}</small><small>다시 클릭하면 적재공간 변경</small></span><i>✓</i></button>
-    <EquipmentIllustration equipment={equipment} />
+    <Suspense fallback={<EquipmentIllustration equipment={equipment} />}><LoadingSpacePreview container={equipment} /></Suspense>
     <div className="guided-equipment-specs"><div><span>내부 길이</span><b>{(equipment.length * 1000).toLocaleString()} mm</b></div><div><span>내부 폭</span><b>{(equipment.width * 1000).toLocaleString()} mm</b></div><div><span>내부 높이</span><b>{(equipment.height * 1000).toLocaleString()} mm</b></div><div><span>최대 적재중량</span><b>{equipment.maxPayloadKg.toLocaleString()} kg</b></div><div><span>바닥 허용하중</span><b>{equipment.floorLoadLimitKgPerM2.toLocaleString()} kg/m²</b></div><div><span>적재 용적</span><b>{(equipment.volumeM3 ?? equipment.length * equipment.width * equipment.height).toFixed(1)} m³</b></div></div>
   </section>;
   if (step === 2) return <ProductSelectionStage container={live.container} selection={selection} onSelection={onSelection} />;
@@ -412,7 +415,8 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
   const status = finalReady ? '작업 가능' : running ? '검사 중' : loaded ? '검증 대기' : '대기';
   const restrictedCount = live.cargo.filter(item => item.quantity > 0 && (item.maxStackLayers === 1 || item.maxTopLoadKg === 0)).length;
   return <section className="guided-job-summary">
-    <h2>현재 작업</h2>
+    <div className="studio-summary-heading"><h2>현재 작업</h2><span>OVERVIEW</span></div>
+    <div className="studio-summary-equipment"><StudioIcon /><b>{equipment.shortName}</b><span>{live.container.length.toFixed(2)} × {live.container.width.toFixed(2)} × {live.container.height.toFixed(2)} m</span></div>
     <dl>
       <div><dt>적재공간</dt><dd>{equipment.shortName}</dd></div>
       <div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div>
@@ -423,9 +427,10 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
       <div><dt>적재</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div>
       <div><dt>미적재</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div>
       <div><dt>총 중량</dt><dd>{weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div>
-      <div><dt>공간 사용률</dt><dd>{mode === 'boxes' && usedVolume ? `${fillRate.toFixed(1)}%` : '-'}</dd></div>
+
       <div className="guided-status-row"><dt>상태</dt><dd><i className={finalReady ? 'good' : running ? 'running' : ''}/>{status}</dd></div>
     </dl>
+    <div className="studio-capacity"><span>공간 사용률<b>{mode === 'boxes' ? `${fillRate.toFixed(1)}%` : '팔레트 결과 참고'}</b></span><meter aria-label="공간 사용률" min="0" max="100" value={mode === 'boxes' ? Math.min(100, fillRate) : 0}/><small>전체 공간 {maxVolume.toFixed(1)} m³</small></div>
     {step === 5 && !running && !finalReady && <div className="guided-loading-run-confirmation" aria-label="자동 적재 실행 설정 확인">
       <b>실행 설정 확인</b>
       <span>{mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재'} · {strategy ? strategyLabel(strategy) : '전략 미선택'}</span>
@@ -447,6 +452,21 @@ function BottomBar({ step, selectionCount, packagedReady, strategy, running, fin
   onAdvance: (step: StepId) => void;
   onApplyPackaging: () => void;
 }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    // Reserve the real footer height, including wrapped labels and mobile safe areas.
+    // Scrolling and keyboard focus must never put canvas controls behind the fixed bar.
+    const updateHeight = () => document.documentElement.style.setProperty('--guided-footer-height', `${bar.getBoundingClientRect().height}px`);
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(bar);
+    return () => {
+      observer.disconnect();
+      document.documentElement.style.removeProperty('--guided-footer-height');
+    };
+  }, []);
   let label = '다음: 제품 선택';
   let disabled = false;
   let action = () => onAdvance(2);
@@ -457,7 +477,7 @@ function BottomBar({ step, selectionCount, packagedReady, strategy, running, fin
     if (finalReady) { label = '결과 확인'; action = () => onAdvance(6); }
     else { label = running ? '최종 적재 검사 중…' : '최종 적재 진행'; disabled = running || !strategy; action = () => dispatchAppAction('run-loading'); }
   } else if (step === 6) { label = '통합 출하·적재 작업지시서 보기'; disabled = !finalReady; action = () => dispatchAppAction('print-report'); }
-  return <div className="guided-bottom-bar"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 6 ? '  ›' : ''}</button><span className="guided-bottom-spacer"/></div>;
+  return <div ref={barRef} className="guided-bottom-bar"><div className="studio-footer-left"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><span className="studio-footer-step">STEP {String(step).padStart(2, '0')} <i>/</i> 06</span></div><div className="studio-footer-actions">{step > 1 && <button type="button" className="studio-back" disabled={running} onClick={() => onAdvance((step - 1) as StepId)}>이전 단계</button>}<button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 6 ? '  ›' : ''}</button></div></div>;
 }
 
 export default function GuidedWorkflowShell() {
@@ -494,6 +514,8 @@ export default function GuidedWorkflowShell() {
 
   useEffect(() => {
     publishGuidedWorkflowState({ active: true, step });
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    document.getElementById('root')?.scrollTo({ top: 0, behavior: 'instant' });
   }, [step]);
 
   useEffect(() => () => {
@@ -527,6 +549,12 @@ export default function GuidedWorkflowShell() {
 
   useEffect(() => {
     const refresh = () => setLive(readLive());
+    const onCertificationInvalidated = (event: Event) => {
+      if ((event as CustomEvent<InertiaCertification | undefined>).detail) return;
+      setFinalReady(false);
+      setFurthest(previous => Math.min(previous, 5) as StepId);
+      setStep(previous => previous === 6 ? 5 : previous);
+    };
     const refreshSelection = () => setSelection(readProductSelection());
     const refreshIdentity = () => {
       setSelection(readProductSelection());
@@ -542,6 +570,7 @@ export default function GuidedWorkflowShell() {
     window.addEventListener(LOADING_RESULT_EVENT, refresh);
     window.addEventListener(STORAGE_UPDATED_EVENT, refresh);
     window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
+    window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertificationInvalidated);
     window.addEventListener(PRODUCT_SELECTION_EVENT, refreshSelection);
     window.addEventListener(LOCAL_OPERATOR_EVENT, refreshIdentity);
     window.addEventListener(ADMIN_ACCESS_EVENT, refreshIdentity);
@@ -551,6 +580,7 @@ export default function GuidedWorkflowShell() {
       window.removeEventListener(LOADING_RESULT_EVENT, refresh);
       window.removeEventListener(STORAGE_UPDATED_EVENT, refresh);
       window.removeEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
+      window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertificationInvalidated);
       window.removeEventListener(PRODUCT_SELECTION_EVENT, refreshSelection);
       window.removeEventListener(LOCAL_OPERATOR_EVENT, refreshIdentity);
       window.removeEventListener(ADMIN_ACCESS_EVENT, refreshIdentity);

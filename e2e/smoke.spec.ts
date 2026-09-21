@@ -24,6 +24,10 @@ async function advanceToStrategy(page: import('@playwright/test').Page, id: stri
   await page.locator('.guided-product-table article').filter({ hasText: id }).locator('input[type="number"]').fill('3');
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
+  await page.getByRole('button', { name: '이전 단계', exact: true }).click();
+  await expect(page.locator('.guided-product-table article').filter({ hasText: id }).locator('input[type="number"]')).toHaveValue('3');
+  await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
+  await expect(page.getByText('포장안 준비 완료')).toBeVisible();
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
 }
 
@@ -123,4 +127,9 @@ test('mobile guided dashboard remains usable without horizontal body overflow', 
   const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
   const viewportWidth = await page.evaluate(() => window.innerWidth);
   expect(bodyWidth).toBeLessThanOrEqual(viewportWidth + 2);
+  const rail = await page.locator('.guided-step-rail').boundingBox();
+  const stage = await page.locator('.guided-stage-panel').boundingBox();
+  expect(rail!.y + rail!.height).toBeLessThanOrEqual(stage!.y);
+  await page.locator('.guided-equipment-specs').scrollIntoViewIfNeeded();
+  await expect(page.getByText('적재 용적', { exact: true })).toBeVisible();
 });

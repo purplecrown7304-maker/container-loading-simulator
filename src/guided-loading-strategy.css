@@ -141,3 +141,16 @@
     transform: none!important;
   }
 }
+
+/* Load Studio visual system — owned by this feature. */
+html[data-guided-workflow="true"] :is(.guided-strategy-card,.guided-loading-unit-grid button) { border-radius: 18px; border-color: #e1e1e8; background: #fff; box-shadow: none; padding: 23px 20px; }
+html[data-guided-workflow="true"] :is(.guided-strategy-card.selected,.guided-loading-unit-grid button.selected) { border-color: #0071e3; background: #f6faff; box-shadow: 0 0 0 1px #0071e3; }
+html[data-guided-workflow="true"] .guided-strategy-card strong { color: #303039; font-size: 17px; font-weight: 600; word-break: keep-all; }
+html[data-guided-workflow="true"] .guided-strategy-card b { margin-top: 16px; font-size: 13px; font-weight: 500; color: #666671; word-break: keep-all; }
+html[data-guided-workflow="true"] .guided-strategy-card small { font-size: 11px; color: #777783; line-height: 1.8; }
+@media (max-width: 760px) {
+html[data-guided-workflow="true"] :is(.guided-strategy-grid,.guided-loading-unit-grid) { gap: 12px; }
+}
+@media (max-width: 760px) {
+html[data-guided-workflow="true"] .guided-strategy-card { padding: 20px; }
+}

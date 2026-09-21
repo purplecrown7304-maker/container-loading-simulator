@@ -14,6 +14,8 @@ export default function CertificationInvalidationBridge() {
     const invalidateEditedPlan = (event: Event) => {
       const target = event.target;
       if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return;
+      // View filters never change geometry or invalidate an in-flight physical audit.
+      if (target.dataset.viewOnly === 'true') return;
       clearLatestInertiaCertification();
       clearPhysicsTarget();
     };
