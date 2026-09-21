@@ -1,3 +1,4 @@
+import { buildReportDocument, reportTable, REPORT_SIGNOFF } from './reportLayout';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import type { PhysicsScenario } from './engine/physicsValidation';
 import {
@@ -135,28 +136,26 @@ function assessScenario(scenario: InertiaScenario, result: InertiaAnimationResul
   };
 }
 
-export function openInertiaImprovementReport(target: PhysicsTarget, results: InertiaResults) {
+export function buildInertiaImprovementReportHtml(target: PhysicsTarget, results: InertiaResults) {
   const assessments = SCENARIOS
     .map(info => results[info.id] ? assessScenario(info.id, results[info.id]!, target.mode) : null)
     .filter((item): item is ScenarioAssessment => Boolean(item));
-  if (!assessments.length) return false;
+  if (!assessments.length) return null;
 
   const worst = [...assessments].sort((a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level] || b.result.maxHorizontalShiftM - a.result.maxHorizontalShiftM || b.result.maxTiltDeg - a.result.maxTiltDeg)[0];
   const tested = assessments.length;
   const overallLabel = worst.level === 'danger'
     ? '위험 · 작업지시서 생성 불가'
-    : worst.level === 'warning'
+    : tested < 3
+      ? '검증 미완료 · 남은 시나리오 실행 필요'
+      : worst.level === 'warning'
       ? '위험 아님 · 권장사항 반영 후 작업지시서 생성 가능'
       : '안정 · 작업지시서 생성 가능';
   const commonRecommendations = [...new Set(assessments.flatMap(item => item.recommendations))];
-  const popup = window.open('', '_blank', 'width=1100,height=900');
-  if (!popup) return false;
-  try { popup.opener = null; } catch { /* 일부 브라우저에서는 opener 변경이 제한될 수 있음 */ }
-
   const scenarioRows = SCENARIOS.map(info => {
     const assessment = assessments.find(item => item.scenario === info.id);
-    if (!assessment) return `<tr class="untested"><td>${info.label}</td><td>${info.forceLabel}</td><td colspan="4">미실행</td></tr>`;
-    return `<tr class="${assessment.level}"><td>${assessment.label}</td><td>${assessment.forceLabel}</td><td><b>${assessment.levelLabel}</b></td><td>${mm(assessment.result.maxHorizontalShiftM)}</td><td>${assessment.result.maxTiltDeg.toFixed(1)}°</td><td>${escapeHtml(assessment.evaluation)}</td></tr>`;
+    if (!assessment) return `<tr><td>${info.label}</td><td>${info.forceLabel}</td><td><span class="report-pill neutral">미실행</span></td><td colspan="3">시나리오를 실행한 뒤 결과를 확인하세요.</td></tr>`;
+    return `<tr class="${assessment.level}"><td>${assessment.label}</td><td>${assessment.forceLabel}</td><td><span class="report-pill ${assessment.level === 'stable' ? 'good' : assessment.level === 'warning' ? 'caution' : 'danger'}">${assessment.levelLabel}</span></td><td>${mm(assessment.result.maxHorizontalShiftM)}</td><td>${assessment.result.maxTiltDeg.toFixed(1)}°</td><td>${escapeHtml(assessment.evaluation)}</td></tr>`;
   }).join('');
 
   const recommendationHtml = commonRecommendations.map((item, index) => `<li><b>${index + 1}</b><span>${escapeHtml(item)}</span></li>`).join('');
@@ -167,16 +166,32 @@ export function openInertiaImprovementReport(target: PhysicsTarget, results: Ine
     '시뮬레이션 결과만으로 운송 안전을 확정하지 않고 회사·운송사·법규 기준으로 최종 검토',
   ].map(item => `<li>${escapeHtml(item)}</li>`).join('');
 
-  popup.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>관성 테스트 보완 보고서</title><style>
-    *{box-sizing:border-box}body{margin:0;font-family:Arial,'Noto Sans KR',sans-serif;color:#172033;background:#eef2f7}.page{max-width:1050px;margin:24px auto;padding:28px;background:#fff}.head{display:flex;justify-content:space-between;gap:20px;border-bottom:3px solid #172033;padding-bottom:16px}.head h1{margin:0 0 6px;font-size:25px}.head p{margin:0;color:#64748b;font-size:12px}.badge{align-self:flex-start;padding:9px 12px;border-radius:9px;background:${worst.level === 'danger' ? '#fff1f1' : worst.level === 'warning' ? '#fff8e8' : '#effaf3'};color:${worst.level === 'danger' ? '#b42318' : worst.level === 'warning' ? '#9a6700' : '#16803c'};font-weight:800}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:18px 0}.summary div{padding:12px;border:1px solid #dfe6ef;border-radius:9px;background:#f8fafc}.summary span{display:block;color:#64748b;font-size:10px;margin-bottom:4px}.summary b{font-size:14px}h2{font-size:16px;margin:22px 0 10px}.overall{padding:14px;border-radius:10px;background:#f4f7fb;border:1px solid #dbe3ee}.overall b{display:block;margin-bottom:5px}.overall span{font-size:12px;line-height:1.55;color:#52617a}table{width:100%;border-collapse:collapse;font-size:11px}th,td{padding:9px;border:1px solid #dfe6ef;text-align:left;vertical-align:top}th{background:#f2f5f9;color:#52617a}.stable td:nth-child(3){color:#16803c}.warning td:nth-child(3){color:#9a6700}.danger td:nth-child(3){color:#b42318}.untested{color:#94a3b8}.recommend{display:grid;grid-template-columns:1fr 1fr;gap:10px}.recommend li{list-style:none;display:grid;grid-template-columns:26px 1fr;gap:8px;padding:10px;border:1px solid #e1e7ef;border-radius:8px;font-size:11px;line-height:1.5}.recommend li b{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#eaf2ff;color:#2563eb}.check li{margin:7px 0;font-size:11px;line-height:1.5}.notice{margin-top:18px;padding:11px;border-radius:8px;background:#fff7ed;color:#9a5b00;font-size:10px;line-height:1.55}.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}.actions button{border:0;border-radius:8px;padding:10px 14px;font-weight:700;cursor:pointer}.actions .print{background:#2563eb;color:#fff}@media print{body{background:#fff}.page{margin:0;max-width:none;padding:12mm}.actions{display:none}}
-  </style></head><body><main class="page"><section class="head"><div><h1>관성 테스트 보완 보고서</h1><p>${target.mode === 'pallets' ? 'PALLET MODE' : 'BOX MODE'} · Rapier 3D 관성 애니메이션 결과 기반</p></div><div class="badge">${overallLabel}</div></section>
-  <section class="summary"><div><span>실행 시나리오</span><b>${tested} / 3</b></div><div><span>적재 화물</span><b>${target.result.placements.length} EA</b></div><div><span>팔레트</span><b>${target.supports?.length ?? 0} EA</b></div><div><span>최악 조건</span><b>${worst.label}</b></div></section>
-  <h2>종합 평가</h2><div class="overall"><b>${overallLabel}</b><span>${escapeHtml(worst.evaluation)}${tested < 3 ? ' · 미실행 시나리오는 평가에 포함되지 않았습니다.' : ''}</span></div>
-  <h2>시나리오별 평가</h2><table><thead><tr><th>상황</th><th>관성 조건</th><th>판정</th><th>최대 이동</th><th>최대 기울기</th><th>평가 내용</th></tr></thead><tbody>${scenarioRows}</tbody></table>
-  <h2>보완할 점</h2><ol class="recommend">${recommendationHtml}</ol>
-  <h2>보완 후 재시험 체크</h2><ul class="check">${retestHtml}</ul>
-  <div class="notice">작업지시서는 3개 시나리오가 모두 실행되고 위험 판정이 없을 때 생성할 수 있습니다. 보완 권장 단계는 내부 PASS 기준을 일부 초과했지만 위험 기준 이내이므로 권장사항이 작업지시서에 함께 표시됩니다. 실제 운송 안전 판정은 차량, 노면, 화물 고정장치, 포장재 강도, 마찰계수 및 회사/법규 기준을 별도로 적용해야 합니다.</div>
-  <div class="actions"><button onclick="window.close()">닫기</button><button class="print" onclick="window.print()">인쇄 / PDF 저장</button></div></main></body></html>`);
+  return buildReportDocument({
+    title: '관성 테스트 보완 보고서',
+    subtitle: `${new Date().toLocaleString('ko-KR')} · ${target.mode === 'pallets' ? 'PALLET MODE' : 'BOX MODE'} · Rapier 3D 관성 애니메이션 결과 기반`,
+    status: overallLabel,
+    tone: worst.level === 'danger' ? 'danger' : tested < 3 ? 'neutral' : worst.level === 'warning' ? 'caution' : 'good',
+    summary: `<section class="summary" aria-label="관성 검증 요약"><div><span>실행 시나리오</span><b>${tested} / 3</b></div><div><span>적재 화물</span><b>${target.result.placements.length} EA</b></div><div><span>팔레트</span><b>${target.supports?.length ?? 0} EA</b></div><div class="text-metric"><span>실행 결과 중 최악 조건</span><b>${worst.label}</b></div></section>`,
+    sections: [
+      { title: '종합 평가와 보완할 점', description: '현재 판정과 우선 조치사항을 먼저 확인하세요.',
+        content: `<div class="overall"><b>${overallLabel}</b><span>${escapeHtml(worst.evaluation)}${tested < 3 ? ' · 미실행 시나리오는 평가에 포함되지 않았습니다.' : ''}</span></div><h3>보완할 점</h3><ol class="recommend">${recommendationHtml}</ol>` },
+      { title: '시나리오별 평가', description: '출발 가속·급정거·급회전을 모두 실행한 결과인지 확인하세요.',
+        content: reportTable('관성 시나리오별 평가표', `<table><colgroup><col style="width:13%"><col style="width:16%"><col style="width:13%"><col style="width:13%"><col style="width:12%"><col style="width:33%"></colgroup><thead><tr><th scope="col">상황</th><th scope="col">관성 조건</th><th scope="col">판정</th><th scope="col">최대 이동</th><th scope="col">최대 기울기</th><th scope="col">평가 내용</th></tr></thead><tbody>${scenarioRows}</tbody></table>`) },
+      { title: '보완 후 재시험 체크', description: '보완 전후 수치를 대조한 뒤 검토 담당자가 확인하세요.',
+        content: `<ul class="checklist">${retestHtml}</ul>${REPORT_SIGNOFF}<p class="technical-note">작업지시서는 3개 시나리오가 모두 실행되고 위험 판정이 없을 때 생성할 수 있습니다. 보완 권장 단계는 내부 PASS 기준을 일부 초과했지만 위험 기준 이내이므로 권장사항이 작업지시서에 함께 표시됩니다. 실제 운송 안전 판정은 차량, 노면, 화물 고정장치, 포장재 강도, 마찰계수 및 회사/법규 기준을 별도로 적용해야 합니다.</p>` },
+    ],
+    footer: `<span>관성 검증 ${tested} / 3 실행</span><span>${target.mode === 'pallets' ? '팔레트 적재' : '박스 적재'} · 내부 비교 결과</span>`,
+  });
+}
+
+export function openInertiaImprovementReport(target: PhysicsTarget, results: InertiaResults) {
+  const html = buildInertiaImprovementReportHtml(target, results);
+  if (!html) return false;
+  const popup = window.open('', '_blank', 'width=1100,height=900');
+  if (!popup) return false;
+  try { popup.opener = null; } catch { /* 일부 브라우저에서는 opener 변경이 제한될 수 있음 */ }
+  popup.document.open();
+  popup.document.write(html);
   popup.document.close();
   return true;
 }

@@ -46,8 +46,5 @@ export function buildWorkOrderCargoSummary(cargo: CargoItem[], counts: Map<strin
       <div class="cargo-intake-info"><b>${escapeHtml(item.id)}</b><span>${escapeHtml(item.name)}</span><strong>${quantity.toLocaleString()} EA</strong><small>${escapeHtml(size)}</small></div>
     </article>`;
   }).join('');
-  return `<section class="cargo-intake"><div class="cargo-intake-title"><h2>투입 적재단위</h2><span>실제 최종 적재 수량 기준</span></div><div class="cargo-intake-grid">${cards}</div></section>`;
+  return `<section class="cargo-intake"><div class="cargo-intake-title"><h3>투입 적재단위</h3><span>실제 최종 적재 수량 기준</span></div><div class="cargo-intake-grid">${cards}</div></section>`;
 }
-
-export const WORK_ORDER_CARGO_SUMMARY_CSS = `
-.cargo-intake{margin:8px 0 9px}.cargo-intake-title{display:flex;align-items:end;justify-content:space-between;gap:8px;margin-bottom:5px}.cargo-intake-title h2{font-size:14px}.cargo-intake-title span{font-size:8px;color:#64748b}.cargo-intake-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}.cargo-intake-card{display:grid;grid-template-columns:72px minmax(0,1fr);align-items:center;gap:6px;min-width:0;padding:5px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;break-inside:avoid}.cargo-intake-image{display:grid;place-items:center;height:58px;border-radius:6px;background:#f8fafc;overflow:hidden}.cargo-intake-image svg{width:72px;height:54px;display:block}.cargo-intake-info{display:flex;flex-direction:column;min-width:0;gap:1px}.cargo-intake-info b{font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cargo-intake-info span{font-size:7.5px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cargo-intake-info strong{margin-top:1px;font-size:11px;color:#1d4ed8}.cargo-intake-info small{font-size:7px;color:#475569;line-height:1.25}@media(max-width:700px){.cargo-intake-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}`;

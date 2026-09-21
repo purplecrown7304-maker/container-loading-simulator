@@ -1,3 +1,4 @@
+import { buildReportDocument, reportTable, REPORT_SIGNOFF } from './reportLayout';
 import { boxResultMatchesWorkOrderCertification } from './certifiedExport';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { confirmUnverifiedExport, hasCurrentPhysicsVerification } from './exportVerification';
@@ -10,10 +11,10 @@ import {
 } from './inertiaWorkOrderPolicy';
 import { readPhysicsTarget } from './physicsTarget';
 import { requestDirectWorkOrder } from './directWorkOrderEvents';
-import { buildShipmentInstructionSection, SHIPMENT_INSTRUCTION_CSS } from './shipmentInstruction';
+import { buildShipmentInstructionSection } from './shipmentInstruction';
 import { readTransportEquipment } from './transportEquipment';
 import { buildProgressSvgs, buildSideViewSvg, buildTopViewSvg, buildWorkerStepGroups } from './workerReportGraphics';
-import { buildWorkOrderCargoSummary, loadedCargoCounts, WORK_ORDER_CARGO_SUMMARY_CSS } from './workOrderCargoSummary';
+import { buildWorkOrderCargoSummary, loadedCargoCounts } from './workOrderCargoSummary';
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -92,27 +93,33 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
     : equipment.geometry === 'open-top'
       ? '□ 도어/상부 개방부 간섭 없음'
       : '□ 도어 닫힘 간섭 없음';
-  const badgeClass = approval === 'caution' ? 'pass caution' : approval === 'danger' ? 'pass danger' : 'pass';
-
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
-    @page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}body{font-family:Arial,"Noto Sans KR",sans-serif;color:#172033;margin:0;font-size:10px;background:#fff}h1,h2,p{margin:0}${WORK_ORDER_CARGO_SUMMARY_CSS}${SHIPMENT_INSTRUCTION_CSS}.sheet{max-width:794px;margin:0 auto;padding:4px}.header{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;border-bottom:3px solid #172033;padding-bottom:9px}.header h1{font-size:24px;letter-spacing:-.5px}.header p{margin-top:4px;color:#64748b}.pass{padding:8px 12px;border:2px solid #16a34a;border-radius:10px;background:#f0fdf4;color:#166534;text-align:center}.pass.caution{border-color:#d97706;background:#fff7ed;color:#9a5b00}.pass.danger{border-color:#dc2626;background:#fff1f2;color:#b91c1c}.pass b{display:block;font-size:15px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0}.summary div{padding:8px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc}.summary span{display:block;color:#64748b;font-size:9px}.summary b{display:block;margin-top:2px;font-size:13px}.summary small{display:block;margin-top:2px;color:#64748b;font-size:8px}.direction{display:flex;align-items:center;justify-content:center;gap:16px;margin:6px 0;padding:7px;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:13px;font-weight:900}.direction em{font-style:normal;color:#475569}.diagram-grid{display:grid;grid-template-columns:1fr;gap:7px}.diagram-grid svg{width:100%;height:auto;display:block;border:1px solid #e2e8f0;border-radius:10px}.section-title{display:flex;justify-content:space-between;align-items:end;margin:10px 0 5px}.section-title h2{font-size:15px}.section-title span{color:#64748b;font-size:9px}.progress{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.progress svg{width:100%;height:auto}.work-table{width:100%;border-collapse:collapse}.work-table th,.work-table td{border:1px solid #cbd5e1;padding:6px;vertical-align:middle}.work-table th{background:#172033;color:#fff;font-size:9px}.work-table small{display:block;margin-top:2px;color:#64748b;font-size:8px}.group-no{width:38px;text-align:center;background:#eff6ff;color:#1d4ed8}.group-no b{font-size:16px}.check{width:36px;text-align:center;font-size:19px}.materials{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.materials div{padding:7px;border:1px solid #cbd5e1;border-radius:8px}.materials span,.materials i{display:block;color:#64748b;font-size:8px}.materials b{display:block;margin:2px 0;font-size:12px}.materials i{font-style:normal;color:#166534}.recommendations{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0;padding:0}.recommendations li{list-style:none;display:grid;grid-template-columns:24px 1fr;gap:7px;padding:7px;border:1px solid ${approval === 'caution' ? '#fed7aa' : '#bfdbfe'};border-radius:8px;background:${approval === 'caution' ? '#fff7ed' : '#eff6ff'};font-size:8.5px;line-height:1.45}.recommendations li b{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#fff;color:#1d4ed8;border:1px solid #cbd5e1}.final-check{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}.final-check div{padding:8px;border:1px solid #f0b85f;border-radius:8px;background:#fff8e8;font-weight:800}.footer{display:flex;justify-content:space-between;gap:10px;margin-top:8px;padding-top:6px;border-top:1px solid #cbd5e1;color:#64748b;font-size:8px}.watermark{position:fixed;inset:42% 0 auto;text-align:center;transform:rotate(-18deg);font-size:48px;font-weight:900;color:rgba(185,28,28,.09);pointer-events:none;z-index:20}.worker-note{margin-top:7px;padding:7px;border-left:4px solid #2563eb;background:#eff6ff;font-size:9px;line-height:1.5}.technical-note{margin-top:6px;color:#64748b;font-size:7.5px;line-height:1.4}@media print{.watermark{display:${physicsVerified && workOrderApproved ? 'none' : 'block'}}}
-  </style></head><body>${physicsVerified && workOrderApproved ? '' : '<div class="watermark">검증 확인 필요</div>'}<main class="sheet">
-    <header class="header"><div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(generatedAt)} · 출하지시와 현장 적재순서를 한 문서에서 확인</p></div><div class="${badgeClass}"><span>관성 3종</span><b>${escapeHtml(approvalLabel)}</b></div></header>
-    ${shipmentInstruction}
-    ${cargoIntake}
-    <section class="summary"><div><span>운송 장비</span><b>${escapeHtml(equipment.shortName)}</b><small>${container.length}×${container.width}×${container.height}m</small></div><div><span>총 적재</span><b>${result.placements.length} EA</b></div><div><span>총 중량</span><b>${result.loadedWeightKg.toLocaleString()} kg</b></div><div><span>미적재</span><b>${escapeHtml(remainingText)}</b></div></section>
-    <div class="direction"><em>◀ 적재공간 안쪽</em><span>① 안쪽부터 · ② 바닥부터 · ③ 번호 순서대로</span><strong>도어 방향 ▶</strong></div>
-    <section class="diagram-grid">${topView}${sideView}</section>
-    <div class="section-title"><h2>3단계 진행 그림</h2><span>작업 중 현재 위치 확인용</span></div><section class="progress">${progressViews.join('')}</section>
-    <div class="section-title"><h2>적재 작업 순서</h2><span>한 줄 끝날 때마다 □ 체크</span></div>
-    <table class="work-table"><thead><tr><th>그림번호</th><th>품목/적재단위</th><th>수량</th><th>넣을 위치</th><th>완료</th></tr></thead><tbody>${workRows}</tbody></table>
-    <div class="section-title"><h2>필요 보조자재</h2><span>${escapeHtml(securing?.levelLabel ?? '보조 고정 없음')}</span></div><section class="materials">${materialCards}</section>
-    <div class="section-title"><h2>관성 테스트 권장 사항</h2><span>${approval === 'caution' ? '주의 승인 · 출고 전 보완 확인 필수' : '현장 최종 확인 사항'}</span></div><ol class="recommendations">${recommendationItems}</ol>
-    <div class="final-check"><div>${openingCheck}</div><div>□ 흔들림/빈 공간 보강 확인</div><div>□ 출하지시 수량과 실물 수량 일치</div></div>
-    <p class="worker-note"><b>작업자가 기억할 것:</b> 그림 번호가 바뀌기 전까지는 같은 묶음입니다. 같은 묶음 안에서는 <b>안쪽 → 도어 방향, 바닥 → 위</b> 순서로 채우고 임의로 가운데를 비우지 마세요.</p>
-    <p class="technical-note">관성 ${escapeHtml(approvalLabel)}은 시뮬레이터 내부 비교 결과입니다. ‘주의 승인’은 내부 PASS 기준을 일부 초과했지만 위험 기준은 넘지 않았다는 뜻이며 실제 운송 안전 인증을 의미하지 않습니다. 작업 전 선택 장비의 실제 제원, 포장 강도, 현장 결박 기준과 보조자재 규격을 확인하세요. 장비 기준: ${escapeHtml(equipment.sourceLabel)}.</p>
-    <footer class="footer"><span>장비: ${escapeHtml(equipment.shortName)}</span><span>물리검증: ${physicsVerified ? '완료' : '미검증'}</span><span>관성 최종검증: ${escapeHtml(approvalLabel)}</span><span>보조재 추정중량: ${securing ? `${securing.estimatedAddedWeightKg.toFixed(1)} kg` : '0 kg'}</span></footer>
-  </main></body></html>`;
+  return buildReportDocument({
+    title,
+    subtitle: `${generatedAt} · 출하지시 수량과 실제 적재 결과를 대조하는 현장 작업용 문서`,
+    status: `관성 3종 · ${approvalLabel}`,
+    tone: approval === 'caution' ? 'caution' : approval === 'danger' ? 'danger' : approval === 'incomplete' ? 'neutral' : 'good',
+    watermark: physicsVerified && workOrderApproved ? undefined : '검증 확인 필요',
+    summary: `<section class="summary" aria-label="적재 요약"><div class="text-metric"><span>운송 장비</span><b>${escapeHtml(equipment.shortName)}</b><small>${container.length} × ${container.width} × ${container.height} m</small></div><div><span>실제 적재단위</span><b>${result.placements.length} EA</b></div><div><span>화물 중량</span><b>${result.loadedWeightKg.toLocaleString()} kg</b></div><div class="text-metric"><span>미적재 · 별도 확인</span><b>${escapeHtml(remainingText)}</b></div></section>`,
+    sections: [
+      {
+        title: '작업 준비', description: '출하 수량을 확인하고 화물과 보조자재를 준비하세요.',
+        content: `${shipmentInstruction}${cargoIntake}<div class="section-title"><h3>필요 보조자재</h3><span>${escapeHtml(securing?.levelLabel ?? '보조 고정 없음')}</span></div><section class="materials">${materialCards}</section>`,
+      },
+      {
+        title: '배치도 확인', description: '안쪽과 도어 방향을 먼저 확인한 뒤 그림 번호를 작업 순서 표와 맞추세요.',
+        content: `<div class="direction"><em>◀ 적재공간 안쪽</em><span>① 안쪽부터 · ② 바닥부터 · ③ 번호 순서대로</span><strong>도어 방향 ▶</strong></div><section class="diagram-grid">${topView}${sideView}</section><p class="legend">그림번호 = 작업 묶음 · R = 길이 방향 행 · C = 폭 방향 열 · 단 = 바닥부터의 적층 단계</p><h3>3단계 진행 그림</h3><section class="progress">${progressViews.join('')}</section>`,
+      },
+      {
+        title: '적재 작업 순서', description: '위에서 아래로 진행하고 한 줄을 완료할 때마다 확인 칸에 표시하세요.',
+        content: `${reportTable('적재 작업 순서 표', `<table class="work-table"><colgroup><col style="width:9%"><col style="width:28%"><col style="width:19%"><col style="width:35%"><col style="width:9%"></colgroup><thead><tr><th scope="col">그림번호</th><th scope="col">품목 / 적재단위</th><th scope="col">수량</th><th scope="col">넣을 위치</th><th scope="col">완료</th></tr></thead><tbody>${workRows}</tbody></table>`)}<p class="worker-note"><b>작업자가 기억할 것:</b> 그림 번호가 바뀌기 전까지는 같은 묶음입니다. 같은 묶음 안에서는 <b>안쪽 → 도어 방향, 바닥 → 위</b> 순서로 채우고 임의로 가운데를 비우지 마세요.</p>`,
+      },
+      {
+        title: '출고 전 최종 확인', description: approval === 'caution' ? '주의 승인 상태입니다. 권장사항을 보완하고 담당자가 확인하세요.' : '고정 상태와 실물 수량을 대조한 뒤 담당자가 확인하세요.',
+        content: `<h3>관성 테스트 권장 사항</h3><ol class="recommendations">${recommendationItems}</ol><div class="final-check"><div>${openingCheck}</div><div>□ 흔들림/빈 공간 보강 확인</div><div>□ 출하지시 수량과 실물 수량 일치</div></div>${REPORT_SIGNOFF}<p class="technical-note">관성 판정(${escapeHtml(approvalLabel)})은 시뮬레이터 내부 비교 결과입니다. ‘주의 승인’은 내부 PASS 기준을 일부 초과했지만 위험 기준은 넘지 않았다는 뜻이며 실제 운송 안전 인증을 의미하지 않습니다. 작업 전 선택 장비의 실제 제원, 포장 강도, 현장 결박 기준과 보조자재 규격을 확인하세요. 장비 기준: ${escapeHtml(equipment.sourceLabel)}.</p>`,
+      },
+    ],
+    footer: `<span>장비: ${escapeHtml(equipment.shortName)}</span><span>물리검증: ${physicsVerified ? '완료' : '미검증'}</span><span>관성 최종검증: ${escapeHtml(approvalLabel)}</span><span>보조재 추정중량: ${securing ? `${securing.estimatedAddedWeightKg.toFixed(1)} kg` : '0 kg'}</span>`,
+  });
 }
 
 export function openLoadingReport(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult): boolean {

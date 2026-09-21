@@ -99,7 +99,7 @@ function advisoryBanner(html: string, text: string) {
   const safe = text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   return html.replace(
     '<body>',
-    `<body><div style="margin:8px auto;max-width:794px;padding:9px 12px;border:2px solid #d97706;border-radius:8px;background:#fff7ed;color:#92400e;font:700 11px/1.45 Arial,'Noto Sans KR',sans-serif">검토용 작업지시서 · ${safe}</div>`,
+    `<body><div class="report-advisory">검토용 작업지시서 · ${safe}</div>`,
   );
 }
 

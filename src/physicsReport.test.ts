@@ -26,6 +26,12 @@ const physics: PhysicsValidationSuite = {
 };
 
 describe('physics report', () => {
+  it('preserves every flagged placement when more than 100 need review', () => {
+    const placements = Array.from({ length: 101 }, (_, index) => ({ ...physics.placements[0], index, cargoId: `REVIEW-${index + 1}` }));
+    const html = buildPhysicsReportHtml(container, cargo, loading, { ...physics, placements, warningCount: placements.length });
+    expect(html).toContain('박스 재확인 위치 · 101건');
+    expect(html).toContain('REVIEW-101');
+  });
   it('renders scenario summary and escapes user cargo text', () => {
     const html = buildPhysicsReportHtml(container, cargo, loading, physics);
     expect(html).toContain('급제동 0.5g');

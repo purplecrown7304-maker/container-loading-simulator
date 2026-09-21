@@ -1,3 +1,4 @@
+import { reportTable } from './reportLayout';
 import { requiresBoxPackaging, type CompanyProductItem } from './companyProduct';
 import type { ProductPackagingAssignment } from './engine/productPackagingOptimizer';
 import type { CargoItem, Placement } from './engine/types';
@@ -175,10 +176,6 @@ function loadedProductCount(line: ShipmentInstructionLine, loaded: Map<string, n
   return Math.min(line.productQuantity, baseProducts + partialLoaded * (remainderUnits || units));
 }
 
-export const SHIPMENT_INSTRUCTION_CSS = `
-.shipment-block{margin:8px 0;border:2px solid #334155;border-radius:9px;overflow:hidden;break-inside:avoid}.shipment-head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:7px 9px;background:#172033;color:#fff}.shipment-head h2{font-size:14px}.shipment-head span{font-size:8px;color:#cbd5e1}.shipment-manual{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1px solid #cbd5e1}.shipment-manual div{padding:6px 7px;border-right:1px solid #cbd5e1;min-height:34px}.shipment-manual div:last-child{border-right:0}.shipment-manual span{display:block;color:#64748b;font-size:7.5px}.shipment-manual b{display:block;margin-top:4px;font-size:9px;font-weight:700}.shipment-meta{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #cbd5e1;background:#f8fafc}.shipment-meta div{padding:6px 7px;border-right:1px solid #cbd5e1}.shipment-meta div:last-child{border-right:0}.shipment-meta span{display:block;color:#64748b;font-size:7.5px}.shipment-meta b{display:block;margin-top:2px;font-size:10px}.shipment-table{width:100%;border-collapse:collapse}.shipment-table th,.shipment-table td{padding:5px 6px;border-right:1px solid #cbd5e1;border-bottom:1px solid #cbd5e1;vertical-align:middle}.shipment-table th:last-child,.shipment-table td:last-child{border-right:0}.shipment-table tr:last-child td{border-bottom:0}.shipment-table th{background:#e2e8f0;color:#334155;font-size:7.5px}.shipment-table td{font-size:8px}.shipment-table td b,.shipment-table td small{display:block}.shipment-table td small{margin-top:2px;color:#64748b;font-size:7px}.shipment-ok{color:#166534;font-weight:900}.shipment-warn{color:#b91c1c;font-weight:900}.shipment-check{text-align:center;font-size:15px}.shipment-fallback{padding:6px 8px;background:#fff7ed;color:#9a5b00;font-size:8px}.shipment-direct{color:#6d28d9;font-weight:900}
-`;
-
 export function buildShipmentInstructionSection(cargo: CargoItem[], result: ResultLike) {
   const snapshot = readShipmentInstructionSnapshot(cargo);
   const loaded = loadedCounts(result.placements);
@@ -218,10 +215,10 @@ export function buildShipmentInstructionSection(cargo: CargoItem[], result: Resu
     }).join('');
 
     return `<section class="shipment-block">
-      <div class="shipment-head"><h2>출하 지시</h2><span>출하지시번호 ${escapeHtml(snapshot.shipmentNo)}</span></div>
+      <div class="shipment-head"><h3>출하 지시</h3><span>출하지시번호 ${escapeHtml(snapshot.shipmentNo)}</span></div>
       <div class="shipment-manual"><div><span>거래처</span><b>________________</b></div><div><span>목적지</span><b>________________</b></div><div><span>차량/컨테이너 No.</span><b>________________</b></div><div><span>출고 예정</span><b>________________</b></div></div>
       <div class="shipment-meta"><div><span>제품 종류</span><b>${snapshot.lines.length} 종</b></div><div><span>제품 출하수량</span><b>${totalProducts} EA</b></div><div><span>포장/직접 적재</span><b>${boxCount} BOX · ${directCount} EA</b></div><div><span>현재 적재단위</span><b>${loadedUnits} 개</b></div></div>
-      <table class="shipment-table"><thead><tr><th>제품</th><th>출하수량</th><th>포장/적재 방식</th><th>입수/제품중량</th><th>필요단위</th><th>적재결과</th><th>상태</th><th>확인</th></tr></thead><tbody>${rows}</tbody></table>
+      ${reportTable('출하 수량 대조표', `<table class="shipment-table"><thead><tr><th scope="col">제품</th><th scope="col">출하수량</th><th scope="col">포장/적재 방식</th><th scope="col">입수/제품중량</th><th scope="col">필요단위</th><th scope="col">적재결과</th><th scope="col">상태</th><th scope="col">확인</th></tr></thead><tbody>${rows}</tbody></table>`)}
     </section>`;
   }
 
@@ -233,9 +230,9 @@ export function buildShipmentInstructionSection(cargo: CargoItem[], result: Resu
   }).join('');
 
   return `<section class="shipment-block">
-    <div class="shipment-head"><h2>출하 지시</h2><span>${generatedAt.toLocaleString('ko-KR')} · 일반 화물 기준</span></div>
+    <div class="shipment-head"><h3>출하 지시</h3><span>${generatedAt.toLocaleString('ko-KR')} · 일반 화물 기준</span></div>
     <div class="shipment-manual"><div><span>거래처</span><b>________________</b></div><div><span>목적지</span><b>________________</b></div><div><span>차량/컨테이너 No.</span><b>________________</b></div><div><span>출고 예정</span><b>________________</b></div></div>
     <div class="shipment-fallback">제품 흐름에서 생성된 출하정보가 없어 현재 적재 화물 기준으로 출하지시를 표시합니다.</div>
-    <table class="shipment-table"><thead><tr><th>화물</th><th>출하수량</th><th colspan="2">규격/중량</th><th>지시수량</th><th>적재결과</th><th>상태</th><th>확인</th></tr></thead><tbody>${rows}</tbody></table>
+    ${reportTable('출하 수량 대조표', `<table class="shipment-table"><thead><tr><th scope="col">화물</th><th scope="col">출하수량</th><th scope="col" colspan="2">규격/중량</th><th scope="col">지시수량</th><th scope="col">적재결과</th><th scope="col">상태</th><th scope="col">확인</th></tr></thead><tbody>${rows}</tbody></table>`)}
   </section>`;
 }
