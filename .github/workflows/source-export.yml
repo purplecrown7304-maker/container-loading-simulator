@@ -1,0 +1,149 @@
+name: Export complete source for owner
+on:
+  push:
+    branches:
+      - export/full-source-20260921
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Export pinned source and all existing Git history
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --mirror https://github.com/purplecrown7304-maker/container-loading-simulator.git source.git
+          git --git-dir=source.git update-ref -d refs/heads/export/full-source-20260921
+          git --git-dir=source.git symbolic-ref HEAD refs/heads/main
+          git --git-dir=source.git fsck --full
+          mkdir -p deliver backup/branches backup/git-history
+          git --git-dir=source.git bundle create "$PWD/backup/git-history/all-refs.bundle" --all
+          git --git-dir=source.git bundle verify "$PWD/backup/git-history/all-refs.bundle"
+          python3 - <<'PY'
+          import csv, hashlib, io, json, os, pathlib, re, subprocess, zipfile
+          from datetime import datetime, timezone
+          SHA = 'e8c6dd3dcaefa5a9fa54b993f0123bc8260f7da1'
+          REPO = 'purplecrown7304-maker/container-loading-simulator'
+          def git(*args):
+              return subprocess.check_output(['git', '--git-dir=source.git', *args])
+          if git('rev-parse', 'refs/heads/main').decode().strip() != SHA:
+              raise RuntimeError('main changed during export; refusing a mislabeled archive')
+          cache = {}
+          reader = subprocess.Popen(['git','--git-dir=source.git','cat-file','--batch'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+          def blob(oid):
+              if oid not in cache:
+                  reader.stdin.write((oid+'\n').encode()); reader.stdin.flush()
+                  head = reader.stdout.readline().decode().strip().split()
+                  if len(head) != 3 or head[1] != 'blob':
+                      raise RuntimeError('Not a readable blob: '+oid)
+                  n = int(head[2]); data = reader.stdout.read(n)
+                  if len(data) != n or reader.stdout.read(1) != b'\n':
+                      raise RuntimeError('Incomplete blob '+oid)
+                  if hashlib.sha1(b'blob '+str(n).encode()+b'\0'+data).hexdigest() != oid:
+                      raise RuntimeError('Git object hash mismatch '+oid)
+                  cache[oid] = data
+              return cache[oid]
+          def entries(sha):
+              result = []
+              for row in git('ls-tree','-rz','--full-tree',sha).split(b'\0'):
+                  if not row: continue
+                  meta,path = row.split(b'\t',1)
+                  mode,kind,oid = meta.decode().split()
+                  path = path.decode('utf-8')
+                  if kind != 'blob':
+                      raise RuntimeError('Submodule requires additional export: '+path)
+                  if pathlib.PurePosixPath(path).is_absolute() or '..' in pathlib.PurePosixPath(path).parts:
+                      raise RuntimeError('Unsafe path '+path)
+                  result.append((path,mode,oid))
+              return result
+          def info(name, mode):
+              item = zipfile.ZipInfo(name, date_time=(2026,9,21,0,0,0))
+              item.create_system = 3
+              item.external_attr = int(mode,8) << 16
+              item.compress_type = zipfile.ZIP_DEFLATED
+              return item
+          refs = []
+          for line in git('for-each-ref','--format=%(refname)\t%(objectname)').decode().splitlines():
+              ref,sha = line.split('\t'); refs.append({'ref':ref,'sha':sha})
+          branches = [r for r in refs if r['ref'].startswith('refs/heads/')]
+          main_entries = entries(SHA)
+          manifest = []
+          for path,mode,oid in main_entries:
+              data = blob(oid)
+              if data.startswith(b'version https://git-lfs.github.com/spec/v1'):
+                  raise RuntimeError('LFS object requires additional export: '+path)
+              manifest.append({'path':path,'mode':mode,'git_blob_sha':oid,'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()})
+          source_path = pathlib.Path('deliver/container-loading-simulator-SOURCE-20260921.zip')
+          with zipfile.ZipFile(source_path,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for path,mode,oid in main_entries:
+                  z.writestr(info('container-loading-simulator/'+path,mode),blob(oid))
+          branch_rows=[]
+          for r in branches:
+              name = r['ref'][len('refs/heads/'):]
+              row = {'branch':name,'sha':r['sha'],'archive':None}
+              if name != 'main':
+                  safe = re.sub(r'[^A-Za-z0-9_.-]+','__',name)+'--'+r['sha'][:8]+'.zip'
+                  dest = pathlib.Path('backup/branches')/safe
+                  items = entries(r['sha'])
+                  with zipfile.ZipFile(dest,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+                      for path,mode,oid in items:
+                          z.writestr(info('source/'+path,mode),blob(oid))
+                  row.update(archive='branches/'+safe,file_count=len(items))
+              else:
+                  row.update(archive='current_source/',file_count=len(main_entries))
+              branch_rows.append(row)
+          summary = {
+              'repository':REPO,'main_commit':SHA,
+              'main_commit_date':git('show','-s','--format=%cI',SHA).decode().strip(),
+              'exported_at_utc':datetime.now(timezone.utc).isoformat(),
+              'main_file_count':len(main_entries),'main_source_bytes':sum(x['bytes'] for x in manifest),
+              'branch_count':len(branches),'ref_count':len(refs),
+              'reachable_commit_count':int(git('rev-list','--all','--count')),
+              'branch_snapshots':branch_rows,
+              'integrity':'Every exported blob verified against Git SHA-1; ZIP CRC tested; full Git bundle verified.',
+              'excluded':'Temporary export branch; uncommitted local files; service secrets; production database/storage; node_modules/build outputs not tracked in Git.'}
+          pathlib.Path('backup/SOURCE_MANIFEST.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
+          pathlib.Path('backup/EXPORT_SUMMARY.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
+          pathlib.Path('backup/git-history/refs.json').write_text(json.dumps(refs,ensure_ascii=False,indent=2),encoding='utf-8')
+          pathlib.Path('backup/git-history/commits.tsv').write_bytes(git('log','--all','--date=iso-strict','--format=%H\t%ad\t%s'))
+          with open('backup/BRANCHES.csv','w',encoding='utf-8-sig',newline='') as f:
+              writer=csv.DictWriter(f,fieldnames=['branch','sha','archive','file_count']);writer.writeheader();writer.writerows(branch_rows)
+          readme = ('물품 적재 시뮬레이터 전체 소스 백업\n\n'
+                    'current_source/: 최신 main의 실제 원본 소스. Codex 작업은 이 폴더에서 시작하세요.\n'
+                    'branches/: main을 제외한 기존 개발 브랜치 각각의 전체 소스 ZIP.\n'
+                    'git-history/all-refs.bundle: 브랜치, 태그, 공개된 PR refs와 변경 이력.\n'
+                    'SOURCE_MANIFEST.json: 최신 소스의 파일 목록과 파일별 검증 해시.\n'
+                    'EXPORT_SUMMARY.json: 기준 커밋, 파일 수, 브랜치 수, 검증 결과.\n\n'
+                    '주의: 모든 브랜치를 동시에 합치라는 뜻이 아닙니다. 최신 main에서 시작하고 필요한 변경만 검토하세요.\n'
+                    'Git에 올리지 않은 PC 파일, 서비스 환경변수, 실제 데이터베이스와 브라우저 저장 데이터는 포함되지 않습니다.\n'
+                    '내보내기 작업은 main 소스를 수정하거나 운영 서비스를 배포하지 않습니다.\n'
+                    '이 백업은 소스 무결성 검사 결과이며 앱 테스트를 새로 실행한 결과가 아닙니다.\n\n'
+                    'Git 이력 복원(인터넷 연결 불필요):\n'
+                    'git clone --mirror git-history/all-refs.bundle restored.git\n'
+                    'git clone restored.git restored-source\n')
+          pathlib.Path('backup/먼저읽기.txt').write_text(readme,encoding='utf-8-sig')
+          all_path = pathlib.Path('deliver/container-loading-simulator-ALL-FILES-20260921.zip')
+          with zipfile.ZipFile(all_path,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+              for path,mode,oid in main_entries:
+                  z.writestr(info('container-loading-full-backup/current_source/'+path,mode),blob(oid))
+              for path in sorted(pathlib.Path('backup').rglob('*')):
+                  if path.is_file():
+                      method=zipfile.ZIP_STORED if path.suffix in ('.zip','.bundle') else zipfile.ZIP_DEFLATED
+                      z.write(path,'container-loading-full-backup/'+path.relative_to('backup').as_posix(),compress_type=method)
+          for path in pathlib.Path('deliver').glob('*.zip'):
+              with zipfile.ZipFile(path) as z:
+                  if z.testzip() is not None: raise RuntimeError('ZIP integrity failure '+str(path))
+          pathlib.Path('deliver/EXPORT_SUMMARY.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(summary,ensure_ascii=False,indent=2))
+          reader.stdin.close(); reader.wait(timeout=10)
+          PY
+      - name: Upload source archives
+        uses: actions/upload-artifact@v6
+        with:
+          name: complete-source-and-history-20260921
+          path: deliver/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
