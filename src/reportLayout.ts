@@ -39,7 +39,7 @@ export const REPORT_CSS = `
   th,td{padding:6px}.report-signoff{margin-top:16px}.report-signoff div{min-height:54px}.report-signoff b{margin-top:18px}
   .checklist li{padding:7px 0}.technical-note,.technical{margin-top:12px}
   .recommendations li,.recommend li{padding:8px}.direction{break-after:avoid}
-  .report-section:last-of-type{break-inside:avoid}
+  .report-section:last-of-type,.report-section:has(.report-signoff){break-inside:avoid}
   .report-advisory{margin:0 0 12px;font-size:9pt}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
