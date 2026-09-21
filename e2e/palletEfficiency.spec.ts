@@ -55,10 +55,12 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   expect(notice!.x).toBeGreaterThanOrEqual(0);
   expect(notice!.x + notice!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
   expect(bounds!.x + bounds!.width <= notice!.x || notice!.x + notice!.width <= bounds!.x || bounds!.y + bounds!.height <= notice!.y || notice!.y + notice!.height <= bounds!.y).toBe(true);
-  expect(await visibleClearance.evaluate(element => {
+  const clearanceHit = await visibleClearance.evaluate(element => {
     const box = element.getBoundingClientRect();
-    return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
-  })).toBe(true);
+    const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return { visible: element.contains(hit), box: box.toJSON(), coveringElement: hit?.outerHTML.slice(0, 400) };
+  });
+  expect(clearanceHit.visible, JSON.stringify(clearanceHit)).toBe(true);
   await page.screenshot({ path: test.info().outputPath('pallet-canvas.png'), fullPage: true });
 
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();

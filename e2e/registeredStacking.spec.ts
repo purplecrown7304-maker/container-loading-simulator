@@ -25,7 +25,7 @@ test('registered stacking updates without reload and bulk packaging advances bef
     localStorage.setItem('container-loading-user-box-catalog-v1:stack-regression', JSON.stringify([{ id: box.id, name: box.name, length: box.outerLength, width: box.outerWidth, height: box.outerHeight, weightKg: 22, quantity: 0, maxStackLayers: 1, maxTopLoadKg: 100, catalogOrigin: 'recommendation', recommendationRegistration: 'explicit' }]));
     window.dispatchEvent(new CustomEvent('container-loading:local-operator-updated', { detail: operator }));
   });
-  await page.getByRole('button', { name: /적재공간 다시 선택$/ }).click();
+  await page.getByRole('button', { name: '선택한 장비 변경', exact: true }).click();
   await page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' }).locator('[data-equipment-id="20-standard"]').click();
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
   await page.getByPlaceholder('제품명 또는 제품코드 검색').fill('STACK-');

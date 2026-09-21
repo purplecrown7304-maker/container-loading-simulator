@@ -36,7 +36,7 @@ test('stalled optional re-layout completes and a blocked warning report opens wi
   });
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
-  await page.getByRole('button', { name: /적재공간 다시 선택$/ }).click();
+  await page.getByRole('button', { name: '선택한 장비 변경', exact: true }).click();
   await page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' }).locator('[data-equipment-id="20-standard"]').click();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:open-product-tool', { detail: 'products' })));
   const products = page.getByRole('dialog', { name: '회사 제품 관리' });

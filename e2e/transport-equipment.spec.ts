@@ -1,8 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 
 async function openEquipment(page: Page) {
-  // Select the illustrated, accessible button instead of the intentionally hidden legacy card.
-  const selector = page.getByRole('button', { name: /적재공간 다시 선택$/ });
+  // The selector remains accessible while the Unity preview loads.
+  const selector = page.getByRole('button', { name: '선택한 장비 변경', exact: true });
   await expect(selector).toBeVisible();
   await selector.click();
   const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
@@ -11,7 +11,7 @@ async function openEquipment(page: Page) {
 }
 
 async function expectSelectedEquipment(page: Page, shortName: string) {
-  await expect(page.getByRole('button', { name: `${shortName} 적재공간 다시 선택`, exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '선택한 장비 변경', exact: true })).toContainText(shortName);
 }
 
 test('guided equipment selector changes the current container in place', async ({ page }) => {

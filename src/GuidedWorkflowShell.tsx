@@ -1,5 +1,5 @@
 import StudioIcon, { stepIcons } from './StudioIcon';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 const LoadingSpacePreview = lazy(() => import('./LoadingSpacePreview'));
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT } from './adminAccess';
@@ -452,6 +452,21 @@ function BottomBar({ step, selectionCount, packagedReady, strategy, running, fin
   onAdvance: (step: StepId) => void;
   onApplyPackaging: () => void;
 }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    // Reserve the real footer height, including wrapped labels and mobile safe areas.
+    // Scrolling and keyboard focus must never put canvas controls behind the fixed bar.
+    const updateHeight = () => document.documentElement.style.setProperty('--guided-footer-height', `${bar.getBoundingClientRect().height}px`);
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(bar);
+    return () => {
+      observer.disconnect();
+      document.documentElement.style.removeProperty('--guided-footer-height');
+    };
+  }, []);
   let label = '다음: 제품 선택';
   let disabled = false;
   let action = () => onAdvance(2);
@@ -462,7 +477,7 @@ function BottomBar({ step, selectionCount, packagedReady, strategy, running, fin
     if (finalReady) { label = '결과 확인'; action = () => onAdvance(6); }
     else { label = running ? '최종 적재 검사 중…' : '최종 적재 진행'; disabled = running || !strategy; action = () => dispatchAppAction('run-loading'); }
   } else if (step === 6) { label = '통합 출하·적재 작업지시서 보기'; disabled = !finalReady; action = () => dispatchAppAction('print-report'); }
-  return <div className="guided-bottom-bar"><div className="studio-footer-left"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><span className="studio-footer-step">STEP {String(step).padStart(2, '0')} <i>/</i> 06</span></div><div className="studio-footer-actions">{step > 1 && <button type="button" className="studio-back" disabled={running} onClick={() => onAdvance((step - 1) as StepId)}>이전 단계</button>}<button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 6 ? '  ›' : ''}</button></div></div>;
+  return <div ref={barRef} className="guided-bottom-bar"><div className="studio-footer-left"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><span className="studio-footer-step">STEP {String(step).padStart(2, '0')} <i>/</i> 06</span></div><div className="studio-footer-actions">{step > 1 && <button type="button" className="studio-back" disabled={running} onClick={() => onAdvance((step - 1) as StepId)}>이전 단계</button>}<button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 6 ? '  ›' : ''}</button></div></div>;
 }
 
 export default function GuidedWorkflowShell() {

@@ -87,6 +87,13 @@ html[data-guided-workflow="true"] body {
   -webkit-font-smoothing: antialiased;
   letter-spacing: -.025em;
 }
+html[data-guided-workflow="true"],
+html[data-guided-workflow="true"] body { overflow: hidden !important; }
+html[data-guided-workflow="true"] #root {
+  height: calc(100dvh - var(--guided-footer-height, 76px)) !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+}
 html[data-guided-workflow="true"] button,
 html[data-guided-workflow="true"] input,
 html[data-guided-workflow="true"] select { font-family: inherit; }
