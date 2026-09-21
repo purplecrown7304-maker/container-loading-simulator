@@ -1,3 +1,4 @@
+import StudioIcon from './StudioIcon';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { ADMIN_ACCESS_EVENT, isAdminSession, loginAdmin, logoutAdmin } from './adminAccess';
 import { exportLoadingDiagnostics } from './diagnosticExport';
@@ -169,8 +170,8 @@ export default function ReferenceWorkspaceBar() {
   return <>
     <header className="reference-utility clean-single-header">
       <button className="ref-brand ref-brand-button" type="button" onClick={() => dispatchAppAction('dashboard')} aria-label="대시보드로 이동">
-        <span className="ref-logo">CL</span>
-        <span className="ref-brand-text"><b>Container Loading Simulator</b><small>안전 적재 최적화</small></span>
+        <span className="ref-logo"><StudioIcon /></span>
+        <span className="ref-brand-text"><b>Load Studio</b><small>적재 계획 워크스페이스</small></span>
       </button>
 
       <button className="header-equipment-pill" type="button" onClick={openEquipment} aria-label="현재 장비 변경">

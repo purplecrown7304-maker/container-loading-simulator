@@ -1,0 +1,1 @@
+{"loaderUrl": "./Build/unity-viewer.loader.js", "dataUrl": "./Build/unity-viewer.data", "frameworkUrl": "./Build/unity-viewer.framework.js", "codeUrl": "./Build/unity-viewer.wasm", "streamingAssetsUrl": "StreamingAssets", "companyName": "Cargo Studio", "productName": "Cargo Unity Viewer", "productVersion": "1.0"}

@@ -1,13 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
-import { TRANSPORT_EQUIPMENT_EVENT, useTransportEquipment } from './transportEquipment';
+import { readTransportEquipment, TRANSPORT_EQUIPMENT_EVENT, useTransportEquipment } from './transportEquipment';
 
 export default function TransportEquipmentRecalculationNotice() {
   const equipment = useTransportEquipment();
   const [stale, setStale] = useState(false);
+  const lastEquipment = useRef(JSON.stringify(equipment));
 
   useEffect(() => {
     const onEquipment = () => {
+      const next = JSON.stringify(readTransportEquipment());
+      if (next === lastEquipment.current) return;
+      lastEquipment.current = next;
       const hasCargo = Boolean(document.querySelector('.cargo-list-item'));
       setStale(hasCargo);
     };

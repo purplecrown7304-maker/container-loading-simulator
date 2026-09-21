@@ -1,5 +1,5 @@
 import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
-import { validatePlacements } from './constraints';
+import { auditLoading } from './loadingAudit';
 import { centerPlacementsOnContainer } from './containerCentering';
 import { packByHybridOptimizer } from './hybridLoadingOptimizer';
 import { readManualOverride } from './manualOverride';
@@ -49,7 +49,7 @@ export function pendingLoadingResult(container: ContainerSpec, cargo: CargoItem[
 /** Restore an explicitly applied layout without re-solving it on storage events. */
 export function restoreLoadingResult(container: ContainerSpec, cargo: CargoItem[]): LoadingResult {
   const manual = readManualOverride(container, cargo);
-  if (!manual) return pendingLoadingResult(container, cargo);
+  if (!manual || auditLoading(container, cargo, manual.placements).length > 0) return pendingLoadingResult(container, cargo);
   publishLoadingResult(container, cargo, manual);
   return manual;
 }
@@ -144,7 +144,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
 
   if (preflight.rejected.length === 0 && shouldPublish && options.strategy === undefined) {
     const manual = readManualOverride(container, normalizedCargo);
-    if (manual) {
+    if (manual && auditLoading(container, normalizedCargo, manual.placements).length === 0) {
       publishLoadingResult(container, normalizedCargo, manual);
       return manual;
     }
@@ -163,7 +163,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     ],
     loadedWeightKg: packed.loadedWeightKg,
     usedVolumeM3: packed.usedVolumeM3,
-    validationIssues: validatePlacements(container, finalPlacements),
+    validationIssues: auditLoading(container, normalizedCargo, finalPlacements),
     autoCorrections: [],
   };
 

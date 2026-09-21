@@ -1,4 +1,5 @@
 import { readdir, stat } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
 const assetsDir = new URL('../dist/assets/', import.meta.url);
@@ -12,7 +13,7 @@ if (entryFiles.length === 0) {
 
 const limitBytes = 800 * 1024;
 for (const name of entryFiles) {
-  const info = await stat(join(assetsDir.pathname, name));
+  const info = await stat(join(fileURLToPath(assetsDir), name));
   const sizeKb = info.size / 1024;
   console.log(`${name}: ${sizeKb.toFixed(1)} KiB (limit 800 KiB)`);
   if (info.size > limitBytes) {
