@@ -79,7 +79,7 @@ test('Unity renders the real loading plan and preserves certification during vie
   await page.screenshot({ path: fileURLToPath(new URL(`../../studio-results-${test.info().project.name}.png`, import.meta.url)), fullPage: true });
   await page.locator('.guided-step-list button').nth(0).click();
   await page.getByRole('button', { name: '선택한 장비 변경', exact: true }).click();
-  await page.getByRole('button', { name: /^20' STANDARD/ }).click();
+  await page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' }).getByRole('button', { name: /^20' STANDARD/ }).click();
   await expect(page.getByRole('button', { name: '선택한 장비 변경', exact: true })).toContainText('20FT Standard');
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   await expect(page.locator('.guided-status-row')).not.toContainText('작업 가능');
