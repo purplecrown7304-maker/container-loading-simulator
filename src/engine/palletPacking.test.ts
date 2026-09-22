@@ -24,6 +24,20 @@ const box = (overrides: Partial<CargoItem> = {}): CargoItem => ({
 });
 
 describe('packOnPallets', () => {
+  it('includes load transmitted through lower carton layers before stacking another pallet', () => {
+    const space = { length: 1, width: 1, height: 2.1, maxPayloadKg: 1000 };
+    const spec = { ...defaultPalletSpec, length: 1, width: 1, maxLoadKg: 60, maxStackLevels: 2 };
+    const cargo = box({ length: 1, width: 1, height: .4, weightKg: 30, quantity: 4, maxTopLoadKg: 100 });
+    // Two cartons on the lower pallet: 30 kg already bears on the bottom carton.
+    // Another 85 kg pallet would raise this to 115 kg despite its top carton passing.
+    const unsafe = packOnPallets(space, [cargo], spec);
+    expect(unsafe.placements).toHaveLength(2);
+    expect(unsafe.maxUsedStackLevel).toBe(1);
+    const strong = packOnPallets(space, [{ ...cargo, maxTopLoadKg: 200 }], spec);
+    expect(strong.placements).toHaveLength(4);
+    expect(strong.maxUsedStackLevel).toBe(2);
+  });
+
   it('keeps palletized weight within the container payload', () => {
     const result = packOnPallets(
       { ...container, maxPayloadKg: 300 },

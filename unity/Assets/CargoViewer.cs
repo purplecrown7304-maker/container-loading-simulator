@@ -16,7 +16,7 @@ public class CargoViewer : MonoBehaviour {
  [DllImport("__Internal")] static extern void CargoEvent(string json);
  Camera cam; Transform shell,cargoRoot,supportRoot,decorRoot,weightRoot,cgRoot; bool showWeight,showCg=true; CargoPlan plan;
  readonly List<GameObject> boxes=new List<GameObject>(); readonly List<GameObject> supports=new List<GameObject>(); readonly List<Material> ownedMaterials=new List<Material>();
- CargoModelLibrary models;
+ CargoModelLibrary models; CargoLabels labels=new CargoLabels(); bool showLabels=true;
  Material surface,highlight; float yaw=222,pitch=27,distance=14,viewportAspect=1; Vector3 target; Vector3 mouseDown; bool dragging;
  float cut=100; int step; int selected=-1; bool playing; float clock; GameObject selection;
  float renderUntil; int viewportWidth,viewportHeight;
@@ -62,21 +62,23 @@ public class CargoViewer : MonoBehaviour {
   if(supportRoot) Destroy(supportRoot.gameObject); if(decorRoot) Destroy(decorRoot.gameObject); if(weightRoot) Destroy(weightRoot.gameObject); if(cgRoot) Destroy(cgRoot.gameObject);
   if(shell) Destroy(shell.gameObject); if(cargoRoot) Destroy(cargoRoot.gameObject); if(selection) Destroy(selection);
   foreach(var m in ownedMaterials) Destroy(m); ownedMaterials.Clear(); boxes.Clear(); supports.Clear(); selected=-1;
-  models.ResetCount();
+  labels.Clear(); models.ResetCount();
   plan=next; playing=false; step=plan.placements.Length;
   WakeRendering();
   shell=new GameObject("Equipment").transform; cargoRoot=new GameObject("Cargo").transform;
   var s=plan.container; float l=s.length,w=s.width,h=s.height;
+  Shader.SetGlobalVector("_CargoInteriorMin",new Vector4(-l/2-.03f,-.005f,-w/2-.03f,0));
+  Shader.SetGlobalVector("_CargoInteriorMax",new Vector4(l/2+.03f,h+.005f,w/2+.03f,0));
   highlight=Mat(new Color(1,.6f,.04f));
   var floor=Mat(new Color(.65f,.73f,.79f)); var frame=Mat(new Color(.20f,.37f,.48f)); var wall=Mat(new Color(.76f,.83f,.88f)); var grid=Mat(new Color(.82f,.87f,.9f));
   bool detailedShell=plan.geometry!="platform"&&plan.geometry!="flat-rack"&&plan.geometry!="tank";
   GameObject skin=null;
   if(detailedShell){skin=new GameObject("Meshy equipment");skin.transform.SetParent(shell,false);skin.transform.localPosition=new Vector3(0,h/2,0);skin.transform.localScale=new Vector3(l+.12f,h+.12f,w+.12f);detailedShell=models.Attach("container-shell",skin.transform,Color.white);}
   Cube("Floor",new Vector3(0,-.055f,0),new Vector3(l,.11f,w),floor,shell);
-  EdgeBox(new Vector3(0,h/2,0),new Vector3(l,h,w),frame,shell,.035f);
-  if(!detailedShell&&plan.geometry!="platform") Cube("Back wall",new Vector3(-l/2-.025f,h/2,0),new Vector3(.05f,h,w),wall,shell);
-  if(!detailedShell&&plan.geometry!="platform"&&plan.geometry!="flat-rack") Cube("Far wall",new Vector3(0,h/2,-w/2-.025f),new Vector3(l,h,.05f),wall,shell);
-  if(!detailedShell&&plan.geometry!="platform"&&plan.geometry!="flat-rack") for(float x=-l/2;x<l/2;x+=.3f) Cube("Corrugation",new Vector3(x,h/2,-w/2+.01f),new Vector3(.025f,h,.025f),floor,shell);
+  EdgeBox(new Vector3(0,h/2,0),new Vector3(l+.04f,h+.04f,w+.04f),frame,shell,.035f);
+  if(plan.geometry!="platform") Cube("Back wall",new Vector3(-l/2-.045f,h/2,0),new Vector3(.05f,h,w),wall,shell);
+  if(plan.geometry!="platform"&&plan.geometry!="flat-rack") Cube("Far wall",new Vector3(0,h/2,-w/2-.045f),new Vector3(l,h,.05f),wall,shell);
+  if(plan.geometry!="platform"&&plan.geometry!="flat-rack") for(float x=-l/2;x<l/2;x+=.3f) Cube("Corrugation",new Vector3(x,h/2,-w/2-.016f),new Vector3(.035f,h,.025f),floor,shell);
   for(float x=-l/2;x<=l/2;x+=1) Cube("Floor grid",new Vector3(x,.002f,0),new Vector3(.009f,.004f,w),grid,shell);
   for(float z=-w/2;z<=w/2;z+=.5f) Cube("Floor grid",new Vector3(0,.002f,z),new Vector3(l,.004f,.009f),grid,shell);
   // Door is the +X end. The model is cut open on the near side for inspection.
@@ -119,7 +121,23 @@ public class CargoViewer : MonoBehaviour {
   }
   target=new Vector3(0,h*.40f,0); if(resize) { yaw=222; pitch=27; viewportAspect=cam.aspect; distance=FitDistance(viewportAspect); }
   UpdateVisibility(); CameraPose();
+  AuditVisualBounds();
   Emit("{\"type\":\"planApplied\",\"revision\":"+plan.revision+",\"count\":"+boxes.Count+",\"modelCount\":"+models.instances+"}");
+ }
+ public void SetLabels(string json){
+  var batch=JsonUtility.FromJson<CargoLabelBatch>(json);if(plan==null||batch==null||batch.revision!=plan.revision)return;
+  labels.Apply(plan,boxes,batch,showLabels);WakeRendering();
+  Emit("{\"type\":\"labelsApplied\",\"revision\":"+plan.revision+",\"faces\":"+labels.faces+"}");
+ }
+ void AuditVisualBounds(){
+  int outside=0;float l=plan.container.length,w=plan.container.width,h=plan.container.height;
+  for(int i=0;i<boxes.Count;i++){
+   foreach(var renderer in boxes[i].GetComponentsInChildren<Renderer>()){
+    if(!renderer.enabled)continue;var b=renderer.bounds;
+    if(b.min.x < -l/2-.0001f||b.max.x>l/2+.0001f||b.min.y<-.0001f||b.max.y>h+.0001f||b.min.z < -w/2-.0001f||b.max.z>w/2+.0001f){outside++;break;}
+   }
+  }
+  Emit("{\"type\":\"geometryAudit\",\"revision\":"+plan.revision+",\"outsideCargo\":"+outside+",\"interiorClipped\":true}");
  }
  Vector3 Position(CargoBox p) {return new Vector3(p.x+p.length/2-plan.container.length/2,p.z+p.height/2,p.y+p.width/2-plan.container.width/2);}
  void UpdateVisibility() {
@@ -161,6 +179,7 @@ public class CargoViewer : MonoBehaviour {
   var c=JsonUtility.FromJson<ViewerCommand>(json); if(c==null||plan==null)return;
   WakeRendering();
   switch(c.action) {
+   case "labels":showLabels=c.value>0;labels.Show(showLabels);break;
    case "weight":showWeight=c.value>0;UpdateVisibility();break;
    case "cg":showCg=c.value>0;UpdateVisibility();break;
    case "cut":cut=Mathf.Clamp(c.value,1,100);UpdateVisibility();break;
@@ -196,5 +215,5 @@ public class CargoViewer : MonoBehaviour {
   if(Screen.width!=viewportWidth||Screen.height!=viewportHeight){viewportWidth=Screen.width;viewportHeight=Screen.height;WakeRendering();}
   OnDemandRendering.renderFrameInterval=Time.unscaledTime<renderUntil?1:15;
  }
- void OnDestroy(){if(models!=null)models.Dispose();foreach(var m in ownedMaterials)Destroy(m);if(surface)Destroy(surface);}
+ void OnDestroy(){labels.Dispose();if(models!=null)models.Dispose();foreach(var m in ownedMaterials)Destroy(m);if(surface)Destroy(surface);}
 }

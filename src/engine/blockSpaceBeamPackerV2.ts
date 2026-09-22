@@ -22,7 +22,7 @@ export type BeamPackingOutput = {
   usedVolumeM3: number;
 };
 
-type Space = { x: number; y: number; z: number; length: number; width: number; height: number };
+export type Space = { x: number; y: number; z: number; length: number; width: number; height: number };
 type Orientation = { boxLength: number; boxWidth: number; rotated: boolean };
 type Block = Orientation & {
   item: CargoItem;
@@ -489,7 +489,7 @@ function contains(outer: Space, inner: Space) {
     && inner.z + inner.height <= outer.z + outer.height + EPS;
 }
 
-function nextSpaces(spaces: Space[], p: Placement) {
+export function nextSpaces(spaces: Space[], p: Placement) {
   const unique = new Map<string, Space>();
   for (const s of spaces.flatMap((space) => subtract(space, p))) {
     unique.set([s.x, s.y, s.z, s.length, s.width, s.height].join('|'), s);

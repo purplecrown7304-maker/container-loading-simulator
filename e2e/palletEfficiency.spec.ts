@@ -32,7 +32,11 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
   await page.getByRole('radio', { name: /파렛트 적재/ }).click();
   await page.getByRole('radio', { name: /하역 순서 우선형/ }).click();
+  await page.getByRole('spinbutton', { name: /하역 순서/ }).fill('3');
+  await expect(page.getByRole('spinbutton', { name: /하역 순서/ })).toHaveValue('3');
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.optimization?.strategy)).toBe('unloading');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('container-loading-simulator-v1')!).cargo[0].unloadPriority)).toBe(3);
 
   const summary = page.locator('.guided-job-summary');
   if (await summary.getAttribute('open') === null) await summary.locator('summary').click();

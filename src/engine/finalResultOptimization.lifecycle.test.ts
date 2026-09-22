@@ -13,15 +13,22 @@ let workers: FakeWorker[];
 let respond: (worker: FakeWorker, index: number) => void;
 class FakeWorker {
   onmessage?: (event: { data: { result: typeof current.result } }) => void;
+  request?: { strategy: string };
   terminate = vi.fn();
   constructor() { workers.push(this); }
-  postMessage() { respond(this, workers.length); }
+  postMessage(request: { strategy: string }) { this.request = request; respond(this, workers.length); }
 }
 
 beforeEach(() => { workers = []; vi.useFakeTimers(); vi.stubGlobal('Worker', FakeWorker); });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('bounded optional re-layout lifecycle', () => {
+  it('preserves the selected operating strategy during safety re-layout', async () => {
+    respond = worker => worker.onmessage?.({ data: { result: current.result } });
+    await buildDirectResultReoptimizationCandidatesAsync(current, 5, () => false, { strategy: 'unloading' });
+    expect(workers.length).toBeGreaterThan(1);
+    expect(workers.every(worker => worker.request?.strategy === 'unloading')).toBe(true);
+  });
   it('limits actual solver invocations to seven, including rejected/duplicate layouts', async () => {
     respond = worker => worker.onmessage?.({ data: { result: current.result } });
     const progress = vi.fn();

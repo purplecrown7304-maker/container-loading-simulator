@@ -8,6 +8,8 @@ import {
 import { centeredPalletLaneLayout } from './palletLaneLayout';
 import { containerInputError, preflightCargoInput, type RejectedCargoRow } from './inputPreflight';
 import type { CargoItem, ContainerSpec } from './types';
+import type { LoadingStrategy } from './loadingEngine';
+import { operationalQuality, unloadingObstructions } from './operationalQuality';
 
 export { defaultPalletSpec };
 export type { PalletLoad, PalletPackingResult, PalletSpec };
@@ -18,6 +20,7 @@ const STABLE_UNIT_LOAD_HEIGHT_RATIO = 1.15;
 const CONSOLIDATION_HEIGHT_TOLERANCE_M = 0.05;
 
 export type PalletOptimizationMeta = {
+  strategy?: LoadingStrategy;
   selectedStackTarget: number;
   candidateCount: number;
   floorPositions: number;
@@ -286,7 +289,7 @@ function spreadStacksToFreeFloor(
   const upperIndexes = pallets
     .map((load, index) => ({ load, index }))
     .filter(({ load }) => load.stackLevel > 1)
-    .sort((a, b) => a.load.stackLevel - b.load.stackLevel || b.load.totalWeightKg - a.load.totalWeightKg);
+    .sort((a, b) => b.load.stackLevel - a.load.stackLevel || b.load.totalWeightKg - a.load.totalWeightKg);
 
   for (const { index } of upperIndexes) {
     const slot = slots.find((candidate) => !floorLoads.some((floor) => footprintsOverlap(candidate, floor, pallet)));
@@ -372,6 +375,7 @@ export function packOnPallets(
   container: ContainerSpec,
   cargo: CargoItem[],
   pallet: PalletSpec = defaultPalletSpec,
+  strategy: LoadingStrategy = 'capacity',
 ): OptimizedPalletPackingResult {
   const preflight = preflightCargoInput(cargo);
   const normalizedCargo = preflight.cargo;
@@ -390,26 +394,65 @@ export function packOnPallets(
 
   for (let target = 1; target <= maxTarget; target += 1) {
     const candidateCargo = cargoForStackTarget(container, normalizedCargo, pallet, target);
-    const packed = packOnPalletsBase(container, candidateCargo, { ...pallet, maxStackLevels: target });
-    const consolidated = consolidateUntilStable(packed, container, candidateCargo, pallet);
+    const packed = packOnPalletsBase(container, candidateCargo, { ...pallet, maxStackLevels: target }, strategy);
+    const consolidated = strategy === 'unloading' ? { result: packed, passes: 0 } : consolidateUntilStable(packed, container, candidateCargo, pallet);
     candidates.push({ result: consolidated.result, target, passes: consolidated.passes });
   }
 
+  // Compare low unit loads before minimizing the number of pallet bases.
+  // Every profile only tightens declared limits; the original remains a candidate.
+  const excessiveHeight = candidates.some(candidate => maxUnitLoadHeight(candidate.result) > Math.min(pallet.length, pallet.width) * 2);
+  const heightProfiles = strategy === 'stability' ? [.6, .9, 1.2, 1.5] : excessiveHeight ? [1.2, 1.5] : [];
+  for (const ratio of heightProfiles) {
+    const height = Math.min(pallet.length, pallet.width) * ratio;
+    const lowCargo = normalizedCargo.map(item => ({ ...item, maxStackLayers: Math.min(item.maxStackLayers ?? Infinity, Math.max(1, Math.floor((height + EPS) / item.height))) }));
+    const packed = packOnPalletsBase(container, lowCargo, pallet, strategy);
+    candidates.push({ result: packed, target: pallet.maxStackLevels, passes: 0 });
+  }
+  const preference = (a: PalletPackingResult, b: PalletPackingResult) => {
+    if (a.placements.length !== b.placements.length) return a.placements.length > b.placements.length;
+    if (strategy === 'unloading') {
+      const blockedA = unloadingObstructions(normalizedCargo, a.placements), blockedB = unloadingObstructions(normalizedCargo, b.placements);
+      if (blockedA !== blockedB) return blockedA < blockedB;
+    }
+    const tallA = Math.max(0, maxUnitLoadHeight(a) / Math.min(pallet.length, pallet.width) - 2);
+    const tallB = Math.max(0, maxUnitLoadHeight(b) / Math.min(pallet.length, pallet.width) - 2);
+    if (Math.abs(tallA - tallB) > EPS) return tallA < tallB;
+    if (strategy === 'stability') {
+      const qa = operationalQuality(container, a.placements), qb = operationalQuality(container, b.placements);
+      if (Math.abs(qa.cogHeight - qb.cogHeight) > EPS) return qa.cogHeight < qb.cogHeight;
+    }
+    return betterCandidate(a, b, pallet.minimizePackaging);
+  };
+
+  for (const candidate of candidates) candidate.result = spreadStacksToFreeFloor(candidate.result, container, pallet);
   let selected = candidates[0] ?? {
     result: packOnPalletsBase(container, normalizedCargo, pallet),
     target: 1,
     passes: 0,
   };
   for (const candidate of candidates.slice(1)) {
-    if (betterCandidate(candidate.result, selected.result, pallet.minimizePackaging)) selected = candidate;
+    if (preference(candidate.result, selected.result)) selected = candidate;
   }
 
   const floorSpread = spreadStacksToFreeFloor(selected.result, container, pallet);
   const redistributed = redistributeForLowUtilization(floorSpread, container, pallet);
+  if (strategy === 'unloading') {
+    const groups = new Map<number, PalletLoad[]>();
+    for (const load of redistributed.result.pallets) groups.set(load.stackColumn, [...(groups.get(load.stackColumn) ?? []), load]);
+    const columns = [...groups.values()];
+    const slots = columns.map(loads => ({ x: loads[0].x, y: loads[0].y })).sort((a, b) => a.x - b.x || a.y - b.y);
+    const priority = new Map(normalizedCargo.map(item => [item.id, item.unloadPriority ?? 0]));
+    const stop = (loads: PalletLoad[]) => Math.min(...loads.flatMap(load => load.cargoPlacements.map(p => priority.get(p.cargoId) ?? 0)));
+    columns.sort((a, b) => stop(b) - stop(a) || a[0].stackColumn - b[0].stackColumn);
+    const moved = columns.flatMap((loads, i) => loads.map(load => moveLoad(load, slots[i].x, slots[i].y)));
+    redistributed.result = rebuildMetrics(redistributed.result, moved, 0, container);
+  }
   return {
     ...redistributed.result,
     remaining: [...preflight.rejected, ...redistributed.result.remaining],
     optimization: {
+      strategy,
       selectedStackTarget: selected.target,
       candidateCount: candidates.length,
       floorPositions: floorPositionCount(redistributed.result),

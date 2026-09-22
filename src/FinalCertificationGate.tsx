@@ -1,3 +1,4 @@
+import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { buildDirectResultReoptimizationCandidatesAsync, type DirectResultReoptimizationCandidate, type DirectSearchProgress } from './engine/finalResultOptimization';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
@@ -180,6 +181,7 @@ export default function FinalCertificationGate() {
 
       setProgress(null);
       const searchResult = await buildDirectResultReoptimizationCandidatesAsync(nextTarget, MAX_DIRECT_REPOSITION_CANDIDATES, cancelled, {
+        strategy: readLoadingStrategyPreference() ?? undefined,
         onProgress: next => { if (!cancelled()) setSearch(next); },
       });
       if (cancelled()) return;
