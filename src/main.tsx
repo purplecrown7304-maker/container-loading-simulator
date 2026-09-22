@@ -12,16 +12,13 @@ import FinalWorkflowRecoveryBridge from './FinalWorkflowRecoveryBridge';
 import FinalWorkOrderOptimizer from './FinalWorkOrderOptimizer';
 import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
 import PalletResultsOptimizer from './PalletResultsOptimizer';
-import PalletWeightDistributionDock from './PalletWeightDistributionDock';
-import PalletWeightDistributionLauncher from './PalletWeightDistributionLauncher';
+
+
 import SecuringMaterialSettingsPanel from './SecuringMaterialSettingsPanel';
 import EnterprisePackagingPlannerHost from './EnterprisePackagingPlannerHost';
 import EnterpriseTransportEquipmentAdapter from './EnterpriseTransportEquipmentAdapter';
 import ProductPackagingExcelActions from './ProductPackagingExcelActions';
 import EnterprisePackagingOutputActions from './EnterprisePackagingOutputActions';
-import EnterprisePackagingStrategyExplorer from './EnterprisePackagingStrategyExplorer';
-import EnterpriseCartonApprovalCenter from './EnterpriseCartonApprovalCenter';
-import EnterpriseManufacturingSettings from './EnterpriseManufacturingSettings';
 import ReferenceWorkspaceBar from './ReferenceWorkspaceBar';
 import HeaderLoadingStatusBoard from './HeaderLoadingStatusBoard';
 import RemainingLengthIndicator from './RemainingLengthIndicator';
@@ -109,6 +106,7 @@ import './guided-result-tabs-enhancer.css';
 import './workflow-usability-fixes.css';
 import './loading-progress.css';
 import './studio-motion.css';
+import './studio-viewport.css';
 
 function renderApplication() {
   ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -137,8 +135,8 @@ function renderApplication() {
         <ConfirmedPackagingLoadingBridge />
         <App />
         <RemainingLengthIndicator />
-        <PalletWeightDistributionDock />
-        <PalletWeightDistributionLauncher />
+
+
         <InspectionStatusPanel />
         <OperationalRightSummary />
         <DashboardCommandDock />
@@ -154,9 +152,6 @@ function renderApplication() {
         <EnterpriseTransportEquipmentAdapter />
         <ProductPackagingExcelActions />
         <EnterprisePackagingOutputActions />
-        <EnterpriseManufacturingSettings />
-        <EnterprisePackagingStrategyExplorer />
-        <EnterpriseCartonApprovalCenter />
         <SecuringMaterialSettingsPanel />
         <SafetyInspectionCenter />
         <PhysicsValidationTool />

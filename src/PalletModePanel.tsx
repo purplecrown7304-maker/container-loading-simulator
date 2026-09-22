@@ -1,18 +1,12 @@
-import { Edges, OrbitControls, Text } from '@react-three/drei';
-import { Canvas } from '@react-three/fiber';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import * as THREE from 'three';
+import UnityLoadingViewer from './UnityLoadingViewer';
+import { useEffect, useMemo, useState } from 'react';
 import { cargoColor } from './cargoColors';
-import { CargoFaceInfoLabels } from './CargoFaceInfoLabels';
 import { centerPalletCargo } from './engine/palletCentering';
 import { validatePlacements } from './engine/constraints';
 import { defaultPalletSpec, packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
 import { clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
-import { PreviewCameraController, PreviewViewControls, readBoxLabelPreference, saveBoxLabelPreference, type PreviewView } from './PreviewViewControls';
-import { AxisGuide, ClearanceGuide, clearanceValues } from './SceneGuides';
-import SecuringAids3D from './SecuringAids3D';
 
 type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number };
 type PalletSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult };
@@ -37,118 +31,6 @@ function packCentered(container: ContainerSpec, cargo: CargoItem[], spec: Pallet
   return centerPalletCargo(packOnPallets(container, cargo, spec), container);
 }
 
-function PalletBoards({ container, result, spec, scale, onOpen }: { container: ContainerSpec; result: OptimizedPalletPackingResult; spec: PalletSpec; scale: number; onOpen: (p: PalletLoad) => void }) {
-  const ref = useRef<THREE.InstancedMesh>(null);
-  useLayoutEffect(() => {
-    const mesh = ref.current;
-    if (!mesh) return;
-    const object = new THREE.Object3D();
-    result.pallets.forEach((pallet, index) => {
-      object.position.set(
-        (pallet.x + pallet.length / 2) * scale - container.length * scale / 2,
-        (pallet.z + spec.height / 2) * scale,
-        (pallet.y + pallet.width / 2) * scale - container.width * scale / 2,
-      );
-      object.scale.set(pallet.length * scale, spec.height * scale, pallet.width * scale);
-      object.updateMatrix();
-      mesh.setMatrixAt(index, object.matrix);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingSphere();
-  }, [container, result.pallets, spec.height, scale]);
-
-  return (
-    <instancedMesh
-      ref={ref}
-      args={[undefined, undefined, result.pallets.length]}
-      onContextMenu={(event) => {
-        event.stopPropagation();
-        event.nativeEvent.preventDefault();
-        if (event.instanceId !== undefined && result.pallets[event.instanceId]) onOpen(result.pallets[event.instanceId]);
-      }}
-    >
-      <boxGeometry />
-      <meshStandardMaterial color="#d8b07a" roughness={0.85} />
-    </instancedMesh>
-  );
-}
-
-function CargoInstances({ container, placements, scale, onOpen }: { container: ContainerSpec; placements: Placement[]; scale: number; onOpen: (p: Placement) => void }) {
-  const ref = useRef<THREE.InstancedMesh>(null);
-  const color = useMemo(() => new THREE.Color(cargoColor(placements[0]?.cargoId ?? 'cargo')), [placements]);
-
-  useLayoutEffect(() => {
-    const mesh = ref.current;
-    if (!mesh) return;
-    const object = new THREE.Object3D();
-    placements.forEach((box, index) => {
-      object.position.set(
-        (box.x + box.length / 2) * scale - container.length * scale / 2,
-        (box.z + box.height / 2) * scale,
-        (box.y + box.width / 2) * scale - container.width * scale / 2,
-      );
-      object.scale.set(box.length * scale * 0.985, box.height * scale * 0.985, box.width * scale * 0.985);
-      object.updateMatrix();
-      mesh.setMatrixAt(index, object.matrix);
-      mesh.setColorAt(index, color);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.computeBoundingSphere();
-  }, [container, placements, scale, color]);
-
-  return (
-    <instancedMesh
-      ref={ref}
-      args={[undefined, undefined, placements.length]}
-      onContextMenu={(event) => {
-        event.stopPropagation();
-        event.nativeEvent.preventDefault();
-        if (event.instanceId !== undefined && placements[event.instanceId]) onOpen(placements[event.instanceId]);
-      }}
-      castShadow
-      receiveShadow
-    >
-      <boxGeometry />
-      <meshStandardMaterial roughness={0.58} metalness={0.01} />
-    </instancedMesh>
-  );
-}
-
-function CargoEdges({ container, placements, scale }: { container: ContainerSpec; placements: Placement[]; scale: number }) {
-  const geometry = useMemo(() => {
-    const box = new THREE.BoxGeometry(1, 1, 1);
-    const edges = new THREE.EdgesGeometry(box, 15);
-    box.dispose();
-    return edges;
-  }, []);
-  const material = useMemo(() => new THREE.LineBasicMaterial({ color: '#16324f', transparent: false, depthTest: true, depthWrite: false }), []);
-
-  useEffect(() => () => {
-    geometry.dispose();
-    material.dispose();
-  }, [geometry, material]);
-
-  return (
-    <group>
-      {placements.map((box, index) => (
-        <lineSegments
-          key={`${box.cargoId}-edge-${index}`}
-          geometry={geometry}
-          material={material}
-          position={[
-            (box.x + box.length / 2) * scale - container.length * scale / 2,
-            (box.z + box.height / 2) * scale,
-            (box.y + box.width / 2) * scale - container.width * scale / 2,
-          ]}
-          scale={[box.length * scale * 1.006, box.height * scale * 1.006, box.width * scale * 1.006]}
-          renderOrder={16}
-        />
-      ))}
-    </group>
-  );
-}
-
 function palletForPlacement(result: OptimizedPalletPackingResult, box: Placement) {
   return result.pallets.find((pallet) => pallet.cargoPlacements.includes(box) || pallet.cargoPlacements.some((candidate) =>
     Math.abs(candidate.x - box.x) < 1e-6 &&
@@ -158,118 +40,22 @@ function palletForPlacement(result: OptimizedPalletPackingResult, box: Placement
   ));
 }
 
-function PalletScene({ container, result, spec, cargo, onOpen, view, showLabels, securingUsage }: { container: ContainerSpec; result: OptimizedPalletPackingResult; spec: PalletSpec; cargo: CargoItem[]; onOpen: (p: PalletLoad) => void; view: PreviewView; showLabels: boolean; securingUsage: SecuringUsage | null }) {
-  const scale = 0.42;
-  const groups = useMemo(() => {
-    const map = new Map<string, Placement[]>();
-    result.placements.forEach((placement) => {
-      const list = map.get(placement.cargoId) ?? [];
-      list.push(placement);
-      map.set(placement.cargoId, list);
-    });
-    return [...map.entries()];
-  }, [result.placements]);
-  const cargoMap = useMemo(() => new Map(cargo.map((item) => [item.id, item])), [cargo]);
-
-  return (
-    <>
-      <ambientLight intensity={1.9} />
-      <directionalLight position={[5, 8, 6]} intensity={2.2} />
-      <mesh position={[0, container.height * scale / 2, 0]}>
-        <boxGeometry args={[container.length * scale, container.height * scale, container.width * scale]} />
-        <meshBasicMaterial wireframe transparent opacity={0.18} />
-      </mesh>
-      <AxisGuide container={container} scale={scale} />
-      <ClearanceGuide container={container} placements={result.placements} scale={scale} />
-      <PalletBoards container={container} result={result} spec={spec} scale={scale} onOpen={onOpen} />
-      {groups.map(([id, placements]) => (
-        <group key={id}>
-          <CargoInstances
-            container={container}
-            placements={placements}
-            scale={scale}
-            onOpen={(box) => {
-              const pallet = palletForPlacement(result, box);
-              if (pallet) onOpen(pallet);
-            }}
-          />
-          <CargoEdges container={container} placements={placements} scale={scale} />
-          {showLabels && (
-            <CargoFaceInfoLabels
-              container={container}
-              placements={placements}
-              scale={scale}
-              displayName={cargoMap.get(id)?.name ?? id}
-            />
-          )}
-        </group>
-      ))}
-      <SecuringAids3D container={container} pallets={result.pallets} usage={securingUsage} scale={scale} />
-      {result.pallets.map((pallet) => {
-        const px = (pallet.x + pallet.length / 2) * scale - container.length * scale / 2;
-        const pz = (pallet.y + pallet.width / 2) * scale - container.width * scale / 2;
-        return (
-          <Text key={pallet.palletIndex} position={[px, (pallet.z + spec.height) * scale + 0.04, pz]} fontSize={0.06} color="#475569">
-            {`P${pallet.palletIndex} · ${pallet.stackLevel}단`}
-          </Text>
-        );
-      })}
-      <PreviewCameraController view={view} container={container} scale={scale} />
-    </>
-  );
+function PalletMiniPreview({ pallet }: { pallet: PalletLoad }) {
+  const scene = useMemo(() => {
+    const placements = pallet.cargoPlacements.map(box => ({ ...box, x: box.x - pallet.x, y: box.y - pallet.y, z: box.z - pallet.z }));
+    return {
+      container: { length: pallet.length, width: pallet.width, height: Math.max(pallet.height, ...placements.map(box => box.z + box.height)), maxPayloadKg: pallet.totalWeightKg },
+      result: { placements, remaining: [], validationIssues: [], usedVolumeM3: 0, loadedWeightKg: pallet.cargoWeightKg },
+      supports: [{ id: `PALLET-${pallet.palletIndex}`, x: 0, y: 0, z: 0, length: pallet.length, width: pallet.width, height: pallet.height, weightKg: pallet.totalWeightKg - pallet.cargoWeightKg }],
+    };
+  }, [pallet]);
+  return <div className="pallet-mini-canvas"><UnityLoadingViewer {...scene} geometry="platform" preview title={`팔레트 ${pallet.palletIndex} 상세`} /></div>;
 }
 
-function PalletMiniPreview({ pallet }: { pallet: PalletLoad }) {
-  const cargoTop = Math.max(
-    pallet.height,
-    ...pallet.cargoPlacements.map((box) => box.z + box.height - pallet.z),
-  );
-  const span = Math.max(pallet.length, pallet.width, cargoTop, 0.8);
-  const distance = Math.max(1.8, span * 1.9);
-  const targetY = Math.max(pallet.height, cargoTop * 0.45);
-
-  return (
-    <div className="pallet-mini-canvas">
-      <Canvas
-        camera={{ position: [distance, Math.max(1.1, cargoTop * 1.35), distance], fov: 40 }}
-        dpr={[1, 1.5]}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
-      >
-        <color attach="background" args={['#edf3f9']} />
-        <ambientLight intensity={2.2} />
-        <directionalLight position={[3, 5, 4]} intensity={2.4} />
-        <mesh position={[0, pallet.height / 2, 0]} receiveShadow>
-          <boxGeometry args={[pallet.length, pallet.height, pallet.width]} />
-          <meshStandardMaterial color="#d8b07a" roughness={0.86} />
-          <Edges color="#6b4f2e" />
-        </mesh>
-        {pallet.cargoPlacements.map((box, index) => (
-          <mesh
-            key={`${box.cargoId}-mini-${index}`}
-            position={[
-              box.x + box.length / 2 - (pallet.x + pallet.length / 2),
-              box.z + box.height / 2 - pallet.z,
-              box.y + box.width / 2 - (pallet.y + pallet.width / 2),
-            ]}
-            castShadow
-            receiveShadow
-          >
-            <boxGeometry args={[box.length * 0.985, box.height * 0.985, box.width * 0.985]} />
-            <meshStandardMaterial color={cargoColor(box.cargoId)} roughness={0.58} metalness={0.01} />
-            <Edges color="#16324f" />
-          </mesh>
-        ))}
-        <OrbitControls
-          makeDefault
-          target={[0, targetY, 0]}
-          enablePan={false}
-          minDistance={0.7}
-          maxDistance={distance * 2.8}
-        />
-      </Canvas>
-      <span className="pallet-mini-hint">드래그 회전 · 휠 확대/축소</span>
-    </div>
-  );
+function clearanceValues(container: ContainerSpec, placements: Placement[]) {
+  if (!placements.length) return null;
+  const mm = (value: number) => `${Math.max(0, Math.round(value * 1000)).toLocaleString()} mm`;
+  return { back: mm(Math.min(...placements.map(p => p.x))), door: mm(container.length - Math.max(...placements.map(p => p.x + p.length))), left: mm(Math.min(...placements.map(p => p.y))), right: mm(container.width - Math.max(...placements.map(p => p.y + p.width))), top: mm(container.height - Math.max(...placements.map(p => p.z + p.height))) };
 }
 
 function PalletContents({ pallet, cargo, onClose }: { pallet: PalletLoad; cargo: CargoItem[]; onClose: () => void }) {
@@ -324,8 +110,6 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
   const [spec, setSpec] = useState<PalletSpec>(defaultPalletSpec);
   const [result, setResult] = useState<OptimizedPalletPackingResult>(() => packCentered(container, cargo.filter((item) => item.quantity > 0), defaultPalletSpec));
   const [opened, setOpened] = useState<PalletLoad | null>(null);
-  const [view, setView] = useState<PreviewView>('free');
-  const [showLabels, setShowLabels] = useState(readBoxLabelPreference);
   const [certification, setCertification] = useState<InertiaCertification | null>(() => {
     const latest = readLatestInertiaCertification();
     return latest?.mode === 'pallets' ? latest : null;
@@ -399,22 +183,17 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
 
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
   const securingUsage = certification?.securing ?? null;
-  const toggleLabels = () => setShowLabels((current) => {
-    const next = !current;
-    saveBoxLabelPreference(next);
-    return next;
-  });
+  const scene = useMemo(() => ({
+    result: { placements: result.placements, remaining: result.remaining, loadedWeightKg: result.totalPalletizedWeightKg, usedVolumeM3: result.placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0), validationIssues: validatePlacements(container, result.placements) },
+    supports: result.pallets.map(p => ({ id: `PALLET-${p.palletIndex}`, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) })),
+  }), [container, result]);
 
   return (
     <div className="pallet-inline-workspace">
       <section className="pallet-mode-panel pallet-mode-panel-inline">
         <div className="pallet-view-stack">
           <div className="pallet-preview">
-            <PreviewViewControls view={view} onViewChange={setView} showLabels={showLabels} onToggleLabels={toggleLabels} />
-            <Canvas camera={{ position: [6.2, 4.8, 6.6], fov: 46 }} dpr={[1, 1.25]} gl={{ antialias: true, powerPreference: 'high-performance' }} onContextMenu={(event) => event.nativeEvent.preventDefault()}>
-              <color attach="background" args={['#edf3f9']} />
-              <PalletScene container={container} result={result} spec={spec} cargo={cargo} onOpen={setOpened} view={view} showLabels={showLabels} securingUsage={securingUsage} />
-            </Canvas>
+            <UnityLoadingViewer container={container} cargo={cargo} {...scene} securing={securingUsage} title="팔레트 적재" onSupportSelect={index => setOpened(result.pallets[index] ?? null)} onCargoSelect={index => setOpened(palletForPlacement(result, result.placements[index]) ?? null)} />
             {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip">
               <b>관성 보강 적용</b>
               <span>밴딩 {securingUsage.bandingStraps}줄</span>

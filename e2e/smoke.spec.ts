@@ -120,16 +120,21 @@ test('completed loading keeps result quantities visible after switching result t
 
 test('mobile guided dashboard remains usable without horizontal body overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  // Check settled geometry: the entry animation can temporarily hide an overlap.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
   await expect(page.getByRole('button', { name: /다음: 제품 선택/ })).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
 
   const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
   const viewportWidth = await page.evaluate(() => window.innerWidth);
   expect(bodyWidth).toBeLessThanOrEqual(viewportWidth + 2);
   const rail = await page.locator('.guided-step-rail').boundingBox();
+  const left = await page.locator('.dashboard-left').boundingBox();
   const stage = await page.locator('.guided-stage-panel').boundingBox();
+  expect(rail!.y + rail!.height).toBeLessThanOrEqual(left!.y + left!.height);
   expect(rail!.y + rail!.height).toBeLessThanOrEqual(stage!.y);
-  await page.locator('.guided-equipment-specs').scrollIntoViewIfNeeded();
-  await expect(page.getByText('적재 용적', { exact: true })).toBeVisible();
+  await page.locator('.equipment-selected-strip').scrollIntoViewIfNeeded();
+  await expect(page.locator('.equipment-selected-strip')).toContainText('용적');
 });

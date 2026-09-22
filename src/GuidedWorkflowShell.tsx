@@ -1,6 +1,5 @@
 import StudioIcon, { stepIcons } from './StudioIcon';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-const LoadingSpacePreview = lazy(() => import('./LoadingSpacePreview'));
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT } from './adminAccess';
 import {
@@ -20,7 +19,7 @@ import {
   TRANSPORT_EQUIPMENT_EVENT,
   useTransportEquipment,
   type TransportCategory,
-  type TransportEquipment,
+  CONTAINER_EQUIPMENT, TRUCK_EQUIPMENT, selectTransportEquipment,
 } from './transportEquipment';
 import { APP_ACTION_EVENT, dispatchAppAction, type AppActionDetail } from './uiEvents';
 import {
@@ -42,6 +41,7 @@ import {
   writeProductSelection,
   type ProductSelectionMap,
 } from './productWorkflow';
+import { EquipmentIcon, applyToDashboard } from './TransportEquipmentSelector';
 import ProductPackagingPreview3D from './ProductPackagingPreview3D';
 import { writeShipmentInstructionSnapshot } from './shipmentInstruction';
 import { writeLoadingStrategyPreference } from './loadingStrategyPreference';
@@ -119,30 +119,25 @@ function formatDimensions(item: CargoItem) {
   return `${Math.round(item.length * 1000)} × ${Math.round(item.width * 1000)} × ${Math.round(item.height * 1000)} mm`;
 }
 
-function EquipmentIllustration({ equipment }: { equipment: TransportEquipment }) {
-  const openTop = equipment.geometry === 'open-top' || equipment.geometry === 'flat-rack' || equipment.geometry === 'platform';
-  const truck = equipment.category === 'truck';
-  const refrigerated = equipment.temperatureControlled;
-  return <button type="button" className="guided-equipment-visual" onClick={() => openEquipment(equipment.category)} aria-label={`${equipment.shortName} 적재공간 다시 선택`}>
-    <svg viewBox="0 0 760 260" role="img" aria-label={`${equipment.shortName} 적재공간 그림`}>
-      <defs>
-        <linearGradient id="space-floor" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#eef3f8"/><stop offset="1" stopColor="#d9e1e9"/></linearGradient>
-        <linearGradient id="space-wall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#f9fbfd"/><stop offset="1" stopColor="#e8edf2"/></linearGradient>
-      </defs>
-      <rect width="760" height="260" rx="18" fill="#f7f8fa" />
-      <polygon points="135,195 560,195 650,140 225,140" fill="url(#space-floor)" stroke="#9aa6b2" strokeWidth="2" />
-      {equipment.geometry !== 'platform' && <polygon points="135,195 135,78 225,32 225,140" fill="url(#space-wall)" stroke="#8c99a6" strokeWidth="2" />}
-      {!openTop && <polygon points="135,78 560,78 650,32 225,32" fill="#f3f6f9" stroke="#8c99a6" strokeWidth="2" />}
-      {!openTop && <polygon points="560,195 560,78 650,32 650,140" fill="#e5ebf1" stroke="#8c99a6" strokeWidth="2" />}
-      {(equipment.geometry === 'flat-rack') && <><line x1="135" y1="195" x2="135" y2="72" stroke="#687583" strokeWidth="8"/><line x1="225" y1="140" x2="225" y2="28" stroke="#687583" strokeWidth="8"/><line x1="560" y1="195" x2="560" y2="74" stroke="#687583" strokeWidth="8"/><line x1="650" y1="140" x2="650" y2="29" stroke="#687583" strokeWidth="8"/></>}
-      {truck && <><rect x="80" y="153" width="58" height="42" rx="9" fill="#b7c0ca"/><circle cx="96" cy="202" r="14" fill="#49535e"/><circle cx="534" cy="202" r="14" fill="#49535e"/></>}
-      {refrigerated && <g><rect x="245" y="52" width="72" height="26" rx="6" fill="#d8ecfb" stroke="#4e88b6"/><path d="M266 58v14M280 58v14M294 58v14" stroke="#4e88b6" strokeWidth="3"/></g>}
-      <line x1="160" y1="218" x2="558" y2="218" stroke="#4779c8" strokeWidth="2"/><path d="M160 218l12-6v12zM558 218l-12-6v12z" fill="#4779c8"/><text x="359" y="238" textAnchor="middle" fontSize="13" fontWeight="700" fill="#4b5563">내부 길이 {(equipment.length * 1000).toLocaleString()} mm</text>
-      <text x="28" y="30" fontSize="14" fontWeight="800" fill="#29323d">{equipment.shortName}</text>
-      <text x="28" y="51" fontSize="11" fill="#7a838d">그림을 클릭하면 적재공간을 다시 선택합니다.</text>
-      <text x="620" y="222" fontSize="11" fontWeight="700" fill="#c55353">문쪽 ▶</text>
-    </svg>
-  </button>;
+function EquipmentSelectionStage() {
+  const equipment = useTransportEquipment();
+  const [category, setCategory] = useState<TransportCategory>(equipment.category);
+  useEffect(() => setCategory(equipment.category), [equipment.category]);
+  const [error, setError] = useState('');
+  const items = category === 'container' ? CONTAINER_EQUIPMENT : TRUCK_EQUIPMENT;
+  const choose = (item: typeof equipment) => {
+    if (item.id.startsWith('custom-')) { openEquipment(category); return; }
+    if (!applyToDashboard(item)) { setError('장비 규격을 적용하지 못했습니다. 다시 선택해 주세요.'); return; }
+    selectTransportEquipment(item); setError('');
+  };
+  return <section className="guided-stage-panel guided-equipment-stage">
+    <div className="guided-panel-title studio-main-title"><div><span className="studio-eyebrow">01 / SPACE</span><h1>적재공간 선택</h1><p>운송 장비 아이콘을 선택하세요.</p></div><button aria-label="선택한 장비 변경" className="guided-secondary-button" onClick={() => openEquipment(category)}>{equipment.shortName} · 규격 편집</button></div>
+    <div className="guided-segmented" aria-label="운송 장비 종류">{(['container', 'truck'] as const).map(value => <button key={value} type="button" aria-pressed={category === value} className={category === value ? 'active' : ''} onClick={() => setCategory(value)}>{value === 'container' ? '컨테이너' : '트럭'}</button>)}</div>
+    <div className="equipment-icon-grid" aria-label="적재공간 아이콘 선택">{items.map(item => <button key={item.id} type="button" data-equipment-id={item.id} aria-pressed={equipment.id === item.id} className="equipment-icon-option" onClick={() => choose(item)}><EquipmentIcon geometry={item.geometry} truck={item.category === 'truck'}/><b>{item.shortName}</b><small>{item.length.toFixed(2)} × {item.width.toFixed(2)} × {item.height.toFixed(2)} m</small>{equipment.id === item.id && <i aria-label="선택됨">✓</i>}</button>)}</div>
+    {error && <p role="alert">{error}</p>}
+    <div className="equipment-selected-strip"><span>내부 규격 <b>{(equipment.length * 1000).toLocaleString()} mm × {(equipment.width * 1000).toLocaleString()} mm × {(equipment.height * 1000).toLocaleString()} mm</b></span><span>선택한 장비 <b>{equipment.shortName}</b></span><span>적재중량 <b>{equipment.maxPayloadKg.toLocaleString()} kg</b></span><span>바닥하중 <b>{equipment.floorLoadLimitKgPerM2.toLocaleString()} kg/m²</b></span><span>용적 <b>{(equipment.volumeM3 ?? equipment.length * equipment.width * equipment.height).toFixed(1)} m³</b></span></div>
+    {equipment.specializedCargo && <p className="guided-stage-help">{equipment.note}</p>}
+  </section>;
 }
 
 function StepRail({ step, furthest, selectionCount, packagedReady, strategy, running, finalReady, onStep }: {
@@ -377,15 +372,7 @@ function StagePanel({ step, live, selection, strategy, onSelection, onBundle, on
   onBundle: (bundle: PackagingBundle) => void;
   onStrategy: (strategy: LoadingStrategy) => void;
 }) {
-  const equipment = useTransportEquipment();
-  if (step === 1) return <section className="guided-stage-panel guided-equipment-stage">
-    <div className="guided-panel-title studio-main-title"><div><span className="studio-eyebrow">01 / SPACE</span><h1>적재공간 선택</h1><p>운송 장비를 선택하고, 실제 적재 공간을 확인하세요.</p></div><span className="studio-step-tag">계획 시작</span></div>
-    <div className="guided-segmented"><button type="button" className={equipment.category === 'container' ? 'active' : ''} onClick={() => openEquipment('container')}>컨테이너</button><button type="button" className={equipment.category === 'truck' ? 'active' : ''} onClick={() => openEquipment('truck')}>트럭</button></div>
-    <button type="button" className="studio-equipment-picker" onClick={() => openEquipment(equipment.category)} aria-label="선택한 장비 변경"><span className="studio-equipment-symbol"><StudioIcon /></span><span><small>선택한 장비</small><b>{equipment.shortName}</b></span><span className="studio-change-label">장비 변경 <span aria-hidden="true">↗</span></span></button>
-    <button type="button" className="guided-equipment-card selected" onClick={() => openEquipment(equipment.category)}><span className="guided-equipment-icon">{equipment.category === 'truck' ? '▰' : '▥'}</span><span><b>{equipment.shortName}</b><small>{equipment.name}</small><small>다시 클릭하면 적재공간 변경</small></span><i>✓</i></button>
-    <Suspense fallback={<EquipmentIllustration equipment={equipment} />}><LoadingSpacePreview container={equipment} /></Suspense>
-    <div className="guided-equipment-specs"><div><span>내부 길이</span><b>{(equipment.length * 1000).toLocaleString()} mm</b></div><div><span>내부 폭</span><b>{(equipment.width * 1000).toLocaleString()} mm</b></div><div><span>내부 높이</span><b>{(equipment.height * 1000).toLocaleString()} mm</b></div><div><span>최대 적재중량</span><b>{equipment.maxPayloadKg.toLocaleString()} kg</b></div><div><span>바닥 허용하중</span><b>{equipment.floorLoadLimitKgPerM2.toLocaleString()} kg/m²</b></div><div><span>적재 용적</span><b>{(equipment.volumeM3 ?? equipment.length * equipment.width * equipment.height).toFixed(1)} m³</b></div></div>
-  </section>;
+  if (step === 1) return <EquipmentSelectionStage />;
   if (step === 2) return <ProductSelectionStage container={live.container} selection={selection} onSelection={onSelection} />;
   if (step === 3) return <PackagingStage container={live.container} selection={selection} onBundle={onBundle} />;
   if (step === 4) return <LoadingStrategyStage strategy={strategy} onStrategy={onStrategy} />;
@@ -402,6 +389,13 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
   selection: ProductSelectionMap;
   strategy: LoadingStrategy | null;
 }) {
+  const [summaryOpen, setSummaryOpen] = useState(() => window.innerWidth > 760);
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 761px)');
+    const update = () => setSummaryOpen(desktop.matches);
+    desktop.addEventListener('change', update);
+    return () => desktop.removeEventListener('change', update);
+  }, []);
   const equipment = useTransportEquipment();
   const palletSnapshot = usePalletSnapshot();
   const boxResult = live.result;
@@ -414,7 +408,7 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
   const fillRate = maxVolume > 0 && usedVolume > 0 ? usedVolume / maxVolume * 100 : 0;
   const status = finalReady ? '작업 가능' : running ? '검사 중' : loaded ? '검증 대기' : '대기';
   const restrictedCount = live.cargo.filter(item => item.quantity > 0 && (item.maxStackLayers === 1 || item.maxTopLoadKg === 0)).length;
-  return <section className="guided-job-summary">
+  return <details className="guided-job-summary" open={summaryOpen} onToggle={event => setSummaryOpen(event.currentTarget.open)}><summary className="studio-summary-toggle">현재 작업 요약</summary>
     <div className="studio-summary-heading"><h2>현재 작업</h2><span>OVERVIEW</span></div>
     <div className="studio-summary-equipment"><StudioIcon /><b>{equipment.shortName}</b><span>{live.container.length.toFixed(2)} × {live.container.width.toFixed(2)} × {live.container.height.toFixed(2)} m</span></div>
     <dl>
@@ -439,7 +433,7 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
     {step === 5 && mode === 'pallets' && restrictedCount > 0 && <p className="guided-pallet-stack-note">
       {restrictedCount}종은 1단 또는 상부 적재 금지로 설정되어 있습니다. 더 쌓으려면 박스 관리에 검증된 최대 적층단과 상부 허용중량을 등록하세요.
     </p>}
-  </section>;
+  </details>;
 }
 
 function BottomBar({ step, selectionCount, packagedReady, strategy, running, finalReady, onAdvance, onApplyPackaging }: {

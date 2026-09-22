@@ -1,0 +1,5 @@
+/* Pretendard v1.3.9 · Copyright Kil Hyung-jin · SIL OFL 1.1 (OFL-Pretendard.txt) */
+@font-face{font-family:'Pretendard Variable';font-style:normal;font-weight:45 920;font-display:swap;src:url('./PretendardVariable.woff2') format('woff2-variations')}
+:root{--studio-font:'Pretendard Variable','Malgun Gothic',sans-serif}
+html body,html body *,html[data-guided-workflow] body,html[data-guided-workflow] body *{font-family:var(--studio-font)!important}
+input,button,select,textarea{font:inherit}body{-webkit-font-smoothing:antialiased}table,input,output{font-variant-numeric:tabular-nums}

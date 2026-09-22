@@ -25,7 +25,7 @@ test('changing the active transport equipment invalidates stale physics state', 
   await standard.click();
   await expect(dialog).toHaveCount(0);
   await expect(selector).toContainText('20FT Standard');
-  await expect(page.locator('.guided-equipment-specs')).toContainText('5,900 mm');
+  await expect(page.locator('.equipment-selected-strip')).toContainText('5,900 mm');
 
   await expect.poll(async () => page.evaluate(() => (
     (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics
