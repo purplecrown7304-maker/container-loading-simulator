@@ -421,11 +421,19 @@ export function packOnPallets(
     if (strategy === 'stability') {
       const qa = operationalQuality(container, a.placements), qb = operationalQuality(container, b.placements);
       if (Math.abs(qa.cogHeight - qb.cogHeight) > EPS) return qa.cogHeight < qb.cogHeight;
+    } else {
+      // Consolidate the shipment before considering balance preferences. Do not
+      // consume more floor positions merely to lower an already supported load.
+      if (a.palletCount !== b.palletCount) return a.palletCount < b.palletCount;
+      const floorDiff = floorPositionCount(a) - floorPositionCount(b);
+      if (floorDiff) return floorDiff < 0;
     }
     return betterCandidate(a, b, pallet.minimizePackaging);
   };
 
-  for (const candidate of candidates) candidate.result = spreadStacksToFreeFloor(candidate.result, container, pallet);
+  if (strategy === 'stability') {
+    for (const candidate of candidates) candidate.result = spreadStacksToFreeFloor(candidate.result, container, pallet);
+  }
   let selected = candidates[0] ?? {
     result: packOnPalletsBase(container, normalizedCargo, pallet),
     target: 1,
@@ -435,8 +443,9 @@ export function packOnPallets(
     if (preference(candidate.result, selected.result)) selected = candidate;
   }
 
-  const floorSpread = spreadStacksToFreeFloor(selected.result, container, pallet);
-  const redistributed = redistributeForLowUtilization(floorSpread, container, pallet);
+  const redistributed = strategy === 'stability'
+    ? redistributeForLowUtilization(selected.result, container, pallet)
+    : { result: selected.result, redistributed: false };
   if (strategy === 'unloading') {
     const groups = new Map<number, PalletLoad[]>();
     for (const load of redistributed.result.pallets) groups.set(load.stackColumn, [...(groups.get(load.stackColumn) ?? []), load]);

@@ -421,7 +421,9 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
     let left = remaining.get(item.id) ?? 0;
     while (left > 0) {
       let target = pallets.find((load) => {
-        if (!load.cargoPlacements.length || !load.cargoPlacements.every((placement) => placement.cargoId === item.id)) return false;
+        // Fill compatible residual space before paying for another pallet base.
+        // Unloading keeps each pallet within one stop so it can be removed intact.
+        if (strategy === 'unloading' && stopOf(load, cargoMap) !== (item.unloadPriority ?? 0)) return false;
         if (!slotFor(load, item, pallet, container, cargoMap)) return false;
         return totalPalletizedWeight + item.weightKg <= container.maxPayloadKg + EPS;
       });

@@ -3,6 +3,7 @@ import { loadContainerAsync } from './asyncLoading';
 import type { CargoItem, LoadingResult } from './types';
 import type { PhysicsTarget } from '../physicsTarget';
 import { createPhysicsTargetSignature } from '../inertiaCertification';
+import { operationalQuality, unloadingObstructions } from './operationalQuality';
 
 const EPS = 1e-9;
 const STRATEGIES: LoadingStrategy[] = ['stability', 'capacity', 'unloading'];
@@ -155,7 +156,12 @@ function lateralMoment(target: PhysicsTarget, result: LoadingResult) {
   return Math.abs(result.placements.reduce((sum, item) => sum + ((item.y + item.width / 2) - center) * Math.max(0, item.weightKg), 0) / total);
 }
 
-function staticPenalty(target: PhysicsTarget, result: LoadingResult) {
+function staticPenalty(target: PhysicsTarget, result: LoadingResult, strategy?: LoadingStrategy) {
+  if (strategy && strategy !== 'stability') {
+    const shape = operationalQuality(target.container, result.placements);
+    return shape.footprint * 30 + shape.slenderness * 45
+      + (strategy === 'unloading' ? unloadingObstructions(target.cargo, result.placements) * 100 : 0);
+  }
   return maxTop(result) * 2.5 + weightedCogHeight(result) * 4 + lateralMoment(target, result) * 2 + result.validationIssues.length * 100;
 }
 
@@ -191,7 +197,7 @@ function* candidateSearch(
       label,
       result,
       target,
-      staticPenalty: staticPenalty(current, result),
+      staticPenalty: staticPenalty(current, result, preferredStrategy),
     });
   }
 
