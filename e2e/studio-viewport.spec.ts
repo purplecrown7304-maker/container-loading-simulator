@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('equipment icons, aligned panels and one font stay inside the viewport', async ({ page }) => {
+test('equipment photo cards, aligned panels and one font stay inside the viewport', async ({ page }) => {
   await page.goto('/');
   for (const size of [{ width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1024, height: 700 }, { width: 412, height: 850 }]) {
     await page.setViewportSize(size);
@@ -17,10 +17,12 @@ test('equipment icons, aligned panels and one font stay inside the viewport', as
     const center = await page.locator('.dashboard-center').boundingBox();
     expect(center!.y + center!.height).toBeLessThanOrEqual(footer!.y + 1);
     await expect.poll(() => page.evaluate(() => document.fonts.check('14px "Pretendard Variable"', '적재공간 ABC 123'))).toBe(true);
-    const fonts = await page.locator('.guided-stage-panel h1,.guided-step-list button,.equipment-icon-option b,.guided-primary-cta').evaluateAll(elements => [...new Set(elements.map(el => getComputedStyle(el).fontFamily))]);
+    const fonts = await page.locator('.guided-stage-panel h1,.guided-step-list button,.equipment-icon-option .transport-equipment-card-name,.guided-primary-cta').evaluateAll(elements => [...new Set(elements.map(el => getComputedStyle(el).fontFamily))]);
     expect(fonts).toHaveLength(1);
     expect(fonts[0]).toContain('Pretendard Variable');
   }
+  await expect(page.locator('.equipment-icon-option').first().locator('.transport-equipment-payload')).toContainText('28,130 kg');
+  await expect(page.locator('.equipment-icon-option').first().locator('.equipment-card-photo,.transport-equipment-user-image')).toBeVisible();
   await page.locator('.equipment-icon-option[data-equipment-id="20-standard"]').click();
   await expect(page.locator('.equipment-selected-strip')).toContainText('5,900 mm');
   await page.locator('.guided-segmented').getByRole('button', { name: '트럭', exact: true }).click();
