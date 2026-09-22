@@ -3,6 +3,7 @@ import { buildPalletAdaptiveCandidates, type PalletSnapshot } from './palletAdap
 import { defaultPalletSpec, packOnPallets } from './palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 import type { PhysicsTarget } from '../physicsTarget';
+import { unloadingObstructions } from './operationalQuality';
 
 const container: ContainerSpec = {
   length: 1,
@@ -38,6 +39,21 @@ const spec = {
 };
 
 describe('pallet adaptive configured stack depth regression', () => {
+  it('does not restore unloading obstructions during compact safety recovery', () => {
+    const space = { ...container, length: 6, width: 2 };
+    const items = [1, 2, 3].map(stop => ({ ...cargo, id: `STOP-${stop}`, length: .5, width: .5, quantity: 8, unloadPriority: stop }));
+    const result = packOnPallets(space, items, { ...spec, maxStackLevels: 2 }, 'unloading');
+    const current: PhysicsTarget = { mode: 'pallets', container: space, cargo: items, result: {
+      placements: result.placements, remaining: result.remaining, loadedWeightKg: result.totalPalletizedWeightKg,
+      usedVolumeM3: 2.4, validationIssues: [],
+    } };
+    const candidates = buildPalletAdaptiveCandidates(current, { spec: { ...spec, maxStackLevels: 2 }, result }, 8);
+    expect(candidates.length).toBeGreaterThan(0);
+    for (const candidate of candidates) {
+      expect(candidate.result.optimization.strategy).toBe('unloading');
+      expect(unloadingObstructions(items, candidate.result.placements)).toBe(0);
+    }
+  });
   it('preserves loaded cargo while respecting configured stack depth and support safety', () => {
     const result = packOnPallets(container, [cargo], spec);
     const loadingResult: LoadingResult = {

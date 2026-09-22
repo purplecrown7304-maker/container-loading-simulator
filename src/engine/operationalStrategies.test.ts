@@ -23,6 +23,8 @@ describe('operational strategy regression matrix', () => {
     }
     expect(unloadingObstructions(cargo, rows[2].result.placements)).toBe(0);
     expect(operationalQuality(container, rows[1].result.placements).cogHeight).toBeLessThanOrEqual(operationalQuality(container, rows[0].result.placements).cogHeight);
+    expect(operationalQuality(container, rows[0].result.placements).footprint).toBeLessThan(operationalQuality(container, rows[1].result.placements).footprint);
+    expect(operationalQuality(container, rows[2].result.placements).footprint).toBeLessThan(operationalQuality(container, rows[1].result.placements).footprint);
     console.log('BOX STRATEGIES', rows.map(row => ({ strategy: row.strategy, ...operationalQuality(container, row.result.placements), blocked: unloadingObstructions(cargo, row.result.placements) })));
   }, 60000);
 
@@ -41,6 +43,9 @@ describe('operational strategy regression matrix', () => {
     }
     expect(unloadingObstructions(cargo, rows[2].result.placements)).toBe(0);
     expect(operationalQuality(container, rows[1].result.placements).cogHeight).toBeLessThan(operationalQuality(container, rows[0].result.placements).cogHeight);
+    expect(rows[0].result.optimization.redistributedForLowUtilization).toBe(false);
+    expect(rows[2].result.optimization.redistributedForLowUtilization).toBe(false);
+    expect(operationalQuality(container, rows[0].result.placements).footprint).toBeLessThan(operationalQuality(container, rows[1].result.placements).footprint);
     console.log('PALLET STRATEGIES', rows.map(row => ({ strategy: row.strategy, pallets: row.result.palletCount, ...operationalQuality(container, row.result.placements), blocked: unloadingObstructions(cargo, row.result.placements) })));
   }, 60000);
 

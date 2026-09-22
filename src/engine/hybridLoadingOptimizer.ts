@@ -104,10 +104,7 @@ function scoreCandidate(
     if (strategy === 'capacity') {
       score = fillRatePct * 0.35
         + loadedRatePct * 0.35
-        + quality.loadingQualityScore * 0.08
-        + quality.stabilityScore * 0.07
-        + quality.balanceScore * 0.05
-        + floorScore * 0.10;
+        + (1 - shape.footprint) * 30;
     } else if (strategy === 'stability') {
       score = fillRatePct * 0.12
         + loadedRatePct * 0.18
@@ -118,18 +115,15 @@ function scoreCandidate(
     } else {
       score = fillRatePct * 0.12
         + loadedRatePct * 0.18
-        + quality.loadingQualityScore * 0.15
-        + quality.stabilityScore * 0.12
-        + quality.balanceScore * 0.10
-        + floorScore * 0.08
-        + unloadScore * 0.25;
+        + (1 - shape.footprint) * 25
+        + unloadScore * 0.05;
     }
   }
 
   if (Number.isFinite(score)) {
     score -= shape.slenderness * 45;
-    score -= shape.cogHeight / container.height * (strategy === 'stability' ? 55 : 18);
-    if (strategy === 'capacity') score -= shape.footprint * 6;
+    // Low CG and broad floor distribution are stability preferences, not universal goals.
+    if (strategy === 'stability') score -= shape.cogHeight / container.height * 55;
     if (strategy === 'unloading') score -= unloadingObstructions(cargo, result.placements) / Math.max(1, result.placements.length) * 150;
   }
 
@@ -161,6 +155,11 @@ function rankCandidates(
       // Never discard safely loadable demand just to obtain a cosmetically better balance score.
       const completionDiff = b.output.placements.length - a.output.placements.length;
       if (completionDiff) return completionDiff;
+      if (strategy === 'unloading') {
+        const obstructionDiff = unloadingObstructions(cargo, a.output.placements)
+          - unloadingObstructions(cargo, b.output.placements);
+        if (obstructionDiff) return obstructionDiff;
+      }
       const scoreDiff = b.score - a.score;
       if (Number.isFinite(scoreDiff) && Math.abs(scoreDiff) > EPS) return scoreDiff;
       return b.output.placements.length - a.output.placements.length

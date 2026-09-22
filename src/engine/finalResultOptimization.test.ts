@@ -7,6 +7,7 @@ import {
   buildDirectResultReoptimizationCandidatesAsync,
 } from './finalResultOptimization';
 import type { PhysicsTarget } from '../physicsTarget';
+import { operationalQuality } from './operationalQuality';
 
 const container: ContainerSpec = {
   length: 12.03,
@@ -45,6 +46,16 @@ function smallTarget(): PhysicsTarget {
 }
 
 describe('final result inertia re-layout search', () => {
+  it('orders capacity recovery candidates by compactness rather than low height', async () => {
+    const current = smallTarget();
+    const { candidates } = await buildDirectResultReoptimizationCandidatesAsync(current, 6, () => false, { strategy: 'capacity' });
+    expect(candidates.length).toBeGreaterThan(1);
+    const penalties = candidates.map(candidate => {
+      const shape = operationalQuality(current.container, candidate.result.placements);
+      return shape.footprint * 30 + shape.slenderness * 45;
+    });
+    expect(penalties).toEqual([...penalties].sort((a, b) => a - b));
+  }, 30000);
   it('generates a broad deterministic and deduplicated profile set', () => {
     const profiles = buildDirectReoptimizationCargoProfiles(target());
     expect(profiles.length).toBeGreaterThan(6);

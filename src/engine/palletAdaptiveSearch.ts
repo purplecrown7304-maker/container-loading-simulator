@@ -2,6 +2,7 @@ import { centerPalletCargo, setNextPalletCenteredResultOverride } from './pallet
 import { validatePlacements } from './constraints';
 import { packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
+import { unloadingObstructions } from './operationalQuality';
 import {
   INERTIA_CERTIFICATION_EVENT,
   INERTIA_PASS_PALLET_CARGO_SLIP_M,
@@ -164,6 +165,9 @@ function maxUnitHeight(result: OptimizedPalletPackingResult) {
 }
 
 function staticPenalty(result: OptimizedPalletPackingResult) {
+  if (result.optimization.strategy && result.optimization.strategy !== 'stability') {
+    return result.palletCount * 100 + new Set(result.pallets.map(load => load.stackColumn)).size;
+  }
   return result.stackedPallets * 24
     + Math.max(0, result.maxUsedStackLevel - 1) * 10
     + maxUnitHeight(result) * 4
@@ -222,6 +226,8 @@ function addCandidate(
   label: string,
 ) {
   if (!sameLoadedCargo(current.result, result)) return;
+  if (result.optimization.strategy === 'unloading'
+    && unloadingObstructions(current.cargo, result.placements) > unloadingObstructions(current.cargo, current.result.placements)) return;
   const target = toTarget(current.container, current.cargo, result);
   if (target.result.validationIssues.length) return;
   const signature = createPhysicsTargetSignature(target);
@@ -278,8 +284,10 @@ export function buildPalletAdaptiveCandidates(
     const packed = restoreRotationFlags(centerPalletCargo(packOnPallets(current.container, cargo, spec, snapshot.result.optimization.strategy), current.container), variant.forcedRotatedIds);
     const baseLabel = `${variant.label} · 높이 ${Math.round(heightRatio * 100)}% · ${maxStackLevels}단 제한`;
     addCandidate(list, seen, current, spec, packed, `팔레트 위 재배치 · ${baseLabel}`);
-    addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, false), `안쪽 밀착 2열 · ${baseLabel}`);
-    addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, true), `문쪽 밀착 2열 · ${baseLabel}`);
+    if (snapshot.result.optimization.strategy !== 'unloading') {
+      addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, false), `안쪽 밀착 2열 · ${baseLabel}`);
+      addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, true), `문쪽 밀착 2열 · ${baseLabel}`);
+    }
   }
 
   // Try compact material-efficient candidates first; each still has to pass
@@ -311,7 +319,8 @@ export function palletCertificationRisk(result: InertiaCertification) {
 export function betterPalletEvaluation(a: EvaluatedPalletCandidate, b: EvaluatedPalletCandidate) {
   if (Math.abs(a.risk - b.risk) > 1e-6) return a.risk < b.risk;
   if (a.certification.securing.level !== b.certification.securing.level) return a.certification.securing.level < b.certification.securing.level;
-  if (a.result.stackedPallets !== b.result.stackedPallets) return a.result.stackedPallets < b.result.stackedPallets;
+  if ((!a.result.optimization.strategy || a.result.optimization.strategy === 'stability')
+    && a.result.stackedPallets !== b.result.stackedPallets) return a.result.stackedPallets < b.result.stackedPallets;
   if (Math.abs(a.staticPenalty - b.staticPenalty) > 1e-6) return a.staticPenalty < b.staticPenalty;
   return a.result.palletCount < b.result.palletCount;
 }

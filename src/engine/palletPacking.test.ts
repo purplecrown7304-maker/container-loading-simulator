@@ -109,7 +109,7 @@ describe('packOnPallets', () => {
     expect(result.pallets.every((pallet) => new Set(pallet.cargoPlacements.map((placement) => placement.cargoId)).size === 1)).toBe(true);
   });
 
-  it('uses mixed loading only as a final consolidation fallback when the whole remainder fits', () => {
+  it('mixes compatible SKUs before allocating an unnecessary pallet', () => {
     const result = packOnPallets(
       { length: 2.0, width: 1.0, height: 1.2, maxPayloadKg: 5000 },
       [
@@ -120,7 +120,7 @@ describe('packOnPallets', () => {
     );
     expect(result.palletCount).toBe(1);
     expect(new Set(result.pallets[0].cargoPlacements.map((placement) => placement.cargoId))).toEqual(new Set(['A', 'B']));
-    expect(result.consolidatedPallets).toBeGreaterThan(0);
+    expect(result.totalPalletizedWeightKg).toBe(75);
   });
 
   it('reuses an existing pallet for final mixed fallback when a new pure pallet would exceed payload', () => {
