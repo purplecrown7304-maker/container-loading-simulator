@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('pallet workflow stacks cartons and keeps run instructions outside the canvas', async ({ page, context, baseURL }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(180_000);
   // This isolated guest fixture never contacts account/data services.
   // Only the app origin and public 3D font assets are needed for the story.
   const appOrigin = new URL(baseURL!).origin;
@@ -35,9 +35,27 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
 
   const summary = page.locator('.guided-job-summary');
+  if (await summary.getAttribute('open') === null) await summary.locator('summary').click();
   const confirmation = summary.locator('.guided-loading-run-confirmation');
   await expect(confirmation).toBeVisible();
+  await expect(page.locator('.pallet-preview>.unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
+  await expect(page.locator('.pallet-preview>.unity-viewer')).toHaveAttribute('data-unity-supports', '1');
   await expect(summary.locator('dl > div').filter({ hasText: '사용 파렛트' }).locator('dd')).toHaveText('1개');
+  await page.evaluate(() => {
+    (window as any).__inertiaMessages = [];
+    window.addEventListener('message', event => {
+      const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Unity 3D 캔버스 · 관성 시험 재생"]');
+      if (event.source === frame?.contentWindow && event.data?.source === 'cargo-unity-host') (window as any).__inertiaMessages.push(event.data.payload);
+    });
+    window.dispatchEvent(new Event('container-loading:open-inertia-test'));
+  });
+  const motion = page.getByRole('dialog', { name: '관성 애니메이션 테스트' });
+  await expect(motion.locator('.unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
+  await motion.getByRole('slider', { name: '관성 테스트 재생 위치' }).fill('0');
+  await motion.getByRole('button', { name: '처음부터', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__inertiaMessages.filter((m: any) => m.type === 'frameApplied').length)).toBeGreaterThan(3);
+  expect(await page.evaluate(() => (window as any).__inertiaMessages.filter((m: any) => m.type === 'planApplied').length)).toBe(1);
+  await motion.getByRole('button', { name: '관성 테스트 닫기' }).click();
   const snapshot = await page.evaluate(() => (window as typeof window & {
     __containerLoadingPalletSnapshot?: { result: { palletCount: number; placements: Array<{ z: number }> } };
   }).__containerLoadingPalletSnapshot?.result);

@@ -130,6 +130,6 @@ test('mobile guided dashboard remains usable without horizontal body overflow', 
   const rail = await page.locator('.guided-step-rail').boundingBox();
   const stage = await page.locator('.guided-stage-panel').boundingBox();
   expect(rail!.y + rail!.height).toBeLessThanOrEqual(stage!.y);
-  await page.locator('.guided-equipment-specs').scrollIntoViewIfNeeded();
-  await expect(page.getByText('적재 용적', { exact: true })).toBeVisible();
+  await page.locator('.equipment-selected-strip').scrollIntoViewIfNeeded();
+  await expect(page.locator('.equipment-selected-strip')).toContainText('용적');
 });

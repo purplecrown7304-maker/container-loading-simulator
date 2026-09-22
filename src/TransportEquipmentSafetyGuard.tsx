@@ -85,6 +85,8 @@ function closestKnownEquipment(candidate: TransportEquipment) {
 }
 
 function equipmentFromCard(target: Element) {
+  const icon = target.closest('.equipment-icon-option[data-equipment-id]');
+  if (icon) return TRANSPORT_EQUIPMENT.find(item => item.id === icon.getAttribute('data-equipment-id')) ?? null;
   const card = target.closest('.transport-equipment-card');
   if (!card) return null;
   const name = card.querySelector('.transport-equipment-card-name')?.textContent?.trim();

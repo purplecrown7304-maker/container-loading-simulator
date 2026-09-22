@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
+import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
 import type { ContainerSpec, LoadingResult } from './engine/types';
 import UnityLoadingViewer from './UnityLoadingViewer';
-import BoxLoadingViewerEquipment from './BoxLoadingViewerEquipment';
 import { BOX_VIEW_SNAPSHOT_EVENT } from './RemainingLengthIndicator';
 
 type Props = { result: LoadingResult; container: ContainerSpec };
@@ -10,7 +10,12 @@ type SnapshotWindow = Window & {
 };
 
 export default function BoxLoadingViewer(props: Props) {
-  const [fallback, setFallback] = useState(false);
+  const [certification, setCertification] = useState<InertiaCertification | undefined>(() => readLatestInertiaCertification() ?? undefined);
+  useEffect(() => {
+    const update = (event: Event) => setCertification((event as CustomEvent<InertiaCertification | undefined>).detail);
+    window.addEventListener(INERTIA_CERTIFICATION_EVENT, update);
+    return () => window.removeEventListener(INERTIA_CERTIFICATION_EVENT, update);
+  }, []);
   useEffect(() => {
     const publish = () => {
       (window as SnapshotWindow).__containerLoadingBoxViewSnapshot = props;
@@ -23,5 +28,5 @@ export default function BoxLoadingViewer(props: Props) {
     };
   }, [props.container, props.result]);
 
-  return fallback ? <div className="legacy-viewer-wrap"><button type="button" onClick={() => setFallback(false)}>Unity 3D로 돌아가기</button><BoxLoadingViewerEquipment {...props} /></div> : <UnityLoadingViewer {...props} onFallback={() => setFallback(true)} />;
+  return <UnityLoadingViewer {...props} syncSelection securing={certification?.mode === 'boxes' ? certification.securing : null} />;
 }

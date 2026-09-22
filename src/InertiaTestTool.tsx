@@ -1,13 +1,10 @@
-import { OrbitControls } from '@react-three/drei';
-import { Canvas } from '@react-three/fiber';
+import UnityLoadingViewer from './UnityLoadingViewer';
 import { createPortal } from 'react-dom';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import * as THREE from 'three';
-import { cargoColor } from './cargoColors';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { runInertiaAnimation, type InertiaAnimationResult, type InertiaPhase } from './engine/inertiaSimulation';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { PhysicsScenario } from './engine/physicsValidation';
-import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
+import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import {
   buildSecuringUsage,
   createPhysicsTargetSignature,
@@ -17,7 +14,6 @@ import {
   type SecuringUsage,
 } from './inertiaCertification';
 import { openInertiaImprovementReport } from './inertiaReport';
-import InertiaSecuringAids3D from './InertiaSecuringAids3D';
 import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
 import { PHYSICS_TARGET_EVENT, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
@@ -79,109 +75,9 @@ function mm(value: number) {
   return `${(value * 1000).toFixed(value * 1000 >= 10 ? 0 : 1)} mm`;
 }
 
-function InstancedCargo({ placements, transforms }: { placements: Placement[]; transforms: Float32Array }) {
-  const ref = useRef<THREE.InstancedMesh>(null);
-  const helper = useMemo(() => new THREE.Object3D(), []);
-
-  useLayoutEffect(() => {
-    const mesh = ref.current;
-    if (!mesh) return;
-    placements.forEach((placement, index) => {
-      const offset = index * 7;
-      helper.position.set(transforms[offset], transforms[offset + 1], transforms[offset + 2]);
-      helper.quaternion.set(transforms[offset + 3], transforms[offset + 4], transforms[offset + 5], transforms[offset + 6]);
-      helper.scale.set(placement.length, placement.height, placement.width);
-      helper.updateMatrix();
-      mesh.setMatrixAt(index, helper.matrix);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-  }, [helper, placements, transforms]);
-
-  useEffect(() => {
-    const mesh = ref.current;
-    if (!mesh) return;
-    placements.forEach((placement, index) => mesh.setColorAt(index, new THREE.Color(cargoColor(placement.cargoId))));
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [placements]);
-
-  return <instancedMesh ref={ref} args={[undefined, undefined, placements.length]} castShadow receiveShadow>
-    <boxGeometry args={[1, 1, 1]} />
-    <meshStandardMaterial roughness={0.72} metalness={0.02} />
-  </instancedMesh>;
-}
-
-function InstancedSupports({ target, transforms }: { target: PhysicsTarget; transforms: Float32Array }) {
-  const supports = target.supports ?? [];
-  const ref = useRef<THREE.InstancedMesh>(null);
-  const helper = useMemo(() => new THREE.Object3D(), []);
-
-  useLayoutEffect(() => {
-    const mesh = ref.current;
-    if (!mesh) return;
-    supports.forEach((support, index) => {
-      const offset = index * 7;
-      helper.position.set(transforms[offset], transforms[offset + 1], transforms[offset + 2]);
-      helper.quaternion.set(transforms[offset + 3], transforms[offset + 4], transforms[offset + 5], transforms[offset + 6]);
-      helper.scale.set(support.length, support.height, support.width);
-      helper.updateMatrix();
-      mesh.setMatrixAt(index, helper.matrix);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-  }, [helper, supports, transforms]);
-
-  if (!supports.length) return null;
-  return <instancedMesh ref={ref} args={[undefined, undefined, supports.length]} castShadow receiveShadow>
-    <boxGeometry args={[1, 1, 1]} />
-    <meshStandardMaterial color="#b88752" roughness={0.82} />
-  </instancedMesh>;
-}
-
-function InertiaScene({
-  target,
-  animation,
-  frameIndex,
-  usage,
-}: {
-  target: PhysicsTarget;
-  animation: InertiaAnimationResult;
-  frameIndex: number;
-  usage: SecuringUsage;
-}) {
+function InertiaScene({ target, animation, frameIndex, usage }: { target: PhysicsTarget; animation: InertiaAnimationResult; frameIndex: number; usage: SecuringUsage }) {
   const frame = animation.frames[Math.min(frameIndex, animation.frames.length - 1)];
-  const { container } = target;
-  return <Canvas
-    dpr={[1, 1.5]}
-    shadows
-    camera={{
-      position: [container.length * 0.68, Math.max(4.2, container.height * 2.05), Math.max(5.8, container.width * 3.2)],
-      fov: 42,
-      near: 0.1,
-      far: 120,
-    }}
-  >
-    <color attach="background" args={['#eef3f8']} />
-    <ambientLight intensity={1.25} />
-    <directionalLight position={[5, 10, 7]} intensity={2.1} castShadow />
-    <mesh position={[0, -0.025, 0]} receiveShadow>
-      <boxGeometry args={[container.length + 0.08, 0.05, container.width + 0.08]} />
-      <meshStandardMaterial color="#dce4ec" roughness={0.9} />
-    </mesh>
-    <mesh position={[0, container.height / 2, 0]}>
-      <boxGeometry args={[container.length, container.height, container.width]} />
-      <meshBasicMaterial color="#64748b" wireframe transparent opacity={0.18} depthWrite={false} />
-    </mesh>
-    <InstancedCargo placements={target.result.placements} transforms={frame.cargo} />
-    <InstancedSupports target={target} transforms={frame.supports} />
-    <InertiaSecuringAids3D target={target} frame={frame} usage={usage} />
-    <OrbitControls
-      makeDefault
-      target={[0, container.height * 0.42, 0]}
-      enableDamping
-      dampingFactor={0.08}
-      minDistance={2.5}
-      maxDistance={Math.max(22, container.length * 2.5)}
-    />
-  </Canvas>;
+  return <UnityLoadingViewer container={target.container} cargo={target.cargo} result={target.result} supports={target.supports} securing={usage} frameData={frame} preview title="관성 시험 재생" />;
 }
 
 export default function InertiaTestTool() {
@@ -297,7 +193,9 @@ export default function InertiaTestTool() {
   const frame = animation?.frames[frameIndex];
   const elapsedSeconds = animation && frame ? frame.step / 60 : 0;
   const testedCount = Object.keys(completedResults).length;
-  const securingUsage = target ? securingForTarget(target) : null;
+  // Playback changes the pose only; rebuilding the Unity scene on every frame
+  // would reset the camera and lose the pending frame acknowledgement.
+  const securingUsage = useMemo(() => target ? securingForTarget(target) : null, [target, animation]);
   const openReport = () => {
     if (!target || testedCount === 0) return;
     if (!openInertiaImprovementReport(target, completedResults)) setError('팝업이 차단되어 보완 보고서를 열지 못했습니다.');
@@ -308,7 +206,7 @@ export default function InertiaTestTool() {
     <section className="inertia-modal" role="dialog" aria-modal="true" aria-labelledby="inertia-title">
       <header className="inertia-head">
         <div>
-          <span>RAPIER 3D LIVE MOTION · {target?.mode === 'pallets' ? 'PALLET MODE' : 'BOX MODE'}</span>
+          <span>UNITY 3D LIVE MOTION · {target?.mode === 'pallets' ? 'PALLET MODE' : 'BOX MODE'}</span>
           <h2 id="inertia-title">관성 애니메이션 테스트</h2>
           <p>현재 적재안의 실제 보강자재와 같은 마찰·구속 조건으로 상자와 팔레트의 움직임을 눈으로 확인합니다.</p>
         </div>
@@ -361,6 +259,7 @@ export default function InertiaTestTool() {
         </div>
         <input
           className="inertia-timeline"
+          data-view-only="true"
           type="range"
           min="0"
           max={Math.max(0, animation.frames.length - 1)}

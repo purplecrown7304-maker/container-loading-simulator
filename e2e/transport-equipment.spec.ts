@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 async function openEquipment(page: Page) {
-  // The selector remains accessible while the Unity preview loads.
+  // Detailed specifications stay available beside the direct icon picker.
   const selector = page.getByRole('button', { name: '선택한 장비 변경', exact: true });
   await expect(selector).toBeVisible();
   await selector.click();
@@ -20,7 +20,7 @@ test('guided equipment selector changes the current container in place', async (
   await dialog.locator('.transport-equipment-card[data-equipment-id="20-standard"]').click();
   await expect(dialog).toHaveCount(0);
   await expectSelectedEquipment(page, '20FT Standard');
-  await expect(page.locator('.guided-equipment-specs')).toContainText('5,900 mm');
+  await expect(page.locator('.equipment-selected-strip')).toContainText('5,900 mm');
   // Reopening must work after a selection and show the currently active equipment.
   const reopened = await openEquipment(page);
   await expect(reopened.locator('.transport-equipment-card[data-equipment-id="20-standard"]')).toHaveClass(/active/);
@@ -31,11 +31,8 @@ test('guided equipment selector changes the current container in place', async (
 test('truck category can select a Tautliner without leaving the guided workflow', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: '트럭', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
-  await expect(dialog).toBeVisible();
-  await expect(dialog.locator('.transport-equipment-card[data-category="truck"]')).toHaveCount(6);
-  await dialog.locator('.transport-equipment-card[data-equipment-id="tautliner"]').click();
-  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.equipment-icon-option')).toHaveCount(6);
+  await page.locator('.equipment-icon-option[data-equipment-id="tautliner"]').click();
   await expectSelectedEquipment(page, 'Tautliner / Curtainsider');
   await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
 });
@@ -43,6 +40,7 @@ test('truck category can select a Tautliner without leaving the guided workflow'
 test('custom truck dimensions can be applied from the current selector', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: '트럭', exact: true }).click();
+  await page.locator('.equipment-icon-option[data-equipment-id="custom-truck"]').click();
   const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
   await dialog.locator('.transport-equipment-card[data-equipment-id="custom-truck"]').click();
   await dialog.getByLabel('내부 길이(m)').fill('10.5');
@@ -53,8 +51,8 @@ test('custom truck dimensions can be applied from the current selector', async (
   await dialog.getByRole('button', { name: '사용자 규격 적용' }).click();
   await expect(dialog).toHaveCount(0);
   await expectSelectedEquipment(page, 'Custom Truck');
-  await expect(page.locator('.guided-equipment-specs')).toContainText('10,500 mm');
-  await expect(page.locator('.guided-equipment-specs')).toContainText('12,000 kg');
+  await expect(page.locator('.equipment-selected-strip')).toContainText('10,500 mm');
+  await expect(page.locator('.equipment-selected-strip')).toContainText('12,000 kg');
 });
 
 test('specialized tank equipment remains selectable but explicitly identifiable', async ({ page }) => {

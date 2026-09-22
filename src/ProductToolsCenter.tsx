@@ -1,3 +1,6 @@
+import EnterpriseManufacturingSettings from './EnterpriseManufacturingSettings';
+import EnterprisePackagingStrategyExplorer from './EnterprisePackagingStrategyExplorer';
+import EnterpriseCartonApprovalCenter from './EnterpriseCartonApprovalCenter';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { requiresBoxPackaging, type CompanyProductItem } from './companyProduct';
 import { optimizeCommonCartonFamily, type CommonCartonFamilyPlan } from './engine/commonCartonFamilyOptimizer';
@@ -312,6 +315,7 @@ export default function ProductToolsCenter() {
         {familyPlan && <div className="carton-metrics"><div><span>개별 최적 규격</span><b>{familyPlan.family.baselineBoxTypes}종</b></div><div><span>범용화 후</span><b>{familyPlan.family.selectedBoxTypes}종</b></div><div><span>규격 절감</span><b>{familyPlan.family.boxTypeSavings}종</b></div><div><span>평균 효율 손실</span><b>{(familyPlan.family.averageScoreLoss * 100).toFixed(1)}%</b></div></div>}
         <div className="carton-tool-section"><div className="carton-tool-title"><h3>범용 상자 크기 추천</h3><span>여러 제품에 같이 사용할 수 있는 규격 · 등록 버튼을 눌러야 개인 박스 목록에 추가</span></div>{universal.length ? universal.map(item => <article className="carton-recommend-row" key={`${item.id}-${item.outerLength}`}><div><b>{mm(item.outerLength)} × {mm(item.outerWidth)} × {mm(item.outerHeight)} mm</b><span>{item.source === 'catalog' ? '현재 보유 박스 재사용' : '신규 범용 규격'}</span></div><div><b>{item.assignedProducts.length}개 제품 공용</b><span>{item.assignedProducts.join(', ')}</span></div>{item.source === 'catalog' ? <strong className="registered">보유 중</strong> : <button onClick={() => registerFamily(item)}>회사 박스로 등록</button>}</article>) : <div className="carton-empty">분석 버튼을 누르면 범용 규격이 표시됩니다.</div>}</div>
         <div className="carton-tool-section"><div className="carton-tool-title"><h3>추가 보유 권장 박스</h3><span>현재 박스 스펙과 비교했을 때 추가하면 효율이 좋아지는 규격 · 등록 전에는 목록에 저장하지 않음</span></div>{additional.length ? additional.map(item => <article className="carton-recommend-row" key={item.key}><div><b>{formatBoxSize(item.assignment)}</b><span>{item.reason}</span></div><div><b>{item.products.length}개 제품 개선</b><span>{item.products.join(', ')} · {item.assignment.unitsPerBox}EA/BOX · 충진율 {Math.round(item.assignment.productFillRate * 100)}%</span></div><button onClick={() => registerAssignment(item.assignment, '추가추천')}>회사 박스로 등록</button></article>) : <div className="carton-empty">분석 후 현재 보유 박스보다 추가 가치가 있는 규격만 표시합니다.</div>}</div>
+        <details className="packaging-advanced-tools"><summary>제조 규격 · 전략 비교 · 강도 승인</summary><EnterpriseManufacturingSettings/><EnterprisePackagingStrategyExplorer/><EnterpriseCartonApprovalCenter/></details>
       </div>}
       {message && <footer className="product-tools-message">{message}</footer>}
     </section>

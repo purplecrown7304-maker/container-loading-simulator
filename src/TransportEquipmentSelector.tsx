@@ -66,7 +66,7 @@ function readDashboardSpec(): EditableSpec | null {
   return Object.values(result).every(value => Number.isFinite(value) && value > 0) ? result : null;
 }
 
-function applyToDashboard(spec: TransportEquipment) {
+export function applyToDashboard(spec: TransportEquipment) {
   const values: EditableSpec = {
     length: spec.length,
     width: spec.width,
@@ -98,7 +98,7 @@ function syncSelectionFromDashboard(category: TransportCategory) {
   else selectTransportEquipment(createCustomEquipment(category, values));
 }
 
-function EquipmentIcon({ geometry, truck }: { geometry: EquipmentGeometry; truck: boolean }) {
+export function EquipmentIcon({ geometry, truck }: { geometry: EquipmentGeometry; truck: boolean }) {
   if (geometry === 'tank') return <svg viewBox="0 0 180 100" aria-hidden="true"><rect x="20" y="22" width="140" height="58" rx="2" className="eq-line"/><rect x="36" y="30" width="108" height="42" rx="21" className="eq-fill"/><circle cx="55" cy="78" r="5" className="eq-dark"/><circle cx="125" cy="78" r="5" className="eq-dark"/></svg>;
   if (geometry === 'platform') return <svg viewBox="0 0 180 100" aria-hidden="true"><path d="M20 64 L145 46 L160 55 L36 76 Z" className="eq-fill"/><path d="M20 64 L145 46 L160 55 L36 76 Z M32 73v9m116-28v10" className="eq-line"/></svg>;
   if (geometry === 'flat-rack') return <svg viewBox="0 0 180 100" aria-hidden="true"><path d="M28 68 L145 50 L156 58 L40 77 Z" className="eq-fill"/><path d="M28 68V30l13 5v42M145 50V18l11 5v35M28 68 L145 50 L156 58 L40 77 Z" className="eq-line"/></svg>;

@@ -1,8 +1,6 @@
-import { Canvas } from '@react-three/fiber';
-import { Edges, OrbitControls } from '@react-three/drei';
+import UnityLoadingViewer from './UnityLoadingViewer';
 import { useMemo } from 'react';
 import { cargoColor } from './cargoColors';
-import { CargoFaceInfoLabels } from './CargoFaceInfoLabels';
 import type { CargoItem, ContainerSpec, Placement } from './engine/types';
 import './product-packaging-preview.css';
 
@@ -57,64 +55,14 @@ function floorPreview(container: ContainerSpec, cargo: CargoItem[]) {
   return { placed, shown, requested };
 }
 
-function Scene({ container, cargo }: Props) {
-  const preview = useMemo(() => floorPreview(container, cargo), [container, cargo]);
-  const groupedLabels = useMemo(() => {
-    const groups = new Map<string, { cargo: CargoItem; placements: Placement[] }>();
-    for (const box of preview.placed) {
-      const group = groups.get(box.cargo.id) ?? { cargo: box.cargo, placements: [] };
-      group.placements.push(box.placement);
-      groups.set(box.cargo.id, group);
-    }
-    return [...groups.values()];
-  }, [preview.placed]);
-  const cx = container.length / 2;
-  const cz = container.width / 2;
-  return <>
-    <ambientLight intensity={1.35} />
-    <directionalLight position={[container.length * .25, container.height * 2.6, container.width * 1.6]} intensity={1.8} castShadow />
-    <mesh position={[0, -0.025, 0]} receiveShadow>
-      <boxGeometry args={[container.length, 0.05, container.width]} />
-      <meshStandardMaterial color="#e8ebef" roughness={.82} />
-      <Edges color="#9aa3ad" />
-    </mesh>
-    {preview.placed.map(box => {
-      const p = box.placement;
-      return <mesh key={box.key} position={[p.x + p.length / 2 - cx, p.height / 2, p.y + p.width / 2 - cz]} castShadow receiveShadow>
-        <boxGeometry args={[p.length, p.height, p.width]} />
-        <meshStandardMaterial color={box.color} roughness={.56} />
-        <Edges color="#374151" threshold={15} />
-      </mesh>;
-    })}
-    {groupedLabels.map(({ cargo: item, placements }) => <CargoFaceInfoLabels
-      key={`label-${item.id}`}
-      placements={placements}
-      container={container}
-      scale={1}
-      bodyScale={1}
-      displayName={item.name}
-      productInfo={{
-        productId: item.productId,
-        productName: item.productName,
-        unitsPerPackage: item.unitsPerPackage,
-        contentWeightKg: item.contentWeightKg ?? item.weightKg,
-      }}
-    />)}
-    <gridHelper args={[Math.max(container.length, container.width) * 1.15, 24, '#b9c2cb', '#d7dde3']} position={[0, 0.002, 0]} />
-    <OrbitControls makeDefault target={[0, Math.min(.8, container.height * .25), 0]} minDistance={2} maxDistance={Math.max(8, container.length * 1.8)} />
-  </>;
-}
-
 export default function ProductPackagingPreview3D({ container, cargo }: Props) {
   const preview = useMemo(() => floorPreview(container, cargo), [container, cargo]);
-  const cameraDistance = Math.max(5.5, container.length * .72);
+  const result = useMemo(() => ({ placements: preview.placed.map(box => box.placement), remaining: [], validationIssues: [], usedVolumeM3: preview.placed.reduce((sum, box) => sum + box.placement.length * box.placement.width * box.placement.height, 0), loadedWeightKg: preview.placed.reduce((sum, box) => sum + box.placement.weightKg, 0) }), [preview]);
   return <section className="product-packaging-preview">
     <div className="product-packaging-preview-head"><div><b>포장 완료 바닥 미리보기</b><span>최종 적재 전, 선택한 포장 박스를 적재공간 바닥에 1단으로 펼쳐 확인합니다.</span></div><strong>{preview.shown.toLocaleString()} / {preview.requested.toLocaleString()} BOX·EA 표시</strong></div>
     <div className="product-packaging-canvas">
-      <Canvas shadows camera={{ position: [cameraDistance * .7, cameraDistance * .62, cameraDistance], fov: 42, near: .05, far: 200 }} gl={{ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true }}>
-        <Scene container={container} cargo={cargo} />
-      </Canvas>
-      <div className="product-packaging-canvas-legend"><span>드래그: 회전</span><span>휠: 확대/축소</span><span>박스 옆면: 제품 정보</span></div>
+      <UnityLoadingViewer container={container} result={result} cargo={cargo} preview title="포장 완료 바닥 배치" />
+      <div className="product-packaging-canvas-legend"><span>드래그: 회전</span><span>휠: 확대/축소</span><span>박스 클릭: 제품 정보</span></div>
     </div>
     {preview.shown < preview.requested && <p className="product-packaging-overflow">바닥에 한 번에 펼칠 수 있는 수량을 초과했습니다. 화면에는 {preview.shown.toLocaleString()}개만 표시하며 실제 자동 적재 단계에서는 전체 {preview.requested.toLocaleString()}개를 계산합니다.</p>}
   </section>;

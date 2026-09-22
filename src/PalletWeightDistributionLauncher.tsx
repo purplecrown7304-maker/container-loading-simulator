@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { readWeightGraphPreference } from './PreviewViewControls';
+import { readWeightGraphPreference } from './viewerPreferences';
 
 function findWeightToggle() {
   return Array.from(document.querySelectorAll<HTMLButtonElement>('.pallet-weight-dock > .pallet-weight-toolbar > button'))
