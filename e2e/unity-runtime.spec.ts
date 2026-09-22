@@ -26,12 +26,17 @@ test('Unity applies pallet poses and ignores stale or malformed physics frames',
   await send('plan', plan);
   await expect.poll(() => events('planApplied')).toEqual([{ type: 'planApplied', revision: 17, count: 1, modelCount: 2 }]);
   const canvas = page.locator('canvas');
+  // Let the startup overlay finish and the static scene enter idle rendering.
+  await page.waitForTimeout(2500);
   const initial = await canvas.screenshot();
   const frame = { revision: 17, cargo: [1, .8, .2, 0, Math.SQRT1_2, 0, Math.SQRT1_2], supports: [.8, .075, .2, 0, Math.SQRT1_2, 0, Math.SQRT1_2] };
   await send('frame', frame);
   await expect.poll(() => events('frameApplied')).toHaveLength(1);
   const moved = await canvas.screenshot();
   expect(moved.equals(initial)).toBe(false);
+  await page.waitForTimeout(500);
+  await send('command', { action: 'view', view: 'top' });
+  await expect.poll(async () => (await canvas.screenshot()).equals(moved)).toBe(false);
   await send('frame', { ...frame, revision: 16 });
   await send('frame', { ...frame, cargo: [] });
   // A round trip through a harmless view command/plan lets the browser process

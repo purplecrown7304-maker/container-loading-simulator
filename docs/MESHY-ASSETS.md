@@ -22,3 +22,5 @@ Cargo, supports, corner protectors and timber blocking use model skins. Truck ca
 The truck rear chassis is cropped; shell floor, door-side and near-side triangles are removed for inspection. The exact floor and loading-volume wireframe remain dimension-based. Mesh skins have no physics colliders: original selection box colliders and Rapier dimensions/poses are preserved. Source model details are illustrative, not dimensional CAD.
 
 Base-color textures are rendered through a shared instancing-capable shader with directional shading. PBR source maps remain in the downloadable GLBs; runtime uses the base color at 1024px to limit browser load. SKU tints and red invalid-cargo feedback remain visible.
+
+Unity OnDemandRendering reduces static scenes to one rendered frame per 15 update ticks. Camera movement, resize, selection, scene commands and physics replay immediately restore full rendering. This leaves input processing responsive and reduces competition with bulk loading certification without changing its checks.

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 [Serializable] public class SpaceSpec { public float length,width,height; }
 [Serializable] public class CargoBox { public string cargoId,color,modelKey; public float x,y,z,length,width,height,weightKg; public bool invalid; }
@@ -18,6 +19,9 @@ public class CargoViewer : MonoBehaviour {
  CargoModelLibrary models;
  Material surface,highlight; float yaw=222,pitch=27,distance=14,viewportAspect=1; Vector3 target; Vector3 mouseDown; bool dragging;
  float cut=100; int step; int selected=-1; bool playing; float clock; GameObject selection;
+ float renderUntil; int viewportWidth,viewportHeight;
+ // Keep input responsive while static Meshy scenes yield rendering time to validation.
+ void WakeRendering(){renderUntil=Time.unscaledTime+.2f;OnDemandRendering.renderFrameInterval=1;}
  void Emit(string json) {
  #if UNITY_WEBGL && !UNITY_EDITOR
  CargoEvent(json);
@@ -25,6 +29,7 @@ public class CargoViewer : MonoBehaviour {
  }
  void Start() {
   Application.targetFrameRate=45; QualitySettings.antiAliasing=4;
+  WakeRendering();
   #if UNITY_WEBGL && !UNITY_EDITOR
   WebGLInput.captureAllKeyboardInput=false;
   #endif
@@ -59,6 +64,7 @@ public class CargoViewer : MonoBehaviour {
   foreach(var m in ownedMaterials) Destroy(m); ownedMaterials.Clear(); boxes.Clear(); supports.Clear(); selected=-1;
   models.ResetCount();
   plan=next; playing=false; step=plan.placements.Length;
+  WakeRendering();
   shell=new GameObject("Equipment").transform; cargoRoot=new GameObject("Cargo").transform;
   var s=plan.container; float l=s.length,w=s.width,h=s.height;
   highlight=Mat(new Color(1,.6f,.04f));
@@ -117,6 +123,7 @@ public class CargoViewer : MonoBehaviour {
  }
  Vector3 Position(CargoBox p) {return new Vector3(p.x+p.length/2-plan.container.length/2,p.z+p.height/2,p.y+p.width/2-plan.container.width/2);}
  void UpdateVisibility() {
+  WakeRendering();
   for(int i=0;i<boxes.Count;i++)boxes[i].SetActive(!showWeight&&i<step&&plan.placements[i].z<plan.container.height*cut/100);
   if(supportRoot)supportRoot.gameObject.SetActive(!showWeight); if(decorRoot)decorRoot.gameObject.SetActive(!showWeight);
   if(weightRoot)weightRoot.gameObject.SetActive(showWeight); if(cgRoot)cgRoot.gameObject.SetActive(showWeight&&showCg);
@@ -135,6 +142,7 @@ public class CargoViewer : MonoBehaviour {
   var frame=JsonUtility.FromJson<CargoFrame>(json);
   if(plan==null||frame==null||frame.revision!=plan.revision||!ValidPoses(frame.cargo,boxes.Count)||!ValidPoses(frame.supports,supports.Count))return;
   playing=false;ApplyPoses(boxes,frame.cargo);ApplyPoses(supports,frame.supports);
+  WakeRendering();
   Emit("{\"type\":\"frameApplied\",\"revision\":"+plan.revision+"}");
  }
  // Fit all eight equipment corners to the horizontal and vertical frustum.
@@ -148,9 +156,10 @@ public class CargoViewer : MonoBehaviour {
   }
   return fit*1.12f;
  }
- void CameraPose() { cam.transform.position=target+Quaternion.Euler(pitch,yaw,0)*Vector3.back*distance; cam.transform.LookAt(target); }
+ void CameraPose() { var position=target+Quaternion.Euler(pitch,yaw,0)*Vector3.back*distance;var rotation=Quaternion.LookRotation(target-position);if(cam.transform.position!=position||Quaternion.Angle(cam.transform.rotation,rotation)>.001f)WakeRendering();cam.transform.SetPositionAndRotation(position,rotation); }
  public void Command(string json) {
   var c=JsonUtility.FromJson<ViewerCommand>(json); if(c==null||plan==null)return;
+  WakeRendering();
   switch(c.action) {
    case "weight":showWeight=c.value>0;UpdateVisibility();break;
    case "cg":showCg=c.value>0;UpdateVisibility();break;
@@ -166,6 +175,7 @@ public class CargoViewer : MonoBehaviour {
   }
  }
  void Select(int index,bool notify) {
+  WakeRendering();
   if(selection)Destroy(selection); selected=index>=0&&index<boxes.Count?index:-1;
   if(selected>=0){selection=new GameObject("Selection");var p=boxes[selected].transform;selection.transform.SetParent(p,false);EdgeBox(Vector3.zero,Vector3.one,highlight,selection.transform,.025f);selection.SetActive(boxes[selected].activeSelf);}
   if(notify)Emit("{\"type\":\"selection\",\"index\":"+selected+",\"revision\":"+plan.revision+"}");
@@ -183,6 +193,8 @@ public class CargoViewer : MonoBehaviour {
   if(playing){clock+=Time.unscaledDeltaTime;if(clock>.25f){clock=0;step=Mathf.Min(step+1,boxes.Count);UpdateVisibility();Emit("{\"type\":\"step\",\"value\":"+step+",\"revision\":"+plan.revision+"}");if(step==boxes.Count)playing=false;}}
   if(Input.touchCount==2){var a=Input.GetTouch(0);var b=Input.GetTouch(1);float now=Vector2.Distance(a.position,b.position);float prev=Vector2.Distance(a.position-a.deltaPosition,b.position-b.deltaPosition);if(now>0)distance=Mathf.Clamp(distance*prev/now,.5f,150);}
   CameraPose();
+  if(Screen.width!=viewportWidth||Screen.height!=viewportHeight){viewportWidth=Screen.width;viewportHeight=Screen.height;WakeRendering();}
+  OnDemandRendering.renderFrameInterval=Time.unscaledTime<renderUntil?1:15;
  }
  void OnDestroy(){if(models!=null)models.Dispose();foreach(var m in ownedMaterials)Destroy(m);if(surface)Destroy(surface);}
 }
