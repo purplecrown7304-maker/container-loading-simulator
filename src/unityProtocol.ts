@@ -6,12 +6,12 @@ import { analyzeWeightDistribution } from './engine/weightDistribution';
 import type { SecuringUsage } from './inertiaCertification';
 import { securingGeometry } from './unitySecuring';
 
-export type UnitySceneOptions = { supports?: PhysicsSupport[]; securing?: SecuringUsage | null; geometry?: string };
+export type UnitySceneOptions = { supports?: PhysicsSupport[]; securing?: SecuringUsage | null; geometry?: string; vehicle?: boolean };
 export function unityPlan(container: ContainerSpec, result: LoadingResult, revision: number, cargo: Array<{ id: string; displayColor?: string }> = [], options: UnitySceneOptions = {}) {
   const colors = new Map(cargo.map(item => [item.id, item.displayColor]));
   const invalid = new Set(result.validationIssues.flatMap(issue => issue.placementIndexes));
   const analysis = analyzeWeightDistribution(container, result, 20, 8);
-  return { revision, container: { length: container.length, width: container.width, height: container.height }, geometry: options.geometry ?? 'closed',
+  return { revision, container: { length: container.length, width: container.width, height: container.height }, geometry: options.geometry ?? 'closed', vehicle: options.vehicle ?? false,
     placements: result.placements.map((p, i) => ({ ...p, color: cargoColor(p.cargoId, colors.get(p.cargoId)), invalid: invalid.has(i) })),
     supports: options.supports ?? [], decorations: securingGeometry(container, result.placements, options.supports ?? [], options.securing),
     cells: analysis.floor.cells, centerOfGravity: analysis.centerOfGravity,

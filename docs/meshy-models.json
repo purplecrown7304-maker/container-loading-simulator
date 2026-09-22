@@ -1,0 +1,193 @@
+{
+  "provider": "Meshy",
+  "projectUrl": "https://www.meshy.ai/ko/agent/Tsl1JIvwlAmalMl-F4NJe",
+  "date": "2026-09-22",
+  "credits": 312,
+  "limit": 600,
+  "models": [
+    {
+      "key": "truck-cab",
+      "source": "web/01-truck-cab-web.glb",
+      "sourceSha256": "5581c78acd0f802b3e5f3945a1df520f69a39f68e4d7bde55f0ebe2519f1abf7",
+      "remeshedTriangles": 9216,
+      "triangles": 5361,
+      "bounds": [
+        [
+          -0.5000000000000001,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.5,
+          0.5,
+          0.5
+        ]
+      ],
+      "texture": [
+        1024,
+        1024
+      ]
+    },
+    {
+      "key": "container-shell",
+      "source": "web/02-container-shell-web.glb",
+      "sourceSha256": "d60cefa803bf955a903c6f2d01ca92f0697dca9269dc4481c8ca649e6d238a0a",
+      "remeshedTriangles": 3788,
+      "triangles": 1729,
+      "bounds": [
+        [
+          -0.49999999999999994,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.49999999999999994,
+          0.5,
+          0.5
+        ]
+      ],
+      "texture": [
+        1024,
+        1024
+      ]
+    },
+    {
+      "key": "carton",
+      "source": "web/03-carton-web.glb",
+      "sourceSha256": "478c6d71b9b3a1506d6253d4ba6102ed20736dc67c9ddc6725587b822765c94f",
+      "remeshedTriangles": 469,
+      "triangles": 469,
+      "bounds": [
+        [
+          -0.5,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.5,
+          0.5,
+          0.5
+        ]
+      ],
+      "texture": [
+        1024,
+        1024
+      ]
+    },
+    {
+      "key": "wood-pallet",
+      "source": "web/04-wood-pallet-web.glb",
+      "sourceSha256": "9d4dcd64db5d584167e131082fc877109ebd966e03df491da0d80466048597d1",
+      "remeshedTriangles": 1203,
+      "triangles": 1203,
+      "bounds": [
+        [
+          -0.5,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.5,
+          0.5,
+          0.5
+        ]
+      ],
+      "texture": [
+        1024,
+        1024
+      ]
+    },
+    {
+      "key": "plastic-pallet",
+      "source": "web/05-plastic-pallet-web.glb",
+      "sourceSha256": "8bfc83b9604ab81770b154f311d91529535ec02c909bfa9544374abe8e75f0a6",
+      "remeshedTriangles": 1392,
+      "triangles": 1392,
+      "bounds": [
+        [
+          -0.5,
+          -0.5,
+          -0.5
+        ],
+        [
+          0.5,
+          0.5,
+          0.5
+        ]
+      ],
+      "texture": [
+        1024,
+        1024
+      ]
+    },
+    {
+      "key": "corner-guard",
+      "source": "web/06-corner-guard-web.glb",
+      "sourceSha256": "d9939480c262704b06de718fa9f7169f597bc595f112aab72ebb8d1265396117",
+      "remeshedTriangles": 134,
+      "triangles": 134,
+      "bounds": [
+        [
+          -0.5,
+          -0.49999999999999994,
+          -0.5
+        ],
+        [
+          0.5,
+          0.49999999999999994,
+          0.5
+        ]
+      ],
+      "texture": [
+        1024,
+        1024
+      ]
+    },
+    {
+      "key": "dunnage-block",
+      "source": "web/07-dunnage-block-web.glb",
+      "sourceSha256": "85cff5eb60a79466502a442c7e01fcf3c26679adb8d4e6d1b424613e9e6172d6",
+      "remeshedTriangles": 413,
+      "triangles": 413,
+      "bounds": [
+        [
+          -0.5,
+          -0.5,
+          -0.49999999999999994
+        ],
+        [
+          0.5,
+          0.5,
+          0.49999999999999994
+        ]
+      ],
+      "texture": [
+        1024,
+        1024
+      ]
+    },
+    {
+      "key": "dunnage-airbag",
+      "source": "web/08-dunnage-airbag-web.glb",
+      "sourceSha256": "1bb93f0977842b2fc3ddf811d3a616b1ad1a15c6a314f43ec713d7451dc72154",
+      "remeshedTriangles": 1041,
+      "triangles": 1041,
+      "bounds": [
+        [
+          -0.5,
+          -0.5,
+          -0.49999999999999994
+        ],
+        [
+          0.5,
+          0.5,
+          0.49999999999999994
+        ]
+      ],
+      "texture": [
+        1024,
+        1024
+      ]
+    }
+  ]
+}

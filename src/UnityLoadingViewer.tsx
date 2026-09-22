@@ -17,7 +17,7 @@ type Props = UnitySceneOptions & {
   onCargoSelect?: (index: number) => void; onSupportSelect?: (index: number) => void;
   weightView?: boolean; showCg?: boolean; view?: string;
 };
-export default function UnityLoadingViewer({ container, result, cargo, preview = false, title = '적재 시뮬레이터', syncSelection = false, supports, securing, geometry, frameData, onCargoSelect, onSupportSelect, weightView, showCg = true, view }: Props) {
+export default function UnityLoadingViewer({ container, result, cargo, preview = false, title = '적재 시뮬레이터', syncSelection = false, supports, securing, geometry, vehicle, frameData, onCargoSelect, onSupportSelect, weightView, showCg = true, view }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false), [progress, setProgress] = useState(0), [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0), [weight, setWeight] = useState(false), [cg, setCg] = useState(true), [cell, setCell] = useState<number | null>(null);
@@ -26,7 +26,7 @@ export default function UnityLoadingViewer({ container, result, cargo, preview =
   const [step, setStep] = useState(result.placements.length), [selected, setSelected] = useState<number | null>(null);
   const [applied, setApplied] = useState(-1);
   const revision = useRef(0);
-  const plan = useMemo(() => unityPlan(container, result, ++revision.current, cargo ?? readStoredState()?.cargo, { supports, securing, geometry: geometry ?? readTransportEquipment().geometry }), [container, result, cargo, supports, securing, geometry]);
+  const plan = useMemo(() => unityPlan(container, result, ++revision.current, cargo ?? readStoredState()?.cargo, { supports, securing, geometry: geometry ?? readTransportEquipment().geometry, vehicle: vehicle ?? (geometry ? false : readTransportEquipment().category === 'truck') }), [container, result, cargo, supports, securing, geometry, vehicle]);
   const weightOn = weightView ?? weight;
   const analysis = useMemo(() => analyzeWeightDistribution(container, result, 20, 8), [container, result]);
   const current = useRef({ plan, cut, shell, weightOn, cg, showCg, view, activeView, syncSelection, onCargoSelect, onSupportSelect });

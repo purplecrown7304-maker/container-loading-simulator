@@ -24,7 +24,7 @@ test('Unity applies pallet poses and ignores stale or malformed physics frames',
   };
   const send = (type: string, payload: unknown) => page.evaluate(({ type, payload }) => window.postMessage({ source: 'cargo-web', type, payload }, location.origin), { type, payload });
   await send('plan', plan);
-  await expect.poll(() => events('planApplied')).toEqual([{ type: 'planApplied', revision: 17, count: 1 }]);
+  await expect.poll(() => events('planApplied')).toEqual([{ type: 'planApplied', revision: 17, count: 1, modelCount: 2 }]);
   const canvas = page.locator('canvas');
   const initial = await canvas.screenshot();
   const frame = { revision: 17, cargo: [1, .8, .2, 0, Math.SQRT1_2, 0, Math.SQRT1_2], supports: [.8, .075, .2, 0, Math.SQRT1_2, 0, Math.SQRT1_2] };
