@@ -30,4 +30,3 @@ test('mixed pallets remain two-tier through real workflow certification', async 
   await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 120000 });
   expect(await snapshot()).toEqual({ count: 6, pallets: 2, tiers: 2, mixed: true });
 });
-
