@@ -60,6 +60,18 @@ describe('operational strategy regression matrix', () => {
     { name: 'fragile cartons cannot carry upper load', container, cargo: [item('FRAGILE', { quantity: 24, maxTopLoadKg: 0, unloadPriority: 1 }), item('NORMAL', { quantity: 12, unloadPriority: 2 })] },
     { name: 'rotation disabled and oversized freight', container: { ...container, length: 2.4, width: 1.2 }, cargo: [item('LONG', { length: 1.4, width: .4, quantity: 6, allowRotation: false }), item('OVERSIZE', { length: 3, width: 2, quantity: 2 })] },
   ];
+  it('an impossible late stop does not stall or block a large otherwise-complete shipment', () => {
+    const fixture = scenarios[0];
+    const cargo = [...fixture.cargo, item('IMPOSSIBLE', { length: 20, width: 4, height: 4, quantity: 2, unloadPriority: 99 })];
+    for (const strategy of strategies) {
+      const result = loadContainer(fixture.container, cargo, { strategy, publish: false });
+      expect(result.placements).toHaveLength(219);
+      expect(result.validationIssues).toEqual([]);
+      expect(result.remaining).toEqual([expect.objectContaining({ cargoId: 'IMPOSSIBLE', quantity: 2 })]);
+      expect(result.remaining[0].reason).toContain('크기');
+      if (strategy === 'unloading') expect(unloadingObstructions(cargo, result.placements)).toBe(0);
+    }
+  }, 15000);
   it.each(scenarios)('$name: validates all three strategies in both loading modes', ({ name, container: space, cargo }) => {
     const metrics = [];
     for (const strategy of strategies) {

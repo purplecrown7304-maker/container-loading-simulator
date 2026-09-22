@@ -34,9 +34,14 @@ export function operationalQuality(container: ContainerSpec, placements: Placeme
 }
 
 /** Search preferences only: no declared stacking/compression limit is increased. */
+export function fitsEmptyContainer(container: ContainerSpec, item: CargoItem) {
+  return item.height <= container.height + 1e-9 && item.weightKg <= container.maxPayloadKg + 1e-9 &&
+    ((item.length <= container.length + 1e-9 && item.width <= container.width + 1e-9) ||
+      (item.allowRotation !== false && item.width <= container.length + 1e-9 && item.length <= container.width + 1e-9));
+}
+
 export function loadingHeightProfiles(container: ContainerSpec, cargo: CargoItem[]) {
-  const eligible = cargo.filter(item => item.height <= container.height && item.weightKg <= container.maxPayloadKg &&
-    ((item.length <= container.length && item.width <= container.width) || (item.allowRotation !== false && item.width <= container.length && item.length <= container.width)));
+  const eligible = cargo.filter(item => fitsEmptyContainer(container, item));
   if (!eligible.length) return [];
   const tallest = Math.max(...eligible.map(item => item.height));
   const volume = eligible.reduce((sum, item) => sum + item.length * item.width * item.height * item.quantity, 0);

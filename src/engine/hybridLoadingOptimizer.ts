@@ -5,7 +5,7 @@ import { analyzeFloorLoad } from './floorLoad';
 import { packByStrictWalls, type StrictWallOutput, type StrictWallStrategy } from './strictWallPacker';
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 import { assessWeightBalance } from './weightBalance';
-import { loadingHeightProfiles, operationalQuality, unloadingObstructions } from './operationalQuality';
+import { fitsEmptyContainer, loadingHeightProfiles, operationalQuality, unloadingObstructions } from './operationalQuality';
 
 const EPS = 1e-9;
 const LARGE_COMPLETED_JOB_COUNT = 120;
@@ -192,6 +192,16 @@ export function packByHybridOptimizer(
   cargo: CargoItem[],
   strategy: StrictWallStrategy,
 ): PackingOutput {
+  // Impossible units must not hold the latest unloading stop open forever or
+  // trigger a costly residual search for a large otherwise-complete shipment.
+  const eligible = cargo.filter(item => fitsEmptyContainer(container, item));
+  if (eligible.length !== cargo.length) {
+    const packed: PackingOutput = eligible.length ? packByHybridOptimizer(container, eligible, strategy)
+      : { placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0 };
+    return { ...packed, remaining: [...packed.remaining, ...cargo.filter(item => !fitsEmptyContainer(container, item)).map(item => ({
+      cargoId: item.id, quantity: item.quantity, reason: '허용 회전 규격 또는 단품 중량이 적재공간 한도를 초과함',
+    }))] };
+  }
   const strict = packByStrictWalls(container, cargo, strategy);
   const requestedCount = cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
   const strictRemaining = strict.remaining.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
