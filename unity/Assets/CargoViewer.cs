@@ -15,7 +15,7 @@ public class CargoViewer : MonoBehaviour {
  [DllImport("__Internal")] static extern void CargoEvent(string json);
  Camera cam; Transform shell,cargoRoot,supportRoot,decorRoot,weightRoot,cgRoot; bool showWeight,showCg=true; CargoPlan plan;
  readonly List<GameObject> boxes=new List<GameObject>(); readonly List<GameObject> supports=new List<GameObject>(); readonly List<Material> ownedMaterials=new List<Material>();
- Material surface,highlight; float yaw=222,pitch=27,distance=14; Vector3 target; Vector3 mouseDown; bool dragging;
+ Material surface,highlight; float yaw=222,pitch=27,distance=14,viewportAspect=1; Vector3 target; Vector3 mouseDown; bool dragging;
  float cut=100; int step; int selected=-1; bool playing; float clock; GameObject selection;
  void Emit(string json) {
  #if UNITY_WEBGL && !UNITY_EDITOR
@@ -99,7 +99,7 @@ public class CargoViewer : MonoBehaviour {
    var ball=GameObject.CreatePrimitive(PrimitiveType.Sphere);ball.transform.SetParent(cgRoot,false);ball.transform.position=point;ball.transform.localScale=Vector3.one*.16f;ball.GetComponent<Renderer>().sharedMaterial=purple;Destroy(ball.GetComponent<Collider>());
    var center=Mat(new Color(.06f,.46f,.43f));Cube("Container center X",new Vector3(0,.025f,0),new Vector3(.5f,.04f,.025f),center,cgRoot);Cube("Container center Z",new Vector3(0,.025f,0),new Vector3(.025f,.04f,.5f),center,cgRoot);
   }
-  target=new Vector3(0,h*.40f,0); if(resize) { distance=Mathf.Max(l,w,h)*1.3f; yaw=222; pitch=27; }
+  target=new Vector3(0,h*.40f,0); if(resize) { yaw=222; pitch=27; viewportAspect=cam.aspect; distance=FitDistance(viewportAspect); }
   UpdateVisibility(); CameraPose();
   Emit("{\"type\":\"planApplied\",\"revision\":"+plan.revision+",\"count\":"+boxes.Count+"}");
  }
@@ -125,6 +125,17 @@ public class CargoViewer : MonoBehaviour {
   playing=false;ApplyPoses(boxes,frame.cargo);ApplyPoses(supports,frame.supports);
   Emit("{\"type\":\"frameApplied\",\"revision\":"+plan.revision+"}");
  }
+ // Fit all eight equipment corners to the horizontal and vertical frustum.
+ // This handles both narrow mobile canvases and wide packaging previews.
+ float FitDistance(float aspect) {
+  var s=plan.container;var inverse=Quaternion.Inverse(Quaternion.Euler(pitch,yaw,0));
+  float vertical=Mathf.Tan(cam.fieldOfView*Mathf.Deg2Rad*.5f),horizontal=vertical*Mathf.Max(.1f,aspect),fit=.5f;
+  for(int x=-1;x<=1;x+=2)for(int y=0;y<=1;y++)for(int z=-1;z<=1;z+=2){
+   var p=inverse*(new Vector3(x*s.length*.5f,y*s.height,z*s.width*.5f)-target);
+   fit=Mathf.Max(fit,Mathf.Abs(p.x)/horizontal-p.z,Mathf.Abs(p.y)/vertical-p.z);
+  }
+  return fit*1.12f;
+ }
  void CameraPose() { cam.transform.position=target+Quaternion.Euler(pitch,yaw,0)*Vector3.back*distance; cam.transform.LookAt(target); }
  public void Command(string json) {
   var c=JsonUtility.FromJson<ViewerCommand>(json); if(c==null||plan==null)return;
@@ -137,8 +148,9 @@ public class CargoViewer : MonoBehaviour {
    case "play":playing=c.value>0;if(playing&&step>=boxes.Count)step=0;UpdateVisibility();break;
    case "select":Select((int)c.value,false);break;
    case "view":
-    target=new Vector3(0,plan.container.height*.4f,0); distance=Mathf.Max(plan.container.length,plan.container.width,plan.container.height)*1.3f;
-    if(c.view=="top"){pitch=89;yaw=0;} else if(c.view=="door"){pitch=0;yaw=-90;} else if(c.view=="side"){pitch=0;yaw=180;} else {pitch=27;yaw=222;} CameraPose();break;
+    target=new Vector3(0,plan.container.height*.4f,0);
+    if(c.view=="top"){pitch=89;yaw=0;} else if(c.view=="door"){pitch=0;yaw=-90;} else if(c.view=="side"){pitch=0;yaw=180;} else {pitch=27;yaw=222;}
+    viewportAspect=cam.aspect;distance=FitDistance(viewportAspect);CameraPose();break;
   }
  }
  void Select(int index,bool notify) {
@@ -148,6 +160,7 @@ public class CargoViewer : MonoBehaviour {
  }
  void Update() {
   if(cam==null||plan==null)return;
+  if(Mathf.Abs(cam.aspect-viewportAspect)>.01f){distance*=FitDistance(cam.aspect)/FitDistance(viewportAspect);viewportAspect=cam.aspect;}
   if(Input.GetMouseButtonDown(0)){mouseDown=Input.mousePosition;dragging=false;}
   if(Input.GetMouseButton(0)&&Vector3.Distance(mouseDown,Input.mousePosition)>4){dragging=true;yaw+=Input.GetAxis("Mouse X")*3;pitch=Mathf.Clamp(pitch-Input.GetAxis("Mouse Y")*3,5,89);}
   if(Input.GetMouseButton(1)){target-=cam.transform.right*Input.GetAxis("Mouse X")*distance*.015f;target-=cam.transform.up*Input.GetAxis("Mouse Y")*distance*.015f;}

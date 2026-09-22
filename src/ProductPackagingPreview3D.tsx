@@ -62,7 +62,6 @@ export default function ProductPackagingPreview3D({ container, cargo }: Props) {
     <div className="product-packaging-preview-head"><div><b>포장 완료 바닥 미리보기</b><span>최종 적재 전, 선택한 포장 박스를 적재공간 바닥에 1단으로 펼쳐 확인합니다.</span></div><strong>{preview.shown.toLocaleString()} / {preview.requested.toLocaleString()} BOX·EA 표시</strong></div>
     <div className="product-packaging-canvas">
       <UnityLoadingViewer container={container} result={result} cargo={cargo} preview title="포장 완료 바닥 배치" />
-      <div className="product-packaging-canvas-legend"><span>드래그: 회전</span><span>휠: 확대/축소</span><span>박스 클릭: 제품 정보</span></div>
     </div>
     {preview.shown < preview.requested && <p className="product-packaging-overflow">바닥에 한 번에 펼칠 수 있는 수량을 초과했습니다. 화면에는 {preview.shown.toLocaleString()}개만 표시하며 실제 자동 적재 단계에서는 전체 {preview.requested.toLocaleString()}개를 계산합니다.</p>}
   </section>;
