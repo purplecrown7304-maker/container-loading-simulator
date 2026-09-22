@@ -17,6 +17,7 @@ type Props = {
   active: boolean;
   onSelect: (value: TransportEquipment) => void;
   onMessage?: (message: string) => void;
+  variant?: 'selector' | 'guided';
 };
 
 function EquipmentIcon({ geometry }: { geometry: EquipmentGeometry }) {
@@ -38,7 +39,7 @@ function DefaultVisual({ item }: { item: TransportEquipment }) {
   return <EquipmentIcon geometry={item.geometry} />;
 }
 
-export default function EditableEquipmentCard({ item, active, onSelect, onMessage }: Props) {
+export default function EditableEquipmentCard({ item, active, onSelect, onMessage, variant = 'selector' }: Props) {
   const [imageSrc, setImageSrc] = useState(() => readEquipmentImageOverrides()[item.id] ?? '');
   const [busy, setBusy] = useState(false);
   const [isAdmin, setIsAdmin] = useState(() => isAdminSession());
@@ -102,15 +103,17 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
       type="button"
       data-category={item.category}
       data-equipment-id={item.id}
-      className={`transport-equipment-card ${active ? 'active' : ''}`}
+      className={`transport-equipment-card ${active ? 'active' : ''} ${variant === 'guided' ? 'equipment-icon-option' : ''}`}
+      aria-pressed={active}
       onClick={() => onSelect(item)}
     >
       <span className="transport-equipment-card-name">{item.name}</span>
       {imageSrc ? <span className="transport-equipment-user-image"><img src={imageSrc} alt="" draggable={false} /></span> : <DefaultVisual item={item} />}
       <span className="transport-equipment-spec">{item.length.toFixed(2)} × {item.width.toFixed(2)} × {item.height.toFixed(2)} m</span>
       <span className="transport-equipment-payload">적재 {item.maxPayloadKg.toLocaleString()} kg</span>
+      {variant === 'guided' && active && <i className="equipment-card-selected" aria-label="선택됨">✓</i>}
     </button>
-    {isAdmin && <div className="transport-equipment-image-actions" onClick={stopCardSelection}>
+    {isAdmin && variant === 'selector' && <div className="transport-equipment-image-actions" onClick={stopCardSelection}>
       <label className={`transport-image-edit ${busy ? 'busy' : ''}`} title={`${item.shortName} 이미지 변경`}>
         {busy ? '처리중…' : '이미지 수정'}
         <input type="file" accept="image/png,image/jpeg,image/webp" onChange={changeImage} disabled={busy} />

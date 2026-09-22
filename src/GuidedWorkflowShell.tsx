@@ -41,7 +41,8 @@ import {
   writeProductSelection,
   type ProductSelectionMap,
 } from './productWorkflow';
-import { EquipmentIcon, applyToDashboard } from './TransportEquipmentSelector';
+import { applyToDashboard } from './TransportEquipmentSelector';
+import EditableEquipmentCard from './EditableEquipmentCard';
 import ProductPackagingPreview3D from './ProductPackagingPreview3D';
 import { writeShipmentInstructionSnapshot } from './shipmentInstruction';
 import { writeLoadingStrategyPreference } from './loadingStrategyPreference';
@@ -131,9 +132,9 @@ function EquipmentSelectionStage() {
     selectTransportEquipment(item); setError('');
   };
   return <section className="guided-stage-panel guided-equipment-stage">
-    <div className="guided-panel-title studio-main-title"><div><span className="studio-eyebrow">01 / SPACE</span><h1>적재공간 선택</h1><p>운송 장비 아이콘을 선택하세요.</p></div><button aria-label="선택한 장비 변경" className="guided-secondary-button" onClick={() => openEquipment(category)}>{equipment.shortName} · 규격 편집</button></div>
+    <div className="guided-panel-title studio-main-title"><div><span className="studio-eyebrow">01 / SPACE</span><h1>적재공간 선택</h1><p>장비 이미지와 규격을 확인하고 선택하세요.</p></div><button aria-label="선택한 장비 변경" className="guided-secondary-button" onClick={() => openEquipment(category)}>{equipment.shortName} · 규격 편집</button></div>
     <div className="guided-segmented" aria-label="운송 장비 종류">{(['container', 'truck'] as const).map(value => <button key={value} type="button" aria-pressed={category === value} className={category === value ? 'active' : ''} onClick={() => setCategory(value)}>{value === 'container' ? '컨테이너' : '트럭'}</button>)}</div>
-    <div className="equipment-icon-grid" aria-label="적재공간 아이콘 선택">{items.map(item => <button key={item.id} type="button" data-equipment-id={item.id} aria-pressed={equipment.id === item.id} className="equipment-icon-option" onClick={() => choose(item)}><EquipmentIcon geometry={item.geometry} truck={item.category === 'truck'}/><b>{item.shortName}</b><small>{item.length.toFixed(2)} × {item.width.toFixed(2)} × {item.height.toFixed(2)} m</small>{equipment.id === item.id && <i aria-label="선택됨">✓</i>}</button>)}</div>
+    <div className="equipment-icon-grid" aria-label="적재공간 장비 선택">{items.map(item => <EditableEquipmentCard key={item.id} item={item} active={equipment.id === item.id} onSelect={choose} variant="guided" />)}</div>
     {error && <p role="alert">{error}</p>}
     <div className="equipment-selected-strip"><span>내부 규격 <b>{(equipment.length * 1000).toLocaleString()} mm × {(equipment.width * 1000).toLocaleString()} mm × {(equipment.height * 1000).toLocaleString()} mm</b></span><span>선택한 장비 <b>{equipment.shortName}</b></span><span>적재중량 <b>{equipment.maxPayloadKg.toLocaleString()} kg</b></span><span>바닥하중 <b>{equipment.floorLoadLimitKgPerM2.toLocaleString()} kg/m²</b></span><span>용적 <b>{(equipment.volumeM3 ?? equipment.length * equipment.width * equipment.height).toFixed(1)} m³</b></span></div>
     {equipment.specializedCargo && <p className="guided-stage-help">{equipment.note}</p>}
