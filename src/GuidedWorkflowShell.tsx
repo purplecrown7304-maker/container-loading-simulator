@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT } from './adminAccess';
 import {
   FINAL_PHYSICS_VALIDATION_ERROR_EVENT,
+  NO_LOAD_RESULT_EVENT,
   FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT,
 } from './autoCertification';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
@@ -308,10 +309,16 @@ function PackagingStage({ container, selection, onBundle }: {
   </section>;
 }
 
-function LoadingStrategyStage({ strategy, onStrategy }: {
+function LoadingStrategyStage({ strategy, onStrategy, live }: {
+  live: LiveDetail;
   strategy: LoadingStrategy | null;
   onStrategy: (strategy: LoadingStrategy) => void;
 }) {
+  const updateStop = (id: string, stop: number) => {
+    if (!Number.isInteger(stop) || stop < 1) return;
+    const product = live.cargo.find(item => item.id === id)?.productId;
+    writeStoredState({ container: live.container, cargo: live.cargo.map(item => item.id === id || (product && item.productId === product) ? { ...item, unloadPriority: stop } : item) }, true);
+  };
   return <section className="guided-stage-panel guided-strategy-stage">
     <div className="guided-panel-title">
       <div>
@@ -338,6 +345,10 @@ function LoadingStrategyStage({ strategy, onStrategy }: {
         </button>;
       })}
     </div>
+    {strategy === 'unloading' && <div className="guided-unload-priorities" aria-label="하역 순서 설정">
+      <b>배송지별 하역 순서</b><p>1번이 가장 먼저 문쪽에서 하역됩니다. 기본값은 제품 목록 순서이며, 같은 배송지는 같은 번호로 지정하세요.</p>
+      <div>{live.cargo.map(item => <label key={item.id}><span>{item.productName || item.name}<small>{item.id}</small></span><input aria-label={`${item.name} 하역 순서`} type="number" min="1" step="1" value={item.unloadPriority ?? 1} onChange={event => updateStop(item.id, Number(event.target.value))}/></label>)}</div>
+    </div>}
     <div className="guided-strategy-note"><b>선택 전략 적용 범위</b><span>박스 위치 · 방향 · 공간 사용률 · 무게중심 · 하역 우선순위의 평가 가중치가 바뀝니다. 충돌, 지지율, 적층, 최대중량 같은 안전 제한은 완화하지 않습니다.</span></div>
   </section>;
 }
@@ -376,7 +387,7 @@ function StagePanel({ step, live, selection, strategy, onSelection, onBundle, on
   if (step === 1) return <EquipmentSelectionStage />;
   if (step === 2) return <ProductSelectionStage container={live.container} selection={selection} onSelection={onSelection} />;
   if (step === 3) return <PackagingStage container={live.container} selection={selection} onBundle={onBundle} />;
-  if (step === 4) return <LoadingStrategyStage strategy={strategy} onStrategy={onStrategy} />;
+  if (step === 4) return <LoadingStrategyStage strategy={strategy} onStrategy={onStrategy} live={live} />;
   if (step === 6) return <ResultStage live={live} />;
   return <section className="guided-stage-panel guided-loading-placeholder" aria-hidden="true" />;
 }
@@ -407,7 +418,7 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
   const maxVolume = live.container.length * live.container.width * live.container.height;
   const usedVolume = boxResult?.usedVolumeM3 ?? 0;
   const fillRate = maxVolume > 0 && usedVolume > 0 ? usedVolume / maxVolume * 100 : 0;
-  const status = finalReady ? '작업 가능' : running ? '검사 중' : loaded ? '검증 대기' : '대기';
+  const status = finalReady ? (!loaded && remaining ? '적재 불가' : '작업 가능') : running ? '검사 중' : loaded ? '검증 대기' : '대기';
   const restrictedCount = live.cargo.filter(item => item.quantity > 0 && (item.maxStackLayers === 1 || item.maxTopLoadKg === 0)).length;
   return <details className="guided-job-summary" open={summaryOpen} onToggle={event => setSummaryOpen(event.currentTarget.open)}><summary className="studio-summary-toggle">현재 작업 요약</summary>
     <div className="studio-summary-heading"><h2>현재 작업</h2><span>OVERVIEW</span></div>
@@ -437,13 +448,14 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
   </details>;
 }
 
-function BottomBar({ step, selectionCount, packagedReady, strategy, running, finalReady, onAdvance, onApplyPackaging }: {
+function BottomBar({ step, selectionCount, packagedReady, strategy, running, finalReady, canReport, onAdvance, onApplyPackaging }: {
   step: StepId;
   selectionCount: number;
   packagedReady: boolean;
   strategy: LoadingStrategy | null;
   running: boolean;
   finalReady: boolean;
+  canReport: boolean;
   onAdvance: (step: StepId) => void;
   onApplyPackaging: () => void;
 }) {
@@ -471,7 +483,7 @@ function BottomBar({ step, selectionCount, packagedReady, strategy, running, fin
   else if (step === 5) {
     if (finalReady) { label = '결과 확인'; action = () => onAdvance(6); }
     else { label = running ? '최종 적재 검사 중…' : '최종 적재 진행'; disabled = running || !strategy; action = () => dispatchAppAction('run-loading'); }
-  } else if (step === 6) { label = '통합 출하·적재 작업지시서 보기'; disabled = !finalReady; action = () => dispatchAppAction('print-report'); }
+  } else if (step === 6) { label = canReport ? '통합 출하·적재 작업지시서 보기' : '미적재 사유 확인 · 조건을 변경해 다시 계산하세요'; disabled = !finalReady || !canReport; action = () => dispatchAppAction('print-report'); }
   return <div ref={barRef} className="guided-bottom-bar"><div className="studio-footer-left"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><span className="studio-footer-step">STEP {String(step).padStart(2, '0')} <i>/</i> 06</span></div><div className="studio-footer-actions">{step > 1 && <button type="button" className="studio-back" disabled={running} onClick={() => onAdvance((step - 1) as StepId)}>이전 단계</button>}<button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 6 ? '  ›' : ''}</button></div></div>;
 }
 
@@ -488,6 +500,7 @@ export default function GuidedWorkflowShell() {
   const [furthest, setFurthest] = useState<StepId>(1);
   const [running, setRunning] = useState(false);
   const [finalReady, setFinalReady] = useState(false);
+  const [noLoadComplete, setNoLoadComplete] = useState(false);
 
   const advance = (next: StepId) => { setStep(next); setFurthest(previous => Math.max(previous, next) as StepId); };
   const applyPackaging = () => {
@@ -501,6 +514,13 @@ export default function GuidedWorkflowShell() {
     advance(4);
   };
   const chooseStrategy = (next: LoadingStrategy) => {
+    setNoLoadComplete(false);
+    if (next === 'unloading') {
+      const source = readStoredState() ?? live;
+      const stops = new Map<string, number>();
+      source.cargo.forEach(item => { const key = item.productId || item.id; if (!stops.has(key)) stops.set(key, stops.size + 1); });
+      if (source.cargo.some(item => item.unloadPriority == null)) writeStoredState({ container: source.container, cargo: source.cargo.map(item => ({ ...item, unloadPriority: item.unloadPriority ?? stops.get(item.productId || item.id) })) }, true);
+    }
     setStrategy(next);
     writeLoadingStrategyPreference(next);
     setFinalReady(false);
@@ -587,6 +607,7 @@ export default function GuidedWorkflowShell() {
     if (step !== 5) return;
 
     const markRunning = () => {
+      setNoLoadComplete(false);
       setRunning(true);
       setFinalReady(false);
     };
@@ -599,6 +620,12 @@ export default function GuidedWorkflowShell() {
     const onAppAction = (event: Event) => {
       if ((event as CustomEvent<AppActionDetail>).detail?.action === 'run-loading') markRunning();
     };
+    const onNoLoad = (event: Event) => {
+      const detail = (event as CustomEvent<LiveDetail>).detail;
+      if (!detail?.result || detail.result.placements.length || !detail.result.remaining.length) return;
+      setRunning(false); setNoLoadComplete(true); setFinalReady(true); setLive(detail);
+      setFurthest(previous => Math.max(previous, 6) as StepId);
+    };
     const onPhysicsError = () => setRunning(false);
     const onCertification = (event: Event) => {
       const certification = (event as CustomEvent<InertiaCertification | undefined>).detail;
@@ -606,12 +633,14 @@ export default function GuidedWorkflowShell() {
       else setFinalReady(false);
     };
 
+    window.addEventListener(NO_LOAD_RESULT_EVENT, onNoLoad);
     window.addEventListener(APP_ACTION_EVENT, onAppAction);
     window.addEventListener(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, markRunning);
     window.addEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
     window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
     window.addEventListener(OPEN_RESULTS_MODAL_EVENT, markReady);
     return () => {
+      window.removeEventListener(NO_LOAD_RESULT_EVENT, onNoLoad);
       window.removeEventListener(APP_ACTION_EVENT, onAppAction);
       window.removeEventListener(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, markRunning);
       window.removeEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
@@ -624,5 +653,5 @@ export default function GuidedWorkflowShell() {
   const rail = useMemo(() => hosts.left ? createPortal(<StepRail step={step} furthest={furthest} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onStep={setStep}/>, hosts.left) : null, [hosts.left, step, furthest, selectionCount, packaging.ready, strategy, running, finalReady]);
   const center = useMemo(() => hosts.center ? createPortal(<StagePanel step={step} live={live} selection={selection} strategy={strategy} onSelection={setSelection} onBundle={setPackaging} onStrategy={chooseStrategy}/>, hosts.center) : null, [hosts.center, step, live, selection, strategy]);
   const summary = useMemo(() => hosts.right ? createPortal(<JobSummary step={step} live={live} mode={mode} finalReady={finalReady} running={running} selection={selection} strategy={strategy}/>, hosts.right) : null, [hosts.right, step, live, mode, finalReady, running, selection, strategy]);
-  return <>{rail}{center}{summary}{typeof document !== 'undefined' ? createPortal(<BottomBar step={step} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>, document.body) : null}</>;
+  return <>{rail}{center}{summary}{typeof document !== 'undefined' ? createPortal(<BottomBar canReport={!noLoadComplete} step={step} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>, document.body) : null}</>;
 }

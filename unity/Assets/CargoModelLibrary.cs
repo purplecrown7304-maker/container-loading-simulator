@@ -21,6 +21,7 @@ public sealed class CargoModelLibrary {
     if(!materials.TryGetValue(id,out var material)) {
      material=new Material(shader);material.name=id;material.enableInstancing=true;
      material.mainTexture=source[i]?source[i].mainTexture:null;material.color=tint;
+     material.SetFloat("_ClipInterior",key=="container-shell"?1:0);
      materials[id]=material;
     }
     mapped[i]=material;

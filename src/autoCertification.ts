@@ -6,6 +6,7 @@ import { publishPhysicsTarget, readPhysicsTarget, subscribePhysicsTarget, type P
 export const FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT = 'container-loading:final-physics-validation-progress';
 export const FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT = 'container-loading:final-physics-validation-complete';
 export const FINAL_PHYSICS_VALIDATION_ERROR_EVENT = 'container-loading:final-physics-validation-error';
+export const NO_LOAD_RESULT_EVENT = 'container-loading:no-load-result';
 const PHYSICS_VALIDATION_RESULT_EVENT = 'container-loading:physics-validation-result';
 
 let pendingPalletCertification = false;
@@ -63,7 +64,15 @@ export function readFinalPhysicsValidation() {
 
 async function validateThenCertify(target: PhysicsTarget) {
   if (typeof window === 'undefined') return;
-  if (!target.result.placements.length && !(target.supports?.length)) return;
+  if (!target.result.placements.length && !(target.supports?.length)) {
+    if (target.result.remaining.some(item => item.quantity > 0)) {
+      ++validationRunId;
+      (window as FinalPhysicsWindow).__containerLoadingFinalPhysicsRunning = false;
+      clearFinalPhysicsRecord();
+      window.dispatchEvent(new CustomEvent(NO_LOAD_RESULT_EVENT, { detail: target }));
+    }
+    return;
+  }
 
   const runId = ++validationRunId;
   const signature = createPhysicsTargetSignature(target);
@@ -125,7 +134,7 @@ async function validateThenCertify(target: PhysicsTarget) {
 subscribePhysicsTarget(() => {
   if (!pendingPalletCertification) return;
   const target = readPhysicsTarget();
-  if (!target || target.mode !== 'pallets' || !target.result.placements.length) return;
+  if (!target || target.mode !== 'pallets' || (!target.result.placements.length && !target.result.remaining.length)) return;
   pendingPalletCertification = false;
   void validateThenCertify(target);
 });

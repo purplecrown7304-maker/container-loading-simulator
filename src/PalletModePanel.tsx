@@ -1,4 +1,5 @@
 import UnityLoadingViewer from './UnityLoadingViewer';
+import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useEffect, useMemo, useState } from 'react';
 import { cargoColor } from './cargoColors';
 import { centerPalletCargo } from './engine/palletCentering';
@@ -28,7 +29,7 @@ function sanitizeSpec(spec: PalletSpec): PalletSpec {
 }
 
 function packCentered(container: ContainerSpec, cargo: CargoItem[], spec: PalletSpec) {
-  return centerPalletCargo(packOnPallets(container, cargo, spec), container);
+  return centerPalletCargo(packOnPallets(container, cargo, spec, readLoadingStrategyPreference() ?? 'capacity'), container);
 }
 
 function palletForPlacement(result: OptimizedPalletPackingResult, box: Placement) {

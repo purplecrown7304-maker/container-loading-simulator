@@ -132,7 +132,9 @@ function blockOptionsForDepth(
   context: Context,
 ) {
   const blocks: Block[] = [];
+  const latestStop = Math.max(0, ...context.cargo.filter(item => (remaining.get(item.id) ?? 0) > 0).map(item => item.unloadPriority ?? 0));
   for (const item of context.cargo) {
+    if (context.strategy === 'unloading' && latestStop > 0 && (item.unloadPriority ?? 0) < latestStop) continue;
     const left = remaining.get(item.id) ?? 0;
     if (left <= 0) continue;
     for (const o of orientations(item)) {
@@ -370,6 +372,8 @@ function topFill(state: State, context: Context) {
       if ((current.remaining.get(item.id) ?? 0) <= 0) continue;
       if (current.loadedWeightKg + item.weightKg > context.container.maxPayloadKg + EPS) continue;
       for (const support of current.placements) {
+        const below = context.cargoById.get(support.cargoId);
+        if (context.strategy === 'unloading' && (item.unloadPriority ?? 0) > (below?.unloadPriority ?? 0)) continue;
         const supportTop = support.z + support.height;
         for (const rotated of item.allowRotation === false ? [false] : [false, true]) {
           if (!exactFootprintMatch(support, item, rotated)) continue;

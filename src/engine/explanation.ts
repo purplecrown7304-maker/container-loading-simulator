@@ -38,7 +38,7 @@ export function explainLoading(container: ContainerSpec, cargo: CargoItem[], res
     const reasons: string[] = [];
 
     if (loaded > 0) {
-      reasons.push('CBM 총량과 중량을 함께 계산한 품목 우선순위에 따라 배치되었습니다.');
+      reasons.push('선택한 적재 전략으로 블록·빈 공간·낮은 높이 후보를 비교한 배치입니다.');
       const zone = zoneFor(container, avgX);
       if (zone === '안쪽') reasons.push('안쪽부터 채우는 원칙에 따라 컨테이너 깊은 쪽에 우선 배치되었습니다.');
       else if (zone === '중앙') reasons.push('안쪽의 선행 블록 뒤에 이어지는 중앙 구역에 배치되었습니다.');
@@ -68,9 +68,9 @@ export function explainLoading(container: ContainerSpec, cargo: CargoItem[], res
   }).sort((a, b) => b.priorityScore - a.priorityScore || a.cargoId.localeCompare(b.cargoId));
 
   const summary: string[] = [
-    '기본 순서: CBM 총량·중량 우선순위 → 안쪽부터 동일품목 완전 블록 → 잔량 후순위 혼합 적재.',
+    '선택 전략에 따라 여러 블록·빈 공간·높이 후보를 비교하고, 남은 화물의 안전한 추가 위치를 다시 검사합니다.',
     '배치 후보는 컨테이너 경계, 충돌, 최대 적층단, 상부 허용중량, 최대 적재중량을 통과해야 합니다.',
-    '최종 단계에서 중앙 낱개·돌출·품목 분산을 줄이고 낮은 행은 가능한 경우 문쪽 혼합 구역으로 이동합니다.',
+    '계산된 후보 중 적재량과 선택 목표가 좋은 안을 사용합니다. 모든 조합의 전역 최적해를 증명하는 방식은 아닙니다.',
   ];
 
   return { cargo: explanations, summary };

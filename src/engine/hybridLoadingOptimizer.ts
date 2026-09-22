@@ -5,9 +5,10 @@ import { analyzeFloorLoad } from './floorLoad';
 import { packByStrictWalls, type StrictWallOutput, type StrictWallStrategy } from './strictWallPacker';
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 import { assessWeightBalance } from './weightBalance';
+import { loadingHeightProfiles, operationalQuality, unloadingObstructions } from './operationalQuality';
 
 const EPS = 1e-9;
-const CAPACITY_FAST_PATH_COUNT = 120;
+const LARGE_COMPLETED_JOB_COUNT = 120;
 const clamp100 = (value: number) => Math.max(0, Math.min(100, value));
 
 type PackingOutput = StrictWallOutput | BeamPackingOutput;
@@ -92,6 +93,7 @@ function scoreCandidate(
   const quality = assessWeightBalance(container, result);
   const floorScore = floorDistributionScore(container, result);
   const unloadScore = unloadingArrangementScore(container, cargo, result);
+  const shape = operationalQuality(container, result.placements);
 
   // Bounds/collision and payload are hard gates. A candidate cannot buy its way out of a
   // physical violation with a better utilization score.
@@ -124,6 +126,13 @@ function scoreCandidate(
     }
   }
 
+  if (Number.isFinite(score)) {
+    score -= shape.slenderness * 45;
+    score -= shape.cogHeight / container.height * (strategy === 'stability' ? 55 : 18);
+    if (strategy === 'capacity') score -= shape.footprint * 6;
+    if (strategy === 'unloading') score -= unloadingObstructions(cargo, result.placements) / Math.max(1, result.placements.length) * 150;
+  }
+
   return {
     engine,
     score,
@@ -149,6 +158,9 @@ function rankCandidates(
     .map(({ engine, output }) => scoreCandidate(container, cargo, strategy, engine, output))
     .sort((a, b) => {
       if (Number.isFinite(a.score) !== Number.isFinite(b.score)) return Number.isFinite(a.score) ? -1 : 1;
+      // Never discard safely loadable demand just to obtain a cosmetically better balance score.
+      const completionDiff = b.output.placements.length - a.output.placements.length;
+      if (completionDiff) return completionDiff;
       const scoreDiff = b.score - a.score;
       if (Number.isFinite(scoreDiff) && Math.abs(scoreDiff) > EPS) return scoreDiff;
       return b.output.placements.length - a.output.placements.length
@@ -184,18 +196,19 @@ export function packByHybridOptimizer(
   const requestedCount = cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
   const strictRemaining = strict.remaining.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
 
-  // Default/capacity runs are the most frequent path. For a large job that StrictWall has
-  // already loaded completely, running a second expensive beam search cannot improve the
-  // loaded quantity and mostly doubles latency. Stability/unloading still compare both.
-  if (strategy === 'capacity' && requestedCount >= CAPACITY_FAST_PATH_COUNT && strictRemaining === 0 && auditLoading(container, cargo, strict.placements).length === 0) {
-    return strict;
+  // For a large, complete plan, compare the low-height portfolio below. Re-running
+  // an expensive full-height EMS search cannot add any demand and blocks completion.
+  const candidates: Array<{ engine: HybridPackingEngine; output: PackingOutput }> = [{ engine: 'strict-wall', output: strict }];
+  const complete = strictRemaining === 0 && auditLoading(container, cargo, strict.placements).length === 0;
+  if (!(requestedCount >= LARGE_COMPLETED_JOB_COUNT && complete)) {
+    candidates.push({ engine: 'ems-beam-v2', output: packByBlockSpaceBeamV2(container, cargo, strategy) });
   }
-
-  const beam = packByBlockSpaceBeamV2(container, cargo, strategy);
-  return rankCandidates(container, cargo, strategy, [
-    { engine: 'strict-wall', output: strict },
-    { engine: 'ems-beam-v2', output: beam },
-  ]).find(candidate => Number.isFinite(candidate.score))?.output ?? {
+  // Low, broad alternatives must survive before scoring; a score cannot recover a
+  // floor layout that the full-height block search already pruned.
+  for (const height of loadingHeightProfiles(container, cargo)) {
+    candidates.push({ engine: 'strict-wall', output: packByStrictWalls({ ...container, height }, cargo, strategy) });
+  }
+  return rankCandidates(container, cargo, strategy, candidates).find(candidate => Number.isFinite(candidate.score))?.output ?? {
     placements: [], loadedWeightKg: 0, usedVolumeM3: 0,
     remaining: cargo.map(item => ({ cargoId: item.id, quantity: item.quantity, reason: '적재 규칙 재검사 실패: 안전한 배치를 찾지 못했습니다.' })),
   };

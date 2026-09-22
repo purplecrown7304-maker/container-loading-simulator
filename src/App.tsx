@@ -269,7 +269,7 @@ export default function App() {
       setOptimizationEtaSeconds(0);
       (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = optimized.physics;
       window.dispatchEvent(new CustomEvent('container-loading:physics-validation-result', { detail: { mode: 'boxes', result: optimized.physics } }));
-      announce('success', `최적 적재 계산 완료 · ${published.placements.length}EA · 관성 3종 최종검증 진행 중`);
+      announce(published.placements.length ? 'success' : 'warning', published.placements.length ? `자동 적재 계산 완료 · ${published.placements.length}EA · 관성 3종 최종검증 진행 중` : '계산 완료 · 적재 가능한 화물이 없습니다. 결과에서 미적재 사유를 확인하세요.');
       setOptimizationMessage('');
     } catch (error) {
       if (controller.signal.aborted) return;

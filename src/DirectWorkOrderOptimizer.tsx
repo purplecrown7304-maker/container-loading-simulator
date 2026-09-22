@@ -1,3 +1,4 @@
+import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { REQUEST_DIRECT_WORK_ORDER_EVENT, type DirectWorkOrderRequest } from './directWorkOrderEvents';
 import { DIRECT_SEARCH_TIMEOUT_MS, buildDirectResultReoptimizationCandidatesAsync, type DirectResultReoptimizationCandidate, type DirectSearchProgress } from './engine/finalResultOptimization';
@@ -193,6 +194,7 @@ export default function DirectWorkOrderOptimizer() {
           setProgress(null);
           setMessage('동일 수량을 유지하는 안전 재배치 후보를 계산 중입니다.');
           const alternatives = await buildDirectResultReoptimizationCandidatesAsync(current, MAX_DIRECT_WORK_ORDER_CANDIDATES - 1, cancelled, {
+            strategy: readLoadingStrategyPreference() ?? undefined,
             signal: controller.signal,
             onProgress: next => { if (!cancelled()) setSearch(next); },
           });

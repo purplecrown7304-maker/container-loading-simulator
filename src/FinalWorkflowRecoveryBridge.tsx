@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { requestExactCertification } from './autoCertification';
+import { NO_LOAD_RESULT_EVENT, requestExactCertification } from './autoCertification';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import { runPhysicsValidationSuite } from './engine/physicsValidation';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
@@ -52,15 +52,23 @@ function guidedResultButton(target: Element) {
 export default function FinalWorkflowRecoveryBridge() {
   const runId = useRef(0);
   const active = useRef(false);
+  const completedEmptySignature = useRef<string | null>(null);
 
   useEffect(() => {
     const onStart = () => {
+      completedEmptySignature.current = null;
       runId.current += 1;
       active.current = true;
     };
 
     const onCertification = () => {
       active.current = false;
+    };
+    const onNoLoad = (event: Event) => {
+      const target = (event as CustomEvent<PhysicsTarget>).detail;
+      if (!target || target.result.placements.length || !target.result.remaining.length) return;
+      active.current = false;
+      completedEmptySignature.current = createPhysicsTargetSignature(target);
     };
 
     const onLoadingResult = (event: Event) => {
@@ -106,6 +114,10 @@ export default function FinalWorkflowRecoveryBridge() {
       if (!(target instanceof Element)) return;
       const button = guidedResultButton(target);
       if (!button || button.disabled || currentTargetIsCertified()) return;
+      // A completed, empty plan has reasons to inspect but no load to certify.
+      // Only the exact completed target may enter this read-only result view.
+      const current = readPhysicsTarget();
+      if (current && !current.result.placements.length && completedEmptySignature.current === createPhysicsTargetSignature(current)) return;
 
       // InspectionStatusPanel의 '경고 발급 가능' 문구만 보고 결과 단계로 넘어가는 것을 차단한다.
       // 하단 CTA뿐 아니라 왼쪽 단계 레일의 '결과 확인' 직접 클릭도 같은 인증 게이트를 거친다.
@@ -122,6 +134,7 @@ export default function FinalWorkflowRecoveryBridge() {
     window.addEventListener(FINAL_LOADING_WORKFLOW_START_EVENT, onStart);
     window.addEventListener(LOADING_RESULT_EVENT, onLoadingResult);
     window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
+    window.addEventListener(NO_LOAD_RESULT_EVENT, onNoLoad);
     document.addEventListener('click', onGuidedResultClick, true);
     return () => {
       runId.current += 1;
@@ -129,6 +142,7 @@ export default function FinalWorkflowRecoveryBridge() {
       window.removeEventListener(FINAL_LOADING_WORKFLOW_START_EVENT, onStart);
       window.removeEventListener(LOADING_RESULT_EVENT, onLoadingResult);
       window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
+      window.removeEventListener(NO_LOAD_RESULT_EVENT, onNoLoad);
       document.removeEventListener('click', onGuidedResultClick, true);
     };
   }, []);

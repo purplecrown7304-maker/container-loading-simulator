@@ -1,5 +1,11 @@
 import { expect, it } from 'vitest';
 import { unityPlan, unityFrame } from './unityProtocol';
+it('sends product, box code, contents and actual package weight for labels on every box face', () => {
+  const container = { length: 2, width: 1, height: 1, maxPayloadKg: 1000 };
+  const placement = { cargoId: 'A', x: 0, y: 0, z: 0, length: .5, width: .4, height: .3, weightKg: 12.5 };
+  const plan = unityPlan(container, { placements: [placement], remaining: [], usedVolumeM3: .06, loadedWeightKg: 12.5, validationIssues: [] }, 1, [{ id: 'A', name: '화물', productName: '정밀 부품', boxId: 'BOX-42', unitsPerPackage: 24 }]);
+  expect(plan.placements[0]).toMatchObject({ labelTitle: '정밀 부품', labelCode: 'BOX-42', labelDetail: '24 EA · 12.5 kg', labelSize: '500 × 400 × 300 mm' });
+});
 it('preserves engine dimensions and coordinates without changing the loading plan', () => {
   const container = { length: 12, width: 2.3, height: 2.7, maxPayloadKg: 1000 };
   const placement = { cargoId: 'A', x: 4, y: .3, z: 1, length: .5, width: .4, height: .3, weightKg: 10, rotated: true };

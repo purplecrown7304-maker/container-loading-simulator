@@ -14,6 +14,7 @@ export type DirectSearchProgress = { completed: number; total: number; label: st
 export type DirectSearchOptions = {
   signal?: AbortSignal;
   onProgress?: (progress: DirectSearchProgress) => void;
+  strategy?: LoadingStrategy;
 };
 export type DirectSearchResult = {
   candidates: DirectResultReoptimizationCandidate[];
@@ -161,18 +162,20 @@ function staticPenalty(target: PhysicsTarget, result: LoadingResult) {
 function* candidateSearch(
   current: PhysicsTarget,
   limit = Number.POSITIVE_INFINITY,
+  preferredStrategy?: LoadingStrategy,
 ): Generator<{ cargo: CargoItem[]; strategy: LoadingStrategy; label: string; total: number }, DirectResultReoptimizationCandidate[], LoadingResult | null | 'stop'> {
   if (current.mode !== 'boxes' || limit <= 0) return [];
   const seen = new Set<string>([createPhysicsTargetSignature(current)]);
   const candidates: DirectResultReoptimizationCandidate[] = [];
   const allProfiles = buildDirectReoptimizationCargoProfiles(current);
+  const strategies = preferredStrategy ? [preferredStrategy] : STRATEGIES;
   // Bound actual solver invocations, not just the returned candidate count.
   // Sample stack heights and strategies deterministically without relaxing constraints.
   const profileBudget = Number.isFinite(limit)
-    ? Math.min(allProfiles.length, Math.ceil(limit / STRATEGIES.length))
+    ? Math.min(allProfiles.length, Math.ceil(limit / strategies.length))
     : allProfiles.length;
   const profiles = sampleProfiles(allProfiles, profileBudget);
-  const jobs = sampleProfiles(profiles.flatMap(profile => STRATEGIES.map(strategy => ({ profile, strategy }))), limit);
+  const jobs = sampleProfiles(profiles.flatMap(profile => strategies.map(strategy => ({ profile, strategy }))), limit);
   for (const { profile, strategy } of jobs) {
     const label = `${strategy === 'stability' ? '안정성 우선' : strategy === 'capacity' ? '적재율 우선' : '하역 우선'} · ${profile.label}`;
     const result = yield { cargo: profile.cargo, strategy, label, total: jobs.length };
@@ -214,7 +217,7 @@ export async function buildDirectResultReoptimizationCandidatesAsync(
   cancelled: () => boolean = () => false,
   options: DirectSearchOptions = {},
 ): Promise<DirectSearchResult> {
-  const search = candidateSearch(current, limit);
+  const search = candidateSearch(current, limit, options.strategy);
   let step = search.next();
   let completed = 0;
   let timedOut = false;

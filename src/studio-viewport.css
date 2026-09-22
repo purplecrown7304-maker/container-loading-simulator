@@ -97,3 +97,9 @@ html[data-guided-workflow="true"] .unity-summary { padding:7px 10px; flex-shrink
   .unity-controls input[type=range] { width:70px!important; }
   .unity-sequence-note { display:none; }
 }
+.guided-unload-priorities { min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 14px 18px; border: 1px solid #dce4ed; border-radius: 16px; background: #fff; }
+.guided-unload-priorities p { margin: 5px 0 12px; color: #64748b; font-size: 12px; }
+.guided-unload-priorities > div { overflow: auto; min-height: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.guided-unload-priorities label { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px; background: #f5f7fa; border-radius: 10px; font-size: 12px; }
+.guided-unload-priorities small { display: block; color: #64748b; }
+.guided-unload-priorities input { width: 62px; min-height: 36px; border: 1px solid #d5dfeb; border-radius: 8px; padding: 6px; font: inherit; }

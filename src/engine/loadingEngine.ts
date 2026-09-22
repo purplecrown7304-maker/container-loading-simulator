@@ -4,6 +4,7 @@ import { centerPlacementsOnContainer } from './containerCentering';
 import { packByHybridOptimizer } from './hybridLoadingOptimizer';
 import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
+import { completeResidualPacking } from './residualPacking';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -150,7 +151,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     }
   }
 
-  const packed = packByHybridOptimizer(container, normalizedCargo, strategy);
+  const packed = completeResidualPacking(container, normalizedCargo, packByHybridOptimizer(container, normalizedCargo, strategy), strategy);
   const centered = centerPlacementsOnContainer(container, packed.placements);
   const finalPlacements = strategy === 'unloading'
     ? orientForUnloading(container, normalizedCargo, centered)
