@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
-test('an oversized shipment finishes with actionable reasons and no shipping certification', async ({ page }) => {
+for (const mode of ['boxes', 'pallets']) test(`an oversized ${mode} shipment finishes with actionable reasons and no shipping certification`, async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto('/');
   await page.evaluate(() => {
@@ -17,14 +17,21 @@ test('an oversized shipment finishes with actionable reasons and no shipping cer
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
+  if (mode === 'pallets') await page.getByRole('radio', { name: /파렛트 적재/ }).click();
   await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   const result = page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ });
   await expect(result).toBeEnabled({ timeout: 30_000 });
   await result.click();
-  await expect(page.locator('.guided-unloaded-list')).toContainText('크기가');
-  await expect(page.locator('.guided-unloaded-list')).toContainText('1 EA');
+  await page.getByRole('tab', { name: '미적재', exact: true }).click();
+  await expect(page.locator('.guided-unloaded-list.enhanced')).toBeVisible();
+  await expect(page.locator('.guided-unloaded-list.enhanced')).toContainText('크기가');
+  await expect(page.locator('.guided-unloaded-list.enhanced')).toContainText('1 EA');
   await expect(page.locator('.guided-bottom-bar .guided-primary-cta')).toBeDisabled();
   await expect(page.locator('.guided-status-row')).not.toContainText('작업 가능');
+  await page.locator('.guided-step-list button').nth(0).click();
+  await page.getByRole('button', { name: '선택한 장비 변경', exact: true }).click();
+  await page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' }).getByRole('button', { name: /^20' STANDARD/ }).click();
+  await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
 });

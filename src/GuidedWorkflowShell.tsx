@@ -501,10 +501,17 @@ export default function GuidedWorkflowShell() {
   const [running, setRunning] = useState(false);
   const [finalReady, setFinalReady] = useState(false);
   const [noLoadComplete, setNoLoadComplete] = useState(false);
+  const completedEmpty = useRef<LiveDetail | null>(null);
+  const emptyInputsUnchanged = () => {
+    const empty = completedEmpty.current, stored = readStoredState();
+    const inputs = (value: LiveDetail) => JSON.stringify({ container: value.container, cargo: value.cargo.filter(item => item.quantity > 0) });
+    return Boolean(empty && stored && inputs(empty) === inputs(stored) && inputs(empty) === inputs(readLive()));
+  };
 
   const advance = (next: StepId) => { setStep(next); setFurthest(previous => Math.max(previous, next) as StepId); };
   const applyPackaging = () => {
     if (!packaging.ready) return;
+    completedEmpty.current = null;
     writeShipmentInstructionSnapshot(packaging.products, packaging.assignments, packaging.cargo);
     writeStoredState({ container: live.container, cargo: packaging.cargo }, true);
     publishGuidedLoadingUnit('boxes');
@@ -514,6 +521,7 @@ export default function GuidedWorkflowShell() {
     advance(4);
   };
   const chooseStrategy = (next: LoadingStrategy) => {
+    completedEmpty.current = null;
     setNoLoadComplete(false);
     if (next === 'unloading') {
       const source = readStoredState() ?? live;
@@ -563,15 +571,27 @@ export default function GuidedWorkflowShell() {
   }, []);
 
   useEffect(() => {
-    const refresh = () => setLive(readLive());
+    const refresh = () => {
+      if (completedEmpty.current && emptyInputsUnchanged()) { setLive(completedEmpty.current); return; }
+      if (completedEmpty.current) {
+        completedEmpty.current = null; setNoLoadComplete(false); setFinalReady(false);
+        setFurthest(previous => Math.min(previous, 5) as StepId);
+        setStep(previous => previous === 6 ? 5 : previous);
+      }
+      setLive(readLive());
+    };
     const onCertificationInvalidated = (event: Event) => {
       if ((event as CustomEvent<InertiaCertification | undefined>).detail) return;
+      // Empty results carry no certification. Unmounting the pallet viewer clears
+      // its physics target, but must not close the completed reasons-only view.
+      if (completedEmpty.current && emptyInputsUnchanged()) return;
       setFinalReady(false);
       setFurthest(previous => Math.min(previous, 5) as StepId);
       setStep(previous => previous === 6 ? 5 : previous);
     };
     const refreshSelection = () => setSelection(readProductSelection());
     const refreshIdentity = () => {
+      completedEmpty.current = null;
       setSelection(readProductSelection());
       setPackaging({ products: [], assignments: [], cargo: [], ready: false });
       publishGuidedLoadingUnit(null);
@@ -607,6 +627,7 @@ export default function GuidedWorkflowShell() {
     if (step !== 5) return;
 
     const markRunning = () => {
+      completedEmpty.current = null;
       setNoLoadComplete(false);
       setRunning(true);
       setFinalReady(false);
@@ -623,6 +644,7 @@ export default function GuidedWorkflowShell() {
     const onNoLoad = (event: Event) => {
       const detail = (event as CustomEvent<LiveDetail>).detail;
       if (!detail?.result || detail.result.placements.length || !detail.result.remaining.length) return;
+      completedEmpty.current = detail;
       setRunning(false); setNoLoadComplete(true); setFinalReady(true); setLive(detail);
       setFurthest(previous => Math.max(previous, 6) as StepId);
     };

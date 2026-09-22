@@ -136,7 +136,9 @@ subscribePhysicsTarget(() => {
   const target = readPhysicsTarget();
   if (!target || target.mode !== 'pallets' || (!target.result.placements.length && !target.result.remaining.length)) return;
   pendingPalletCertification = false;
-  void validateThenCertify(target);
+  // publishPhysicsTarget notifies the store before emitting its invalidation event.
+  // Finish an empty job only after that publication has completed.
+  queueMicrotask(() => { if (readPhysicsTarget() === target) void validateThenCertify(target); });
 });
 
 export function requestExactCertification(target: PhysicsTarget) {
