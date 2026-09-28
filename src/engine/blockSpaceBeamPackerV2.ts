@@ -97,7 +97,8 @@ function blocksFor(item: CargoItem, remaining: number, space: Space, allowSingle
     const seen = new Set<string>();
     for (const nx of countOptions(maxX)) for (const ny of countOptions(maxY)) for (const nz of countOptions(maxZ)) {
       const quantity = nx * ny * nz;
-      if (quantity > remaining || (!allowSingles && quantity < 2)) continue;
+      const rigidUnit = item.unitKind === 'pallet';
+      if (quantity > remaining || (!allowSingles && quantity < 2 && !rigidUnit)) continue;
       const key = `${orientation.rotated ? 1 : 0}:${nx}:${ny}:${nz}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -167,6 +168,7 @@ function occupied(candidate: Candidate): Placement {
 
 function physicallyValid(candidate: Candidate, state: State, context: Context) {
   const block = candidate.block;
+  if (block.item.floorOnly && candidate.z > EPS) return false;
   if (state.loadedWeightKg + block.weightKg > context.container.maxPayloadKg + EPS) return false;
   const box = occupied(candidate);
   if (!isInsideContainer(context.container, box) || state.placements.some((p) => overlaps(box, p))) return false;
@@ -346,7 +348,8 @@ function candidateScore(candidate: Candidate, state: State, context: Context) {
   const footprintFill = clamp01((block.length * block.width) / Math.max(EPS, candidate.space.length * candidate.space.width));
   const frontier = activeFloorFrontierX(state, context);
 
-  let score = blockRatio * 950 + fill * 80 + block.quantity * 0.35;
+  const demandCount = block.quantity * Math.max(1, block.item.demandUnits ?? 1);
+  let score = blockRatio * 950 + fill * 80 + demandCount * 0.35;
   score += wallCrossFill * 150 + wallWidthFill * 80 + footprintFill * 45;
   score += contactRatio * 180 + sameSkuContactRatio * 95;
   if (candidate.z <= EPS) score += 18;
@@ -435,6 +438,7 @@ function candidateList(state: State, context: Context, allowSingles: boolean) {
   return candidates
     .sort((a, b) =>
       b.score - a.score
+      || (b.block.quantity * Math.max(1, b.block.item.demandUnits ?? 1)) - (a.block.quantity * Math.max(1, a.block.item.demandUnits ?? 1))
       || b.block.quantity - a.block.quantity
       || b.block.width - a.block.width
       || a.block.item.id.localeCompare(b.block.item.id)
@@ -507,7 +511,7 @@ function apply(state: State, candidate: Candidate): State {
     remaining: left,
     loadedWeightKg: state.loadedWeightKg + candidate.block.weightKg,
     usedVolumeM3: state.usedVolumeM3 + candidate.block.volumeM3,
-    loadedCount: state.loadedCount + candidate.block.quantity,
+    loadedCount: state.loadedCount + candidate.block.quantity * Math.max(1, candidate.block.item.demandUnits ?? 1),
   };
 }
 
@@ -655,7 +659,7 @@ export function packByBlockSpaceBeamV2(container: ContainerSpec, cargo: CargoIte
     cargoById: new Map(ordered.map((i) => [i.id, i])),
     strategy,
     requestedVolumeM3: ordered.reduce((sum, i) => sum + volumeOfItem(i) * i.quantity, 0),
-    requestedCount: ordered.reduce((sum, i) => sum + i.quantity, 0),
+    requestedCount: ordered.reduce((sum, i) => sum + i.quantity * Math.max(1, i.demandUnits ?? 1), 0),
     maxUnitWeightKg: Math.max(EPS, ...ordered.map((i) => i.weightKg)),
     unloadMin: priorities.length ? Math.min(...priorities) : 0,
     unloadMax: priorities.length ? Math.max(...priorities) : 0,
