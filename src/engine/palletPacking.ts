@@ -414,33 +414,6 @@ function palletShapeMetrics(placements: Placement[]) {
   };
 }
 
-function denseHeightProfiles(cargo: CargoItem[], availableHeight: number, pallet: PalletSpec) {
-  const values = new Set<number>([availableHeight]);
-  const active = cargo.filter((item) => item.quantity > 0 && item.height <= availableHeight + EPS);
-  if (!active.length) return [availableHeight];
-  const totalVolume = active.reduce((sum, item) => sum + cargoVolume(item) * item.quantity, 0);
-  const demandHeight = totalVolume / Math.max(EPS, pallet.length * pallet.width);
-  values.add(Math.min(availableHeight, Math.max(...active.map((item) => item.height), demandHeight * 1.08)));
-  for (const ratio of [0.35, 0.5, 0.65, 0.8]) values.add(availableHeight * ratio);
-  for (const item of active) {
-    const maxLayers = Math.min(
-      8,
-      item.maxStackLayers ?? 8,
-      fitCount(availableHeight, item.height),
-    );
-    for (let layer = 1; layer <= maxLayers; layer += 1) values.add(item.height * layer);
-  }
-  return [...values]
-    .map((value) => Math.min(availableHeight, Math.max(0.01, value)))
-    .filter((value) => value + EPS >= Math.min(...active.map((item) => item.height)))
-    .map((value) => Math.round(value * 1_000_000) / 1_000_000)
-    .filter((value, index, all) => all.indexOf(value) === index)
-    .sort((a, b) => a - b)
-    .slice(0, 16)
-    .concat([availableHeight])
-    .filter((value, index, all) => all.indexOf(value) === index);
-}
-
 function densePackOnePallet(cargo: CargoItem[], pallet: PalletSpec, container: ContainerSpec, strategy: Strategy) {
   const reserveHeight =
     (pallet.useCornerGuards ? pallet.cornerGuardExtraHeightM : 0)
@@ -448,19 +421,48 @@ function densePackOnePallet(cargo: CargoItem[], pallet: PalletSpec, container: C
   const availableHeight = Math.max(0, container.height - pallet.height - reserveHeight);
   if (availableHeight <= EPS) return null;
 
-  let best: ReturnType<typeof packByBlockSpaceBeamV2> | null = null;
-  let bestMetrics = { count: -1, maxTop: Number.POSITIVE_INFINITY, rectangleFill: -1, footprint: -1 };
+  const packAt = (height: number) => packByBlockSpaceBeamV2({
+    length: pallet.length,
+    width: pallet.width,
+    height,
+    maxPayloadKg: pallet.maxLoadKg,
+  }, cargo, strategy);
 
-  for (const height of denseHeightProfiles(cargo, availableHeight, pallet)) {
-    const virtual: ContainerSpec = {
-      length: pallet.length,
-      width: pallet.width,
-      height,
-      maxPayloadKg: pallet.maxLoadKg,
-    };
-    const packed = packByBlockSpaceBeamV2(virtual, cargo, strategy);
+  // One full-height run establishes the maximum quantity this heuristic can place.
+  // Lower-height reruns are only tie-break candidates, so "make it flat" can never
+  // reduce the number of cartons carried by the pallet.
+  const baseline = packAt(availableHeight);
+  if (!baseline.placements.length) return null;
+  let best = baseline;
+  let bestMetrics = { count: baseline.placements.length, ...palletShapeMetrics(baseline.placements) };
+
+  const loadedVolume = placementVolume(baseline.placements);
+  const averageHeightNeeded = loadedVolume / Math.max(EPS, pallet.length * pallet.width);
+  const tallestLoaded = Math.max(...baseline.placements.map((placement) => placement.height));
+  const baselineTop = bestMetrics.maxTop;
+  const candidateHeights = new Set<number>([
+    Math.max(tallestLoaded, averageHeightNeeded * 1.04),
+    baselineTop * 0.7,
+    baselineTop * 0.85,
+  ]);
+  const unitHeights = [...new Set(cargo.filter((item) => item.quantity > 0).map((item) => item.height))]
+    .sort((a, b) => a - b)
+    .slice(0, 4);
+  for (const unitHeight of unitHeights) {
+    candidateHeights.add(Math.ceil((averageHeightNeeded - EPS) / unitHeight) * unitHeight);
+  }
+
+  const profiles = [...candidateHeights]
+    .map((value) => Math.round(Math.min(availableHeight, Math.max(tallestLoaded, value)) * 1_000_000) / 1_000_000)
+    .filter((value) => value < availableHeight - EPS)
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .sort((a, b) => a - b)
+    .slice(0, 6);
+
+  for (const height of profiles) {
+    const packed = packAt(height);
     const count = packed.placements.length;
-    if (!count) continue;
+    if (count < bestMetrics.count) continue;
     const metrics = palletShapeMetrics(packed.placements);
     const better =
       count > bestMetrics.count
