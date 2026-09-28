@@ -96,7 +96,7 @@ describe('packOnPallets', () => {
     expect(result.remaining.find((item) => item.cargoId === 'HEAVY_UNIT')?.quantity).toBe(1);
   });
 
-  it('keeps primary pallets single-SKU when a lower-priority pallet cannot be fully consolidated', () => {
+  it('does not create extra pallets merely to keep SKUs pure', () => {
     const result = packOnPallets(
       { length: 2.2, width: 1.1, height: 1.2, maxPayloadKg: 5000 },
       [
@@ -106,7 +106,8 @@ describe('packOnPallets', () => {
       { ...defaultPalletSpec, length: 1.0, width: 1.0, height: 0.15, maxStackLevels: 1 },
     );
     expect(result.palletCount).toBe(2);
-    expect(result.pallets.every((pallet) => new Set(pallet.cargoPlacements.map((placement) => placement.cargoId)).size === 1)).toBe(true);
+    expect(result.placements).toHaveLength(3);
+    expect(result.remaining).toEqual([]);
   });
 
   it('mixes compatible SKUs before allocating an unnecessary pallet', () => {
@@ -152,6 +153,59 @@ describe('packOnPallets', () => {
     const maxY = Math.max(...pallet.cargoPlacements.map((p) => p.y + p.width));
     expect((minX + maxX) / 2).toBeCloseTo(pallet.x + pallet.length / 2, 6);
     expect((minY + maxY) / 2).toBeCloseTo(pallet.y + pallet.width / 2, 6);
+  });
+
+
+  it('packs mixed SKUs into full flat layers before building a narrow upper horn', () => {
+    const items = [
+      box({ id: 'A', name: 'A', length: 0.5, width: 0.5, height: 0.4, quantity: 3, weightKg: 20, maxStackLayers: 2, allowRotation: false }),
+      box({ id: 'B', name: 'B', length: 0.5, width: 0.5, height: 0.4, quantity: 3, weightKg: 18, maxStackLayers: 2, allowRotation: false }),
+      box({ id: 'C', name: 'C', length: 0.5, width: 0.5, height: 0.4, quantity: 2, weightKg: 16, maxStackLayers: 2, allowRotation: false }),
+    ];
+    const result = packOnPallets(
+      { length: 2, width: 1, height: 1.2, maxPayloadKg: 5000 },
+      items,
+      { ...defaultPalletSpec, length: 1, width: 1, height: 0.15, maxStackLevels: 1 },
+    );
+
+    expect(result.palletCount).toBe(1);
+    expect(result.placements).toHaveLength(8);
+    expect(new Set(result.pallets[0].cargoPlacements.map((placement) => placement.cargoId)).size).toBe(3);
+    const layers = new Map<number, number>();
+    for (const placement of result.pallets[0].cargoPlacements) {
+      const z = Math.round(placement.z * 1000);
+      layers.set(z, (layers.get(z) ?? 0) + 1);
+    }
+    expect([...layers.values()].sort((a, b) => b - a)).toEqual([4, 4]);
+  });
+
+  it('collects multi-SKU tail cartons onto the final mixed pallet and minimizes pallet count', () => {
+    const items = ['A', 'B', 'C'].map((id, index) =>
+      box({
+        id,
+        name: id,
+        length: 0.5,
+        width: 0.5,
+        height: 0.4,
+        quantity: 5,
+        weightKg: 20 - index,
+        maxStackLayers: 2,
+        allowRotation: false,
+      }),
+    );
+    const result = packOnPallets(
+      { length: 3, width: 1, height: 1.2, maxPayloadKg: 5000 },
+      items,
+      { ...defaultPalletSpec, length: 1, width: 1, height: 0.15, maxStackLevels: 1 },
+    );
+
+    expect(result.placements).toHaveLength(15);
+    expect(result.remaining).toEqual([]);
+    expect(result.palletCount).toBe(2);
+    const tail = result.pallets[result.pallets.length - 1];
+    expect(new Set(tail.cargoPlacements.map((placement) => placement.cargoId)).size).toBeGreaterThan(1);
+    const top = Math.max(...tail.cargoPlacements.map((placement) => placement.z + placement.height));
+    expect(top).toBeLessThanOrEqual(0.95 + 1e-6);
   });
 
   it('never uses more than the configured pallet stack levels', () => {
