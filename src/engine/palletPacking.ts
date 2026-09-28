@@ -543,6 +543,12 @@ function repackLoadedCargoDensely(
   strategy: Strategy,
 ) {
   if (!input.length) return { pallets: input, removed: 0 };
+  // palletOptimization uses this base packer recursively with a one-pallet virtual
+  // container while testing pair consolidation. Running another Beam repack inside
+  // that inner probe multiplies cost without changing pallet count or shape.
+  if (container.length <= pallet.length + EPS && container.width <= pallet.width + EPS) {
+    return { pallets: input, removed: 0 };
+  }
   const frozen = loadedCounts(input);
   // Homogeneous SKU pallets are already generated as aligned grids by slotFor().
   // The expensive repack is reserved for the mixed-SKU case where tail consolidation
