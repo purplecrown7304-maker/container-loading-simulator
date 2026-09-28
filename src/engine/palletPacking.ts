@@ -78,6 +78,8 @@ const EPS = 1e-9;
 function stopOf(load: PalletLoad, cargo: Map<string, CargoItem>) { return cargo.get(load.cargoPlacements[0]?.cargoId)?.unloadPriority ?? 0; }
 const CENTER_TOLERANCE = 1e-6;
 const FLAT_TOP_TOLERANCE = 0.03;
+const DENSE_REPACK_MAX_SKUS = 8;
+const DENSE_REPACK_MAX_CARTONS = 120;
 const cargoVolume = (item: CargoItem) => item.length * item.width * item.height;
 const fitCount = (available: number, size: number) => size > 0 ? Math.floor((available + EPS) / size) : 0;
 
@@ -546,6 +548,12 @@ function repackLoadedCargoDensely(
   // The expensive repack is reserved for the mixed-SKU case where tail consolidation
   // and uneven towers are actually possible.
   if (frozen.size <= 1) return { pallets: input, removed: 0 };
+  const frozenCount = [...frozen.values()].reduce((sum, value) => sum + value, 0);
+  // Dense multi-profile repacking is intentionally bounded. Large portfolio jobs keep
+  // the existing linear consolidation path instead of multiplying Beam Search cost.
+  if (frozen.size > DENSE_REPACK_MAX_SKUS || frozenCount > DENSE_REPACK_MAX_CARTONS) {
+    return { pallets: input, removed: 0 };
+  }
   const groups = new Map<number, Map<string, number>>();
   for (const [id, quantity] of frozen) {
     const item = cargoMap.get(id);
