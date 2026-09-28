@@ -1,15 +1,18 @@
-# Container Loading Simulator — Codex Development Rules
+# Container Loading Simulator — Codex Development Rules (Revised)
+
+> Revision baseline: Claude review, 2026-09-28. Numeric defaults must remain configurable rather than being buried as engine constants.
 
 ## 1. Project goal
-Build and maintain a web-based 3D container loading simulator that optimizes box and pallet placement while respecting physical, operational, weight, support, compression, balance, height, and accessibility constraints.
+Build and maintain a web-based 3D container loading simulator that optimizes box and pallet placement, including mixed loads of directly loaded boxes and palletized cargo in a single container, while respecting physical, operational, weight, support, compression, balance, height, unloading-order, and accessibility constraints.
 
 ## 2. Development principles
 - Preserve existing functionality unless an explicit change is requested.
 - Keep UI logic and loading-engine logic separated.
 - Prefer TypeScript for application and engine code.
 - All loading decisions must be deterministic for identical inputs unless a stochastic optimizer is explicitly introduced.
+- Determinism includes performance limits: beam width, candidate caps, and iteration limits must be fixed functions of input. Wall-clock/device-speed cutoffs are forbidden inside the engine. Cancellation must never publish a partial layout as a normal result.
 - Any algorithm change must include or update tests for the changed rule.
-- Never silently relax a physical or safety constraint to obtain a higher fill rate.
+- Never silently relax a physical or safety constraint to obtain a higher fill rate, fewer pallets, or better balance.
 - Hard safety constraints always outrank optimization preferences.
 - Mobile usability must be considered for all major UI changes.
 
@@ -24,13 +27,43 @@ The default DIRECT BOX engine is:
 5. After homogeneous-block search, allow residual single-box candidates on the same EMS + Beam Search so leftovers may fill any physically safe gap.
 6. Validate the final placements again for bounds and collisions; all support/stack/top-load/payload rules must already have been enforced during candidate generation.
 
+## 3A. Load modes and objective hierarchy
+
+### Load modes
+```
+loadMode: "BOX_ONLY" | "PALLET_ONLY" | "MIXED"
+```
+- `BOX_ONLY`: only direct boxes; behavior must remain identical to the DIRECT BOX baseline.
+- `PALLET_ONLY`: only palletized units.
+- `MIXED`: palletized units and direct boxes share one container and the same deterministic EMS/Beam Search at container-placement stage.
+- Pallet building remains independent from container placement. A built pallet enters MIXED search as a rigid unit with footprint, loaded height, gross weight, center of gravity, top-load/handling limits, and source metadata.
+- MIXED placement order is determined by candidate scoring, never by a fixed "pallets first" or "boxes first" loop.
+- Default mixed policy keeps well-filled pallets palletized and converts only low-fill tail pallets to direct boxes. Otherwise "minimize pallet count" trivially degenerates to BOX_ONLY whenever direct floor loading is possible.
+- The partial-pallet threshold is configurable. Current product default is 70% and must not be hard-coded into unrelated engine modules.
+
+### Objective hierarchy
+Objectives are lexicographic. A lower item may not be improved at the expense of a higher item.
+1. Hard constraints: bounds, collision, support, stacking, top-load, payload, floor/axle load when configured, handling attributes, segregation, and pallet limits.
+2. Under `unloading`, blocking must be zero when feasible.
+3. Maximize loaded demand units, honoring explicit cargo priority when present.
+4. Within MIXED policy, minimize avoidable partial pallets without demoting protected/full pallets.
+5. Minimize loose floor boxes when pallet count is otherwise equal.
+6. Improve center of gravity and weight distribution.
+7. Improve space utilization and compactness.
+
 ## 4. Loading direction and weight distribution
 - Prefer the deepest usable empty space toward the door as a compactness/work-sequence preference, not as a rule that forces heavy cargo into one end.
 - Prefer floor positions before elevated positions when other constraints and optimization quality are comparable.
 - Heavy cargo should preferentially remain low to reduce vertical center of gravity.
 - Do not reward a plan merely because more weight is in the inner half of the container.
 - Penalize excessive longitudinal or lateral concentration. As an operational warning target, avoid putting more than about 60% of loaded cargo weight in either longitudinal half when a feasible alternative exists.
-- Center-of-gravity and weight-distribution objectives are optimization preferences; container payload, support, stacking, and compression limits are hard constraints.
+- Center-of-gravity and weight-distribution objectives are optimization preferences; container payload, support, stacking, compression, and configured floor/axle limits are hard constraints.
+
+### Vertical placement by weight class
+- Heavy-cargo height policy is configurable and is not inferred as a universal legal rule.
+- When enabled, heavy/medium/light thresholds are fixed functions of the input set and configuration.
+- Elevated-heavy penalties grow with height, and a configured hard cap must be enforced before utilization scoring.
+- A pallet unit is evaluated by its gross weight as one rigid container-level unit.
 
 ## 5. Box candidate generation
 - Keep identical box types together by generating homogeneous rectangular blocks whenever feasible.
@@ -39,13 +72,16 @@ The default DIRECT BOX engine is:
 - CBM, block fill ratio, quantity, contact area, weight, center of gravity, and unloading order may contribute to candidate scores.
 - Use cargo ID only as the final deterministic tie-break, not as a business priority.
 - Respect `allowRotation`; never invent an orientation that the cargo input disallows.
+- Cargo may additionally declare `allowedOrientations`, `thisSideUp`, `fragile`, `noStackAbove`, and `segregationGroup`. Missing attributes preserve legacy behavior.
 - Avoid isolated center boxes, L-shaped fragmentation, unsupported bridging, wall penetration, and unnecessary holes when a compact rectangular alternative exists.
 
 ## 6. Maximal Empty Space rules
 - Empty spaces are three-dimensional rectangular regions derived from the container and accepted occupied blocks.
 - After placement, subtract the occupied block from intersecting spaces, de-duplicate equivalent spaces, and remove spaces fully contained by a larger equivalent candidate space.
 - EMS regions may overlap each other as a search representation; actual cargo placements may never overlap.
-- Residual mixed loading may reuse a safe inner/side/top EMS. It must not be artificially restricted to a door-side tail zone.
+- Reserved spaces such as door clearance, lashing/load-lock space, forklift access corridors, and user keep-out zones must be removed from usable search space when configured.
+- Residual mixed loading may reuse a safe inner/side/top EMS under capacity/stability. Under unloading it may only use an EMS that preserves the unload path.
+- Residual direct boxes beside pallets must respect configured pallet-to-cargo clearance.
 
 ## 7. Beam Search rules
 - Keep multiple high-quality candidate states so an early greedy choice does not permanently damage utilization or balance.
@@ -53,6 +89,7 @@ The default DIRECT BOX engine is:
 - `capacity` strategy emphasizes safe space utilization.
 - `stability` strategy emphasizes low center of gravity, balanced weight distribution, and stable contact more strongly.
 - `unloading` strategy adds unload-order placement preference while retaining all hard safety constraints.
+- Under unloading, a later-stop unit blocks an earlier-stop unit when it sits between that unit and the +X door along an overlapping path or sits above it. Default target is zero blocking; impossible units remain waiting unless the user explicitly selects soft blocking.
 - Never increase fill rate by weakening support, top-load, stacking, bounds, collision, or payload checks.
 
 ## 8. Weight, support, and compression constraints
@@ -61,16 +98,26 @@ The default DIRECT BOX engine is:
 - Respect maximum stacking-layer settings when configured, including mixed-SKU support chains.
 - Elevated cargo must satisfy the configured support ratio and must keep its projected center of gravity inside the support envelope.
 - Total container payload must not exceed the configured container weight limit.
+- When floor-load or axle-load limits exist in equipment data they are hard constraints. Local load uses actual contact footprint; no unmodeled spreader-board assumption may be used to rescue an overload.
 - Prefer lower center of gravity for heavy cargo.
 - Do not treat CBM or loaded-count improvement as justification for violating any of these constraints.
 
 ## 9. Pallet rules
-- Pallet mode and box-only mode must remain separately controllable.
-- DIRECT BOX algorithm changes do not silently rewrite pallet optimization rules.
-- No pallet or cargo overhang outside its allowed footprint.
-- Cargo on a pallet must stay centered/balanced unless an explicit loading rule allows otherwise.
+- Pallet mode, box-only mode, and mixed mode must remain separately controllable.
+- DIRECT BOX algorithm changes do not silently rewrite pallet-building rules. Shared MIXED interfaces require regression coverage for all modes.
+- No pallet or cargo overhang outside its allowed footprint. Default overhang is 0 mm unless a pallet type explicitly configures otherwise.
+- Cargo on a pallet must stay centered/balanced unless an explicit loading rule allows otherwise. The pallet-unit center of gravity enters container-level balance.
 - Do not stack above configured pallet stacking limits.
-- Respect pallet load, top-load, support, packaging-clearance, and container payload limits.
+- Respect pallet load, top-load, support, packaging-clearance, ceiling clearance, and container payload limits.
+- Forklift-loaded pallets must retain configured fork-entry/access clearance at loading time.
+- Pallet/pallet and pallet/wall spacing is configurable.
+
+### Pallet count minimization
+- Fill existing compatible pallets before creating a new partial pallet.
+- Pallet count may only be reduced by legal consolidation, better assignment, or MIXED conversion of eligible low-fill tail pallets.
+- Loaded quantity outranks pallet count. Never drop cargo merely to reduce pallet count.
+- Well-filled/protected pallets are not demoted in default MIXED policy solely to chase a lower pallet count.
+- Compatible residual boxes may use spare pallet height only when pallet support, top-load, overhang, unloading, and handling rules all remain valid.
 
 ## 10. Accessibility / working height
 When an operational retrieval-height rule is enabled, use it as an ergonomic constraint rather than an arbitrary stacking cap. The rule must be configurable and clearly separated from the physical ceiling constraint.
@@ -90,6 +137,14 @@ The engine should be able to report or validate:
 - floor-load distribution
 - pallet count when pallet mode is used
 - residual/mixed cargo and the reason it could not be loaded
+- unloading blocking count and blocking pairs
+- configured floor/axle-load violations
+- handling-attribute violations
+- pallet overhang/clearance/access violations
+- MIXED summary: pallet count, loose/direct count, per-pallet fill rate, demoted partial pallets, and total loaded demand
+- deterministic conflict log for resolved objective conflicts
+
+Every waiting item should expose a stable primary reason code. Target codes include `NO_FEASIBLE_EMS`, `PAYLOAD_LIMIT`, `FLOOR_LOAD_LIMIT`, `AXLE_LOAD_LIMIT`, `SUPPORT_RULE`, `STACK_LIMIT`, `TOP_LOAD_LIMIT`, `ORIENTATION_RESTRICTED`, `SEGREGATION_CONFLICT`, `BLOCKS_UNLOAD_PATH`, `PALLET_LIMIT`, `PALLET_ACCESS_BLOCKED`, `HEAVY_HEIGHT_CAP`, and `RESERVED_SPACE`.
 
 ## 12. Architecture guidance
 Prefer separation similar to:
@@ -107,6 +162,8 @@ DIRECT BOX core modules include:
 - `support.ts`: support-area and support-envelope checks
 - `stacking.ts`: stacking depth and cumulative top-load checks
 - `weightBalance.ts`: 3D center-of-gravity and distribution evaluation
+- `mixedModePacking.ts`: current MIXED orchestration; partial-pallet eligibility + rigid pallet units + direct boxes entering the shared EMS/Beam Search
+- future dedicated modules may split pallet building, unload-order evaluation, handling attributes, and reason-code/conflict-log types as those rules are implemented
 
 ## 13. Codex workflow
 Before modifying loading logic:
@@ -117,3 +174,13 @@ Before modifying loading logic:
 5. Report what changed and any remaining performance/safety trade-offs.
 
 If two project rules conflict, preserve hard physical constraints first and document the conflict in the result or code comments.
+
+
+## 14. Regression-test requirements
+- Determinism: identical input produces identical output for BOX_ONLY, PALLET_ONLY, and MIXED.
+- Mode isolation: pallet changes must not alter BOX_ONLY output.
+- MIXED: pallet rigid units and direct boxes may not collide; loaded demand outranks pallet reduction; low-fill tail pallets may be converted to direct boxes; full/protected pallets remain palletized by default.
+- Unloading: zero blocking when feasible, otherwise stable waiting reason.
+- Stacking/support: mixed-SKU cumulative top load and declared stack depth remain enforced.
+- Floor/axle and handling constraints require deterministic tests when their configuration fields are introduced.
+- Reserved spaces require regression coverage before they become user-facing defaults.
