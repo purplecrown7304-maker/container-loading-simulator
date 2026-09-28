@@ -254,9 +254,13 @@ describe('packOnPallets', () => {
       ],
       { ...defaultPalletSpec, length: 1.1, width: 1.1, height: 0.15, maxStackLevels: 1 },
     );
-    expect(result.palletCount).toBe(2);
+    // The new dense mixed pass may safely consolidate onto one pallet by putting
+    // the small carton on the large carton. The forbidden case is the reverse.
+    expect(result.palletCount).toBe(1);
     const large = result.placements.find((placement) => placement.cargoId === 'LARGE');
+    const small = result.placements.find((placement) => placement.cargoId === 'SMALL');
     expect(large?.z).toBeCloseTo(0.15, 5);
+    expect((small?.z ?? 0)).toBeGreaterThan(large?.z ?? 0);
   });
 
   it('does not block pallet stacking only because maxTopLoadKg is unspecified', () => {
