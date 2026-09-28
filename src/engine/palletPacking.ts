@@ -542,6 +542,10 @@ function repackLoadedCargoDensely(
 ) {
   if (!input.length) return { pallets: input, removed: 0 };
   const frozen = loadedCounts(input);
+  // Homogeneous SKU pallets are already generated as aligned grids by slotFor().
+  // The expensive repack is reserved for the mixed-SKU case where tail consolidation
+  // and uneven towers are actually possible.
+  if (frozen.size <= 1) return { pallets: input, removed: 0 };
   const groups = new Map<number, Map<string, number>>();
   for (const [id, quantity] of frozen) {
     const item = cargoMap.get(id);
