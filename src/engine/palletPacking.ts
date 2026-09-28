@@ -538,7 +538,7 @@ function repackLoadedCargoDensely(
   container: ContainerSpec,
   strategy: Strategy,
 ) {
-  if (input.length <= 1) return { pallets: input, removed: 0 };
+  if (!input.length) return { pallets: input, removed: 0 };
   const frozen = loadedCounts(input);
   const groups = new Map<number, Map<string, number>>();
   for (const [id, quantity] of frozen) {
