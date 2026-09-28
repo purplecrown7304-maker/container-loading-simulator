@@ -187,3 +187,10 @@ If two project rules conflict, preserve hard physical constraints first and docu
 - Stacking/support: mixed-SKU cumulative top load and declared stack depth remain enforced.
 - Floor/axle and handling constraints require deterministic tests when their configuration fields are introduced.
 - Reserved spaces require regression coverage before they become user-facing defaults.
+
+## 15. Multi-agent collaboration (GPT ↔ Claude)
+This repository is operated by the owner plus two AI agents (GPT/Codex and Claude) that alternate between implementer and reviewer. Full rules: `docs/agents/COLLABORATION.md`.
+- Check the issue/PR label before starting: `impl:gpt` means Codex implements and Claude reviews; `impl:claude` means Claude implements and Codex reviews.
+- As implementer: work on branch `gpt/<issue>-<slug>`, never commit to `main`, and fill in every item of `.github/pull_request_template.md`.
+- As reviewer: do not rewrite the other agent's code; leave file/line review comments with severity (blocking/recommended/minor) and end with one verdict line: `판정: 승인`, `판정: 수정 요청`, or `판정: 대표 판단 필요`.
+- Do not create report `.md` files or deploy-trigger files in the repo root. Put reports in the PR description; summarize releases only in `CHANGELOG.md`.
