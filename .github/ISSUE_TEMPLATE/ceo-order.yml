@@ -1,0 +1,63 @@
+name: 대표 업무지시서
+description: AI 직원(GPT/Claude)에게 새 작업을 지시합니다.
+title: "[지시] "
+labels: ["ceo-order"]
+body:
+  - type: dropdown
+    id: implementer
+    attributes:
+      label: 구현 담당
+      description: 선택한 AI가 구현하고, 반대편 AI가 자동으로 검수합니다. 생성 후 같은 이름의 라벨(impl:gpt / impl:claude)도 붙여 주세요.
+      options:
+        - 기본 배정 규칙에 맡김
+        - impl:gpt (GPT 구현 → Claude 검수)
+        - impl:claude (Claude 구현 → GPT 검수)
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 작업 영역
+      options:
+        - 적재 엔진 / 안전 제약
+        - 팔레트 / MIXED
+        - UI / 3D 화면
+        - 작업지시서 / Excel 출력
+        - Supabase / 저장
+        - 버그 수정
+        - 문서 / 테스트
+        - 기타
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: 목표
+      description: 무엇을, 왜 바꾸려는지 현장 관점으로 적어 주세요.
+      placeholder: 예) 20ft 컨테이너에서 무거운 박스가 위에 올라가는 경우가 있다. 중량물은 아래에 오게 하고 싶다.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 조건
+      description: 이게 되면 끝났다고 판단할 기준. 가능하면 확인 방법까지.
+      placeholder: |
+        - 30kg 이상 박스는 1단에만 놓인다
+        - 기존 테스트 전부 통과
+        - 모바일에서 결과 화면 정상
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 건드리면 안 되는 것 / 참고 자료
+      description: 유지해야 할 기능, 샘플 데이터, 스크린샷 등
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 우선순위
+      options:
+        - 보통
+        - 긴급
+        - 낮음
