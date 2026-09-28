@@ -1,6 +1,7 @@
 import type { CargoItem, ContainerSpec, Placement } from './types';
 import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules, projectedTopLoadKg } from './stacking';
+import { packByBlockSpaceBeamV2 } from './blockSpaceBeamPackerV2';
 
 export type PalletSpec = {
   length: number;
@@ -392,6 +393,197 @@ function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number
   return unplaced;
 }
 
+
+function placementVolume(placements: Placement[]) {
+  return placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0);
+}
+
+function palletShapeMetrics(placements: Placement[]) {
+  if (!placements.length) return { maxTop: Number.POSITIVE_INFINITY, rectangleFill: 0, footprint: 0 };
+  const minX = Math.min(...placements.map((p) => p.x));
+  const maxX = Math.max(...placements.map((p) => p.x + p.length));
+  const minY = Math.min(...placements.map((p) => p.y));
+  const maxY = Math.max(...placements.map((p) => p.y + p.width));
+  const maxTop = Math.max(...placements.map((p) => p.z + p.height));
+  const footprint = Math.max(EPS, (maxX - minX) * (maxY - minY));
+  const envelope = Math.max(EPS, footprint * maxTop);
+  return {
+    maxTop,
+    rectangleFill: placementVolume(placements) / envelope,
+    footprint,
+  };
+}
+
+function denseHeightProfiles(cargo: CargoItem[], availableHeight: number, pallet: PalletSpec) {
+  const values = new Set<number>([availableHeight]);
+  const active = cargo.filter((item) => item.quantity > 0 && item.height <= availableHeight + EPS);
+  if (!active.length) return [availableHeight];
+  const totalVolume = active.reduce((sum, item) => sum + cargoVolume(item) * item.quantity, 0);
+  const demandHeight = totalVolume / Math.max(EPS, pallet.length * pallet.width);
+  values.add(Math.min(availableHeight, Math.max(...active.map((item) => item.height), demandHeight * 1.08)));
+  for (const ratio of [0.35, 0.5, 0.65, 0.8]) values.add(availableHeight * ratio);
+  for (const item of active) {
+    const maxLayers = Math.min(
+      8,
+      item.maxStackLayers ?? 8,
+      fitCount(availableHeight, item.height),
+    );
+    for (let layer = 1; layer <= maxLayers; layer += 1) values.add(item.height * layer);
+  }
+  return [...values]
+    .map((value) => Math.min(availableHeight, Math.max(0.01, value)))
+    .filter((value) => value + EPS >= Math.min(...active.map((item) => item.height)))
+    .map((value) => Math.round(value * 1_000_000) / 1_000_000)
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .sort((a, b) => a - b)
+    .slice(0, 16)
+    .concat([availableHeight])
+    .filter((value, index, all) => all.indexOf(value) === index);
+}
+
+function densePackOnePallet(cargo: CargoItem[], pallet: PalletSpec, container: ContainerSpec, strategy: Strategy) {
+  const reserveHeight =
+    (pallet.useCornerGuards ? pallet.cornerGuardExtraHeightM : 0)
+    + (pallet.useWrapping ? pallet.wrappingExtraHeightM : 0);
+  const availableHeight = Math.max(0, container.height - pallet.height - reserveHeight);
+  if (availableHeight <= EPS) return null;
+
+  let best: ReturnType<typeof packByBlockSpaceBeamV2> | null = null;
+  let bestMetrics = { count: -1, maxTop: Number.POSITIVE_INFINITY, rectangleFill: -1, footprint: -1 };
+
+  for (const height of denseHeightProfiles(cargo, availableHeight, pallet)) {
+    const virtual: ContainerSpec = {
+      length: pallet.length,
+      width: pallet.width,
+      height,
+      maxPayloadKg: pallet.maxLoadKg,
+    };
+    const packed = packByBlockSpaceBeamV2(virtual, cargo, strategy);
+    const count = packed.placements.length;
+    if (!count) continue;
+    const metrics = palletShapeMetrics(packed.placements);
+    const better =
+      count > bestMetrics.count
+      || (count === bestMetrics.count && metrics.maxTop < bestMetrics.maxTop - EPS)
+      || (count === bestMetrics.count && Math.abs(metrics.maxTop - bestMetrics.maxTop) <= EPS && metrics.rectangleFill > bestMetrics.rectangleFill + EPS)
+      || (count === bestMetrics.count && Math.abs(metrics.maxTop - bestMetrics.maxTop) <= EPS && Math.abs(metrics.rectangleFill - bestMetrics.rectangleFill) <= EPS && metrics.footprint > bestMetrics.footprint + EPS);
+    if (better) {
+      best = packed;
+      bestMetrics = { count, ...metrics };
+    }
+  }
+  return best;
+}
+
+function cargoRowsFromCounts(counts: Map<string, number>, cargoMap: Map<string, CargoItem>) {
+  return [...counts.entries()]
+    .filter(([, quantity]) => quantity > 0)
+    .flatMap(([id, quantity]) => {
+      const item = cargoMap.get(id);
+      return item ? [{ ...item, quantity }] : [];
+    });
+}
+
+function loadedCounts(pallets: PalletLoad[]) {
+  const counts = new Map<string, number>();
+  for (const load of pallets) {
+    for (const placement of load.cargoPlacements) {
+      counts.set(placement.cargoId, (counts.get(placement.cargoId) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+function makeDenseLoad(index: number, placements: Placement[], pallet: PalletSpec): PalletLoad {
+  const cargoPlacements = placements.map((placement) => ({ ...placement, z: placement.z + pallet.height }));
+  const cargoWeightKg = cargoPlacements.reduce((sum, placement) => sum + placement.weightKg, 0);
+  const load: PalletLoad = {
+    palletIndex: index,
+    x: 0,
+    y: 0,
+    z: 0,
+    stackLevel: 1,
+    stackColumn: index,
+    length: pallet.length,
+    width: pallet.width,
+    height: pallet.height,
+    cargoPlacements,
+    cargoWeightKg,
+    packagingWeightKg: 0,
+    packagingExtraHeightM: 0,
+    cornerGuardsUsed: false,
+    wrappingUsed: false,
+    totalWeightKg: cargoWeightKg + pallet.tareWeightKg,
+    centerOfGravity: { x: pallet.length / 2, y: pallet.width / 2, z: pallet.height / 2 },
+  };
+  centerCargoOnPallet(load, pallet);
+  return load;
+}
+
+/**
+ * Rebuild all already-loadable cartons into the fewest dense pallet loads we can find.
+ * Loaded quantity is frozen before this pass, so pallet reduction can never be achieved
+ * by silently dropping cartons. For non-unloading strategies all compatible SKUs compete
+ * together; the final tail therefore becomes a deliberately mixed pallet instead of
+ * several nearly-empty SKU pallets. For unloading, mixing is limited to the same stop.
+ *
+ * Within one pallet, quantity comes first. When two candidates carry the same quantity,
+ * the lower/flatter candidate wins, then the more rectangular envelope. This suppresses
+ * the "horn" shape where a few cartons form a needless tower over an otherwise sparse load.
+ */
+function repackLoadedCargoDensely(
+  input: PalletLoad[],
+  cargoMap: Map<string, CargoItem>,
+  pallet: PalletSpec,
+  container: ContainerSpec,
+  strategy: Strategy,
+) {
+  if (input.length <= 1) return { pallets: input, removed: 0 };
+  const frozen = loadedCounts(input);
+  const groups = new Map<number, Map<string, number>>();
+  for (const [id, quantity] of frozen) {
+    const item = cargoMap.get(id);
+    if (!item || quantity <= 0) continue;
+    const key = strategy === 'unloading' ? (item.unloadPriority ?? Number.MAX_SAFE_INTEGER) : 0;
+    const counts = groups.get(key) ?? new Map<string, number>();
+    counts.set(id, quantity);
+    groups.set(key, counts);
+  }
+
+  const rebuilt: PalletLoad[] = [];
+  for (const [, initialCounts] of [...groups.entries()].sort(([a], [b]) => b - a)) {
+    const counts = new Map(initialCounts);
+    let guard = 0;
+    while ([...counts.values()].some((quantity) => quantity > 0) && guard < 1000) {
+      guard += 1;
+      const rows = cargoRowsFromCounts(counts, cargoMap);
+      const packed = densePackOnePallet(rows, pallet, container, strategy);
+      if (!packed?.placements.length) return { pallets: input, removed: 0 };
+
+      const packedCounts = new Map<string, number>();
+      for (const placement of packed.placements) {
+        packedCounts.set(placement.cargoId, (packedCounts.get(placement.cargoId) ?? 0) + 1);
+      }
+      for (const [id, quantity] of packedCounts) {
+        counts.set(id, Math.max(0, (counts.get(id) ?? 0) - quantity));
+      }
+      rebuilt.push(makeDenseLoad(rebuilt.length + 1, packed.placements, pallet));
+      if (rebuilt.length > input.length) return { pallets: input, removed: 0 };
+    }
+    if ([...counts.values()].some((quantity) => quantity > 0)) return { pallets: input, removed: 0 };
+  }
+
+  if (rebuilt.length > input.length) return { pallets: input, removed: 0 };
+  applyMinimumPackaging(rebuilt, pallet);
+  rebuilt.forEach((load) => { load.centerOfGravity = palletCog(load, pallet); });
+  const originalCount = [...frozen.values()].reduce((sum, value) => sum + value, 0);
+  const rebuiltCount = rebuilt.reduce((sum, load) => sum + load.cargoPlacements.length, 0);
+  const gross = rebuilt.reduce((sum, load) => sum + load.totalWeightKg, 0);
+  if (rebuiltCount !== originalCount || gross > container.maxPayloadKg + EPS) return { pallets: input, removed: 0 };
+
+  return { pallets: rebuilt, removed: Math.max(0, input.length - rebuilt.length) };
+}
+
 function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: ContainerSpec, strategy: Strategy) {
   const active = cargo
     .filter((item) => item.quantity > 0)
@@ -478,7 +670,9 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
   pallets.forEach((load) => centerCargoOnPallet(load, pallet));
   applyMinimumPackaging(pallets, pallet);
   pallets.forEach((load) => { load.centerOfGravity = palletCog(load, pallet); });
-  return { pallets, remaining, consolidated, cargoMap };
+
+  const dense = repackLoadedCargoDensely(pallets, cargoMap, pallet, container, strategy);
+  return { pallets: dense.pallets, remaining, consolidated: consolidated + dense.removed, cargoMap };
 }
 
 export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pallet: PalletSpec = defaultPalletSpec, strategy: Strategy = 'capacity'): PalletPackingResult {
