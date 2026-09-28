@@ -27,14 +27,28 @@
   --z-toast:2000;
 }
 
-/* Load Studio visual system — owned by this feature. */
+/* Load Studio visual system — owned by this feature.
+   Dense work theme: 8px radius, 1px lines, 32px controls, compact shell. */
 :root {
---studio-ink: #1d1d1f;
---studio-secondary: #63636a;
---studio-line: #e5e5e9;
---studio-bg: #f5f5f7;
---studio-blue: #0071e3;
---studio-radius: 22px;
+--studio-ink: #111827;
+--studio-secondary: #4b5563;
+--studio-faint: #6b7280;
+--studio-line: #e3e6eb;
+--studio-line-strong: #cfd5dd;
+--studio-bg: #f2f4f7;
+--studio-surface: #ffffff;
+--studio-sunken: #f7f8fa;
+--studio-blue: #2563eb;
+--studio-blue-strong: #1d4ed8;
+--studio-blue-tint: #eef4ff;
+--studio-green: #15803d;
+--studio-green-tint: #ecfdf3;
+--studio-radius: 8px;
+--studio-radius-sm: 6px;
+--studio-header-h: 48px;
+--studio-control-h: 32px;
+--studio-gap: 12px;
 --color-primary: var(--studio-blue);
 --color-text: var(--studio-ink);
+--color-border: var(--studio-line);
 }
