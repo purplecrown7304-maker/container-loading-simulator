@@ -44,10 +44,31 @@ describe('worker report graphics', () => {
     const side = buildSideViewSvg(container, cargo, result, groups);
     const progress = buildProgressSvgs(container, result, groups);
     expect(top).toContain('<svg');
-    expect(top).toContain('문쪽');
+    expect(top).toContain('문쪽 방향');
+    expect(top).toContain('전체 6.00m 중 배치 위치');
+    expect(top).toContain('위 그림은 확대 표시');
     expect(side).toContain('바닥');
+    expect(side).toContain('전체 6.00m 중 배치 위치');
     expect(progress).toHaveLength(3);
     expect(progress[2]).toContain('3단계');
     expect(progress[2]).toContain('2단까지');
+  });
+});
+
+
+describe('worker report adaptive diagram scaling', () => {
+  it('keeps sparse cargo readable while retaining full-container position context', () => {
+    const sparse: LoadingResult = {
+      ...result,
+      placements: result.placements.map((placement) => ({ ...placement, x: placement.x + 2.5 })),
+    };
+    const groups = buildWorkerStepGroups(container, cargo, sparse);
+    const top = buildTopViewSvg(container, cargo, sparse, groups);
+    const side = buildSideViewSvg(container, cargo, sparse, groups);
+
+    expect(top).toContain('표시 X');
+    expect(top).toContain('배치 위치 2.50~4.50m');
+    expect(top).toContain('×2단');
+    expect(side).toContain('폭방향 ×2');
   });
 });
