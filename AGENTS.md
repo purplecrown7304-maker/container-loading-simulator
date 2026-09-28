@@ -118,6 +118,9 @@ Objectives are lexicographic. A lower item may not be improved at the expense of
 - Loaded quantity outranks pallet count. Never drop cargo merely to reduce pallet count.
 - Well-filled/protected pallets are not demoted in default MIXED policy solely to chase a lower pallet count.
 - Compatible residual boxes may use spare pallet height only when pallet support, top-load, overhang, unloading, and handling rules all remain valid.
+- Compatible SKUs should be mixed when doing so removes an avoidable pallet. SKU purity is not a reason to create a new pallet unless unloading/segregation/handling rules require separation.
+- For equal loaded quantity and pallet count, prefer complete lower layers, lower maximum unit-load height, and a compact rectangular envelope. A narrow upper tower ("horn") must lose to a flatter candidate whenever both carry the same demand safely.
+- After primary pallet building, collect compatible tail cartons across SKUs and deterministically repack them into the minimum feasible number of mixed tail pallets. Only the unavoidable final pallet should remain partially filled.
 
 ## 10. Accessibility / working height
 When an operational retrieval-height rule is enabled, use it as an ergonomic constraint rather than an arbitrary stacking cap. The rule must be configurable and clearly separated from the physical ceiling constraint.
