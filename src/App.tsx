@@ -36,7 +36,7 @@ const defaultContainer: ContainerSpec = {
 };
 
 type CargoDraft = Omit<CargoItem, 'id'> & { id: string };
-type LoadingMode = 'boxes' | 'pallets';
+type LoadingMode = 'boxes' | 'pallets' | 'mixed';
 type NavSection = 'dashboard' | 'viewer';
 type StatusTone = 'success' | 'warning' | 'error' | 'info';
 type StatusMessage = { tone: StatusTone; text: string };
@@ -110,7 +110,7 @@ export default function App() {
     if (next === mode) return;
     invalidatePhysics();
     setMode(next);
-    announce('info', next === 'boxes' ? '박스 적재 모드로 전환했습니다.' : '팔레트 적재 모드로 전환했습니다.');
+    announce('info', next === 'boxes' ? '박스 적재 모드로 전환했습니다.' : next === 'mixed' ? '박스 + 팔레트 혼합 적재 모드로 전환했습니다.' : '팔레트 적재 모드로 전환했습니다.');
   };
   const scrollToViewer = () => {
     setNavSection('viewer');
@@ -225,11 +225,13 @@ export default function App() {
     const guidedWorkflowActive = guidedWorkflowState.active;
     const preferredStrategy = guidedWorkflowActive ? readLoadingStrategyPreference() : null;
     if (guidedWorkflowActive && !preferredStrategy) return announce('warning', '적재 방식을 먼저 선택해 주세요.');
-    if (mode === 'pallets') {
+    if (mode === 'pallets' || mode === 'mixed') {
       invalidatePhysics();
       requestNextPalletCertification();
       setPalletRunToken(token => token + 1);
-      announce('info', '팔레트 최적 적재 계산 후 관성 3종을 자동 검증합니다. PASS한 적재안만 최종 결과로 엽니다.');
+      announce('info', mode === 'mixed'
+        ? '혼합 최적화 중 · 가득 찬 팔레트는 유지하고 저효율 잔량 팔레트는 직접 박스로 전환해 같은 EMS에서 함께 배치합니다.'
+        : '팔레트 최적 적재 계산 후 관성 3종을 자동 검증합니다. PASS한 적재안만 최종 결과로 엽니다.');
       return;
     }
     setIsRunning(true);
@@ -386,6 +388,7 @@ export default function App() {
           <div className="mode-tabs">
             <button className={mode === 'boxes' ? 'active' : ''} onClick={() => switchMode('boxes')}>박스</button>
             <button className={mode === 'pallets' ? 'active' : ''} onClick={() => switchMode('pallets')}>팔레트</button>
+            <button className={mode === 'mixed' ? 'active' : ''} onClick={() => switchMode('mixed')}>혼합</button>
           </div>
           {cargo.length === 0 ? <div className="empty-cargo"><b>등록된 화물이 없습니다.</b><span>로그인 후 본인의 박스 목록에서 화물을 선택하거나 새 박스를 등록하세요.</span></div> : <div className="cargo-scroll">
             {cargo.map(item => <article className="cargo-list-item" key={item.id} style={{ borderLeft: `3px solid ${cargoColor(item.id, item.displayColor)}`, paddingLeft: 8 }}>
@@ -438,12 +441,14 @@ export default function App() {
               <div className="calculation-progress-copy"><b>물리 기반 최적 적재 계산 중</b><span>{optimizationMessage || '후보 적재안을 만들고 있습니다.'}</span><small>{progressLabel}</small></div>
             </div>}
             <Suspense fallback={<LoadingFallback />}>
-              {mode === 'boxes' ? <BoxLoadingViewer result={result} container={container} /> : <section className="viewer pallet-viewer"><PalletModePanel container={container} cargo={cargo} runToken={palletRunToken} /></section>}
+              {mode === 'boxes'
+                ? <BoxLoadingViewer result={result} container={container} />
+                : <section className="viewer pallet-viewer"><PalletModePanel container={container} cargo={cargo} runToken={palletRunToken} mode={mode} /></section>}
             </Suspense>
           </div>
-          <div className={`viewer-bottom-actions ${mode === 'pallets' ? 'pallet-summary-active' : ''}`}>
+          <div className={`viewer-bottom-actions ${mode !== 'boxes' ? 'pallet-summary-active' : ''}`}>
             <button className="result-open-action" onClick={showResults}>결과 보기</button>
-            <PalletFooterSummary active={mode === 'pallets'} />
+            <PalletFooterSummary active={mode !== 'boxes'} />
             <span>{physicsScore !== null ? `Rapier ${physicsScore}점 · ${physicsStrategy ? strategyLabel(physicsStrategy) : ''}` : '자동 적재 실행 시 후보를 물리 검증해 최종안을 선택합니다.'}</span>
           </div>
         </section>}
