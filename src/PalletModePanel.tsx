@@ -120,7 +120,6 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
   });
 
   useEffect(() => {
-    if (runToken === 0) return;
     const safe = sanitizeSpec(spec);
     setSpec(safe);
     setResult(packForMode(container, cargo.filter((item) => item.quantity > 0), safe, mode));
