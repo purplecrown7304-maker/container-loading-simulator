@@ -1,12 +1,13 @@
+import { packUnsecuredPallets } from './engine/unsecuredPalletPlan';
 import UnityLoadingViewer from './UnityLoadingViewer';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useEffect, useMemo, useState } from 'react';
 import { cargoColor } from './cargoColors';
 import { centerPalletCargo } from './engine/palletCentering';
 import { validatePlacements } from './engine/constraints';
-import { defaultPalletSpec, packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
+import { defaultPalletSpec, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
-import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
+import { INERTIA_CERTIFICATION_EVENT, hasCompletedSecuringSequence, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
 import { clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
 
 type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number };
@@ -29,7 +30,7 @@ function sanitizeSpec(spec: PalletSpec): PalletSpec {
 }
 
 function packCentered(container: ContainerSpec, cargo: CargoItem[], spec: PalletSpec) {
-  return centerPalletCargo(packOnPallets(container, cargo, spec, readLoadingStrategyPreference() ?? 'capacity'), container);
+  return centerPalletCargo(packUnsecuredPallets(container, cargo, spec, readLoadingStrategyPreference() ?? 'capacity'), container);
 }
 
 function palletForPlacement(result: OptimizedPalletPackingResult, box: Placement) {
@@ -183,7 +184,7 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
   }, [container, cargo, result]);
 
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
-  const securingUsage = certification?.securing ?? null;
+  const securingUsage = certification && hasCompletedSecuringSequence(certification) ? certification.securing : null;
   const scene = useMemo(() => ({
     result: { placements: result.placements, remaining: result.remaining, loadedWeightKg: result.totalPalletizedWeightKg, usedVolumeM3: result.placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0), validationIssues: validatePlacements(container, result.placements) },
     supports: result.pallets.map(p => ({ id: `PALLET-${p.palletIndex}`, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) })),

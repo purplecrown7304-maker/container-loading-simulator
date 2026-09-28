@@ -29,4 +29,38 @@ test('mixed pallets remain two-tier through real workflow certification', async 
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 120000 });
   expect(await snapshot()).toEqual({ count: 6, pallets: 2, tiers: 2, mixed: true });
+  // A completed result must survive ordinary result/viewer navigation unchanged.
+  const verifiedState = () => page.evaluate(() => JSON.stringify({
+    plan: (window as any).__containerLoadingPalletSnapshot,
+    signature: (window as any).__containerLoadingLatestCertification?.targetSignature,
+  }));
+  const beforeNavigation = await verifiedState();
+  if (await page.getByRole('button', { name: '결과창 닫기' }).isVisible()) await page.getByRole('button', { name: '결과창 닫기' }).click();
+  await page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ }).click();
+  await expect(page.getByRole('heading', { name: '결과 확인', exact: true })).toBeVisible();
+  await expect(page.locator('.dashboard-card.viewer-card')).toBeHidden();
+  await expect(page.locator('.guided-result-grid.enhanced')).toBeVisible();
+  await expect(page.locator('.guided-result-grid.enhanced > div').filter({ hasText: /^적재/ })).toContainText('6 EA');
+  expect(await verifiedState()).toBe(beforeNavigation);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  await page.getByRole('button', { name: '이전 단계', exact: true }).click();
+  await expect(page.locator('.dashboard-card.viewer-card')).toBeVisible();
+  await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled();
+  expect(await verifiedState()).toBe(beforeNavigation);
+  await page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ }).click();
+  await expect(page.getByRole('heading', { name: '결과 확인', exact: true })).toBeVisible();
+  const popupPromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: /통합 출하·적재 작업지시서 보기/ }).click();
+  const report = await popupPromise;
+  await expect(report.getByRole('heading', { name: '팔레트 적재 작업지시서', exact: true })).toBeVisible();
+  await expect(report.getByRole('region', { name: '팔레트 적재 요약' })).toContainText('6 EA');
+  await expect(report.getByRole('region', { name: '팔레트 적재 요약' })).toContainText(/팔레트\s*2 EA/);
+  expect(await verifiedState()).toBe(beforeNavigation);
+  await report.close();
+
+  // An actual equipment change must still discard the prior certification.
+  await page.locator('.guided-step-list button').filter({ hasText: '적재공간' }).click();
+  await page.locator('.equipment-icon-grid [data-equipment-id="20-standard"]').click();
+  await expect.poll(() => page.evaluate(() => Boolean((window as any).__containerLoadingLatestCertification))).toBe(false);
 });

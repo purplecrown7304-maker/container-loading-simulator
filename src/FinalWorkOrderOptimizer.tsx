@@ -83,7 +83,7 @@ export default function FinalWorkOrderOptimizer() {
 
         const evaluated: EvaluatedPalletCandidate = { ...candidate, certification, risk: palletCertificationRisk(certification) };
         const approval = assessWorkOrderCertification(certification);
-        if (approval === 'pass' || approval === 'caution') {
+        if (approval === 'pass') {
           applyPalletAdaptiveCandidate(candidate, certification);
           setRunning(false);
           setMessage(`작업지시서 ${workOrderApprovalLabel(certification)} · ${candidate.label}`);

@@ -1,6 +1,6 @@
 import type { OptimizedPalletPackingResult, PalletSpec } from './engine/palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
-import { createPhysicsTargetSignature, type InertiaCertification } from './inertiaCertification';
+import { createPhysicsTargetSignature, hasCompletedSecuringSequence, type InertiaCertification } from './inertiaCertification';
 import type { PhysicsTarget } from './physicsTarget';
 
 const EPS = 1e-9;
@@ -49,7 +49,7 @@ export function certificationMatchesTarget(
   target: PhysicsTarget | undefined,
   certification: InertiaCertification | undefined,
 ): certification is InertiaCertification {
-  if (!target || !certification || certification.status !== 'passed') return false;
+  if (!target || !certification || !hasCompletedSecuringSequence(certification)) return false;
   if (target.mode !== certification.mode) return false;
   return certification.targetSignature === createPhysicsTargetSignature(target);
 }
@@ -85,7 +85,7 @@ export function boxResultMatchesWorkOrderCertification(
   return createPhysicsTargetSignature(detailTarget) === certification.targetSignature;
 }
 
-function palletSnapshotSpecMatchesResult(snapshot: CertifiedPalletSnapshot) {
+export function palletSnapshotSpecMatchesResult(snapshot: CertifiedPalletSnapshot) {
   const { spec, result } = snapshot;
   if (!Number.isInteger(spec.maxStackLevels) || spec.maxStackLevels < 1) return false;
   if (result.maxUsedStackLevel > spec.maxStackLevels) return false;

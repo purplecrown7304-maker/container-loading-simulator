@@ -8,7 +8,7 @@ import {
   readPalletSnapshot,
   type EvaluatedPalletCandidate,
 } from './engine/palletAdaptiveSearch';
-import { createPhysicsTargetSignature, runInertiaCertification, type CertificationProgress } from './inertiaCertification';
+import { createPhysicsTargetSignature, hasCompletedSecuringSequence, runInertiaCertification, type CertificationProgress } from './inertiaCertification';
 import { readPhysicsTarget } from './physicsTarget';
 import {
   REQUEST_PALLET_RESULTS_OPTIMIZATION_EVENT,
@@ -64,7 +64,7 @@ export default function PalletResultsOptimizer() {
       if (runId.current !== id) return;
 
       const evaluated: EvaluatedPalletCandidate = { ...candidate, certification, risk: palletCertificationRisk(certification) };
-      if (certification.status === 'passed') {
+      if (hasCompletedSecuringSequence(certification)) {
         applyPalletAdaptiveCandidate(candidate, certification);
         setRunning(false);
         setMessage(`최종 PASS · ${candidate.label}`);
@@ -84,9 +84,9 @@ export default function PalletResultsOptimizer() {
     setRunning(false);
     if (bestFailed) {
       applyPalletAdaptiveCandidate(bestFailed, bestFailed.certification);
-      setMessage(`유효 팔레트 배치 전부 탐색 · 가장 안전한 실패안 적용 · ${bestFailed.label}`);
+      setMessage(`팔레트 후보 비교 완료 · 비교 범위에서 위험 지표가 낮은 실패안 적용 · ${bestFailed.label}`);
     }
-    setError('화물 수량과 제약조건을 유지하면서 만들 수 있는 팔레트 위치·팔레트 위 상자 방향·높이 조합을 모두 시험했지만 관성 3종 PASS가 나오지 않았습니다. 결과 보기는 잠금 상태를 유지합니다.');
+    setError('화물 수량과 제약조건을 유지하는 팔레트 후보를 비교했지만 무포장 선검증 및 마무리 포장 후 재검증을 모두 통과한 적재안을 찾지 못했습니다. 배치·적층·적재량을 수정한 뒤 다시 적재하세요. 결과 보기는 잠금 상태를 유지합니다.');
   }, []);
 
   useEffect(() => {

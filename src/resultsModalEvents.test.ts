@@ -24,8 +24,8 @@ function certification(overrides: Partial<InertiaCertification> = {}): InertiaCe
     targetSignature: createPhysicsTargetSignature(target),
     testedAt: '2026-08-25T00:00:00.000Z',
     securing: {
-      level: 0,
-      levelLabel: '보조 고정 없음',
+      level: 1,
+      levelLabel: '마무리 포장',
       palletCount: 0,
       palletWeightKg: 0,
       bandingStraps: 0,
@@ -44,8 +44,13 @@ function certification(overrides: Partial<InertiaCertification> = {}): InertiaCe
     failedScenarios: [],
     maxHorizontalShiftM: 0.005,
     maxTiltDeg: 0.5,
-    results: {},
+    results: Object.fromEntries((['acceleration', 'braking', 'cornering'] as const).map(scenario => [scenario, { scenario, fps: 0, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: 0.005, maxTiltDeg: 0.5 } ])),
     payloadWithinLimit: true,
+    attempts: ([0, 1] as const).map(level => ({
+      level, phase: level === 0 ? 'unsecured' : 'secured', levelLabel: level === 0 ? '무포장' : '마무리 포장',
+      payloadWithinLimit: true, passed: true,
+      scenarios: (['acceleration', 'braking', 'cornering'] as const).map(scenario => ({ scenario, passed: true, maxHorizontalShiftM: 0.005, maxTiltDeg: 0.5 })),
+    })),
     ...overrides,
   };
 }
@@ -53,6 +58,23 @@ function certification(overrides: Partial<InertiaCertification> = {}): InertiaCe
 describe('final results certification gate', () => {
   it('accepts only a passed certification for the exact current target', () => {
     expect(certificationMatchesTarget(certification(), target)).toBe(true);
+  });
+
+  it('rejects a status-only PASS without the unsecured and secured proof', () => {
+    expect(certificationMatchesTarget(certification({ attempts: undefined }), target)).toBe(false);
+  });
+
+  it('rejects failed raw loading even when finishing is marked passed', () => {
+    const cert = certification();
+    cert.attempts![0].passed = false;
+    expect(certificationMatchesTarget(cert, target)).toBe(false);
+  });
+
+  it('rejects raw loading alone without finishing revalidation', () => {
+    const cert = certification();
+    cert.securing.level = 0;
+    cert.attempts = cert.attempts!.slice(0, 1);
+    expect(certificationMatchesTarget(cert, target)).toBe(false);
   });
 
   it('rejects a stale signature even when status is passed', () => {

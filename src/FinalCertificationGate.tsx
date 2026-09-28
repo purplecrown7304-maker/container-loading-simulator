@@ -14,6 +14,8 @@ import {
   clearLatestInertiaCertification,
   createPhysicsTargetSignature,
   runInertiaCertification,
+  hasCompletedSecuringSequence,
+  hasUnsecuredTransportPass,
   type CertificationProgress,
   type CertificationRequestDetail,
   type InertiaCertification,
@@ -126,8 +128,8 @@ export default function FinalCertificationGate() {
     setError('');
     setRepositionAttempt({ index: 0, label: '' });
     setSearch(null);
-    setProgress({ level: 1, levelLabel: buildSecuringUsage(nextTarget, 1).levelLabel, scenario: 'acceleration', scenarioIndex: 1, scenarioCount: 3, physicsProgress: 0 });
-    setUsage(buildSecuringUsage(nextTarget, 1));
+    setProgress({ level: 0, levelLabel: buildSecuringUsage(nextTarget, 0).levelLabel, scenario: 'acceleration', scenarioIndex: 1, scenarioCount: 3, physicsProgress: 0 });
+    setUsage(buildSecuringUsage(nextTarget, 0));
 
     try {
       const result = await runInertiaCertification(
@@ -159,7 +161,7 @@ export default function FinalCertificationGate() {
 
       setCertification(result);
       setUsage(result.securing);
-      if (result.status === 'passed') {
+      if (hasCompletedSecuringSequence(result)) {
         cache.current = { signature: requestedSignature, certification: result };
         setRunning(false);
         setOpen(false);
@@ -169,13 +171,13 @@ export default function FinalCertificationGate() {
 
       if (!result.payloadWithinLimit) {
         setRunning(false);
-        setError('보강 자재 중량까지 포함하면 컨테이너 최대 허용중량을 초과합니다. 적재량 또는 보강안을 조정해야 합니다.');
+        setError('현재 단계의 중량이 컨테이너 최대 허용중량을 초과합니다. 적재량을 줄이거나 적재 조건을 수정한 뒤 무포장 검증부터 다시 실행하세요.');
         return;
       }
 
       if (nextTarget.mode !== 'boxes') {
         setRunning(false);
-        setError('최대 보강까지 적용했지만 전체 이동·기울기·화물-팔레트 상대 미끄럼·팔레트 자체 이동 중 하나 이상이 내부 안정 기준을 넘었습니다. 팔레트 작업지시서 최종화에서 제한된 상위 재배치 후보를 비교할 수 있습니다.');
+        setError('적재안이 필수 검증을 통과하지 못했습니다. 무포장 검증 실패를 밴딩·랩핑·미끄럼방지재로 보완하지 않습니다. 팔레트 배치·적층·적재량을 수정한 뒤 다시 적재하세요.');
         return;
       }
 
@@ -192,7 +194,7 @@ export default function FinalCertificationGate() {
         setRunning(false);
         setError(searchResult.timedOut
           ? '추가 배치 계산 시간 제한에 도달했습니다. 현재 적재안은 관성 기준을 통과하지 못했습니다. 적재량 또는 화물 조건을 조정한 뒤 다시 검증하세요.'
-          : '보강재만으로 통과하지 못했고, 같은 화물 수량을 유지하면서 만들 수 있는 추가 고유 재배치안이 없습니다. 적재량 또는 화물 조건을 조정해야 합니다.');
+          : '필수 검증을 통과하지 못했고, 같은 수량을 유지하는 추가 재배치안이 없습니다. 적재량 또는 화물 조건을 수정한 뒤 다시 적재하세요.');
         return;
       }
 
@@ -205,7 +207,8 @@ export default function FinalCertificationGate() {
         attempted += 1;
         setTarget(candidate.target);
         setRepositionAttempt({ index: attempted, label: candidate.label });
-        setUsage(buildSecuringUsage(candidate.target, 1));
+        setCertification(null);
+        setUsage(buildSecuringUsage(candidate.target, 0));
         setLatestResult(null);
 
         const candidateCertification = await runInertiaCertification(
@@ -233,7 +236,7 @@ export default function FinalCertificationGate() {
           risk: certificationRisk(candidateCertification),
         };
 
-        if (candidateCertification.status === 'passed') {
+        if (hasCompletedSecuringSequence(candidateCertification)) {
           applyDirectCandidate(evaluated);
           cache.current = { signature: evaluated.certification.targetSignature, certification: evaluated.certification };
           setTarget(evaluated.target);
@@ -254,7 +257,7 @@ export default function FinalCertificationGate() {
         setCertification(bestFailed.certification);
         setUsage(bestFailed.certification.securing);
         setRunning(false);
-        setError(`기본 적재안이 관성 3종을 통과하지 못해 안전성이 높은 상위 재배치 ${attempted}개를 추가 비교했습니다. PASS에는 도달하지 못해 가장 안전한 후보를 적용했습니다. 적재량·박스 적층조건 또는 보조자재 조건을 조정한 뒤 다시 검증하세요.`);
+        setError(`기본 적재안이 관성 3종을 통과하지 못해 안전성이 높은 상위 재배치 ${attempted}개를 추가 비교했습니다. PASS에는 도달하지 못해 비교 범위에서 위험 지표가 낮은 후보를 적용했습니다. 최종 결과는 잠겨 있습니다. 적재량·박스 적층조건을 수정한 뒤 무포장 검증부터 다시 실행하세요.`);
         return;
       }
 
@@ -282,7 +285,7 @@ export default function FinalCertificationGate() {
         return;
       }
       const signature = createPhysicsTargetSignature(nextTarget);
-      if (cache.current?.signature === signature && cache.current.certification.status === 'passed') {
+      if (cache.current?.signature === signature && hasCompletedSecuringSequence(cache.current.certification)) {
         openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: cache.current.certification });
         return;
       }
@@ -295,10 +298,12 @@ export default function FinalCertificationGate() {
   useEffect(() => () => { runId.current += 1; }, []);
 
   if (!open) return null;
-  const currentUsage = usage ?? (target ? buildSecuringUsage(target, 1) : null);
+  const currentUsage = usage ?? (target ? buildSecuringUsage(target, 0) : null);
   const scenarioLabel = progress ? SCENARIO_LABEL[progress.scenario] : '-';
   const progressPercent = progress ? Math.round(progress.physicsProgress * 100) : 0;
   const palletMode = target?.mode === 'pallets';
+  const finishing = (currentUsage?.level ?? 0) > 0;
+  const baselinePassed = finishing || hasUnsecuredTransportPass(certification ?? undefined);
 
   return <div className="final-cert-backdrop">
     <section className="final-cert-modal" role="dialog" aria-modal="true" aria-labelledby="final-cert-title">
@@ -306,21 +311,21 @@ export default function FinalCertificationGate() {
         <div>
           <span>FINAL SAFETY GATE · RAPIER 3D · {palletMode ? 'PALLET' : 'DIRECT BOX'}</span>
           <h2 id="final-cert-title">최종 적재 결과 전 관성 검증</h2>
-          <p>출발 가속 · 급정거 · 급회전을 모두 검증합니다. 기본 적재안이 실패하면 DIRECT BOX는 정적 안전점수가 높은 상위 {MAX_DIRECT_REPOSITION_CANDIDATES}개 재배치만 추가 비교해 브라우저가 장시간 멈추는 것을 방지합니다.</p>
+          <p>무포장 상태에서 출발·제동·회전 3종을 먼저 통과해야 합니다. 통과한 적재안에 마무리 포장을 적용한 뒤 3종을 다시 검증합니다. 무포장 실패 시 포장을 추가하지 않고 배치를 수정합니다.</p>
         </div>
         <button type="button" onClick={() => { runId.current += 1; setRunning(false); setOpen(false); }}>{running ? '계산 취소' : '닫기'}</button>
       </header>
 
-      <div className="final-cert-flow">
-        <div className={progress?.scenarioIndex === 1 ? 'active' : certification?.testedScenarios ? 'done' : ''}><b>1</b><span>출발 가속</span></div>
+      <div className="final-cert-flow" aria-label="무포장 선검증 및 마무리 검증 단계">
+        <div className={running && !finishing ? 'active' : baselinePassed ? 'done' : ''}><b>1</b><span>무포장 3종 검증</span></div>
         <i />
-        <div className={progress?.scenarioIndex === 2 ? 'active' : (certification?.testedScenarios ?? 0) >= 2 ? 'done' : ''}><b>2</b><span>급정거</span></div>
+        <div className={baselinePassed ? 'done' : ''}><b>2</b><span>무포장 통과 확인</span></div>
         <i />
-        <div className={progress?.scenarioIndex === 3 ? 'active' : certification?.passedScenarios === 3 ? 'done' : ''}><b>3</b><span>급회전</span></div>
+        <div className={finishing && running ? 'active' : hasCompletedSecuringSequence(certification ?? undefined) ? 'done' : ''}><b>3</b><span>마무리 포장·재검증</span></div>
         <i />
-        <div className={certification?.status === 'passed' ? 'done' : ''}><b>✓</b><span>결과 공개</span></div>
+        <div className={hasCompletedSecuringSequence(certification ?? undefined) ? 'done' : ''}><b>✓</b><span>최종 결과</span></div>
       </div>
-
+      <p className="final-cert-phase-note">{finishing ? (running ? '무포장 3종 통과 후 마무리 포장 상태를 검증하고 있습니다.' : '무포장 검증은 통과했습니다. 마무리 포장 후 검증 결과를 확인하고 실패한 조건을 수정하세요.') : '밴딩·랩핑·미끄럼방지재 없이 적재안 자체를 검증합니다. 팔레트는 지지대로 유지합니다.'}</p>
       {running && <div className="final-cert-running">
         <div className="physics-spinner" />
         <div>
@@ -341,7 +346,7 @@ export default function FinalCertificationGate() {
       </div>}
 
       {currentUsage && <article className="final-cert-materials">
-        <div className="final-cert-material-head"><div><b>자동 적용 적재 보조재</b><span>{currentUsage.levelLabel}</span></div><strong>박스 제외 약 {currentUsage.estimatedNonCargoWeightKg.toFixed(1)} kg</strong></div>
+        <div className="final-cert-material-head"><div><b>{finishing ? '무포장 통과 후 마무리 포장' : '무포장 검증 · 마무리 포장 미적용'}</b><span>{currentUsage.levelLabel}</span></div><strong>박스 제외 약 {currentUsage.estimatedNonCargoWeightKg.toFixed(1)} kg</strong></div>
         <div className="final-cert-material-grid">
           {palletMode && currentUsage.palletCount > 0 && <div><span>팔레트</span><b>{currentUsage.palletCount} EA</b><small>{currentUsage.palletWeightKg.toFixed(1)} kg</small></div>}
           {palletMode && currentUsage.bandingStraps > 0 && <div><span>밴딩</span><b>{currentUsage.bandingStraps} 줄</b><small>{currentUsage.bandingLengthM.toFixed(1)} m</small></div>}

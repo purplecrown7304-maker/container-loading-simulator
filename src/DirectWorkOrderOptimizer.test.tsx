@@ -47,6 +47,53 @@ const request = () => act(async () => { requestDirectWorkOrder(target.container,
 const click = (label: string) => act(async () => { [...host.querySelectorAll('button')].find(button => button.textContent === label)!.click(); });
 
 describe('work-order optimizer recovery', () => {
+  it('shows automatic baseline failure while additional search is still running and lets the operator stop it', async () => {
+    await act(async () => { requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false }); });
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(host.textContent).toContain('추가 배치 계산 0/7회');
+    expect(host.textContent).toContain('마무리 포장 대기');
+    expect(host.querySelector('progress')?.value).toBeLessThan(100);
+    expect(openLoadingReport).not.toHaveBeenCalled();
+    await click('비교 중단하고 현재 검증 결과로 발급');
+    expect(searchSignal?.aborted).toBe(true);
+    expect(openLoadingReport).toHaveBeenCalledOnce();
+    expect((window as any).__containerLoadingLatestCertification.status).toBe('failed');
+    expect((window as any).__containerLoadingLatestCertification.searchNotice).toContain('비교를 중단');
+  });
+  it('keeps automatic raw-load failure visible without opening a report', async () => {
+    vi.mocked(buildDirectResultReoptimizationCandidatesAsync).mockResolvedValue({ candidates: [], timedOut: false });
+    await act(async () => { requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false }); });
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(host.textContent).toContain('마무리 포장 대기');
+    expect(host.textContent).toContain('배치·적층·적재량');
+    expect(host.textContent).toContain('참고 작업지시서 열기');
+    expect(openLoadingReport).not.toHaveBeenCalled();
+    expect((window as any).__containerLoadingLatestCertification.status).toBe('failed');
+    vi.mocked(openLoadingReport).mockReturnValue(true);
+    await click('참고 작업지시서 열기');
+    expect(openLoadingReport).toHaveBeenCalledOnce();
+    expect(runInertiaCertification).toHaveBeenCalledOnce();
+  });
+
+  it('closes automatic validation only after both phases pass without opening a report', async () => {
+    certification.status = 'passed';
+    certification.securing = buildSecuringUsage(target, 1);
+    certification.passedScenarios = 3;
+    certification.failedScenarios = [];
+    certification.maxHorizontalShiftM = 0;
+    certification.maxTiltDeg = 0;
+    for (const scenario of ['acceleration', 'braking', 'cornering'] as const) {
+      certification.results[scenario] = { scenario, fps: 0, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: 0, maxTiltDeg: 0 };
+    }
+    certification.attempts = ([0, 1] as const).map(level => ({
+      level, phase: level === 0 ? 'unsecured' : 'secured', levelLabel: '합성 검증', payloadWithinLimit: true, passed: true,
+      scenarios: (['acceleration', 'braking', 'cornering'] as const).map(scenario => ({ scenario, passed: true, maxHorizontalShiftM: 0, maxTiltDeg: 0 })),
+    }));
+    await act(async () => { requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false }); });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(openLoadingReport).not.toHaveBeenCalled();
+    expect((window as any).__containerLoadingLatestCertification.status).toBe('passed');
+  });
   it('shows the additional search separately, cancels its worker, and retries a blocked popup without recalculation', async () => {
     await request();
     expect(host.textContent).toContain('추가 배치 계산 0/7회');
@@ -61,7 +108,7 @@ describe('work-order optimizer recovery', () => {
     expect(published.status).toBe('failed');
     expect(published.searchNotice).toContain('비교를 중단');
     vi.mocked(openLoadingReport).mockReturnValue(true);
-    await click('작업지시서 열기');
+    await click('참고 작업지시서 열기');
     expect(openLoadingReport).toHaveBeenCalledTimes(2);
     expect(runInertiaCertification).toHaveBeenCalledOnce();
     expect(host.querySelector('[role="dialog"]')).toBeNull();

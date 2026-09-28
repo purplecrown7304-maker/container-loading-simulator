@@ -115,22 +115,35 @@ function recalcPackaging(load: PalletLoad, pallet: PalletSpec) {
   load.totalWeightKg = load.cargoWeightKg + pallet.tareWeightKg + load.packagingWeightKg;
 }
 
+function packagingFor(load: Pick<PalletLoad, 'cargoPlacements' | 'z'>, pallet: PalletSpec, candidate?: Placement) {
+  const placements = candidate ? [...load.cargoPlacements, candidate] : load.cargoPlacements;
+  const top = Math.max(load.z + pallet.height, ...placements.map(p => p.z + p.height));
+  const tall = top - load.z - pallet.height >= Math.min(pallet.length, pallet.width) * .9;
+  const fragmented = placements.length >= 8 || new Set(placements.map(p => p.cargoId)).size > 1;
+  const cornerGuardsUsed = pallet.useCornerGuards
+    && (!pallet.minimizePackaging || (pallet.maxStackLevels > 1 && placements.length > 0));
+  const wrappingUsed = pallet.useWrapping && (!pallet.minimizePackaging || tall || fragmented);
+  return {
+    cornerGuardsUsed, wrappingUsed,
+    packagingWeightKg: (cornerGuardsUsed ? pallet.cornerGuardWeightKg : 0) + (wrappingUsed ? pallet.wrappingWeightKg : 0),
+    packagingExtraHeightM: (cornerGuardsUsed ? pallet.cornerGuardExtraHeightM : 0) + (wrappingUsed ? pallet.wrappingExtraHeightM : 0),
+    top,
+  };
+}
+
 function applyMinimumPackaging(loads: PalletLoad[], pallet: PalletSpec) {
   for (const load of loads) {
-    if (!pallet.minimizePackaging) {
-      load.cornerGuardsUsed = pallet.useCornerGuards;
-      load.wrappingUsed = pallet.useWrapping;
-      recalcPackaging(load, pallet);
-      continue;
-    }
-    const uniqueCargo = new Set(load.cargoPlacements.map((p) => p.cargoId)).size;
-    const cargoHeight = Math.max(0, cargoTop(load) - load.z - pallet.height);
-    const tallLoad = cargoHeight >= Math.min(pallet.length, pallet.width) * 0.9;
-    const fragmentedLoad = uniqueCargo > 1 || load.cargoPlacements.length >= 8;
-    load.cornerGuardsUsed = pallet.useCornerGuards && pallet.maxStackLevels > 1 && load.cargoPlacements.length > 0;
-    load.wrappingUsed = pallet.useWrapping && (tallLoad || fragmentedLoad);
+    const packaging = packagingFor(load, pallet);
+    load.cornerGuardsUsed = packaging.cornerGuardsUsed;
+    load.wrappingUsed = packaging.wrappingUsed;
     recalcPackaging(load, pallet);
   }
+}
+
+function addPlacement(load: PalletLoad, placement: Placement, pallet: PalletSpec) {
+  load.cargoPlacements.push(placement);
+  load.cargoWeightKg += placement.weightKg;
+  applyMinimumPackaging([load], pallet);
 }
 
 function palletCog(load: PalletLoad, pallet: PalletSpec) {
@@ -162,12 +175,10 @@ function slotFor(
   pallet: PalletSpec,
   container: ContainerSpec,
   cargoMap: Map<string, CargoItem>,
+  availableWeightKg = Infinity,
 ): Placement | null {
   if (load.cargoWeightKg + item.weightKg > pallet.maxLoadKg + EPS) return null;
-  const reserveHeight =
-    (pallet.useCornerGuards ? pallet.cornerGuardExtraHeightM : 0)
-    + (pallet.useWrapping ? pallet.wrappingExtraHeightM : 0);
-  const availableHeight = container.height - pallet.height - reserveHeight;
+  const availableHeight = container.height - load.z - pallet.height;
   const maxLayers = Math.max(0, Math.min(item.maxStackLayers ?? Infinity, fitCount(availableHeight, item.height)));
   if (maxLayers < 1) return null;
 
@@ -190,29 +201,59 @@ function slotFor(
   // Mixed-height cartons must sit on real surfaces, not multiples of their own height.
   // Support and cumulative layer/top-load checks below remain mandatory at every surface.
   const surfaces = [...new Set([baseSurface.z, ...load.cargoPlacements.map(placement => placement.z + placement.height)])]
-    .filter(z => z + item.height + reserveHeight <= container.height + EPS)
+    .filter(z => z + item.height <= container.height + EPS)
     .sort((a, b) => a - b);
 
+  const accepts = (candidate: Placement) => {
+    const packaging = packagingFor(load, pallet, candidate);
+    if (item.weightKg + packaging.packagingWeightKg - load.packagingWeightKg > availableWeightKg + EPS) return false;
+    // Grid slots are bounded implicitly; surface-aligned fallbacks need the same
+    // explicit pallet footprint check before the unchanged physical constraints.
+    if (candidate.x < load.x - EPS || candidate.y < load.y - EPS
+      || candidate.x + candidate.length > load.x + pallet.length + EPS
+      || candidate.y + candidate.width > load.y + pallet.width + EPS
+      || packaging.top + packaging.packagingExtraHeightM > container.height + EPS) return false;
+    const collides = load.cargoPlacements.some((p) => candidate.x < p.x + p.length - EPS && candidate.x + candidate.length > p.x + EPS && candidate.y < p.y + p.width - EPS && candidate.y + candidate.width > p.y + EPS && candidate.z < p.z + p.height - EPS && candidate.z + candidate.height > p.z + EPS);
+    return !collides
+      && hasAdequateSupport(candidate, load.cargoPlacements, baseSurface)
+      && canPlaceByStackingRules(item, candidate, load.cargoPlacements, cargoMap);
+  };
+  const candidateAt = (option: typeof options[number], x: number, y: number, z: number): Placement => ({
+    cargoId: item.id, x, y, z, length: option.length, width: option.width,
+    height: item.height, weightKg: item.weightKg, rotated: option.rotated,
+  });
+
+  // Preserve every existing grid choice before introducing additional positions.
   for (const option of options) {
     for (const z of surfaces) {
       for (let row = 0; row < option.colsX; row += 1) {
         for (let col = 0; col < option.colsY; col += 1) {
-          const candidate: Placement = {
-            cargoId: item.id,
-            x: load.x + option.offsetX + row * option.length,
-            y: load.y + option.offsetY + col * option.width,
-            z,
-            length: option.length,
-            width: option.width,
-            height: item.height,
-            weightKg: item.weightKg,
-            rotated: option.rotated,
-          };
-          const collides = load.cargoPlacements.some((p) => candidate.x < p.x + p.length - EPS && candidate.x + candidate.length > p.x + EPS && candidate.y < p.y + p.width - EPS && candidate.y + candidate.width > p.y + EPS && candidate.z < p.z + p.height - EPS && candidate.z + candidate.height > p.z + EPS);
-          if (collides || candidate.z + candidate.height > container.height + EPS) continue;
-          if (!hasAdequateSupport(candidate, load.cargoPlacements, baseSurface)) continue;
-          if (!canPlaceByStackingRules(item, candidate, load.cargoPlacements, cargoMap)) continue;
-          return candidate;
+          const candidate = candidateAt(option,
+            load.x + option.offsetX + row * option.length,
+            load.y + option.offsetY + col * option.width, z);
+          if (accepts(candidate)) return candidate;
+        }
+      }
+    }
+  }
+
+  // A smaller SKU's centered pallet grid can miss a fully supported position on
+  // a larger carton. Try positions aligned to real upper faces only as fallback.
+  for (const option of options) {
+    for (const z of surfaces) {
+      const seen = new Set<string>();
+      for (const lower of load.cargoPlacements) {
+        if (Math.abs(lower.z + lower.height - z) > EPS) continue;
+        const xs = [lower.x + (lower.length - option.length) / 2, lower.x, lower.x + lower.length - option.length];
+        const ys = [lower.y + (lower.width - option.width) / 2, lower.y, lower.y + lower.width - option.width];
+        for (const x of xs) {
+          for (const y of ys) {
+            const key = x.toFixed(9) + ':' + y.toFixed(9);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const candidate = candidateAt(option, x, y, z);
+            if (accepts(candidate)) return candidate;
+          }
         }
       }
     }
@@ -250,14 +291,16 @@ function tryConsolidate(pallets: PalletLoad[], cargoMap: Map<string, CargoItem>,
         if (strategy === 'unloading' && stopOf(target, cargoMap) !== (item.unloadPriority ?? 0)) continue;
         const candidate = slotFor(target, item, pallet, container, cargoMap);
         if (!candidate) continue;
-        target.cargoPlacements.push(candidate);
-        target.cargoWeightKg += item.weightKg;
+        addPlacement(target, candidate, pallet);
         moved = true;
         break;
       }
       if (!moved) { success = false; break; }
     }
-    if (success) {
+    // Removing a base can still increase wrapping costs on multiple targets.
+    const projectedWeight = targets.reduce((sum, load) => sum + load.totalWeightKg, 0)
+      + pallets.slice(sourceIndex + 1).reduce((sum, load) => sum + load.totalWeightKg, 0);
+    if (success && projectedWeight <= container.maxPayloadKg + EPS) {
       for (let i = 0; i < targets.length; i += 1) pallets[i] = targets[i];
       pallets.splice(sourceIndex, 1);
       removed += 1;
@@ -404,9 +447,6 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
   const remaining = new Map(active.map((item) => [item.id, item.quantity]));
   const pallets: PalletLoad[] = [];
   let totalPalletizedWeight = 0;
-  const packagingReserveWeight =
-    (pallet.useCornerGuards ? pallet.cornerGuardWeightKg : 0) +
-    (pallet.useWrapping ? pallet.wrappingWeightKg : 0);
 
   const makeLoad = (): PalletLoad => ({
     palletIndex: pallets.length + 1,
@@ -424,24 +464,21 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
         // Fill compatible residual space before paying for another pallet base.
         // Unloading keeps each pallet within one stop so it can be removed intact.
         if (strategy === 'unloading' && stopOf(load, cargoMap) !== (item.unloadPriority ?? 0)) return false;
-        if (!slotFor(load, item, pallet, container, cargoMap)) return false;
-        return totalPalletizedWeight + item.weightKg <= container.maxPayloadKg + EPS;
+        return Boolean(slotFor(load, item, pallet, container, cargoMap, container.maxPayloadKg - totalPalletizedWeight));
       });
       if (!target) {
         const empty = makeLoad();
-        const candidate = slotFor(empty, item, pallet, container, cargoMap);
+        const candidate = slotFor(empty, item, pallet, container, cargoMap, container.maxPayloadKg - totalPalletizedWeight - pallet.tareWeightKg);
         if (!candidate) break;
-        if (totalPalletizedWeight + pallet.tareWeightKg + packagingReserveWeight + item.weightKg > container.maxPayloadKg + EPS) break;
         pallets.push(empty);
-        totalPalletizedWeight += pallet.tareWeightKg + packagingReserveWeight;
+        totalPalletizedWeight += pallet.tareWeightKg;
         target = empty;
       }
-      const placement = slotFor(target, item, pallet, container, cargoMap);
+      const placement = slotFor(target, item, pallet, container, cargoMap, container.maxPayloadKg - totalPalletizedWeight);
       if (!placement) break;
-      target.cargoPlacements.push(placement);
-      target.cargoWeightKg += item.weightKg;
-      target.totalWeightKg += item.weightKg;
-      totalPalletizedWeight += item.weightKg;
+      const previousWeight = target.totalWeightKg;
+      addPlacement(target, placement, pallet);
+      totalPalletizedWeight += target.totalWeightKg - previousWeight;
       left -= 1;
       remaining.set(item.id, left);
     }
@@ -449,27 +486,27 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
 
   const consolidated = tryConsolidate(pallets, cargoMap, pallet, container, strategy);
 
-  let mixedReservedWeight = pallets.reduce(
-    (sum, load) => sum + load.cargoWeightKg + pallet.tareWeightKg + packagingReserveWeight,
+  let mixedWeight = pallets.reduce(
+    (sum, load) => sum + load.totalWeightKg,
     0,
   );
   for (const item of active) {
     let left = remaining.get(item.id) ?? 0;
-    while (left > 0 && mixedReservedWeight + item.weightKg <= container.maxPayloadKg + EPS) {
+    while (left > 0 && mixedWeight + item.weightKg <= container.maxPayloadKg + EPS) {
       let target: PalletLoad | undefined;
       let placement: Placement | null = null;
       for (let index = pallets.length - 1; index >= 0; index -= 1) {
         if (strategy === 'unloading' && stopOf(pallets[index], cargoMap) !== (item.unloadPriority ?? 0)) continue;
-        const candidate = slotFor(pallets[index], item, pallet, container, cargoMap);
+        const candidate = slotFor(pallets[index], item, pallet, container, cargoMap, container.maxPayloadKg - mixedWeight);
         if (!candidate) continue;
         target = pallets[index];
         placement = candidate;
         break;
       }
       if (!target || !placement) break;
-      target.cargoPlacements.push(placement);
-      target.cargoWeightKg += item.weightKg;
-      mixedReservedWeight += item.weightKg;
+      const previousWeight = target.totalWeightKg;
+      addPlacement(target, placement, pallet);
+      mixedWeight += target.totalWeightKg - previousWeight;
       left -= 1;
       remaining.set(item.id, left);
     }
@@ -503,12 +540,24 @@ export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pall
     .map(([cargoId, quantity]) => {
       const item = cargoMap.get(cargoId)!;
       const footprintFits = orientations(item).some(o => o.length <= pallet.length + EPS && o.width <= pallet.width + EPS);
+      const singlePackaging = packagingFor({ z: 0, cargoPlacements: [] }, pallet, {
+        cargoId: item.id, x: 0, y: 0, z: pallet.height, length: item.length,
+        width: item.width, height: item.height, weightKg: item.weightKg,
+      });
+      // Even an otherwise empty container needs this base and its actual packaging.
+      const minimumSingleWeight = item.weightKg + pallet.tareWeightKg + singlePackaging.packagingWeightKg;
+      const packagingPayloadBlocked = placedPallets.some(load => {
+        if (strategy === 'unloading' && stopOf(load, cargoMap) !== (item.unloadPriority ?? 0)) return false;
+        // A physically valid slot that fails only the actual added-weight budget.
+        return Boolean(slotFor(load, item, pallet, container, cargoMap))
+          && !slotFor(load, item, pallet, container, cargoMap, container.maxPayloadKg - totalPalletizedWeightKg);
+      });
       const reason = pallet.length > container.length + EPS || pallet.width > container.width + EPS
         ? '파렛트 규격이 컨테이너 바닥 크기에 맞지 않음'
         : !footprintFits || item.height + pallet.height > container.height + EPS
           ? '박스 크기가 파렛트 바닥 또는 컨테이너 유효 높이에 맞지 않음 · 허용 회전 검사 완료'
           : item.weightKg > pallet.maxLoadKg + EPS ? '박스 1개 중량이 파렛트 허용 적재중량을 초과함'
-          : totalPalletizedWeightKg + item.weightKg > container.maxPayloadKg + EPS ? '컨테이너 최대 적재 중량 초과 · 파렛트와 포장재 중량 포함'
+          : (packagingPayloadBlocked || Math.max(totalPalletizedWeightKg + item.weightKg, minimumSingleWeight) > container.maxPayloadKg + EPS) ? '컨테이너 최대 적재 중량 초과 · 파렛트와 포장재 중량 포함'
           : '사용 가능한 파렛트 공간에서 지지·적층단·누적 상부하중·포장 여유를 만족하는 추가 위치 없음';
       return { cargoId, quantity, reason };
     });

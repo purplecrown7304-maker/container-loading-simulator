@@ -57,11 +57,33 @@ function certification(signature: string, mode: PhysicsTarget['mode'] = 'pallets
     status: 'passed', mode, targetSignature: signature, testedAt: '2026-08-27T00:00:00.000Z',
     securing, testedScenarios: 3, passedScenarios: 3, failedScenarios: [],
     maxHorizontalShiftM: 0.001, maxTiltDeg: 0.1, maxCargoRelativeSlipM: 0.001,
-    maxSupportShiftM: 0.001, results: {}, payloadWithinLimit: true,
+    maxSupportShiftM: 0.001, payloadWithinLimit: true,
+    results: Object.fromEntries((['acceleration', 'braking', 'cornering'] as const).map(scenario => [scenario, {
+      scenario, fps: 30, simulatedSeconds: 4, cargoCount: 1, supportCount: mode === 'pallets' ? 1 : 0, frames: [],
+      maxHorizontalShiftM: .001, maxTiltDeg: .1, maxCargoRelativeSlipM: .001, maxSupportShiftM: .001,
+    }])),
+    attempts: ([0, 1] as const).map(level => ({
+      level, phase: level === 0 ? 'unsecured' : 'secured', levelLabel: 'test',
+      payloadWithinLimit: true, passed: true,
+      scenarios: (['acceleration', 'braking', 'cornering'] as const).map(scenario => ({
+        scenario, passed: true, maxHorizontalShiftM: .001, maxTiltDeg: .1,
+        maxCargoRelativeSlipM: .001, maxSupportShiftM: .001,
+      })),
+    })),
   };
 }
 
 describe('certified direct output identity', () => {
+  it('rejects a legacy PASS without unsecured and finished evidence', () => {
+    const target: PhysicsTarget = { mode: 'boxes', container, cargo, result: boxResult() };
+    const legacy = { ...certification(createPhysicsTargetSignature(target), 'boxes'), attempts: undefined };
+    expect(boxResultMatchesCertification(target, target, legacy)).toBe(false);
+    const snapshot: CertifiedPalletSnapshot = { spec: defaultPalletSpec, result: result() };
+    const palletTarget = physicsTargetFromPalletSnapshot(container, cargo, snapshot);
+    expect(palletSnapshotMatchesCertification(snapshot, palletTarget, {
+      ...certification(createPhysicsTargetSignature(palletTarget)), attempts: undefined,
+    })).toBe(false);
+  });
   it('matches a warning work order without treating it as PASS or accepting stale coordinates', () => {
     const target: PhysicsTarget = { mode: 'boxes', container, cargo, result: boxResult() };
     const warning: InertiaCertification = { ...certification(createPhysicsTargetSignature(target), 'boxes'), status: 'failed' };

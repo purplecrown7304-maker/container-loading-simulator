@@ -5,6 +5,9 @@ import {
   INERTIA_PASS_SUPPORT_SHIFT_M,
   INERTIA_PASS_TILT_DEG,
   isInertiaStable,
+  createPhysicsTargetSignature,
+  hasUnsecuredTransportPass,
+  hasCompletedSecuringSequence,
   securingProfileForUsage,
   type CertificationProgress,
   type InertiaAttemptScenario,
@@ -41,7 +44,9 @@ export function assessWorkOrderCertification(certification: InertiaCertification
   const tested = SCENARIOS.flatMap(scenario => certification.results[scenario] ? [certification.results[scenario]!] : []);
   if (tested.some(result => isInertiaResultDangerous(result, certification.mode))) return 'danger';
   if (tested.length !== SCENARIOS.length) return 'incomplete';
-  return certification.status === 'passed' ? 'pass' : 'caution';
+  if (hasCompletedSecuringSequence(certification)) return 'pass';
+  if (!hasUnsecuredTransportPass(certification)) return 'incomplete';
+  return 'caution';
 }
 
 /**
@@ -56,7 +61,7 @@ export function canCreateWorkOrder(_certification: InertiaCertification) {
 export function workOrderApprovalLabel(certification: InertiaCertification) {
   const level = assessWorkOrderCertification(certification);
   if (level === 'pass') return 'PASS';
-  if (level === 'caution') return '주의 승인';
+  if (level === 'caution') return '주의 · 완료 아님';
   if (level === 'danger') return '위험';
   return '검증 미완료';
 }
@@ -71,6 +76,13 @@ export function buildWorkOrderRecommendations(certification: InertiaCertificatio
   const items: string[] = [];
   if (certification.searchNotice) items.push(certification.searchNotice);
   const level = assessWorkOrderCertification(certification);
+
+  if (!hasUnsecuredTransportPass(certification)) {
+    if (level === 'danger') items.push('무포장 운송 검사에서 위험 기준을 초과했습니다.');
+    items.push('무포장 운송 3종 PASS가 없으므로 마무리 포장은 시작하지 않습니다. 미검증 항목을 완료하고 적층 높이·배치·적재량을 조정한 뒤 다시 검사하세요.');
+    items.push('이 작업지시서는 재배치 검토용이며 적재 완료 또는 출고 승인 자료가 아닙니다.');
+    return [...new Set(items)];
+  }
 
   if (level === 'danger') {
     items.push('관성 결과가 위험 기준을 초과했습니다. 작업지시서는 현장 참고용으로 발급되며 출고 전 재배치·고정 보강과 책임자 확인이 필요합니다.');
@@ -131,7 +143,8 @@ export async function completeCertificationForWorkOrder(
   onScenarioResult?: (result: InertiaAnimationResult, level: SecuringLevel) => void,
   shouldCancel?: () => boolean,
 ): Promise<InertiaCertification> {
-  if (!certification.payloadWithinLimit || certification.status === 'passed') return certification;
+  if (certification.targetSignature !== createPhysicsTargetSignature(target) || !hasUnsecuredTransportPass(certification)) return { ...certification, status: 'failed' };
+  if (!certification.payloadWithinLimit || hasCompletedSecuringSequence(certification)) return certification;
 
   const level = certification.securing.level;
   const profile = securingProfileForUsage(target.mode, certification.securing);
@@ -166,7 +179,7 @@ export async function completeCertificationForWorkOrder(
     const result = results[scenario];
     return !result || !isInertiaStable(result, target.mode);
   });
-  const strictPassed = certification.payloadWithinLimit
+  const strictPassed = level > 0 && hasUnsecuredTransportPass(certification) && certification.payloadWithinLimit
     && values.length === SCENARIOS.length
     && failedScenarios.length === 0;
   const scenarios = attemptScenarios(results, target.mode);
@@ -181,6 +194,7 @@ export async function completeCertificationForWorkOrder(
   } else {
     attempts.push({
       level,
+      phase: 'secured',
       levelLabel: certification.securing.levelLabel,
       payloadWithinLimit: certification.payloadWithinLimit,
       passed: strictPassed,

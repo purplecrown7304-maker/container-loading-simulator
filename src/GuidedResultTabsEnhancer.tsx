@@ -7,9 +7,11 @@ import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
 import { useGuidedLoadingUnit } from './guidedLoadingUnitState';
-import { readLatestInertiaCertification } from './inertiaCertification';
+import { hasCompletedSecuringSequence, readLatestInertiaCertification } from './inertiaCertification';
 import { usePalletSnapshot } from './palletSnapshotStore';
 import { readStoredState, STORAGE_UPDATED_EVENT } from './storage';
+import { boxResultMatchesCertification, palletSnapshotMatchesCertification } from './certifiedExport';
+import { readPhysicsTarget } from './physicsTarget';
 
 type ResultTab = 'result' | 'unloaded' | 'weight' | 'safety';
 type Detail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
@@ -115,10 +117,13 @@ export default function GuidedResultTabsEnhancer() {
     const balance = assessWeightBalance(detail.container, detail.result);
     const checks = analyzeConstraints(detail.container, detail.cargo, detail.result, floor);
     const latestCertification = readLatestInertiaCertification();
-    const expectedMode = loadingUnit === 'pallets' ? 'pallets' : 'boxes';
-    const certification = latestCertification?.mode === expectedMode ? latestCertification : undefined;
+    const target = readPhysicsTarget();
+    const matches = loadingUnit === 'pallets'
+      ? palletSnapshotMatchesCertification(palletSnapshot, target, latestCertification)
+      : boxResultMatchesCertification(detail, target, latestCertification);
+    const certification = matches ? latestCertification : undefined;
     return { floor, balance, checks, certification };
-  }, [detail, loadingUnit]);
+  }, [detail, loadingUnit, palletSnapshot]);
 
   if (!host) return null;
 
@@ -129,7 +134,7 @@ export default function GuidedResultTabsEnhancer() {
   const volume = detail ? detail.container.length * detail.container.width * detail.container.height : 0;
   const fillRate = result && volume > 0 ? result.usedVolumeM3 / volume * 100 : 0;
   const weightRate = result && detail && detail.container.maxPayloadKg > 0 ? result.loadedWeightKg / detail.container.maxPayloadKg * 100 : 0;
-  const certificationLabel = analyses?.certification?.status === 'passed' ? '관성 통과' : result ? '결과 확인' : '대기';
+  const certificationLabel = hasCompletedSecuringSequence(analyses?.certification) ? '관성 통과' : result ? '결과 확인' : '대기';
 
   return createPortal(
     <>
@@ -151,7 +156,7 @@ export default function GuidedResultTabsEnhancer() {
           <div className={remaining ? 'warn' : 'good'}><span>미적재</span><b>{remaining.toLocaleString()} EA</b></div>
           <div><span>CBM 사용률</span><b>{fillRate.toFixed(1)}%</b></div>
           <div><span>중량 사용률</span><b>{weightRate.toFixed(1)}%</b></div>
-          <div className={analyses?.certification?.status === 'passed' ? 'good' : ''}><span>작업 판정</span><b>{certificationLabel}</b></div>
+          <div className={hasCompletedSecuringSequence(analyses?.certification) ? 'good' : ''}><span>작업 판정</span><b>{certificationLabel}</b></div>
         </div> : <div className="guided-result-empty">표시할 최종 적재 결과가 없습니다.</div>}
       </section>}
 
@@ -184,10 +189,10 @@ export default function GuidedResultTabsEnhancer() {
             <span><b>{check.label}</b><small>{check.detail}</small></span>
             <strong>{check.status === 'pass' ? '통과' : check.status === 'warn' ? '확인' : '실패'}</strong>
           </article>)}
-          <article className={analyses.certification?.status === 'passed' ? 'pass' : 'warn'}>
-            <span className="guided-safety-icon">{analyses.certification?.status === 'passed' ? '✓' : '!'}</span>
-            <span><b>관성 3종 검사</b><small>{analyses.certification ? `검사 ${analyses.certification.testedScenarios}/3 · 최대 이동 ${(analyses.certification.maxHorizontalShiftM * 1000).toFixed(1)} mm` : '현재 적재 유형의 관성 검사 결과를 확인하세요.'}</small></span>
-            <strong>{analyses.certification?.status === 'passed' ? '통과' : '확인'}</strong>
+          <article className={hasCompletedSecuringSequence(analyses.certification) ? 'pass' : 'warn'}>
+            <span className="guided-safety-icon">{hasCompletedSecuringSequence(analyses.certification) ? '✓' : '!'}</span>
+            <span><b>무포장·마무리 포장 관성 검사</b><small>{analyses.certification ? `검사 ${analyses.certification.testedScenarios}/3 · 최대 이동 ${(analyses.certification.maxHorizontalShiftM * 1000).toFixed(1)} mm` : '현재 적재 유형의 관성 검사 결과를 확인하세요.'}</small></span>
+            <strong>{hasCompletedSecuringSequence(analyses.certification) ? '통과' : '확인'}</strong>
           </article>
         </div> : <div className="guided-result-empty">안전 검사를 표시할 적재 결과가 없습니다.</div>}
       </section>}

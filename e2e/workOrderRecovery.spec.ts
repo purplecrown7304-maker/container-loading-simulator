@@ -72,7 +72,7 @@ test('stalled optional re-layout completes and a blocked warning report opens wi
   await expect(modal.getByText(/추가 배치 계산 \d\/[1-7]회/)).toBeVisible();
   expect(await modal.locator('progress').evaluate((element: HTMLProgressElement) => element.value)).toBeLessThan(100);
   await expect(modal.getByRole('button', { name: '계산 취소' })).toBeVisible();
-  await expect(modal.getByRole('button', { name: '작업지시서 열기', exact: true })).toBeVisible({ timeout: 30_000 }).catch(async error => {
+  await expect(modal.getByRole('button', { name: '참고 작업지시서 열기', exact: true })).toBeVisible({ timeout: 30_000 }).catch(async error => {
     console.log('recovery diagnostic', await page.evaluate(() => ({ state: (window as any).__workOrderRecovery, current: (window as any).__containerLoadingPhysicsTarget?.container, finalPhysics: Boolean((window as any).__containerLoadingFinalPhysicsSignature) })));
     throw error;
   });
@@ -84,7 +84,7 @@ test('stalled optional re-layout completes and a blocked warning report opens wi
   expect(before.certification.status).toBe('failed');
   expect(before.certification.testedScenarios).toBe(3);
   const popupPromise = page.waitForEvent('popup');
-  await modal.getByRole('button', { name: '작업지시서 열기', exact: true }).click();
+  await modal.getByRole('button', { name: '참고 작업지시서 열기', exact: true }).click();
   const popup = await popupPromise;
   await expect(popup.getByRole('heading', { name: /통합 출하·적재 작업지시서/ })).toBeVisible();
   await expect(popup.locator('.recommendations')).toContainText('모든 후보를 탐색한 결과는 아닙니다');

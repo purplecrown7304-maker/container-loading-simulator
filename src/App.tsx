@@ -10,7 +10,7 @@ import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
 import { useGuidedLoadingUnit } from './guidedLoadingUnitState';
-import { shouldRenderGuidedViewer, useGuidedWorkflowState } from './guidedWorkflowState';
+import { shouldMountGuidedViewer, shouldRenderGuidedViewer, useGuidedWorkflowState } from './guidedWorkflowState';
 import { clearLatestInertiaCertification } from './inertiaCertification';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { openPalletLoadingReport } from './palletWorkerReport';
@@ -90,6 +90,7 @@ export default function App() {
   const addresses = useMemo(() => buildPlacementAddresses(result.placements, container.length), [result.placements, container.length]);
   const maxLayer = useMemo(() => addresses.reduce((max, item) => Math.max(max, item?.layer ?? 0), 0), [addresses]);
   const renderViewer = shouldRenderGuidedViewer(guidedWorkflowState);
+  const mountViewer = shouldMountGuidedViewer(guidedWorkflowState);
 
   const announce = (tone: StatusTone, text: string) => setStatusMessage({ tone, text });
   const invalidatePhysics = () => {
@@ -431,7 +432,7 @@ export default function App() {
       </aside>
 
       <section className="dashboard-center">
-        {renderViewer && <section className="dashboard-card viewer-card">
+        {mountViewer && <section className="dashboard-card viewer-card" hidden={!renderViewer} style={!renderViewer ? { display: 'none' } : undefined}>
           <div className="viewer-host">
             {isRunning && <div className="calculation-overlay" role="status" aria-live="polite">
               <div className="calculation-progress-ring" style={{ background: `conic-gradient(#2563eb ${optimizationProgress}%, #dbe3ee 0)` }}><span>{Math.round(optimizationProgress)}%</span></div>

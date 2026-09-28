@@ -1,10 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+const animate = vi.hoisted(() => vi.fn());
+vi.mock('./engine/inertiaSimulation', () => ({ runInertiaAnimation: animate }));
+import type { PhysicsTarget } from './physicsTarget';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
-import type { InertiaCertification, InertiaScenario } from './inertiaCertification';
+import { createPhysicsTargetSignature, type InertiaCertification, type InertiaScenario } from './inertiaCertification';
 import {
   assessWorkOrderCertification,
   buildWorkOrderRecommendations,
   canCreateWorkOrder,
+  completeCertificationForWorkOrder,
 } from './inertiaWorkOrderPolicy';
 
 const scenarios: InertiaScenario[] = ['acceleration', 'braking', 'cornering'];
@@ -62,6 +66,10 @@ function certification(
     maxSupportShiftM: values.reduce((max, item) => Math.max(max, item.maxSupportShiftM ?? 0), 0),
     results: scenarioResults,
     payloadWithinLimit: true,
+    attempts: [{
+      level: 0, phase: 'unsecured', levelLabel: 'baseline', payloadWithinLimit: true, passed: true,
+      scenarios: scenarios.map(scenario => ({ scenario, passed: true, maxHorizontalShiftM: .005, maxTiltDeg: .5, maxCargoRelativeSlipM: 0, maxSupportShiftM: 0 })),
+    }],
   };
 }
 
@@ -99,4 +107,45 @@ describe('work order inertia warning policy', () => {
     expect(canCreateWorkOrder(cert)).toBe(true);
     expect(buildWorkOrderRecommendations(cert).some(item => item.includes('미검증'))).toBe(true);
   });
+  it('does not promote a failed unsecured plan or run positive-level completion', async () => {
+    animate.mockClear();
+    const cert = certification('boxes', threeResults());
+    cert.status = 'passed'; // A stale/mislabelled status must not override failed evidence.
+    cert.attempts![0].passed = false;
+    cert.attempts![0].scenarios[0].passed = false;
+    cert.attempts![0].scenarios[0].maxHorizontalShiftM = .02;
+    const target: PhysicsTarget = {
+      mode: 'boxes', container: { length: 2, width: 2, height: 2, maxPayloadKg: 100 }, cargo: [],
+      result: { placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0, validationIssues: [] },
+    };
+    cert.targetSignature = createPhysicsTargetSignature(target);
+    const completed = await completeCertificationForWorkOrder(target, cert);
+    expect(completed.status).toBe('failed');
+    expect(animate).not.toHaveBeenCalled();
+    expect(completed.attempts).toEqual(cert.attempts);
+    expect(assessWorkOrderCertification(completed)).toBe('incomplete');
+    expect(buildWorkOrderRecommendations(completed).some(item => item.includes('재배치'))).toBe(true);
+  });
+  it('does not promote legacy certificates with no baseline evidence', async () => {
+    const cert = certification('boxes', threeResults()); delete cert.attempts;
+    const target: PhysicsTarget = {
+      mode: 'boxes', container: { length: 2, width: 2, height: 2, maxPayloadKg: 100 }, cargo: [],
+      result: { placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0, validationIssues: [] },
+    };
+    cert.targetSignature = createPhysicsTargetSignature(target);
+    expect((await completeCertificationForWorkOrder(target, cert)).status).toBe('failed');
+  });
+
+  it('rejects baseline evidence bound to another target', async () => {
+    animate.mockClear();
+    const cert = certification('boxes', threeResults());
+    const target: PhysicsTarget = {
+      mode: 'boxes', container: { length: 2, width: 2, height: 2, maxPayloadKg: 100 }, cargo: [],
+      result: { placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0, validationIssues: [] },
+    };
+    cert.targetSignature = createPhysicsTargetSignature({ ...target, container: { ...target.container, height: 3 } });
+    expect((await completeCertificationForWorkOrder(target, cert)).status).toBe('failed');
+    expect(animate).not.toHaveBeenCalled();
+  });
+
 });

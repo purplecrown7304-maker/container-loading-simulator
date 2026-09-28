@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('pallet workflow stacks cartons and keeps run instructions outside the canvas', async ({ page, context, baseURL }) => {
+test('pallet workflow preserves stacked cartons and blocks finishing after unsecured transport failure', async ({ page, context, baseURL }) => {
   test.setTimeout(180_000);
   // This isolated guest fixture never contacts account/data services.
   // Only the app origin and public 3D font assets are needed for the story.
@@ -30,6 +30,8 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
+  const confirmedCargo = await page.evaluate(() => JSON.parse(localStorage.getItem('container-loading-simulator-v1')!).cargo as Array<{ id: string; quantity: number }>);
+  expect(confirmedCargo.reduce((sum, item) => sum + item.quantity, 0)).toBe(20);
   await page.getByRole('radio', { name: /파렛트 적재/ }).click();
   await page.getByRole('radio', { name: /하역 순서 우선형/ }).click();
   await page.getByRole('spinbutton', { name: /하역 순서/ }).fill('3');
@@ -86,7 +88,30 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   await page.screenshot({ path: test.info().outputPath('pallet-canvas.png'), fullPage: true });
 
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
-  await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 60_000 });
-  await expect(page.locator('.guided-loading-run-confirmation')).toHaveCount(0);
+  // Same 20-carton / five-tier fixture. The new policy must reject its actual
+  // unsecured transport failure; no dimensions, thresholds or physics are relaxed.
+  const gate = page.getByRole('dialog', { name: '최종 적재 결과 전 관성 검증' });
+  await expect(gate.locator('.final-cert-error')).toContainText('최종 결과 잠금 유지', { timeout: 60_000 });
+  await expect(gate.locator('.final-cert-error')).toContainText('무포장 검증 실패');
+  await expect(gate.locator('.final-cert-material-head')).toContainText('무포장 검증 · 마무리 포장 미적용');
+  const certification = await page.evaluate(() => (window as any).__containerLoadingLatestCertification);
+  expect(certification.status).toBe('failed');
+  expect(certification.mode).toBe('pallets');
+  expect(certification.attempts).toHaveLength(1);
+  expect(certification.attempts[0]).toMatchObject({ phase: 'unsecured', level: 0, passed: false });
+  expect(certification.attempts[0].scenarios.map((item: any) => item.scenario)).toEqual(['acceleration', 'braking', 'cornering']);
+  expect(certification.attempts[0].scenarios.some((item: any) => item.passed === false)).toBe(true);
+  expect(certification.securing).toMatchObject({ level: 0, bandingStraps: 0, bandingLengthM: 0, cornerGuards: 0, cornerGuardLengthM: 0, wrappingLengthM: 0, antiSlipMats: 0, dunnageBlocks: 0, loadBars: 0, estimatedAddedWeightKg: 0 });
+  const finalPlan = await page.evaluate(() => (window as any).__containerLoadingPalletSnapshot.result);
+  expect(finalPlan.placements).toHaveLength(20);
+  expect(new Set(finalPlan.placements.map((item: any) => item.z)).size).toBe(5);
+  expect(finalPlan.palletCount).toBe(1);
+  for (const item of confirmedCargo) {
+    const loaded = finalPlan.placements.filter((placement: any) => placement.cargoId === item.id).length;
+    const remaining = finalPlan.remaining.filter((row: any) => row.cargoId === item.id).reduce((sum: number, row: any) => sum + row.quantity, 0);
+    expect(loaded + remaining).toBe(item.quantity);
+  }
+  await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toHaveCount(0);
+  await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   await expect(summary.locator('dl > div').filter({ hasText: '사용 파렛트' }).locator('dd')).toHaveText('1개');
 });

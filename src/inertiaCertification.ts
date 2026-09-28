@@ -37,6 +37,7 @@ export type InertiaAttemptScenario = {
 };
 
 export type InertiaReinforcementAttempt = {
+  phase?: 'unsecured' | 'secured';
   level: SecuringLevel;
   levelLabel: string;
   payloadWithinLimit: boolean;
@@ -73,6 +74,7 @@ export type CertificationRequestDetail = {
 };
 
 export type CertificationProgress = {
+  phase?: 'unsecured' | 'secured';
   level: SecuringLevel;
   levelLabel: string;
   scenario: InertiaScenario;
@@ -155,7 +157,7 @@ export function createPhysicsTargetSignature(target: PhysicsTarget) {
     .sort((a, b) => a.cargoId.localeCompare(b.cargoId) || a.quantity - b.quantity || a.reason.localeCompare(b.reason))
     .map(item => [item.cargoId, item.quantity, item.reason]);
   return JSON.stringify({
-    physicsModel: 'restraint-v4-certified-export',
+    physicsModel: 'restraint-v5-unsecured-before-finishing',
     mode: target.mode,
     container: target.container,
     cargo,
@@ -181,9 +183,13 @@ export function requestCertifiedResults(detail: CertificationRequestDetail) {
   window.dispatchEvent(new CustomEvent<CertificationRequestDetail>(REQUEST_CERTIFIED_RESULTS_EVENT, { detail }));
 }
 
-export function isInertiaStable(result: InertiaAnimationResult, mode: PhysicsTarget['mode'] = 'boxes') {
+export function isInertiaStable(result: Pick<InertiaAnimationResult, 'maxHorizontalShiftM' | 'maxTiltDeg' | 'maxCargoRelativeSlipM' | 'maxSupportShiftM'>, mode: PhysicsTarget['mode'] = 'boxes') {
+  if (!Number.isFinite(result.maxHorizontalShiftM) || !Number.isFinite(result.maxTiltDeg)
+    || result.maxHorizontalShiftM < 0 || result.maxTiltDeg < 0) return false;
   if (result.maxHorizontalShiftM > INERTIA_PASS_SHIFT_M || result.maxTiltDeg > INERTIA_PASS_TILT_DEG) return false;
   if (mode === 'pallets') {
+    if (!Number.isFinite(result.maxCargoRelativeSlipM ?? result.maxHorizontalShiftM)
+      || !Number.isFinite(result.maxSupportShiftM ?? 0)) return false;
     if ((result.maxCargoRelativeSlipM ?? result.maxHorizontalShiftM) > INERTIA_PASS_PALLET_CARGO_SLIP_M) return false;
     if ((result.maxSupportShiftM ?? 0) > INERTIA_PASS_SUPPORT_SHIFT_M) return false;
   }
@@ -319,6 +325,31 @@ function payloadWithinLimit(target: PhysicsTarget, usage: SecuringUsage) {
   return target.result.loadedWeightKg + usage.estimatedAddedWeightKg <= target.container.maxPayloadKg + 1e-9;
 }
 
+function completeAttempt(attempt: InertiaReinforcementAttempt, mode: PhysicsTarget['mode'] = 'boxes') {
+  return attempt.passed === true && attempt.payloadWithinLimit === true
+    && Array.isArray(attempt.scenarios) && attempt.scenarios.length === SCENARIOS.length
+    && SCENARIOS.every(scenario => attempt.scenarios.filter(result => result?.scenario === scenario && result.passed === true
+      && isInertiaStable(result, mode)).length === 1);
+}
+
+export function hasUnsecuredTransportPass(certification: Pick<InertiaCertification, 'attempts'> & Partial<Pick<InertiaCertification, 'mode'>> | undefined) {
+  const baseline = certification?.attempts?.[0];
+  return Boolean(baseline && baseline.level === 0 && baseline.phase === 'unsecured' && completeAttempt(baseline, certification?.mode));
+}
+
+export function hasCompletedSecuringSequence(certification: InertiaCertification | undefined) {
+  if (!certification || !hasUnsecuredTransportPass(certification) || certification.status !== 'passed'
+    || certification.payloadWithinLimit !== true || !(certification.securing?.level > 0)) return false;
+  if (certification.testedScenarios !== SCENARIOS.length || certification.passedScenarios !== SCENARIOS.length
+    || !Array.isArray(certification.failedScenarios) || certification.failedScenarios.length !== 0
+    || !SCENARIOS.every(scenario => {
+      const result = certification.results?.[scenario];
+      return result?.scenario === scenario && isInertiaStable(result, certification.mode);
+    })) return false;
+  const final = certification.attempts?.at(-1);
+  return Boolean(final && final.phase === 'secured' && final.level === certification.securing.level && completeAttempt(final, certification.mode));
+}
+
 export async function runInertiaCertification(
   target: PhysicsTarget,
   onProgress?: (progress: CertificationProgress) => void,
@@ -327,17 +358,22 @@ export async function runInertiaCertification(
 ): Promise<InertiaCertification> {
   let finalResults: Partial<Record<InertiaScenario, InertiaAnimationResult>> = {};
   const minimumLevel = minimumSecuringLevelForMode(target.mode);
-  let finalLevel: SecuringLevel = minimumLevel;
+  let finalLevel: SecuringLevel = 0;
   const attempts: InertiaReinforcementAttempt[] = [];
 
-  for (let rawLevel = minimumLevel; rawLevel <= 3; rawLevel += 1) {
+  // Unsecured transport is mandatory before any finishing material can be used.
+  for (const level of [0, minimumLevel, 2, 3] as SecuringLevel[]) {
     if (shouldCancel?.()) throw new Error('INERTIA_CERTIFICATION_CANCELLED');
-    const level = rawLevel as SecuringLevel;
+    const phase = level === 0 ? 'unsecured' : 'secured';
     const securing = buildSecuringUsage(target, level);
     finalLevel = level;
     const payloadOk = payloadWithinLimit(target, securing);
+    if (!target.result.placements.length) {
+      attempts.push({ phase, level, levelLabel: securing.levelLabel, payloadWithinLimit: payloadOk, passed: false, scenarios: [] });
+      break;
+    }
     if (!payloadOk) {
-      attempts.push({ level, levelLabel: securing.levelLabel, payloadWithinLimit: false, passed: false, scenarios: [] });
+      attempts.push({ phase, level, levelLabel: securing.levelLabel, payloadWithinLimit: false, passed: false, scenarios: [] });
       finalResults = {};
       break;
     }
@@ -355,7 +391,7 @@ export async function runInertiaCertification(
         scenario,
         target.supports ?? [],
         value => onProgress?.({
-          level,
+          phase, level,
           levelLabel: securing.levelLabel,
           scenario,
           scenarioIndex: index + 1,
@@ -369,7 +405,8 @@ export async function runInertiaCertification(
       onScenarioResult?.(result, level);
       if (!isInertiaStable(result, target.mode)) {
         allPassed = false;
-        break;
+        // All three baseline scenarios are evidence, even when one fails.
+        if (level > 0) break;
       }
     }
 
@@ -386,7 +423,7 @@ export async function runInertiaCertification(
     });
     const levelPassed = allPassed && scenarioAttempts.length === SCENARIOS.length;
     attempts.push({
-      level,
+      phase, level,
       levelLabel: securing.levelLabel,
       payloadWithinLimit: true,
       passed: levelPassed,
@@ -394,7 +431,9 @@ export async function runInertiaCertification(
     });
 
     finalResults = levelResults;
-    if (levelPassed) break;
+    if (level === 0) {
+      if (!levelPassed) break;
+    } else if (levelPassed) break;
   }
 
   if (shouldCancel?.()) throw new Error('INERTIA_CERTIFICATION_CANCELLED');
@@ -405,7 +444,8 @@ export async function runInertiaCertification(
   });
   const results = Object.values(finalResults).filter((result): result is InertiaAnimationResult => Boolean(result));
   const payloadOk = payloadWithinLimit(target, usage);
-  const passed = failedScenarios.length === 0 && results.length === SCENARIOS.length && payloadOk;
+  const passed = hasUnsecuredTransportPass({ attempts, mode: target.mode }) && finalLevel >= minimumLevel
+    && failedScenarios.length === 0 && results.length === SCENARIOS.length && payloadOk;
 
   const certification: InertiaCertification = {
     status: passed ? 'passed' : 'failed',

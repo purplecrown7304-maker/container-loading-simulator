@@ -1,6 +1,7 @@
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import {
   createPhysicsTargetSignature,
+  hasCompletedSecuringSequence,
   readLatestInertiaCertification,
   requestCertifiedResults,
   type InertiaCertification,
@@ -20,7 +21,7 @@ export type ResultsModalDetail = {
 
 export function certificationMatchesTarget(certification: InertiaCertification | undefined, target: PhysicsTarget | undefined) {
   return Boolean(
-    certification?.status === 'passed'
+    certification && hasCompletedSecuringSequence(certification)
     && target
     && certification.mode === target.mode
     && certification.targetSignature === createPhysicsTargetSignature(target),
@@ -31,7 +32,7 @@ export function openResultsModal(detail: ResultsModalDetail) {
   const certification = detail.certification ?? readLatestInertiaCertification();
   let target = readPhysicsTarget();
 
-  // Guided step 6 unmounts the pallet viewer and therefore clears its live target.
+  // Restore a persisted pallet target when no live viewer owns the current target.
   // A pallet certification tells us which mode owns the persisted snapshot, so the
   // exact target can be restored before deciding whether to open or re-validate.
   if (!target && certification?.mode === 'pallets') {

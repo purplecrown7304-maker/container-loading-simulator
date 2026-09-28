@@ -26,7 +26,10 @@ function changed(mutator: (target: PhysicsTarget) => PhysicsTarget) {
   return createPhysicsTargetSignature(mutator(structuredClone(base)));
 }
 
-describe('inertia certification signature v4', () => {
+describe('inertia certification signature v5', () => {
+  it('invalidates certificates created before the unsecured transport gate', () => {
+    expect(JSON.parse(createPhysicsTargetSignature(base)).physicsModel).toBe('restraint-v5-unsecured-before-finishing');
+  });
   it('changes when requested cargo quantity changes even if placements stay identical', () => {
     const first = createPhysicsTargetSignature(base);
     const next = changed(target => ({ ...target, cargo: target.cargo.map(item => ({ ...item, quantity: 3 })) }));

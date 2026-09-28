@@ -39,6 +39,14 @@ export function shouldRenderGuidedViewer(state: GuidedWorkflowSnapshot) {
   return !state.active || state.step === 5;
 }
 
+// The pallet viewer owns the calculated plan and its physical target. Keep that
+// owner mounted while inspecting results so navigation does not erase validation
+// or recreate the plan with default pallet settings. Earlier input steps still
+// unmount it, preserving normal invalidation when the shipment is edited.
+export function shouldMountGuidedViewer(state: GuidedWorkflowSnapshot) {
+  return shouldRenderGuidedViewer(state) || state.step === 6;
+}
+
 export function subscribeGuidedWorkflow(listener: () => void) {
   return store.subscribe(listener);
 }

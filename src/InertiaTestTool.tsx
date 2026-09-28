@@ -8,7 +8,7 @@ import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import {
   buildSecuringUsage,
   createPhysicsTargetSignature,
-  minimumSecuringLevelForMode,
+  hasCompletedSecuringSequence,
   readLatestInertiaCertification,
   securingProfileForUsage,
   type SecuringUsage,
@@ -46,8 +46,8 @@ function currentTarget(): PhysicsTarget | undefined {
 function securingForTarget(target: PhysicsTarget): SecuringUsage {
   const latest = readLatestInertiaCertification();
   const signature = createPhysicsTargetSignature(target);
-  if (latest?.mode === target.mode && latest.targetSignature === signature) return latest.securing;
-  return buildSecuringUsage(target, minimumSecuringLevelForMode(target.mode));
+  if (latest?.mode === target.mode && latest.targetSignature === signature && hasCompletedSecuringSequence(latest)) return latest.securing;
+  return buildSecuringUsage(target, 0);
 }
 
 function securingSummary(usage: SecuringUsage, mode: PhysicsTarget['mode']) {

@@ -11,9 +11,10 @@ import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { LOADING_RESULT_EVENT, type LoadingStrategy } from './engine/loadingEngine';
 import { publishGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingUnitState';
 import { publishGuidedWorkflowState } from './guidedWorkflowState';
-import { INERTIA_CERTIFICATION_EVENT, type InertiaCertification } from './inertiaCertification';
+import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
 import { usePalletSnapshot } from './palletSnapshotStore';
-import { OPEN_RESULTS_MODAL_EVENT } from './resultsModalEvents';
+import { certificationMatchesTarget, OPEN_RESULTS_MODAL_EVENT } from './resultsModalEvents';
+import { readPhysicsTarget } from './physicsTarget';
 import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState } from './storage';
 import {
   OPEN_TRANSPORT_SELECTOR_EVENT,
@@ -581,7 +582,8 @@ export default function GuidedWorkflowShell() {
       setLive(readLive());
     };
     const onCertificationInvalidated = (event: Event) => {
-      if ((event as CustomEvent<InertiaCertification | undefined>).detail) return;
+      const next = (event as CustomEvent<InertiaCertification | undefined>).detail;
+      if (certificationMatchesTarget(next, readPhysicsTarget())) return;
       // Empty results carry no certification. Unmounting the pallet viewer clears
       // its physics target, but must not close the completed reasons-only view.
       if (completedEmpty.current && emptyInputsUnchanged()) return;
@@ -651,23 +653,29 @@ export default function GuidedWorkflowShell() {
     const onPhysicsError = () => setRunning(false);
     const onCertification = (event: Event) => {
       const certification = (event as CustomEvent<InertiaCertification | undefined>).detail;
-      if (certification) markReady();
-      else setFinalReady(false);
+      // Publishing a new target invalidates old evidence while its tests are
+      // still running. Invalidation is not a finished failed certification.
+      if (!certification) return;
+      if (certificationMatchesTarget(certification, readPhysicsTarget())) markReady();
+      else { setRunning(false); setFinalReady(false); }
     };
 
+    const onCompletedResults = () => {
+      if (certificationMatchesTarget(readLatestInertiaCertification(), readPhysicsTarget())) markReady();
+    };
     window.addEventListener(NO_LOAD_RESULT_EVENT, onNoLoad);
     window.addEventListener(APP_ACTION_EVENT, onAppAction);
     window.addEventListener(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, markRunning);
     window.addEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
     window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
-    window.addEventListener(OPEN_RESULTS_MODAL_EVENT, markReady);
+    window.addEventListener(OPEN_RESULTS_MODAL_EVENT, onCompletedResults);
     return () => {
       window.removeEventListener(NO_LOAD_RESULT_EVENT, onNoLoad);
       window.removeEventListener(APP_ACTION_EVENT, onAppAction);
       window.removeEventListener(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, markRunning);
       window.removeEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
       window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
-      window.removeEventListener(OPEN_RESULTS_MODAL_EVENT, markReady);
+      window.removeEventListener(OPEN_RESULTS_MODAL_EVENT, onCompletedResults);
     };
   }, [step]);
 

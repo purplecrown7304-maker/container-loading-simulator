@@ -62,18 +62,20 @@ const certification: InertiaCertification = {
   testedScenarios: 3, passedScenarios: 3, failedScenarios: [], maxHorizontalShiftM: 0.006,
   maxCargoRelativeSlipM: 0.003, maxSupportShiftM: 0.004, maxTiltDeg: 0.9,
   maxCargoRestraintForceN: 2400, maxSupportRestraintForceN: 0,
-  results: {}, payloadWithinLimit: true,
-  attempts: [
-    { level: 0, levelLabel: '보조 고정 없음', payloadWithinLimit: true, passed: false, scenarios: [{ scenario: 'braking', passed: false, maxHorizontalShiftM: 0.02, maxCargoRelativeSlipM: 0.014, maxSupportShiftM: 0.013, maxTiltDeg: 2.4 }] },
-    { level: 2, levelLabel: '2차 보강 · 밴딩+각대+랩핑', payloadWithinLimit: true, passed: true, scenarios: [
-      { scenario: 'acceleration', passed: true, maxHorizontalShiftM: 0.005, maxCargoRelativeSlipM: 0.002, maxSupportShiftM: 0.003, maxTiltDeg: 0.7 },
-      { scenario: 'braking', passed: true, maxHorizontalShiftM: 0.006, maxCargoRelativeSlipM: 0.003, maxSupportShiftM: 0.004, maxTiltDeg: 0.9 },
-      { scenario: 'cornering', passed: true, maxHorizontalShiftM: 0.004, maxCargoRelativeSlipM: 0.002, maxSupportShiftM: 0.003, maxTiltDeg: 0.6 },
-    ] },
-  ],
+  results: Object.fromEntries((['acceleration', 'braking', 'cornering'] as const).map(scenario => [scenario, { scenario, fps: 0, simulatedSeconds: 4, cargoCount: 2, supportCount: 2, frames: [], maxHorizontalShiftM: 0.006, maxCargoRelativeSlipM: 0.003, maxSupportShiftM: 0.004, maxTiltDeg: 0.9 } ])), payloadWithinLimit: true,
+  attempts: ([0, 2] as const).map(level => ({ level, phase: level === 0 ? 'unsecured' : 'secured', levelLabel: '합성 검증', payloadWithinLimit: true, passed: true, scenarios: (['acceleration', 'braking', 'cornering'] as const).map(scenario => ({ scenario, passed: true, maxHorizontalShiftM: 0.006, maxCargoRelativeSlipM: 0.003, maxSupportShiftM: 0.004, maxTiltDeg: 0.9 })) })),
 };
 
 describe('pallet worker report', () => {
+  it('keeps failed raw loading as a watermarked reference without securing instructions', () => {
+    const failed = { ...certification, attempts: undefined };
+    const html = buildPalletLoadingReportHtml(container, cargo, snapshot, failed);
+    expect(html).toContain('검증 미완료 · 재배치 검토용');
+    expect(html).toContain('마무리 포장 적용 대기');
+    expect(html).not.toContain('밴딩 3줄 결속');
+    expect(html).not.toContain('미끄럼방지재 1EA 설치');
+    expect(html).not.toContain('주의 승인');
+  });
   it('renders pallet numbers, stack positions, securing legend and worker checks', () => {
     const html = buildPalletLoadingReportHtml(container, cargo, snapshot, certification);
     expect(html).toContain('팔레트 적재 작업지시서');
@@ -93,10 +95,10 @@ describe('pallet worker report', () => {
     expect(html).toContain('미끄럼방지재 1EA 설치');
     expect(html).toContain('각대 4EA 설치');
     expect(html).toContain('밴딩 3줄 결속');
-    expect(html).toContain('자동 보강 이력');
-    expect(html).toContain('급정거 PASS 기준 초과');
-    expect(html).toContain('화물↔팔레트 14.0mm');
-    expect(html).toContain('팔레트 13.0mm');
+    expect(html).toContain('무포장·마무리 검증 이력');
+    expect(html).toContain('PASS');
+
+
   });
 
   it('prints the split pallet inertia metrics and internal restraint force', () => {

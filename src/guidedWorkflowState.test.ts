@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeGuidedWorkflowStep, shouldRenderGuidedViewer } from './guidedWorkflowState';
+import { normalizeGuidedWorkflowStep, shouldMountGuidedViewer, shouldRenderGuidedViewer } from './guidedWorkflowState';
 
 describe('guided workflow step normalization', () => {
   it('accepts only integer steps 1 through 6', () => {
@@ -20,6 +20,16 @@ describe('guided workflow step normalization', () => {
 });
 
 describe('guided viewer rendering', () => {
+  it('keeps the plan owner mounted but hidden while inspecting results', () => {
+    for (const step of [5, 6, 5] as const) {
+      expect(shouldMountGuidedViewer({ active: true, step })).toBe(true);
+      expect(shouldRenderGuidedViewer({ active: true, step })).toBe(step === 5);
+    }
+    for (const step of [1, 2, 3, 4] as const) {
+      expect(shouldMountGuidedViewer({ active: true, step })).toBe(false);
+    }
+    expect(shouldMountGuidedViewer({ active: false, step: 1 })).toBe(true);
+  });
   it('keeps the normal dashboard viewer when guided workflow is inactive', () => {
     expect(shouldRenderGuidedViewer({ active: false, step: 1 })).toBe(true);
   });

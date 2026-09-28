@@ -8,6 +8,7 @@ html[data-guided-workflow="true"] :is(.dashboard-left,.dashboard-center,.dashboa
 html[data-guided-workflow="true"] .dashboard-center { display:flex!important; flex-direction:column!important; overflow:hidden!important; }
 html[data-guided-workflow="true"] .dashboard-center>.guided-stage-panel:not(.guided-loading-placeholder) { display:flex; flex-direction:column; flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; }
 html[data-guided-workflow="true"] .dashboard-center>.viewer-card { flex:1; min-height:0!important; height:100%!important; display:flex; flex-direction:column; overflow:hidden; }
+html[data-guided-workflow="true"] .dashboard-center>.viewer-card[hidden] { display:none!important; }
 html[data-guided-workflow="true"][data-guided-step="5"] .viewer-host { flex:1; height:100%!important; min-height:0!important; overflow:hidden!important; }
 html[data-guided-workflow="true"] .guided-panel-title { margin-bottom:14px; flex-shrink:0; }
 html[data-guided-workflow="true"] .guided-panel-title h1 { font-size:clamp(23px,2vw,30px); }

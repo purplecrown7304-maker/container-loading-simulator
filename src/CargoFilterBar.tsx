@@ -71,6 +71,7 @@ export default function CargoFilterBar() {
   return <div className="cargo-filter-bar" aria-label="적재 품목 검색">
     <div className="cargo-filter-input-row">
       <input
+        data-view-only="true"
         value={query}
         onChange={e => { setQuery(e.target.value); if (activeId) setActiveId(null); }}
         placeholder="품목 코드/품명 검색"

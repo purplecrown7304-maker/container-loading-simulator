@@ -39,6 +39,10 @@ describe('loading work order', () => {
       expect(open).toHaveBeenCalledOnce();
       expect(popup.document.write).toHaveBeenCalledWith(expect.stringContaining('위험 기준을 초과'));
       expect(popup.document.write).toHaveBeenCalledWith(expect.stringContaining('추가 후보 비교 시간 제한'));
+      expect(popup.document.write).toHaveBeenCalledWith(expect.stringContaining('검증 미완료 · 재배치 검토용'));
+      expect(popup.document.write).toHaveBeenCalledWith(expect.stringContaining('적용 대기'));
+      expect(popup.document.write.mock.calls[0][0]).not.toContain('□ 설치 확인');
+      expect(popup.document.write.mock.calls[0][0]).not.toContain('주의 승인');
     } finally { window.removeEventListener(REQUEST_DIRECT_WORK_ORDER_EVENT, recursiveRequest); }
   });
   it('renders only worker essentials with visual loading guides', () => {

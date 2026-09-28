@@ -1,6 +1,7 @@
 import { centerPalletCargo, setNextPalletCenteredResultOverride } from './palletCentering';
 import { validatePlacements } from './constraints';
-import { packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './palletOptimization';
+import { packUnsecuredPallets } from './unsecuredPalletPlan';
+import { type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
 import { unloadingObstructions } from './operationalQuality';
 import {
@@ -281,7 +282,7 @@ export function buildPalletAdaptiveCandidates(
   for (const { variant, heightRatio, maxStackLevels } of sampleCombinations(combinations, combinationBudget)) {
     const spec = { ...snapshot.spec, maxStackLevels };
     const cargo = cappedCargo(variant.cargo, spec, heightRatio);
-    const packed = restoreRotationFlags(centerPalletCargo(packOnPallets(current.container, cargo, spec, snapshot.result.optimization.strategy), current.container), variant.forcedRotatedIds);
+    const packed = restoreRotationFlags(centerPalletCargo(packUnsecuredPallets(current.container, cargo, spec, snapshot.result.optimization.strategy), current.container), variant.forcedRotatedIds);
     const baseLabel = `${variant.label} · 높이 ${Math.round(heightRatio * 100)}% · ${maxStackLevels}단 제한`;
     addCandidate(list, seen, current, spec, packed, `팔레트 위 재배치 · ${baseLabel}`);
     if (snapshot.result.optimization.strategy !== 'unloading') {

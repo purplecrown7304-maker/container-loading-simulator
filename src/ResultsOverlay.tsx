@@ -6,7 +6,8 @@ import { validatePlacements } from './engine/constraints';
 import { assessWeightBalance } from './engine/weightBalance';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
-import { packOnPallets, type PalletSpec } from './engine/palletOptimization';
+import type { PalletSpec } from './engine/palletOptimization';
+import { packUnsecuredPallets } from './engine/unsecuredPalletPlan';
 import type { LoadingResult } from './engine/types';
 import { cargoColor } from './cargoColors';
 import { publishPalletSnapshot, type PalletSnapshot, usePalletSnapshot } from './palletSnapshotStore';
@@ -97,7 +98,7 @@ export default function ResultsOverlay() {
   const updatePalletSpec = (field: keyof PalletSpec, rawValue: string) => {
     if (!detail || !palletSnapshot) return;
     const nextSpec = sanitizeResultsPalletSpec({ ...palletSnapshot.spec, [field]: Number(rawValue) });
-    const nextResult = packOnPallets(detail.container, detail.cargo.filter(item => item.quantity > 0), nextSpec, readLoadingStrategyPreference() ?? 'capacity');
+    const nextResult = packUnsecuredPallets(detail.container, detail.cargo.filter(item => item.quantity > 0), nextSpec, readLoadingStrategyPreference() ?? 'capacity');
     const nextSnapshot: PalletSnapshot = { spec: nextSpec, result: nextResult };
     publishPalletSnapshot(nextSnapshot);
     window.dispatchEvent(new CustomEvent<PalletSpec>(PALLET_SPEC_FROM_RESULTS_EVENT, { detail: nextSpec }));

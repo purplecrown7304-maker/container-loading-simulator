@@ -8,6 +8,8 @@ import {
   INERTIA_PASS_SHIFT_M,
   INERTIA_PASS_TILT_DEG,
   createPhysicsTargetSignature,
+  hasCompletedSecuringSequence,
+  hasUnsecuredTransportPass,
   runInertiaCertification,
   type CertificationProgress,
   type InertiaCertification,
@@ -94,7 +96,14 @@ export default function DirectWorkOrderOptimizer() {
     setSearch(null);
     setRunning(false);
     setMessage(`검증 완료 · ${workOrderApprovalLabel(candidate.certification)} · ${candidate.label}`);
-    if (automatic) { setOpen(false); return; }
+    if (automatic) {
+      const completed = hasCompletedSecuringSequence(candidate.certification);
+      setOpen(!completed);
+      if (!completed) setError(hasUnsecuredTransportPass(candidate.certification)
+        ? '마무리 포장 후 재검증을 통과하지 못했습니다. 최종 적재는 미완료입니다. 배치·적층·적재량을 수정한 뒤 무포장 검증부터 다시 실행하세요.'
+        : '무포장 3종 검증을 통과하지 못했습니다. 마무리 포장 대기 상태입니다. 배치·적층·적재량을 수정한 뒤 다시 적재하세요. 참고 작업지시서는 적재 완료 또는 출고 승인을 의미하지 않습니다.');
+      return;
+    }
     if (openLoadingReport(candidate.target.container, candidate.target.cargo, candidate.target.result)) {
       setOpen(false);
     } else {
@@ -184,13 +193,19 @@ export default function DirectWorkOrderOptimizer() {
 
         const evaluated: Evaluated = { ...candidate, certification, risk: certificationRisk(certification) };
         const approval = assessWorkOrderCertification(certification);
-        if (approval === 'pass' || approval === 'caution') {
+        if (approval === 'pass') {
           finish({ ...evaluated, certification: { ...certification, searchNotice: searchNotice || undefined } }, automatic);
           return;
         }
         if (!bestWarning || better(evaluated, bestWarning)) bestWarning = evaluated;
         setReadyReport(bestWarning);
         if (index === 0) {
+          if (automatic) {
+            setOpen(true);
+            setNotice(hasUnsecuredTransportPass(certification)
+              ? '마무리 포장 후 재검증을 통과하지 못해 추가 배치를 비교하고 있습니다. 최종 적재는 미완료이며 비교를 중단하고 참고 작업지시서를 확인할 수 있습니다.'
+              : '무포장 3종 검증을 통과하지 못해 마무리 포장 대기 상태입니다. 추가 배치를 비교하고 있으며 비교를 중단하고 현재 실패 결과의 참고 작업지시서를 확인할 수 있습니다.');
+          }
           setProgress(null);
           setMessage('동일 수량을 유지하는 안전 재배치 후보를 계산 중입니다.');
           const alternatives = await buildDirectResultReoptimizationCandidatesAsync(current, MAX_DIRECT_WORK_ORDER_CANDIDATES - 1, cancelled, {
@@ -250,7 +265,7 @@ export default function DirectWorkOrderOptimizer() {
         <div>
           <span>FINAL WORK ORDER OPTIMIZER · DIRECT BOX</span>
           <h2 id="direct-work-order-title">작업지시서 전 상자 안전 후보 비교</h2>
-          <p>출발 가속 · 급정거 · 급회전 3종을 비교해 더 안전한 배치를 우선합니다. 모든 후보가 위험이어도 가장 낮은 위험안을 적용하고 위험 경고·보강 권장사항을 포함한 작업지시서를 생성합니다.</p>
+          <p>무포장 상태의 출발·제동·회전 3종을 통과한 뒤 마무리 포장과 재검증을 진행합니다. 실패 시 배치와 적층을 수정하세요. 참고 작업지시서는 검증 결과와 재배치 안내를 제공합니다.</p>
         </div>
         <button type="button" onClick={cancel}>{running ? '계산 취소' : '닫기'}</button>
       </header>
@@ -276,7 +291,7 @@ export default function DirectWorkOrderOptimizer() {
           <div><span>후보 수</span><b>최대 {MAX_DIRECT_WORK_ORDER_CANDIDATES}개</b><small>추가 배치 계산 최대 {DIRECT_SEARCH_TIMEOUT_MS / 1000}초</small></div>
           <div><span>관성 검증</span><b>출발·급정거·급회전</b><small>가능한 3종 모두 확인</small></div>
           <div><span>주의 결과</span><b>작업지시서 생성</b><small>권장사항 자동 기입</small></div>
-          <div><span>위험 결과</span><b>경고 포함 생성</b><small>가장 낮은 위험안 + 보강 권장</small></div>
+          <div><span>위험 결과</span><b>참고문서만 생성</b><small>배치·적층·적재량 수정 필요</small></div>
         </div>
       </article>
 
@@ -287,7 +302,7 @@ export default function DirectWorkOrderOptimizer() {
           runId.current += 1;
           activeSearch.current?.abort();
           finish(running ? { ...readyReport, certification: { ...readyReport.certification, searchNotice: '추가 후보 비교를 중단하고 완료된 관성 검증 결과로 발급했습니다.' } } : readyReport, false);
-        }}>{running ? '비교 중단하고 현재 검증 결과로 발급' : '작업지시서 열기'}</button>
+        }}>{running ? '비교 중단하고 현재 검증 결과로 발급' : hasCompletedSecuringSequence(readyReport.certification) ? '작업지시서 열기' : '참고 작업지시서 열기'}</button>
         <span>검증 등급: {workOrderApprovalLabel(readyReport.certification)} · 경고와 권장사항을 포함합니다.</span>
       </div>}
     </section>

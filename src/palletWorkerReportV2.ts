@@ -1,10 +1,10 @@
 import { buildReportDocument, reportTable, REPORT_SIGNOFF } from './reportLayout';
 import { cargoColor } from './cargoColors';
-import { palletSnapshotMatchesCertification, physicsTargetFromPalletSnapshot } from './certifiedExport';
+import { palletSnapshotSpecMatchesResult, physicsTargetFromPalletSnapshot } from './certifiedExport';
 import type { OptimizedPalletPackingResult, PalletLoad, PalletSpec } from './engine/palletOptimization';
 import type { CargoItem, ContainerSpec } from './engine/types';
-import { confirmUnverifiedExport, hasCurrentPhysicsVerification } from './exportVerification';
-import { readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
+import { hasCurrentPhysicsVerification } from './exportVerification';
+import { buildSecuringUsage, createPhysicsTargetSignature, hasCompletedSecuringSequence, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
 import {
   assessWorkOrderCertification,
   buildWorkOrderRecommendations,
@@ -34,7 +34,11 @@ function readPalletSnapshot(): PalletWorkSnapshot | undefined {
 function matchingPalletCertification(snapshot: PalletWorkSnapshot | undefined): InertiaCertification | undefined {
   const target = readPhysicsTarget();
   const certification = readLatestInertiaCertification();
-  return palletSnapshotMatchesCertification(snapshot, target, certification) ? certification : undefined;
+  return snapshot && target?.mode === 'pallets' && certification?.mode === 'pallets'
+    && palletSnapshotSpecMatchesResult(snapshot)
+    && certification.targetSignature === createPhysicsTargetSignature(target)
+    && certification.targetSignature === createPhysicsTargetSignature(physicsTargetFromPalletSnapshot(target.container, target.cargo, snapshot))
+    ? certification : undefined;
 }
 
 function cargoTop(pallet: PalletLoad) {
@@ -213,13 +217,15 @@ function inertiaMetrics(certification: InertiaCertification) {
 
 export function buildPalletLoadingReportHtml(container: ContainerSpec, cargo: CargoItem[], snapshot: PalletWorkSnapshot, certification: InertiaCertification): string {
   const target = physicsTargetFromPalletSnapshot(container, cargo, snapshot);
-  const plan = buildPalletSecuringPlan(target, certification.securing);
+  const completed = hasCompletedSecuringSequence(certification);
+  const usage = completed ? certification.securing : buildSecuringUsage(target, 0);
+  const plan = buildPalletSecuringPlan(target, usage);
   const generatedAt = new Date().toLocaleString('ko-KR');
   const top = topViewSvg(container, snapshot, plan);
   const side = sideViewSvg(container, snapshot, plan);
   const rows = palletRows(snapshot, cargo, plan);
-  const sequence = securingSequence(snapshot, plan);
-  const materials = materialCards(certification);
+  const sequence = completed ? securingSequence(snapshot, plan) : '<p>마무리 포장 적용 대기 · 무포장 3종 PASS 후 마무리 포장과 재검증을 완료하세요. 재배치 검토용 문서입니다.</p>';
+  const materials = completed ? materialCards(certification) : '<div><span>마무리 포장</span><b>적용 대기</b><i>밴딩·랩핑·미끄럼방지재 설치 지시 아님</i></div>';
   const history = attemptTrail(certification);
   const inertia = inertiaMetrics(certification);
   const approval = assessWorkOrderCertification(certification);
@@ -233,11 +239,12 @@ export function buildPalletLoadingReportHtml(container: ContainerSpec, cargo: Ca
     subtitle: `${generatedAt} · 그림 / 작업 표 / 결속 카드의 P번호를 맞춰 확인하세요.`,
     status: `관성 3종 · ${approvalLabel}`,
     tone: approval === 'caution' ? 'caution' : approval === 'danger' ? 'danger' : approval === 'incomplete' ? 'neutral' : 'good',
+    watermark: completed ? undefined : '검증 미완료 · 재배치 검토용',
     summary: `<section class="summary" aria-label="팔레트 적재 요약"><div><span>팔레트</span><b>${snapshot.result.palletCount} EA</b><small>${container.length} × ${container.width} × ${container.height} m 장비</small></div><div><span>실제 적재 화물</span><b>${snapshot.result.placements.length} EA</b></div><div><span>팔레트화 중량</span><b>${snapshot.result.totalPalletizedWeightKg.toFixed(0)} kg</b></div><div class="text-metric"><span>미적재 · 별도 확인</span><b>${escapeHtml(remaining)}</b></div></section>`,
     sections: [
       {
         title: '작업 준비', description: '필요 보조자재를 먼저 준비하고 팔레트 번호와 적층 위치를 확인하세요.',
-        content: `<div class="section-title"><h3>필요 보조자재 총량</h3><span>${escapeHtml(certification.securing.levelLabel)}</span></div><section class="materials">${materials}</section><p class="note"><b>번호 읽는 법:</b> P번호는 개별 팔레트, C번호는 같은 수직 적층 위치, 단수는 바닥부터의 높이 순서입니다. 투입은 아래 작업 표의 <b>순서</b>를 따르세요.</p>`,
+        content: `<div class="section-title"><h3>필요 보조자재 총량</h3><span>${escapeHtml(completed ? usage.levelLabel : '마무리 포장 적용 대기')}</span></div><section class="materials">${materials}</section><p class="note"><b>번호 읽는 법:</b> P번호는 개별 팔레트, C번호는 같은 수직 적층 위치, 단수는 바닥부터의 높이 순서입니다. 투입은 아래 작업 표의 <b>순서</b>를 따르세요.</p>`,
       },
       {
         title: '배치도 확인', description: '1단을 먼저 놓고 같은 C번호의 상단 팔레트를 순서대로 올리세요.',
@@ -248,15 +255,15 @@ export function buildPalletLoadingReportHtml(container: ContainerSpec, cargo: Ca
         content: `<h3>팔레트 투입 순서</h3>${reportTable('팔레트 투입 순서 표', `<table class="work"><colgroup><col style="width:8%"><col style="width:12%"><col style="width:19%"><col style="width:23%"><col style="width:30%"><col style="width:8%"></colgroup><thead><tr><th scope="col">순서</th><th scope="col">팔레트</th><th scope="col">박스 구성</th><th scope="col">중량 / 고정</th><th scope="col">놓을 위치</th><th scope="col">완료</th></tr></thead><tbody>${rows}</tbody></table>`)}<div class="title"><h3>팔레트별 결속 작업 순서</h3><span>미끄럼방지 → 배치 → 각대 → 밴딩 → 랩핑 → 확인</span></div><section class="sequence">${sequence}</section>`,
       },
       {
-        title: '출고 전 최종 확인', description: approval === 'caution' ? '주의 승인 · 출고 전 보완 확인이 필요합니다.' : '고정 상태를 대조한 뒤 담당자가 확인하세요.',
+        title: '출고 전 최종 확인', description: completed ? '고정 상태를 대조한 뒤 담당자가 확인하세요.' : '검증 미완료 참고문서입니다. 재배치와 검증을 완료하세요.',
         content: `<h3>관성 테스트 권장 사항</h3><ol class="recommendations">${recommendationItems}</ol><div class="final"><div>□ 밴딩/각대/랩핑 그림과 일치</div><div>□ 팔레트 흔들림·오버행 없음</div><div>□ 문 닫힘/고정바 간섭 없음</div></div>${REPORT_SIGNOFF}`,
       },
       {
-        title: '검증 근거', description: '현장 작업을 마친 뒤 상세 수치와 자동 보강 이력을 대조하세요.',
-        content: `<h3>관성 안전 지표</h3><section class="inertia-metrics">${inertia}</section>${history ? `<h3>자동 보강 이력</h3><section class="history">${history}</section>` : ''}<p class="technical">관성 판정(${escapeHtml(approvalLabel)})은 시뮬레이터 내부 비교 결과이며 실제 운송 안전 인증을 의미하지 않습니다. ‘주의 승인’은 내부 PASS 기준을 일부 초과했지만 위험 기준은 넘지 않았다는 뜻입니다. 화물↔팔레트 미끄럼과 적층 팔레트 상대 이동을 함께 확인하고 표시된 권장사항을 출고 전 점검하세요. 표시된 kN은 내부 물리모델 비교값이며 실제 자재 정격을 대체하지 않습니다.</p>`,
+        title: '검증 근거', description: '현장 작업을 마친 뒤 상세 수치와 무포장·마무리 검증 이력을 대조하세요.',
+        content: `<h3>관성 안전 지표</h3><section class="inertia-metrics">${inertia}</section>${history ? `<h3>무포장·마무리 검증 이력</h3><section class="history">${history}</section>` : ''}<p class="technical">관성 판정(${escapeHtml(approvalLabel)})은 시뮬레이터 내부 비교 결과이며 실제 운송 안전 인증을 의미하지 않습니다. 주의·위험 판정은 적재 완료 또는 출고 승인이 아닙니다. 화물↔팔레트 미끄럼과 적층 팔레트 상대 이동을 함께 확인하고 표시된 권장사항을 출고 전 점검하세요. 표시된 kN은 내부 물리모델 비교값이며 실제 자재 정격을 대체하지 않습니다.</p>`,
       },
     ],
-    footer: `<span>물리검증: ${physicsVerified ? '완료' : '별도 확인'}</span><span>관성: ${escapeHtml(approvalLabel)} · 전체 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)} mm · 화물 ${((certification.maxCargoRelativeSlipM ?? 0) * 1000).toFixed(1)} mm · 팔레트 ${((certification.maxSupportShiftM ?? 0) * 1000).toFixed(1)} mm · ${certification.maxTiltDeg.toFixed(1)}°</span><span>보조자재 약 ${certification.securing.estimatedNonCargoWeightKg.toFixed(1)} kg</span>`,
+    footer: `<span>물리검증: ${physicsVerified ? '완료' : '별도 확인'}</span><span>관성: ${escapeHtml(approvalLabel)} · 전체 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)} mm · 화물 ${((certification.maxCargoRelativeSlipM ?? 0) * 1000).toFixed(1)} mm · 팔레트 ${((certification.maxSupportShiftM ?? 0) * 1000).toFixed(1)} mm · ${certification.maxTiltDeg.toFixed(1)}°</span><span>보조자재 약 ${usage.estimatedNonCargoWeightKg.toFixed(1)} kg</span>`,
   });
 }
 
@@ -275,7 +282,6 @@ export function openPalletLoadingReport(container: ContainerSpec, cargo: CargoIt
     window.alert('현재 팔레트 적재안은 관성 테스트에서 위험으로 판정되었거나 3종 검증이 완료되지 않았습니다. 재배치 또는 보강 후 다시 검증하세요.');
     return true;
   }
-  if (!confirmUnverifiedExport('팔레트 작업지시서')) return true;
   const popup = window.open('', '_blank');
   if (!popup) return false;
   try { popup.opener = null; } catch { /* opener 변경 제한 브라우저 */ }
