@@ -5,11 +5,12 @@ import { cargoColor } from './cargoColors';
 import { centerPalletCargo } from './engine/palletCentering';
 import { validatePlacements } from './engine/constraints';
 import { defaultPalletSpec, packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
+import { packMixedMode, type MixedModePackingResult } from './engine/mixedModePacking';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
 import { clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
 
-type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number };
+type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number; mode?: 'pallets' | 'mixed' };
 type PalletSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult };
 type PalletWindow = Window & { __containerLoadingPalletSnapshot?: PalletSnapshot };
 
@@ -28,8 +29,10 @@ function sanitizeSpec(spec: PalletSpec): PalletSpec {
   };
 }
 
-function packCentered(container: ContainerSpec, cargo: CargoItem[], spec: PalletSpec) {
-  return centerPalletCargo(packOnPallets(container, cargo, spec, readLoadingStrategyPreference() ?? 'capacity'), container);
+function packForMode(container: ContainerSpec, cargo: CargoItem[], spec: PalletSpec, mode: 'pallets' | 'mixed') {
+  const strategy = readLoadingStrategyPreference() ?? 'capacity';
+  if (mode === 'mixed') return packMixedMode(container, cargo, spec, strategy);
+  return centerPalletCargo(packOnPallets(container, cargo, spec, strategy), container);
 }
 
 function palletForPlacement(result: OptimizedPalletPackingResult, box: Placement) {
@@ -107,9 +110,9 @@ function PalletContents({ pallet, cargo, onClose }: { pallet: PalletLoad; cargo:
   );
 }
 
-export default function PalletModePanel({ container, cargo, runToken }: Props) {
+export default function PalletModePanel({ container, cargo, runToken, mode = 'pallets' }: Props) {
   const [spec, setSpec] = useState<PalletSpec>(defaultPalletSpec);
-  const [result, setResult] = useState<OptimizedPalletPackingResult>(() => packCentered(container, cargo.filter((item) => item.quantity > 0), defaultPalletSpec));
+  const [result, setResult] = useState<OptimizedPalletPackingResult | MixedModePackingResult>(() => packForMode(container, cargo.filter((item) => item.quantity > 0), defaultPalletSpec, mode));
   const [opened, setOpened] = useState<PalletLoad | null>(null);
   const [certification, setCertification] = useState<InertiaCertification | null>(() => {
     const latest = readLatestInertiaCertification();
@@ -120,10 +123,10 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
     if (runToken === 0) return;
     const safe = sanitizeSpec(spec);
     setSpec(safe);
-    setResult(packCentered(container, cargo.filter((item) => item.quantity > 0), safe));
+    setResult(packForMode(container, cargo.filter((item) => item.quantity > 0), safe, mode));
     setOpened(null);
     setCertification(null);
-  }, [runToken]);
+  }, [runToken, mode]);
 
   useEffect(() => {
     const onSpecFromResults = (event: Event) => {
@@ -131,13 +134,13 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
       if (!requested) return;
       const safe = sanitizeSpec(requested);
       setSpec(safe);
-      setResult(packCentered(container, cargo.filter((item) => item.quantity > 0), safe));
+      setResult(packForMode(container, cargo.filter((item) => item.quantity > 0), safe, mode));
       setOpened(null);
       setCertification(null);
     };
     window.addEventListener(PALLET_SPEC_FROM_RESULTS_EVENT, onSpecFromResults);
     return () => window.removeEventListener(PALLET_SPEC_FROM_RESULTS_EVENT, onSpecFromResults);
-  }, [container, cargo]);
+  }, [container, cargo, mode]);
 
   useEffect(() => {
     const onCertification = (event: Event) => {
@@ -163,7 +166,7 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
     const loadingResult: LoadingResult = {
       placements: result.placements,
       remaining: result.remaining,
-      loadedWeightKg: result.totalPalletizedWeightKg,
+      loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg,
       usedVolumeM3: result.placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0),
       validationIssues: validatePlacements(container, result.placements),
     };
@@ -185,7 +188,7 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
   const securingUsage = certification?.securing ?? null;
   const scene = useMemo(() => ({
-    result: { placements: result.placements, remaining: result.remaining, loadedWeightKg: result.totalPalletizedWeightKg, usedVolumeM3: result.placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0), validationIssues: validatePlacements(container, result.placements) },
+    result: { placements: result.placements, remaining: result.remaining, loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg, usedVolumeM3: result.placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0), validationIssues: validatePlacements(container, result.placements) },
     supports: result.pallets.map(p => ({ id: `PALLET-${p.palletIndex}`, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) })),
   }), [container, result]);
 
@@ -194,7 +197,7 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
       <section className="pallet-mode-panel pallet-mode-panel-inline">
         <div className="pallet-view-stack">
           <div className="pallet-preview">
-            <UnityLoadingViewer container={container} cargo={cargo} {...scene} securing={securingUsage} title="팔레트 적재" onSupportSelect={index => setOpened(result.pallets[index] ?? null)} onCargoSelect={index => setOpened(palletForPlacement(result, result.placements[index]) ?? null)} />
+            <UnityLoadingViewer container={container} cargo={cargo} {...scene} securing={securingUsage} title={mode === 'mixed' ? '박스 + 팔레트 혼합 적재' : '팔레트 적재'} onSupportSelect={index => setOpened(result.pallets[index] ?? null)} onCargoSelect={index => setOpened(palletForPlacement(result, result.placements[index]) ?? null)} />
             {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip">
               <b>관성 보강 적용</b>
               <span>밴딩 {securingUsage.bandingStraps}줄</span>
@@ -218,6 +221,8 @@ export default function PalletModePanel({ container, cargo, runToken }: Props) {
         <div className="pallet-metrics">
           <div><span>사용 팔레트</span><strong>{result.palletCount}</strong></div>
           <div><span>적재 화물</span><strong>{result.placements.length} EA</strong></div>
+          {'mixed' in result && <div><span>직접 적재 박스</span><strong>{result.mixed.directBoxCount} EA</strong></div>}
+          {'mixed' in result && <div><span>혼합 절감 팔레트</span><strong>{result.mixed.demotedPalletCount}</strong></div>}
           <div><span>적층 팔레트</span><strong>{result.stackedPallets}</strong></div>
           <div><span>총 팔레트화 중량</span><strong>{result.totalPalletizedWeightKg.toFixed(0)} kg</strong></div>
           <div><span>전역 최적화</span><strong>{result.optimization.selectedStackTarget}단 후보 · 바닥 {result.optimization.floorPositions}열</strong></div>
