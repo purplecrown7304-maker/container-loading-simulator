@@ -106,8 +106,8 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
         content: `${shipmentInstruction}${cargoIntake}<div class="section-title"><h3>필요 보조자재</h3><span>${escapeHtml(securing?.levelLabel ?? '보조 고정 없음')}</span></div><section class="materials">${materialCards}</section>`,
       },
       {
-        title: '배치도 확인', description: '안쪽과 도어 방향을 먼저 확인한 뒤 그림 번호를 작업 순서 표와 맞추세요.',
-        content: `<div class="direction"><em>◀ 적재공간 안쪽</em><span>① 안쪽부터 · ② 바닥부터 · ③ 번호 순서대로</span><strong>도어 방향 ▶</strong></div><section class="diagram-grid">${topView}${sideView}</section><p class="legend">그림번호 = 작업 묶음 · R = 길이 방향 행 · C = 폭 방향 열 · 단 = 바닥부터의 적층 단계</p><h3>3단계 진행 그림</h3><section class="progress">${progressViews.join('')}</section>`,
+        title: '배치도 확인', description: '상세 그림은 실제 화물 구간을 확대하고, 아래 위치 막대는 전체 장비에서의 실제 위치를 표시합니다.',
+        content: `<div class="direction"><em>◀ 적재공간 안쪽</em><span>① 전체 위치 막대 확인 · ② 바닥부터 · ③ 그림번호 순서</span><strong>도어 방향 ▶</strong></div><section class="diagram-grid">${topView}${sideView}</section><p class="legend">상세 그림 = 작업용 확대도 · 아래 막대 = 전체 장비 내 실제 X 위치 · 숫자 = 작업 묶음 · ×N단 = 같은 바닥 위치의 적층 수 · R = 길이 방향 행 · C = 폭 방향 열</p><h3>3단계 진행 그림</h3><section class="progress">${progressViews.join('')}</section>`,
       },
       {
         title: '적재 작업 순서', description: '위에서 아래로 진행하고 한 줄을 완료할 때마다 확인 칸에 표시하세요.',
