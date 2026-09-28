@@ -37,6 +37,14 @@ export type CargoItem = {
   allowRotation?: boolean;
   /** 하역 순서. 1이 가장 먼저 하역되며 큰 숫자일수록 컨테이너 안쪽에 배치하는 것을 우선한다. */
   unloadPriority?: number;
+  /** 내부 최적화에서 이 적재단위 1개가 대표하는 실제 출하 EA. 일반 박스는 1. */
+  demandUnits?: number;
+  /** 팔레트 같은 강체 단위가 반드시 바닥에 놓여야 할 때 사용한다. */
+  floorOnly?: boolean;
+  /** MIXED 엔진 내부 적재단위 종류. 일반 입력에서는 생략한다. */
+  unitKind?: 'box' | 'pallet';
+  /** MIXED 팔레트 단위가 원래 어느 팔레트였는지 추적하기 위한 내부 메타데이터. */
+  sourcePalletIndex?: number;
 };
 
 export type Placement = {
