@@ -47,6 +47,7 @@ import EditableEquipmentCard from './EditableEquipmentCard';
 import ProductPackagingPreview3D from './ProductPackagingPreview3D';
 import { writeShipmentInstructionSnapshot } from './shipmentInstruction';
 import { writeLoadingStrategyPreference } from './loadingStrategyPreference';
+import { resolvePalletType, usePalletTypeSelection } from './palletTypeSelection';
 
 type LiveDetail = { container: ContainerSpec; cargo: CargoItem[]; result?: LoadingResult };
 type WorkflowWindow = Window & {
@@ -410,6 +411,10 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
   }, []);
   const equipment = useTransportEquipment();
   const palletSnapshot = usePalletSnapshot();
+  const palletType = resolvePalletType(usePalletTypeSelection());
+  // Name the product only while the loaded spec still matches it (results edits may override).
+  const palletName = palletSnapshot && Math.abs(palletSnapshot.spec.length - palletType.length) < 1e-6 && Math.abs(palletSnapshot.spec.width - palletType.width) < 1e-6
+    ? `${palletType.name} · ` : '';
   const boxResult = live.result;
   const loaded = mode === 'pallets' ? palletSnapshot?.result?.placements?.length ?? 0 : boxResult?.placements.length ?? 0;
   const remaining = mode === 'pallets' ? palletSnapshot?.result?.remaining?.reduce((sum, item) => sum + item.quantity, 0) ?? 0 : boxResult?.remaining.reduce((sum, item) => sum + item.quantity, 0) ?? 0;
@@ -429,7 +434,7 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
       <div><dt>포장 적재단위</dt><dd>{live.cargo.length ? `${live.cargo.length}종` : '-'}</dd></div>
       <div><dt>적재 유형</dt><dd>{mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재'}</dd></div>
       <div><dt>적재 전략</dt><dd>{strategy ? strategyLabel(strategy) : '-'}</dd></div>
-      {mode === 'pallets' && <div><dt>사용 파렛트</dt><dd>{palletSnapshot ? `${palletSnapshot.result.palletCount}개` : '-'}</dd></div>}
+      {mode === 'pallets' && <div><dt>사용 파렛트</dt><dd>{palletSnapshot ? `${palletName}${palletSnapshot.result.palletCount}개` : palletType.name}</dd></div>}
       <div><dt>적재</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div>
       <div><dt>미적재</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div>
       <div><dt>총 중량</dt><dd>{weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div>

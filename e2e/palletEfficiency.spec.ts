@@ -44,7 +44,7 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   await expect(confirmation).toBeVisible();
   await expect(page.locator('.pallet-preview>.unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
   await expect(page.locator('.pallet-preview>.unity-viewer')).toHaveAttribute('data-unity-supports', '1');
-  await expect(summary.locator('dl > div').filter({ hasText: '사용 파렛트' }).locator('dd')).toHaveText('1개');
+  await expect(summary.locator('dl > div').filter({ hasText: '사용 파렛트' }).locator('dd')).toHaveText(/(^| · )1개$/);
   await page.evaluate(() => {
     (window as any).__inertiaMessages = [];
     window.addEventListener('message', event => {
@@ -88,5 +88,5 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 60_000 });
   await expect(page.locator('.guided-loading-run-confirmation')).toHaveCount(0);
-  await expect(summary.locator('dl > div').filter({ hasText: '사용 파렛트' }).locator('dd')).toHaveText('1개');
+  await expect(summary.locator('dl > div').filter({ hasText: '사용 파렛트' }).locator('dd')).toHaveText(/(^| · )1개$/);
 });
