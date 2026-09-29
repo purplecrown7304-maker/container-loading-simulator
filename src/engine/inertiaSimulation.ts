@@ -38,6 +38,15 @@ export type InertiaAnimationFrame = {
   step: number;
 };
 
+/**
+ * How cartons on a pallet were modelled for this run.
+ * - `unit-load`: banding/wrap capacity covers the scenario acceleration, so each pallet and
+ *   its cartons move as one rigid unit load (field practice for a strapped + wrapped pallet).
+ * - `per-carton`: no cargo restraint, or the scenario demand exceeds the restraint capacity,
+ *   so every carton is simulated as a separate body held only by friction and the restraint model.
+ */
+export type InertiaRestraintMode = 'unit-load' | 'per-carton';
+
 export type InertiaAnimationResult = {
   scenario: PhysicsScenario;
   fps: number;
@@ -52,6 +61,11 @@ export type InertiaAnimationResult = {
   maxSupportShiftM?: number;
   maxCargoRestraintForceN?: number;
   maxSupportRestraintForceN?: number;
+  restraintMode?: InertiaRestraintMode;
+  /** Peak horizontal acceleration of the scenario, in g. */
+  scenarioDemandG?: number;
+  /** Cargo restraint (banding/wrap) capacity used for the unit-load decision, in g. */
+  cargoRestraintCapacityG?: number;
 };
 
 let rapierPromise: ReturnType<typeof loadRapier> | null = null;
@@ -97,6 +111,23 @@ function phaseForStep(step: number, totalSteps: number): InertiaPhase {
   return 'coast';
 }
 
+export function scenarioDemandG(scenario: PhysicsScenario) {
+  if (scenario === 'acceleration') return START_ACCELERATION_G;
+  if (scenario === 'braking') return BRAKING_G;
+  if (scenario === 'cornering') return CORNERING_G;
+  return 0;
+}
+
+/**
+ * Strapped + wrapped cartons act as one unit load only while the restraint alone can carry the
+ * scenario acceleration. No friction credit is taken here, so this never relaxes the test: when
+ * the capacity is short, the run falls back to the per-carton model and has to pass on its own.
+ */
+export function cargoHeldAsUnitLoad(scenario: PhysicsScenario, restraint: RestraintModel | undefined) {
+  if (!restraint) return false;
+  return scenarioDemandG(scenario) <= Math.max(0, restraint.maxAccelerationG) + EPS;
+}
+
 function accelerationForScenario(scenario: PhysicsScenario, step: number, totalSteps: number) {
   if (phaseForStep(step, totalSteps) !== 'force') return { x: 0, z: 0 };
   if (scenario === 'acceleration') return { x: -9.81 * START_ACCELERATION_G, z: 0 };
@@ -137,11 +168,13 @@ function tiltFromQuaternion(q: { x: number; y: number; z: number; w: number }) {
   return Math.acos(upY) * 180 / Math.PI;
 }
 
-function packTransforms(entries: Array<{ body: { translation: () => { x: number; y: number; z: number }; rotation: () => { x: number; y: number; z: number; w: number } } }>) {
+type PoseSource = { translation: () => { x: number; y: number; z: number }; rotation: () => { x: number; y: number; z: number; w: number } };
+
+function packTransforms(entries: Array<{ pose: PoseSource }>) {
   const packed = new Float32Array(entries.length * 7);
   entries.forEach((entry, index) => {
-    const p = entry.body.translation();
-    const q = entry.body.rotation();
+    const p = entry.pose.translation();
+    const q = entry.pose.rotation();
     const offset = index * 7;
     packed[offset] = p.x;
     packed[offset + 1] = p.y;
@@ -196,34 +229,63 @@ export async function runInertiaAnimation(
   fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, -halfW - wall);
   fixed(halfL + wall, container.height / 2, wall, 0, container.height / 2, halfW + wall);
 
-  const createBody = (
-    item: Pick<Placement, 'x' | 'y' | 'z' | 'length' | 'width' | 'height'>,
+  const colliderDescFor = (
+    item: Pick<Placement, 'length' | 'width' | 'height'>,
     weightKg: number,
-    dynamic: boolean,
-    retentionRatio: number,
+    withMass: boolean,
   ) => {
-    const center = toPhysicsCenter(container, item);
-    const desc = dynamic ? RAPIER.RigidBodyDesc.dynamic() : RAPIER.RigidBodyDesc.fixed();
-    const body = world.createRigidBody(desc.setTranslation(center.x, center.y, center.z).setCanSleep(true).setCcdEnabled(false));
-    const collider = RAPIER.ColliderDesc.cuboid(
+    const desc = RAPIER.ColliderDesc.cuboid(
       Math.max(EPS, item.length / 2 - 0.0005),
       Math.max(EPS, item.height / 2 - 0.0005),
       Math.max(EPS, item.width / 2 - 0.0005),
     ).setFriction(friction).setRestitution(DEFAULT_RESTITUTION);
-    if (dynamic) collider.setMass(Math.max(0.01, weightKg));
-    world.createCollider(collider, body);
-    return { body, center, massKg: Math.max(0.01, weightKg), dynamic, retentionRatio };
+    if (withMass) desc.setMass(Math.max(0.01, weightKg));
+    return desc;
   };
 
+  const createBody = (
+    item: Pick<Placement, 'x' | 'y' | 'z' | 'length' | 'width' | 'height'>,
+    weightKg: number,
+    dynamic: boolean,
+  ) => {
+    const center = toPhysicsCenter(container, item);
+    const desc = dynamic ? RAPIER.RigidBodyDesc.dynamic() : RAPIER.RigidBodyDesc.fixed();
+    const body = world.createRigidBody(desc.setTranslation(center.x, center.y, center.z).setCanSleep(true).setCcdEnabled(false));
+    const collider = world.createCollider(colliderDescFor(item, weightKg, dynamic), body);
+    return { body, collider, center, massKg: Math.max(0.01, weightKg), dynamic };
+  };
+
+  const cargoSupportIndex = placements.map(item => supportingIndexForPlacement(item, supports));
+  const unitLoad = supports.length > 0 && cargoHeldAsUnitLoad(scenario, cargoRestraint);
+
   const supportBodies = supports.map((item, index) => ({
-    ...createBody(item, item.weightKg, item.dynamic !== false, supportRetentionRatio),
+    ...createBody(item, item.weightKg, item.dynamic !== false),
+    retentionRatio: supportRetentionRatio,
     parentSupportIndex: supportingIndexForSupport(index, supports),
   }));
-  const cargoBodies = placements.map(item => ({
-    ...createBody(item, item.weightKg, true, cargoRetentionRatio),
-    supportIndex: supportingIndexForPlacement(item, supports),
-  }));
-  const dynamicBodies = [...cargoBodies, ...supportBodies].filter(entry => entry.dynamic);
+  const cargoBodies = placements.map((item, index) => {
+    const supportIndex = cargoSupportIndex[index];
+    const unit = unitLoad && supportIndex >= 0 ? supportBodies[supportIndex] : undefined;
+    if (unit) {
+      // Banded carton: an extra collider on its pallet's rigid body. The unit's mass, centre
+      // of gravity and inertia come from all of its colliders, so it slides/tips as a whole.
+      const center = toPhysicsCenter(container, item);
+      const collider = world.createCollider(
+        colliderDescFor(item, item.weightKg, unit.dynamic)
+          .setTranslation(center.x - unit.center.x, center.y - unit.center.y, center.z - unit.center.z),
+        unit.body,
+      );
+      if (unit.dynamic) unit.massKg += Math.max(0.01, item.weightKg);
+      return { body: unit.body, collider, center, massKg: Math.max(0.01, item.weightKg), dynamic: false, unitized: true, retentionRatio: cargoRetentionRatio, supportIndex };
+    }
+    return { ...createBody(item, item.weightKg, true), unitized: false, retentionRatio: cargoRetentionRatio, supportIndex };
+  });
+  const cargoPoses = cargoBodies.map(entry => ({ pose: entry.collider as PoseSource }));
+  const supportPoses = supportBodies.map(entry => ({ pose: entry.collider as PoseSource }));
+  const dynamicBodies = [
+    ...cargoBodies.filter(entry => entry.dynamic && !entry.unitized).map(entry => ({ ...entry, role: 'cargo' as const })),
+    ...supportBodies.filter(entry => entry.dynamic).map(entry => ({ ...entry, role: 'support' as const })),
+  ];
   const cargoAnchorOffsets = cargoBodies.map(entry => {
     const support = entry.supportIndex >= 0 ? supportBodies[entry.supportIndex] : undefined;
     return support ? { x: entry.center.x - support.center.x, z: entry.center.z - support.center.z } : { x: 0, z: 0 };
@@ -242,9 +304,9 @@ export async function runInertiaAnimation(
 
   const sample = (step: number, saveFrame: boolean) => {
     supportBodies.forEach((entry, index) => {
-      const p = entry.body.translation();
+      const p = entry.collider.translation();
       const parent = entry.parentSupportIndex >= 0 ? supportBodies[entry.parentSupportIndex] : undefined;
-      const parentPosition = parent?.body.translation();
+      const parentPosition = parent?.collider.translation();
       const offset = supportAnchorOffsets[index];
       const target = parentPosition
         ? { x: parentPosition.x + offset.x, z: parentPosition.z + offset.z }
@@ -252,12 +314,12 @@ export async function runInertiaAnimation(
       maxSupportShiftM = Math.max(maxSupportShiftM, Math.hypot(p.x - target.x, p.z - target.z));
     });
     cargoBodies.forEach((entry, index) => {
-      const p = entry.body.translation();
-      const q = entry.body.rotation();
+      const p = entry.collider.translation();
+      const q = entry.collider.rotation();
       maxHorizontalShiftM = Math.max(maxHorizontalShiftM, Math.hypot(p.x - entry.center.x, p.z - entry.center.z));
       maxTiltDeg = Math.max(maxTiltDeg, tiltFromQuaternion(q));
       const support = entry.supportIndex >= 0 ? supportBodies[entry.supportIndex] : undefined;
-      const supportPosition = support?.body.translation();
+      const supportPosition = support?.collider.translation();
       const offset = cargoAnchorOffsets[index];
       const target = supportPosition
         ? { x: supportPosition.x + offset.x, z: supportPosition.z + offset.z }
@@ -265,7 +327,7 @@ export async function runInertiaAnimation(
       maxCargoRelativeSlipM = Math.max(maxCargoRelativeSlipM, Math.hypot(p.x - target.x, p.z - target.z));
     });
     if (captureFrames && saveFrame) {
-      frames.push({ cargo: packTransforms(cargoBodies), supports: packTransforms(supportBodies), phase: phaseForStep(step, totalSteps), step });
+      frames.push({ cargo: packTransforms(cargoPoses), supports: packTransforms(supportPoses), phase: phaseForStep(step, totalSteps), step });
     }
   };
 
@@ -278,8 +340,7 @@ export async function runInertiaAnimation(
       dynamicBodies.forEach(entry => {
         entry.body.resetForces(false);
         if (accel.x || accel.z) {
-          const hasCargoMarker = 'supportIndex' in entry;
-          const usingPhysicalRestraint = hasCargoMarker ? Boolean(cargoRestraint) : Boolean(supportRestraint);
+          const usingPhysicalRestraint = entry.role === 'cargo' ? Boolean(cargoRestraint) : Boolean(supportRestraint);
           const transmittedRatio = usingPhysicalRestraint ? 1 : 1 - entry.retentionRatio;
           entry.body.addForce({ x: accel.x * entry.massKg * transmittedRatio, y: 0, z: accel.z * entry.massKg * transmittedRatio }, true);
         }
@@ -303,13 +364,22 @@ export async function runInertiaAnimation(
         });
       }
 
+      if (cargoRestraint && (accel.x || accel.z) && unitLoad) {
+        // The straps carry each unitized carton's inertial load; report that demand.
+        const demandAcceleration = Math.hypot(accel.x, accel.z);
+        cargoBodies.forEach(entry => {
+          if (entry.unitized) maxCargoRestraintForceN = Math.max(maxCargoRestraintForceN, entry.massKg * demandAcceleration);
+        });
+      }
+
       if (cargoRestraint) {
         cargoBodies.forEach((entry, index) => {
+          if (entry.unitized) return;
           const p = entry.body.translation();
           const v = entry.body.linvel();
           const support = entry.supportIndex >= 0 ? supportBodies[entry.supportIndex] : undefined;
           const offset = cargoAnchorOffsets[index];
-          const supportPosition = support?.body.translation();
+          const supportPosition = support?.collider.translation();
           const supportVelocity = support?.body.linvel();
           const target = supportPosition
             ? { x: supportPosition.x + offset.x, z: supportPosition.z + offset.z }
@@ -352,6 +422,9 @@ export async function runInertiaAnimation(
       maxSupportShiftM,
       maxCargoRestraintForceN,
       maxSupportRestraintForceN,
+      restraintMode: unitLoad ? 'unit-load' : 'per-carton',
+      scenarioDemandG: scenarioDemandG(scenario),
+      cargoRestraintCapacityG: cargoRestraint ? Math.max(0, cargoRestraint.maxAccelerationG) : 0,
     };
   } finally {
     world.free();

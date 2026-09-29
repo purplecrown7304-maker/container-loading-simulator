@@ -930,6 +930,88 @@ export function applyTopLayerFillPolicy(input: PalletPackingResult, cargo: Cargo
   return result;
 }
 
+const sameValue = (a: number, b: number) => Math.abs(a - b) <= 1e-6;
+
+/**
+ * Field practice for a weight-limited top tier: keep the tier's outer ring complete so straps and
+ * corner boards bear on cartons, and leave the unavoidable holes in the middle, in point-symmetric
+ * pairs so the pallet's centre of gravity stays centred. Only uniform tiers that sit exactly on a
+ * lower tier of the same carton footprint are rearranged; the carton set, counts and every
+ * support/stacking/top-load check are unchanged or re-verified, otherwise the pallet is left as is.
+ */
+export function placeTopTierHolesInside(load: PalletLoad, cargoMap: Map<string, CargoItem>): PalletLoad {
+  const placements = load.cargoPlacements;
+  if (placements.length < 2) return load;
+  const topZ = Math.max(...placements.map(p => p.z));
+  const tier = placements.filter(p => sameValue(p.z, topZ));
+  const first = tier[0];
+  if (!tier.every(p => sameValue(p.length, first.length) && sameValue(p.width, first.width) && sameValue(p.height, first.height))) return load;
+  const below = placements.filter(p => sameValue(p.z + p.height, topZ));
+  const slots = below.filter(p => sameValue(p.length, first.length) && sameValue(p.width, first.width));
+  if (slots.length <= tier.length || slots.length !== below.length) return load;
+  const key = (p: Pick<Placement, 'x' | 'y'>) => `${p.x.toFixed(6)}:${p.y.toFixed(6)}`;
+  const slotKeys = new Set(slots.map(key));
+  if (!tier.every(p => slotKeys.has(key(p)))) return load;
+
+  const minX = Math.min(...slots.map(p => p.x));
+  const maxX = Math.max(...slots.map(p => p.x + p.length));
+  const minY = Math.min(...slots.map(p => p.y));
+  const maxY = Math.max(...slots.map(p => p.y + p.width));
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const center = (p: Placement) => ({ x: p.x + p.length / 2, y: p.y + p.width / 2 });
+  const ranked = [...slots].sort((a, b) => {
+    const ca = center(a), cb = center(b);
+    return Math.hypot(ca.x - cx, ca.y - cy) - Math.hypot(cb.x - cx, cb.y - cy) || a.x - b.x || a.y - b.y;
+  });
+  const holeCount = slots.length - tier.length;
+  const holes = new Set<string>();
+  for (const slot of ranked) {
+    if (holes.size >= holeCount) break;
+    if (holes.has(key(slot))) continue;
+    holes.add(key(slot));
+    if (holes.size >= holeCount) break;
+    const c = center(slot);
+    const mirror = slots.find(q => {
+      const m = center(q);
+      return sameValue(m.x, 2 * cx - c.x) && sameValue(m.y, 2 * cy - c.y);
+    });
+    if (mirror && !holes.has(key(mirror))) holes.add(key(mirror));
+  }
+  const target = slots.filter(slot => !holes.has(key(slot)));
+  const targetKeys = new Set(target.map(key));
+  const staying = tier.filter(p => targetKeys.has(key(p)));
+  if (staying.length === tier.length) return load;
+  const stayingKeys = new Set(staying.map(key));
+  const freeSlots = target.filter(slot => !stayingKeys.has(key(slot)));
+  const moving = tier.filter(p => !targetKeys.has(key(p)));
+  const moved = new Map<Placement, Placement>();
+  moving.forEach((p, index) => moved.set(p, { ...p, x: freeSlots[index].x, y: freeSlots[index].y }));
+  const next = placements.map(p => moved.get(p) ?? p);
+
+  for (const placement of moved.values()) {
+    const item = cargoMap.get(placement.cargoId);
+    const others = next.filter(p => p !== placement);
+    const base = { x: load.x, y: load.y, z: load.z + load.height, length: load.length, width: load.width };
+    if (!item || !hasAdequateSupport(placement, others, base) || !canPlaceByStackingRules(item, placement, others, cargoMap)) return load;
+  }
+  return { ...load, cargoPlacements: next };
+}
+
+/** Applies {@link placeTopTierHolesInside} and keeps any stacked pallet on it supported. */
+export function placeTopTierHolesInsideAll(pallets: PalletLoad[], cargoMap: Map<string, CargoItem>, pallet: PalletSpec) {
+  return pallets.map(load => {
+    const next = placeTopTierHolesInside(load, cargoMap);
+    if (next === load) return load;
+    const above = pallets.filter(other => other !== load && other.stackColumn === load.stackColumn && other.stackLevel > load.stackLevel);
+    if (above.length) {
+      const aboveWeight = above.reduce((sum, other) => sum + other.totalWeightKg, 0);
+      if (!hasPalletFootprintSupport(next, pallet) || !canSupportUpper(next, aboveWeight, cargoMap, pallet)) return load;
+    }
+    return { ...next, centerOfGravity: palletCog(next, pallet) };
+  });
+}
+
 function finishPalletPacking(pallets: PalletLoad[], remaining: Map<string, number>, consolidated: number, cargoMap: Map<string, CargoItem>, container: ContainerSpec, pallet: PalletSpec, strategy: Strategy): PalletPackingResult {
   const positions = palletPositions(container, pallet);
   const unplaced = arrangePalletStacks(pallets, positions, container, pallet, cargoMap, strategy);
