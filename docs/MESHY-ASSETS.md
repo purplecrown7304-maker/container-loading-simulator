@@ -1,5 +1,42 @@
 # Meshy logistics assets
 
+## Pallet replacement — 2026-09-29
+
+The wood and plastic pallet source assets were regenerated with Meshy 7.1 in
+https://www.meshy.ai/ko/agent/4RMArYCNcRfXhMqXMBIWH.
+Two reference images (18 credits) and two textured models (60 credits) used the
+owner-approved total of 78 existing credits. Both remeshing passes were free.
+The 3,000-triangle targets lost deck/opening detail; the selected 10,000-triangle
+targets produced **8,671 wood** and **10,105 plastic** triangles. These remain
+illustrative skins: deck grids and fork openings are approximate, not CAD.
+
+The saved pallet specification now carries visual material metadata. Main,
+detail and restored inertia views use `wood-pallet` or `plastic-pallet` from that
+saved specification; legacy specifications default to wood. Packing dimensions,
+weights, collisions and Rapier poses are unchanged.
+
+Only the two pallet entries and assets are replaced. Their source hashes, dates
+and generation project are recorded per model in `meshy-models.json`; the
+top-level project/date/credits describe the original eight-asset batch below.
+
+```powershell
+python scripts/prepare-meshy.py --input <downloaded-web-GLB-folder> --keys wood-pallet plastic-pallet --project-url https://www.meshy.ai/ko/agent/4RMArYCNcRfXhMqXMBIWH --date 2026-09-29
+powershell -File scripts/build-unity.ps1
+```
+
+Inputs must be named `04-wood-pallet-web.glb` and `05-plastic-pallet-web.glb`.
+The import retains UVs and normalizes each model to centered unit bounds, with
+1024px base-color textures. Existing Unity `.meta` GUIDs are retained.
+
+**Build status:** source assets are updated, but the committed
+`public/unity-viewer` still contains the previous baked models. The editing host
+has no Unity Editor 6000.6.2f1. Before merging, rebuild using that Editor with
+WebGL Build Support, commit the generated player, and verify both materials in
+the desktop/mobile loading, detail and inertia views. A Vite build alone does
+not rebuild Unity models.
+
+## Original asset batch
+
 Eight logistics assets were generated with Meshy 7.1 on 2026-09-22 and remeshed by Meshy for WebGL. Generation used 312 of the authorized 600 existing credits; remeshing cost 0 credits. No purchase or subscription change.
 
 Project: https://www.meshy.ai/ko/agent/Tsl1JIvwlAmalMl-F4NJe

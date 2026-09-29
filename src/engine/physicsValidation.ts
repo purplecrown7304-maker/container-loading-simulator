@@ -13,6 +13,8 @@ export type PhysicsSeverity = 'stable' | 'warning' | 'unstable';
 export type PhysicsScenario = 'settle' | 'acceleration' | 'braking' | 'cornering';
 
 export type PhysicsSupport = {
+  /** Optional renderer skin. Rapier still uses the dimensions below. */
+  modelKey?: 'wood-pallet' | 'plastic-pallet';
   id: string;
   x: number;
   y: number;

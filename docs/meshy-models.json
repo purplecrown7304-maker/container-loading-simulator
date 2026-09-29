@@ -77,9 +77,9 @@
     {
       "key": "wood-pallet",
       "source": "web/04-wood-pallet-web.glb",
-      "sourceSha256": "9d4dcd64db5d584167e131082fc877109ebd966e03df491da0d80466048597d1",
-      "remeshedTriangles": 1203,
-      "triangles": 1203,
+      "sourceSha256": "f6e23f7906a600206d8d691b0be02adb664421f4e62b677bc7d39c17536e1219",
+      "remeshedTriangles": 8671,
+      "triangles": 8671,
       "bounds": [
         [
           -0.5,
@@ -95,30 +95,34 @@
       "texture": [
         1024,
         1024
-      ]
+      ],
+      "projectUrl": "https://www.meshy.ai/ko/agent/4RMArYCNcRfXhMqXMBIWH",
+      "date": "2026-09-29"
     },
     {
       "key": "plastic-pallet",
       "source": "web/05-plastic-pallet-web.glb",
-      "sourceSha256": "8bfc83b9604ab81770b154f311d91529535ec02c909bfa9544374abe8e75f0a6",
-      "remeshedTriangles": 1392,
-      "triangles": 1392,
+      "sourceSha256": "efb93c569ad3386d236f6a2f2f4e7c20065734ee3eedc319031da055cef13f29",
+      "remeshedTriangles": 10105,
+      "triangles": 10105,
       "bounds": [
         [
+          -0.49999999999999994,
           -0.5,
-          -0.5,
-          -0.5
+          -0.49999999999999994
         ],
         [
+          0.49999999999999994,
           0.5,
-          0.5,
-          0.5
+          0.49999999999999994
         ]
       ],
       "texture": [
         1024,
         1024
-      ]
+      ],
+      "projectUrl": "https://www.meshy.ai/ko/agent/4RMArYCNcRfXhMqXMBIWH",
+      "date": "2026-09-29"
     },
     {
       "key": "corner-guard",
