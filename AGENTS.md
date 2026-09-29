@@ -74,6 +74,7 @@ Objectives are lexicographic. A lower item may not be improved at the expense of
 - Respect `allowRotation`; never invent an orientation that the cargo input disallows.
 - Cargo may additionally declare `allowedOrientations`, `thisSideUp`, `fragile`, `noStackAbove`, and `segregationGroup`. Missing attributes preserve legacy behavior.
 - Avoid isolated center boxes, L-shaped fragmentation, unsupported bridging, wall penetration, and unnecessary holes when a compact rectangular alternative exists.
+- Field practice for every strategy: when a load has three or more tiers and its top tier holds at most 25% of the fullest tier, lift that tier and re-insert it below its base under the same hard checks. Cartons with no lower gap go into any remaining safe space (lowest first); this rule never drops cargo (대표 지시 2026-09-29, #86).
 
 ## 6. Maximal Empty Space rules
 - Empty spaces are three-dimensional rectangular regions derived from the container and accepted occupied blocks.
