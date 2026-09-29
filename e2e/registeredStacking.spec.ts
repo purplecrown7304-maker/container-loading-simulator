@@ -82,9 +82,15 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ }).click();
   await expect(page.getByRole('heading', { name: '결과 확인' })).toBeVisible();
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestResult.result.placements.length)).toBe(loaded.count);
-  const reportPromise = page.waitForEvent('popup');
-  await page.getByRole('button', { name: /통합 출하·적재 작업지시서 보기/ }).click();
-  const report = await reportPromise;
+  const reportButton = page.getByRole('button', { name: /통합 출하·적재 작업지시서 보기/ });
+  await reportButton.scrollIntoViewIfNeeded();
+  await expect(reportButton).toBeEnabled();
+  // The 1,562-box scene can delay input/report creation on software-rendered CI.
+  // Start the popup budget after preparing the button; still require the real report.
+  const [report] = await Promise.all([
+    page.waitForEvent('popup', { timeout: 60_000 }),
+    reportButton.click(),
+  ]);
   await expect(report.getByRole('heading', { name: /통합 출하·적재 작업지시서/ })).toBeVisible();
   await expect(report.locator('.summary')).toContainText(`${loaded.count} EA`);
   console.log('bulk work order opened with matching loaded quantity');
