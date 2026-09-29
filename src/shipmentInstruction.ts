@@ -1,3 +1,4 @@
+import { cargoColor } from './cargoColors';
 import { reportTable } from './reportLayout';
 import { requiresBoxPackaging, type CompanyProductItem } from './companyProduct';
 import type { ProductPackagingAssignment } from './engine/productPackagingOptimizer';
@@ -180,59 +181,25 @@ export function buildShipmentInstructionSection(cargo: CargoItem[], result: Resu
   const snapshot = readShipmentInstructionSnapshot(cargo);
   const loaded = loadedCounts(result.placements);
   const remaining = remainingCounts(result.remaining);
-  const generatedAt = new Date();
-
-  if (snapshot) {
-    const totalProducts = snapshot.lines.reduce((sum, item) => sum + item.productQuantity, 0);
-    const boxCount = snapshot.lines.filter(item => item.packagingMode === 'box').reduce((sum, item) => sum + item.boxesNeeded, 0);
-    const directCount = snapshot.lines.filter(item => item.packagingMode === 'direct').reduce((sum, item) => sum + item.boxesNeeded, 0);
-    const loadedUnits = snapshot.lines.reduce((sum, item) => sum + familyCount(loaded, item.cargoId), 0);
-    const rows = snapshot.lines.map(item => {
-      const loadedCount = familyCount(loaded, item.cargoId);
-      const familyRemaining = familyCount(remaining, item.cargoId);
-      const remainingCount = familyRemaining || Math.max(0, item.boxesNeeded - loadedCount);
-      const estimatedLoadedProducts = loadedProductCount(item, loaded);
-      const complete = remainingCount === 0 && loadedCount >= item.boxesNeeded;
-      const unit = item.packagingMode === 'box' ? 'BOX' : 'EA';
-      const packingText = item.packagingMode === 'box' ? item.boxName : '직접 적재';
-      const intakeText = item.packagingMode === 'box' ? `${item.unitsPerBox} EA/BOX` : '1 EA/적재단위';
-      const contentWeight = item.contentWeightKg ?? item.grossWeightKg;
-      const weightText = item.packagingMode === 'box'
-        ? item.partialUnits
-          ? `제품 ${contentWeight.toFixed(1)}kg/BOX · 잔량 ${item.partialContentWeightKg?.toFixed(1)}kg`
-          : `제품 ${contentWeight.toFixed(1)}kg/BOX`
-        : `${contentWeight.toFixed(1)}kg/EA`;
-      return `<tr>
-        <td><b>${escapeHtml(item.productId)}</b><small>${escapeHtml(item.productName)}</small></td>
-        <td><b>${item.productQuantity} EA</b><small>적재 환산 ${estimatedLoadedProducts} EA</small></td>
-        <td class="${item.packagingMode === 'direct' ? 'shipment-direct' : ''}"><b>${escapeHtml(packingText)}</b><small>${Math.round(item.outerLength * 1000)}×${Math.round(item.outerWidth * 1000)}×${Math.round(item.outerHeight * 1000)}mm</small></td>
-        <td><b>${intakeText}</b><small>${weightText}</small></td>
-        <td><b>${item.boxesNeeded} ${unit}</b></td>
-        <td><b>${loadedCount} ${unit}</b><small>미적재 ${remainingCount}</small></td>
-        <td class="${complete ? 'shipment-ok' : 'shipment-warn'}">${complete ? '출하 준비' : '미적재 확인'}</td>
-        <td class="shipment-check">□</td>
-      </tr>`;
-    }).join('');
-
-    return `<section class="shipment-block">
-      <div class="shipment-head"><h3>출하 지시</h3><span>출하지시번호 ${escapeHtml(snapshot.shipmentNo)}</span></div>
-      <div class="shipment-manual"><div><span>거래처</span><b>________________</b></div><div><span>목적지</span><b>________________</b></div><div><span>차량/컨테이너 No.</span><b>________________</b></div><div><span>출고 예정</span><b>________________</b></div></div>
-      <div class="shipment-meta"><div><span>제품 종류</span><b>${snapshot.lines.length} 종</b></div><div><span>제품 출하수량</span><b>${totalProducts} EA</b></div><div><span>포장/직접 적재</span><b>${boxCount} BOX · ${directCount} EA</b></div><div><span>현재 적재단위</span><b>${loadedUnits} 개</b></div></div>
-      ${reportTable('출하 수량 대조표', `<table class="shipment-table"><thead><tr><th scope="col">제품</th><th scope="col">출하수량</th><th scope="col">포장/적재 방식</th><th scope="col">입수/제품중량</th><th scope="col">필요단위</th><th scope="col">적재결과</th><th scope="col">상태</th><th scope="col">확인</th></tr></thead><tbody>${rows}</tbody></table>`)}
-    </section>`;
-  }
-
-  const rows = cargo.map(item => {
-    const loadedCount = loaded.get(item.id) ?? 0;
-    const remainingCount = remaining.get(item.id) ?? Math.max(0, item.quantity - loadedCount);
-    const complete = remainingCount === 0 && loadedCount >= item.quantity;
-    return `<tr><td><b>${escapeHtml(item.id)}</b><small>${escapeHtml(item.name)}</small></td><td><b>${item.quantity} EA</b></td><td colspan="2"><small>${Math.round(item.length * 1000)}×${Math.round(item.width * 1000)}×${Math.round(item.height * 1000)}mm · ${item.weightKg}kg</small></td><td><b>${item.quantity} EA</b></td><td><b>${loadedCount} EA</b><small>미적재 ${remainingCount}</small></td><td class="${complete ? 'shipment-ok' : 'shipment-warn'}">${complete ? '출하 준비' : '미적재 확인'}</td><td class="shipment-check">□</td></tr>`;
+  const specs = new Map<string, number>();
+  const specCode = (l: number, w: number, h: number) => {
+    const size = `${Math.round(l * 1000)} × ${Math.round(w * 1000)} × ${Math.round(h * 1000)} mm`;
+    if (!specs.has(size)) specs.set(size, specs.size + 1);
+    return `S${specs.get(size)}`;
+  };
+  const rows = snapshot ? snapshot.lines.map(item => {
+    const loadedCount = familyCount(loaded, item.cargoId);
+    const remainingCount = familyCount(remaining, item.cargoId) || Math.max(0, item.boxesNeeded - loadedCount);
+    const actual = cargo.find(c => c.id === item.cargoId) ?? cargo.find(c => c.id === `${item.cargoId}-PARTIAL`);
+    const color = cargoColor(item.cargoId, actual?.displayColor);
+    const code = specCode(item.outerLength, item.outerWidth, item.outerHeight);
+    const unit = item.packagingMode === 'box' ? 'BOX' : 'EA';
+    return `<tr><td><b><i class="cargo-swatch" style="background:${color}"></i>${escapeHtml(item.productId)}</b><small>${escapeHtml(item.productName)}</small></td><td><b>${item.productQuantity} EA</b><small>적재 환산 ${loadedProductCount(item, loaded)} EA</small></td><td>${code}<small>${item.packagingMode === 'box' ? `${item.unitsPerBox} EA/BOX` : '직접 적재'}${item.partialUnits ? ` · 잔량 ${item.partialUnits} EA` : ''}</small></td><td><b>${item.boxesNeeded} ${unit}</b></td><td><b>${loadedCount} ${unit}</b><small class="${remainingCount ? 'shipment-warn' : 'shipment-ok'}">${remainingCount ? `미적재 ${remainingCount}` : '출하 준비'}</small></td><td class="check">□</td></tr>`;
+  }).join('') : cargo.map(item => {
+    const count = loaded.get(item.id) ?? 0;
+    const waiting = remaining.get(item.id) ?? Math.max(0, item.quantity - count);
+    const code = specCode(item.length, item.width, item.height);
+    return `<tr><td><b>${escapeHtml(item.id)}</b><small>${escapeHtml(item.name)}</small></td><td>${item.quantity} EA</td><td>${code}<small>${item.weightKg} kg</small></td><td>${item.quantity} EA</td><td><b>${count} EA</b><small>미적재 ${waiting}</small></td><td class="check">□</td></tr>`;
   }).join('');
-
-  return `<section class="shipment-block">
-    <div class="shipment-head"><h3>출하 지시</h3><span>${generatedAt.toLocaleString('ko-KR')} · 일반 화물 기준</span></div>
-    <div class="shipment-manual"><div><span>거래처</span><b>________________</b></div><div><span>목적지</span><b>________________</b></div><div><span>차량/컨테이너 No.</span><b>________________</b></div><div><span>출고 예정</span><b>________________</b></div></div>
-    <div class="shipment-fallback">제품 흐름에서 생성된 출하정보가 없어 현재 적재 화물 기준으로 출하지시를 표시합니다.</div>
-    ${reportTable('출하 수량 대조표', `<table class="shipment-table"><thead><tr><th scope="col">화물</th><th scope="col">출하수량</th><th scope="col" colspan="2">규격/중량</th><th scope="col">지시수량</th><th scope="col">적재결과</th><th scope="col">상태</th><th scope="col">확인</th></tr></thead><tbody>${rows}</tbody></table>`)}
-  </section>`;
+  return `<section class="shipment-block"><div class="shipment-head"><h3>출하 지시 · 수량 대조</h3><span>${snapshot ? `출하지시번호 ${escapeHtml(snapshot.shipmentNo)}` : '일반 화물 기준'}</span></div>${!snapshot ? '<p class="shipment-fallback">제품 흐름에서 생성된 출하정보가 없어 현재 화물 기준으로 표시합니다.</p>' : ''}${reportTable('출하 수량 대조표', `<table class="shipment-table"><colgroup><col style="width:24%"><col style="width:22%"><col style="width:20%"><col style="width:14%"><col style="width:14%"><col style="width:6%"></colgroup><thead><tr><th>품목</th><th>제품 출하수량</th><th>규격 / 입수</th><th>필요단위</th><th>적재결과</th><th>확인</th></tr></thead><tbody>${rows}</tbody></table>`)}<div class="shipment-specs"><b>박스/화물 규격 · 길이 × 폭 × 높이</b>${[...specs].map(([size, number]) => `<span>S${number} · ${size}</span>`).join('')}</div></section>`;
 }
