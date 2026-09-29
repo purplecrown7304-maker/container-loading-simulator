@@ -1,6 +1,6 @@
 import UnityLoadingViewer from './UnityLoadingViewer';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { cargoColor } from './cargoColors';
 import { centerPalletCargo } from './engine/palletCentering';
 import { validatePlacements } from './engine/constraints';
@@ -9,6 +9,8 @@ import { packMixedMode, type MixedModePackingResult } from './engine/mixedModePa
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
 import { clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
+import { palletSpecForType } from './engine/palletCatalog';
+import { resolvePalletType, subscribePalletTypeSelection } from './palletTypeSelection';
 
 type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number; mode?: 'pallets' | 'mixed' };
 type PalletSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult };
@@ -111,8 +113,8 @@ function PalletContents({ pallet, cargo, onClose }: { pallet: PalletLoad; cargo:
 }
 
 export default function PalletModePanel({ container, cargo, runToken, mode = 'pallets' }: Props) {
-  const [spec, setSpec] = useState<PalletSpec>(defaultPalletSpec);
-  const [result, setResult] = useState<OptimizedPalletPackingResult | MixedModePackingResult>(() => packForMode(container, cargo.filter((item) => item.quantity > 0), defaultPalletSpec, mode));
+  const [spec, setSpec] = useState<PalletSpec>(() => palletSpecForType(resolvePalletType(), defaultPalletSpec));
+  const [result, setResult] = useState<OptimizedPalletPackingResult | MixedModePackingResult>(() => packForMode(container, cargo.filter((item) => item.quantity > 0), palletSpecForType(resolvePalletType(), defaultPalletSpec), mode));
   const [opened, setOpened] = useState<PalletLoad | null>(null);
   const [certification, setCertification] = useState<InertiaCertification | null>(() => {
     const latest = readLatestInertiaCertification();
@@ -139,6 +141,24 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
     };
     window.addEventListener(PALLET_SPEC_FROM_RESULTS_EVENT, onSpecFromResults);
     return () => window.removeEventListener(PALLET_SPEC_FROM_RESULTS_EVENT, onSpecFromResults);
+  }, [container, cargo, mode]);
+
+  const specRef = useRef(spec);
+  specRef.current = spec;
+
+  // Follow the pallet product chosen (or recommended) in the loading-method step.
+  useEffect(() => {
+    let currentId = resolvePalletType().id;
+    return subscribePalletTypeSelection(() => {
+      const type = resolvePalletType();
+      if (type.id === currentId) return;
+      currentId = type.id;
+      const next = sanitizeSpec(palletSpecForType(type, specRef.current));
+      setSpec(next);
+      setResult(packForMode(container, cargo.filter((item) => item.quantity > 0), next, mode));
+      setOpened(null);
+      setCertification(null);
+    });
   }, [container, cargo, mode]);
 
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import GuidedPalletTypePicker from './GuidedPalletTypePicker';
 import { readPalletSnapshot, publishPalletSnapshot } from './palletSnapshotStore';
 import { useGuidedWorkflowState } from './guidedWorkflowState';
 import {
@@ -81,6 +82,7 @@ export default function GuidedLoadingUnitEnhancer() {
             <i>{unit === 'pallets' ? '✓' : '▤'}</i><span><b>파렛트 적재</b><small>포장된 박스를 파렛트에 구성한 뒤 파렛트 단위로 최적 배치합니다.</small></span>
           </button>
         </div>
+        {unit === 'pallets' && <GuidedPalletTypePicker />}
         <div className="guided-loading-unit-divider"><span>2. 적재 전략</span></div>
       </div>
     </section>,
