@@ -34,7 +34,7 @@
 - 전체 가이드 shell 비율, 모바일 6단계 rail, 키보드 focus, 하단 CTA, 제품 검색 결과 스크롤/고정 헤더: `guided-workflow-v2.css`
 - 적재 전략 카드/전략 반응형/모션 감소: `guided-loading-strategy.css`
 - 박스·파렛트 적재 유형 카드/자동 적재 실행 설정 확인: `guided-loading-unit.css`
-- 파렛트 종류 비교표(재질별 열 · 이름/규격/자체중량/동하중/정하중 행)와 추천 표시: `guided-loading-unit.css`
+- 파렛트 종류 비교표(재질별 행 묶음 · 이름/규격/자체중량/동하중/정하중/예상 결과 열)와 추천 표시: `guided-loading-unit.css`
 - 파렛트 종류 선택 상태의 원본: `palletTypeSelection.ts` (목록 `engine/palletCatalog.ts`, 추천 `engine/palletRecommendation.ts`)
 - 적재 유형의 실제 상태 원본: `guidedLoadingUnitState.ts`
 - 결과 탭, 핵심 결과 지표, 미적재 목록 스크롤, 결과 반응형: `guided-result-tabs-enhancer.css`

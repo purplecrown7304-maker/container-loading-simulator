@@ -18,7 +18,6 @@ import {
 let inFlight: string | null = null;
 // Columns grouped by material: wood first, then plastic.
 const groups = (['wood', 'plastic'] as const).map(material => ({ material, types: PALLET_CATALOG.filter(type => type.material === material) }));
-const columns = groups.flatMap(group => group.types);
 const kg = (value: number) => Math.round(value).toLocaleString();
 
 function signatureOf(state: StoredState | null, strategy: string) {
@@ -35,7 +34,7 @@ function outcome(evaluation: PalletTypeEvaluation | undefined) {
   const left = evaluation.requestedUnits - evaluation.loadedUnits;
   return (
     <small className={left > 0 ? 'warn' : ''}>
-      {evaluation.palletCount}장 · {evaluation.maxTiers}단<br />{left > 0 ? `${left.toLocaleString()}개 미적재` : '전량 적재'}
+      {evaluation.palletCount}장 · {evaluation.maxTiers}단 · {left > 0 ? `${left.toLocaleString()}개 미적재` : '전량 적재'}
     </small>
   );
 }
@@ -79,12 +78,12 @@ export default function GuidedPalletTypePicker() {
   const active = resolvePalletType(selection);
   const auto = selection.selected === AUTO_PALLET_TYPE;
   const running = selection.status === 'running' && selection.signature === signature;
-  const cellClass = (id: string) => [active.id === id ? 'selected' : '', id === selection.recommendedId ? 'recommended' : ''].join(' ').trim();
-  const rows: Array<{ label: string; value: (type: PalletType) => ReactNode }> = [
-    { label: '규격', value: type => <>{Math.round(type.length * 1000)}×{Math.round(type.width * 1000)}<br />높이 {Math.round(type.height * 1000)} mm</> },
-    { label: '자체중량', value: type => `${type.tareWeightKg.toLocaleString()} kg` },
-    { label: '동하중', value: type => `${kg(type.maxLoadKg)} kg` },
-    { label: '정하중', value: type => type.staticLoadKg !== null ? `${kg(type.staticLoadKg)} kg` : '—' },
+  const rowClass = (id: string) => [active.id === id ? 'selected' : '', id === selection.recommendedId ? 'recommended' : ''].join(' ').trim();
+  const fields: Array<{ label: string; numeric?: boolean; value: (type: PalletType) => ReactNode }> = [
+    { label: '규격 (L×W×T mm)', numeric: true, value: type => `${Math.round(type.length * 1000)}×${Math.round(type.width * 1000)}×${Math.round(type.height * 1000)}` },
+    { label: '자체중량', numeric: true, value: type => `${type.tareWeightKg.toLocaleString()} kg` },
+    { label: '동하중', numeric: true, value: type => `${kg(type.maxLoadKg)} kg` },
+    { label: '정하중', numeric: true, value: type => type.staticLoadKg !== null ? `${kg(type.staticLoadKg)} kg` : '—' },
     { label: '예상 결과', value: type => outcome(byId.get(type.id)) },
   ];
 
@@ -107,35 +106,31 @@ export default function GuidedPalletTypePicker() {
         <table className="guided-pallet-type-table" aria-label="파렛트 종류 비교">
           <thead>
             <tr>
-              <th scope="col" className="row-head">재질</th>
-              {groups.map(group => (
-                <th key={group.material} scope="colgroup" colSpan={group.types.length} className={`material ${group.material}`}>
-                  {palletMaterialLabel(group.material)}
-                </th>
-              ))}
+              <th scope="col" className="material-head">재질</th>
+              <th scope="col">이름</th>
+              {fields.map(field => <th key={field.label} scope="col" className={field.numeric ? 'num' : ''}>{field.label}</th>)}
             </tr>
           </thead>
-          <tbody role="radiogroup" aria-label="파렛트 종류">
-            <tr>
-              <th scope="row" className="row-head">이름</th>
-              {columns.map(type => (
-                <td key={type.id} className={cellClass(type.id)}>
-                  <button type="button" role="radio" aria-checked={active.id === type.id} onClick={() => choosePalletType(type.id)}>
-                    <b>{type.name}</b>
-                    {type.id === selection.recommendedId && <em>추천</em>}
-                  </button>
-                </td>
+          {groups.map(group => (
+            <tbody key={group.material} role="radiogroup" aria-label={`${palletMaterialLabel(group.material)} 파렛트`}>
+              {group.types.map((type, index) => (
+                <tr key={type.id} className={rowClass(type.id)} onClick={() => choosePalletType(type.id)}>
+                  {index === 0 && (
+                    <th scope="rowgroup" rowSpan={group.types.length} className={`material-head ${group.material}`}>
+                      {palletMaterialLabel(group.material)}
+                    </th>
+                  )}
+                  <td className="name">
+                    <button type="button" role="radio" aria-checked={active.id === type.id} onClick={event => { event.stopPropagation(); choosePalletType(type.id); }}>
+                      <b>{type.name}</b>
+                      {type.id === selection.recommendedId && <em>추천</em>}
+                    </button>
+                  </td>
+                  {fields.map(field => <td key={field.label} className={field.numeric ? 'num' : ''}>{field.value(type)}</td>)}
+                </tr>
               ))}
-            </tr>
-            {rows.map(row => (
-              <tr key={row.label}>
-                <th scope="row" className="row-head">{row.label}</th>
-                {columns.map(type => (
-                  <td key={type.id} className={cellClass(type.id)} onClick={() => choosePalletType(type.id)}>{row.value(type)}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
+            </tbody>
+          ))}
         </table>
       </div>
       <p className="guided-pallet-type-note">
