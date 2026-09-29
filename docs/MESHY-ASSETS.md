@@ -28,12 +28,11 @@ Inputs must be named `04-wood-pallet-web.glb` and `05-plastic-pallet-web.glb`.
 The import retains UVs and normalizes each model to centered unit bounds, with
 1024px base-color textures. Existing Unity `.meta` GUIDs are retained.
 
-**Build status:** source assets are updated, but the committed
-`public/unity-viewer` still contains the previous baked models. The editing host
-has no Unity Editor 6000.6.2f1. Before merging, rebuild using that Editor with
-WebGL Build Support, commit the generated player, and verify both materials in
-the desktop/mobile loading, detail and inertia views. A Vite build alone does
-not rebuild Unity models.
+**Build status:** rebuilt with Unity 6000.6.2f1 and WebGL Build Support.
+`public/unity-viewer/Build/unity-viewer.data` includes both replacement models
+(9,383,560 bytes, previously 8,400,788). Unity validated textures and centered
+unit bounds for all eight assets. The JavaScript/Wasm runtime is unchanged.
+A Vite build alone does not rebuild Unity models.
 
 ## Original asset batch
 
