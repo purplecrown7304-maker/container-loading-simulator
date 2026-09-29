@@ -1,0 +1,32 @@
+import { expect, test } from '@playwright/test';
+import { buildLoadingReportHtml } from '../src/report';
+import { reportFixture } from '../src/reportZones.fixture';
+
+test('work order presents actual zones and checks editable shipment fields before printing', async ({ page }) => {
+  const fixture = reportFixture();
+  await page.setContent(buildLoadingReportHtml(fixture.container, fixture.cargo, fixture.result));
+  await expect(page.locator('.zone-table tbody tr')).toHaveCount(5);
+  await expect(page.locator('.zone-progress article')).toHaveCount(5);
+  await expect(page.locator('.zone-table tfoot')).toContainText('895개');
+  await expect(page.locator('.partial-locations li')).toHaveCount(3);
+  await expect(page.locator('.recommendations li')).toHaveCount(3);
+  expect(await page.locator('.zone-report').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  expect(await page.locator('.zone-overview').first().evaluate(el => el.compareDocumentPosition(document.querySelector('.shipment-block')!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy();
+  await page.evaluate(() => { (window as any).__printed = 0; window.print = () => { (window as any).__printed++; }; });
+  page.once('dialog', dialog => dialog.dismiss());
+  await page.getByRole('button', { name: '인쇄 / PDF 저장' }).click();
+  expect(await page.evaluate(() => (window as any).__printed)).toBe(0);
+  await expect(page.getByLabel('거래처', { exact: true })).toBeFocused();
+  for (const [label, value] of [['거래처', '<현장 A>'], ['목적지', '인천 창고'], ['차량/컨테이너 No.', 'TEST-001'], ['출고 예정', '2026-09-30 09:00']]) await page.getByLabel(label, { exact: true }).fill(value);
+  await expect(page.locator('[data-shipment-value="customer"]')).toHaveText('<현장 A>');
+  await page.getByRole('button', { name: '인쇄 / PDF 저장' }).click();
+  expect(await page.evaluate(() => (window as any).__printed)).toBe(1);
+  await page.getByLabel('출고 예정', { exact: true }).fill('');
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: '인쇄 / PDF 저장' }).click();
+  expect(await page.evaluate(() => (window as any).__printed)).toBe(2);
+  await expect(page.locator('[data-shipment-value="departure"]')).toHaveText('미입력');
+  await page.emulateMedia({ media: 'print' });
+  await expect(page.locator('.report-shipment-entry')).toBeHidden();
+  await expect(page.locator('[data-shipment-value="vehicle"]')).toHaveText('TEST-001');
+});

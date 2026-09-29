@@ -1,3 +1,4 @@
+import type { ReportCargoCatalog } from './reportCargo';
 import { cargoColor } from './cargoColors';
 import type { CargoItem, Placement } from './engine/types';
 
@@ -16,8 +17,9 @@ export function loadedCargoCounts(placements: Array<Pick<Placement, 'cargoId'>>)
   return counts;
 }
 
-function boxSvg(item: CargoItem) {
-  const color = cargoColor(item.id, item.displayColor);
+function boxSvg(item: CargoItem, catalog?: ReportCargoCatalog) {
+  const identity = catalog?.get(item.id);
+  const color = identity?.color ?? cargoColor(item.id, item.displayColor);
   const max = Math.max(item.length, item.width, item.height, 0.001);
   const frontW = 50 + 22 * (item.length / max);
   const frontH = 28 + 20 * (item.height / max);
@@ -31,19 +33,19 @@ function boxSvg(item: CargoItem) {
     <polygon points="${side}" fill="${color}" fill-opacity=".50" stroke="#475569" stroke-width="1.4"/>
     <rect x="${x}" y="${y}" width="${frontW}" height="${frontH}" rx="2" fill="${color}" stroke="#475569" stroke-width="1.4"/>
     <rect x="${x + frontW * .28}" y="${y + frontH * .25}" width="${frontW * .44}" height="${frontH * .36}" rx="2" fill="#fff" fill-opacity=".9" stroke="#cbd5e1"/>
-    <text x="${x + frontW / 2}" y="${y + frontH * .49}" text-anchor="middle" dominant-baseline="middle" font-size="7" font-weight="800" fill="#334155">${escapeHtml(item.id)}</text>
+    <text x="${x + frontW / 2}" y="${y + frontH * .49}" text-anchor="middle" dominant-baseline="middle" font-size="7" font-weight="800" fill="#334155">${escapeHtml(identity?.code ?? item.id)}</text>
   </svg>`;
 }
 
-export function buildWorkOrderCargoSummary(cargo: CargoItem[], counts: Map<string, number>): string {
+export function buildWorkOrderCargoSummary(cargo: CargoItem[], counts: Map<string, number>, catalog?: ReportCargoCatalog): string {
   const items = cargo.filter((item) => (counts.get(item.id) ?? 0) > 0);
   if (!items.length) return '';
   const cards = items.map((item) => {
     const quantity = counts.get(item.id) ?? 0;
     const size = `${Math.round(item.length * 1000).toLocaleString()} × ${Math.round(item.width * 1000).toLocaleString()} × ${Math.round(item.height * 1000).toLocaleString()} mm`;
     return `<article class="cargo-intake-card">
-      <div class="cargo-intake-image">${boxSvg(item)}</div>
-      <div class="cargo-intake-info"><b>${escapeHtml(item.id)}</b><span>${escapeHtml(item.name)}</span><strong>${quantity.toLocaleString()} EA</strong><small>${escapeHtml(size)}</small></div>
+      <div class="cargo-intake-image">${boxSvg(item, catalog)}</div>
+      <div class="cargo-intake-info"><b>${escapeHtml(catalog?.get(item.id)?.code ?? item.id)}${catalog?.get(item.id)?.partial ? ' · 잔량' : ''}</b><span>${escapeHtml(item.name)}</span><strong>${quantity.toLocaleString()} EA</strong><small>${escapeHtml(size)}</small></div>
     </article>`;
   }).join('');
   return `<section class="cargo-intake"><div class="cargo-intake-title"><h3>투입 적재단위</h3><span>실제 최종 적재 수량 기준</span></div><div class="cargo-intake-grid">${cards}</div></section>`;

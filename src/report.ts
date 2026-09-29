@@ -1,4 +1,4 @@
-import { buildReportDocument, reportTable, REPORT_SIGNOFF } from './reportLayout';
+import { buildReportDocument, REPORT_SIGNOFF } from './reportLayout';
 import { boxResultMatchesWorkOrderCertification } from './certifiedExport';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { confirmUnverifiedExport, hasCurrentPhysicsVerification } from './exportVerification';
@@ -13,7 +13,9 @@ import { readPhysicsTarget } from './physicsTarget';
 import { requestDirectWorkOrder } from './directWorkOrderEvents';
 import { buildShipmentInstructionSection } from './shipmentInstruction';
 import { readTransportEquipment } from './transportEquipment';
-import { buildProgressSvgs, buildSideViewSvg, buildTopViewSvg, buildWorkerStepGroups } from './workerReportGraphics';
+import { buildReportZones } from './reportZones';
+import { buildZoneOverview, buildZoneTable, buildReportLegend, buildZone3d, buildPartialLocations, buildSecuringLocationGuide } from './reportZoneGraphics';
+import { reportCargoCatalog } from './reportCargo';
 import { buildWorkOrderCargoSummary, loadedCargoCounts } from './workOrderCargoSummary';
 
 function escapeHtml(value: unknown): string {
@@ -31,11 +33,6 @@ function matchingBoxCertification(container: ContainerSpec, cargo: CargoItem[], 
   return boxResultMatchesWorkOrderCertification({ container, cargo, result }, target, certification) ? certification : undefined;
 }
 
-function rangeText(min: number, max: number, prefix: string) {
-  if (min <= 0 && max <= 0) return '-';
-  return min === max ? `${prefix}${min}` : `${prefix}${min}~${max}`;
-}
-
 export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult): string {
   const certification = matchingBoxCertification(container, cargo, result);
   const securing = certification?.securing;
@@ -46,26 +43,17 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
   const equipment = readTransportEquipment();
   const equipmentKind = equipment.category === 'truck' ? '트럭' : '컨테이너';
   const title = `${equipmentKind} 통합 출하·적재 작업지시서`;
-  const groups = buildWorkerStepGroups(container, cargo, result);
-  const topView = buildTopViewSvg(container, cargo, result, groups);
-  const sideView = buildSideViewSvg(container, cargo, result, groups);
-  const progressViews = buildProgressSvgs(container, result, groups);
+  const zones = buildReportZones(result.placements);
+  const overview = buildZoneOverview(container, cargo, result.placements, zones);
+  const zoneTable = buildZoneTable(cargo, result.placements, zones);
+  const legend = buildReportLegend(cargo, result.placements);
+  const layerPlans = [...new Set(result.placements.map(p => Math.round(p.z * 100000) / 100000))].sort((a, b) => a - b).map(z => `<article><h3>바닥 +${Math.round(z * 1000)} mm · 단별 평면 배치</h3>${buildZoneOverview(container, cargo, result.placements, zones, z)}</article>`).join('');
+  const completed = buildZone3d(container, cargo, result.placements, zones);
+  const partials = buildPartialLocations(cargo, result.placements, zones);
+  const progress = zones.map(zone => `<article><h3>${zone.number} ${zone.label} 구역 · ${zone.start.toFixed(2)} ~ ${zone.end.toFixed(2)} m</h3>${buildZone3d(container, cargo, result.placements, zones, zone.number)}<p>${zone.indices.length}개 · ${zone.levels.length}단 · 높이 ${Math.round(zone.height * 1000)} mm</p></article>`).join('');
   const generatedAt = new Date().toLocaleString('ko-KR');
-  const cargoIntake = buildWorkOrderCargoSummary(cargo, loadedCargoCounts(result.placements));
+  const cargoIntake = buildWorkOrderCargoSummary(cargo, loadedCargoCounts(result.placements), reportCargoCatalog(cargo));
   const shipmentInstruction = buildShipmentInstructionSection(cargo, result);
-
-  const workRows = groups.map(group => {
-    const steps = group.fromStep === group.toStep ? `${group.fromStep}` : `${group.fromStep}~${group.toStep}`;
-    const rows = rangeText(group.minRow, group.maxRow, 'R');
-    const columns = rangeText(group.minColumn, group.maxColumn, 'C');
-    return `<tr>
-      <td class="group-no"><b>${group.group}</b></td>
-      <td><b>${escapeHtml(group.cargoId)}</b><small>${escapeHtml(group.label)}</small></td>
-      <td><b>${group.quantity} EA</b><small>적재순서 ${steps}</small></td>
-      <td><b>${escapeHtml(group.zone)} · ${group.layer}단</b><small>${rows} / ${columns}</small></td>
-      <td class="check">□</td>
-    </tr>`;
-  }).join('');
 
   const materialItems: Array<[string, string]> = [];
   if (securing) {
@@ -83,7 +71,15 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
   const recommendations = certification
     ? buildWorkOrderRecommendations(certification)
     : ['관성 3종 검증을 완료하고 위험 여부를 확인한 뒤 작업을 진행하세요.'];
-  const recommendationItems = recommendations.map((item, index) => `<li><b>${index + 1}</b><span>${escapeHtml(item)}</span></li>`).join('');
+  const actions = [
+    approval === 'danger' ? '위험 기준을 초과했습니다. 출고 전 재배치·고정 보강 후 책임자의 확인을 받으세요.'
+      : approval === 'incomplete' ? '출발·제동·회전 검증을 완료하고 미확인 항목을 책임자와 점검하세요.'
+      : '설치 영역 안내에 따라 미끄럼방지재·블로킹·고정바를 대조하고 흔들림을 확인하세요.',
+    '잔량박스의 구역·높이와 출하 수량을 맞추고, 상단 빈 칸·측벽·끝단 유격을 보강하세요.',
+    '포장 강도·장비 제원·결박장치 정격과 문 닫힘 간섭을 확인하고 담당자가 서명하세요.',
+  ];
+  const recommendationItems = actions.map((item, index) => `<li><b>${index + 1}</b><span>${escapeHtml(item)}</span></li>`).join('');
+
 
   const remainingText = result.remaining.length
     ? result.remaining.map(item => `${item.cargoId} ${item.quantity}EA`).join(' · ')
@@ -95,27 +91,32 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
       : '□ 도어 닫힘 간섭 없음';
   return buildReportDocument({
     title,
+    shipmentFields: true, compact: true,
     subtitle: `${generatedAt} · 출하지시 수량과 실제 적재 결과를 대조하는 현장 작업용 문서`,
-    status: `관성 3종 · ${approvalLabel}`,
+    status: `출고 전 확인 ${actions.length}건${approval === 'danger' ? ' · 위험' : approval === 'incomplete' ? ' · 검증 미완료' : ''}`,
     tone: approval === 'caution' ? 'caution' : approval === 'danger' ? 'danger' : approval === 'incomplete' ? 'neutral' : 'good',
     watermark: physicsVerified && workOrderApproved ? undefined : '검증 확인 필요',
     summary: `<section class="summary" aria-label="적재 요약"><div class="text-metric"><span>운송 장비</span><b>${escapeHtml(equipment.shortName)}</b><small>${container.length} × ${container.width} × ${container.height} m</small></div><div><span>실제 적재단위</span><b>${result.placements.length} EA</b></div><div><span>화물 중량</span><b>${result.loadedWeightKg.toLocaleString()} kg</b></div><div class="text-metric"><span>미적재 · 별도 확인</span><b>${escapeHtml(remainingText)}</b></div></section>`,
     sections: [
       {
-        title: '작업 준비', description: '출하 수량을 확인하고 화물과 보조자재를 준비하세요.',
-        content: `${shipmentInstruction}${cargoIntake}<div class="section-title"><h3>필요 보조자재</h3><span>${escapeHtml(securing?.levelLabel ?? '보조 고정 없음')}</span></div><section class="materials">${materialCards}</section>`,
+        title: '한눈에 보는 적재 배치', description: '안쪽부터 구역 번호순으로, 한 구역 안에서는 바닥부터 위로 쌓으세요. 위치는 안쪽 벽 기준입니다.',
+        content: `${overview}${legend}<h3>구역별 작업 순서</h3>${zoneTable}<p class="zone-caption">길이×폭은 놓은 상태의 방향입니다. 도면의 위·아래는 위에서 본 좌·우 벽이며, 서로 다른 바닥 높이는 별도 단으로 표시합니다.</p>`,
       },
       {
-        title: '배치도 확인', description: '안쪽과 도어 방향을 먼저 확인한 뒤 그림 번호를 작업 순서 표와 맞추세요.',
-        content: `<div class="direction"><em>◀ 적재공간 안쪽</em><span>① 안쪽부터 · ② 바닥부터 · ③ 번호 순서대로</span><strong>도어 방향 ▶</strong></div><section class="diagram-grid">${topView}${sideView}</section><p class="legend">그림번호 = 작업 묶음 · R = 길이 방향 행 · C = 폭 방향 열 · 단 = 바닥부터의 적층 단계</p><h3>3단계 진행 그림</h3><section class="progress">${progressViews.join('')}</section>`,
+        title: '3D 완료 모습과 구역별 진행', description: '회색은 이미 쌓은 구역, 품목 색은 이번 구역입니다. 빈 공간과 빨간 테두리 잔량박스를 대조하세요.',
+        content: `<div class="zone-completed">${completed}</div><div class="zone-progress">${progress}</div>`,
       },
       {
-        title: '적재 작업 순서', description: '위에서 아래로 진행하고 한 줄을 완료할 때마다 확인 칸에 표시하세요.',
-        content: `${reportTable('적재 작업 순서 표', `<table class="work-table"><colgroup><col style="width:9%"><col style="width:28%"><col style="width:19%"><col style="width:35%"><col style="width:9%"></colgroup><thead><tr><th scope="col">그림번호</th><th scope="col">품목 / 적재단위</th><th scope="col">수량</th><th scope="col">넣을 위치</th><th scope="col">완료</th></tr></thead><tbody>${workRows}</tbody></table>`)}<p class="worker-note"><b>작업자가 기억할 것:</b> 그림 번호가 바뀌기 전까지는 같은 묶음입니다. 같은 묶음 안에서는 <b>안쪽 → 도어 방향, 바닥 → 위</b> 순서로 채우고 임의로 가운데를 비우지 마세요.</p>`,
+        title: '단별 배치 상세', description: '구역별 작업표의 바닥 높이와 맞춰 확인하세요. 각 단의 서로 다른 품목 위치와 빈 칸을 표시합니다.',
+        content: `${partials}<div class="zone-layer-plans">${layerPlans}</div>`,
       },
       {
-        title: '출고 전 최종 확인', description: approval === 'caution' ? '주의 승인 상태입니다. 권장사항을 보완하고 담당자가 확인하세요.' : '고정 상태와 실물 수량을 대조한 뒤 담당자가 확인하세요.',
-        content: `<h3>관성 테스트 권장 사항</h3><ol class="recommendations">${recommendationItems}</ol><div class="final-check"><div>${openingCheck}</div><div>□ 흔들림/빈 공간 보강 확인</div><div>□ 출하지시 수량과 실물 수량 일치</div></div>${REPORT_SIGNOFF}<p class="technical-note">관성 판정(${escapeHtml(approvalLabel)})은 시뮬레이터 내부 비교 결과입니다. ‘주의 승인’은 내부 PASS 기준을 일부 초과했지만 위험 기준은 넘지 않았다는 뜻이며 실제 운송 안전 인증을 의미하지 않습니다. 작업 전 선택 장비의 실제 제원, 포장 강도, 현장 결박 기준과 보조자재 규격을 확인하세요. 장비 기준: ${escapeHtml(equipment.sourceLabel)}.</p>`,
+        title: '출하 수량과 보조자재', description: '품목별 수량과 준비 자재를 대조하고 설치 대상 영역을 확인하세요.',
+        content: `${shipmentInstruction}${cargoIntake}<div class="section-title"><h3>필요 보조자재</h3><span>${escapeHtml(securing?.levelLabel ?? '보조 고정 미확인')}</span></div><section class="materials">${materialCards}</section>${buildSecuringLocationGuide(container, result.placements, securing)}`,
+      },
+      {
+        title: '출고 전 최종 확인', description: '아래 3개 작업을 확인한 뒤 담당자가 서명하세요.',
+        content: `<ol class="recommendations">${recommendationItems}</ol><div class="final-check"><div>${openingCheck}</div><div>□ 흔들림/빈 공간 보강 확인</div><div>□ 출하지시 수량과 실물 수량 일치</div></div>${REPORT_SIGNOFF}<aside class="technical-note"><b>검증 판정: ${escapeHtml(approvalLabel)}</b><p>${recommendations.map(item => escapeHtml(item)).join('<br>')}</p><p>관성 판정은 시뮬레이터 내부 비교 결과이며 실제 운송 안전 인증을 의미하지 않습니다. ‘주의 승인’은 내부 PASS 기준 일부 초과·위험 기준 이내입니다. 장비 기준: ${escapeHtml(equipment.sourceLabel)}.</p></aside>`,
       },
     ],
     footer: `<span>장비: ${escapeHtml(equipment.shortName)}</span><span>물리검증: ${physicsVerified ? '완료' : '미검증'}</span><span>관성 최종검증: ${escapeHtml(approvalLabel)}</span><span>보조재 추정중량: ${securing ? `${securing.estimatedAddedWeightKg.toFixed(1)} kg` : '0 kg'}</span>`,

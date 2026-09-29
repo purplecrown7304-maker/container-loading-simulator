@@ -87,7 +87,7 @@ test('stalled optional re-layout completes and a blocked warning report opens wi
   await modal.getByRole('button', { name: '작업지시서 열기', exact: true }).click();
   const popup = await popupPromise;
   await expect(popup.getByRole('heading', { name: /통합 출하·적재 작업지시서/ })).toBeVisible();
-  await expect(popup.locator('.recommendations')).toContainText('모든 후보를 탐색한 결과는 아닙니다');
+  await expect(popup.locator('aside.technical-note')).toContainText('모든 후보를 탐색한 결과는 아닙니다');
   await expect(popup.locator('.recommendations')).toContainText('위험 기준을 초과');
   await expect(popup.locator('.summary')).toContainText('2 EA');
   await expect(modal).toHaveCount(0);
