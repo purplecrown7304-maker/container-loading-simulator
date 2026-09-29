@@ -95,3 +95,48 @@ describe('inertia animation frames', () => {
     expect(reinforced.maxCargoRelativeSlipM ?? Infinity).toBeLessThanOrEqual((baseline.maxCargoRelativeSlipM ?? Infinity) + 1e-6);
   }, 30_000);
 });
+
+describe('banded pallet unit load', () => {
+  const bigContainer: ContainerSpec = { length: 3, width: 2.4, height: 2.4, maxPayloadKg: 28000 };
+  // Light export pallet under a ~1 t load: the carton/pallet mass ratio that used to make the
+  // per-carton solver throw cartons around even before any inertial force was applied.
+  const pallet: PhysicsSupport = { id: 'PALLET-01', x: 0.5, y: 0.5, z: 0, length: 1.1, width: 1.1, height: 0.12, weightKg: 6, dynamic: true };
+  const cartons: Placement[] = [];
+  for (let layer = 0; layer < 2; layer += 1) {
+    for (let ix = 0; ix < 4; ix += 1) {
+      for (let iy = 0; iy < 8; iy += 1) {
+        cartons.push({ cargoId: 'BOX', x: 0.58 + ix * 0.235, y: 0.53 + iy * 0.13, z: 0.12 + layer * 0.265, length: 0.235, width: 0.13, height: 0.265, weightKg: 16 });
+      }
+    }
+  }
+  const strapped = (capacityG: number) => ({
+    frictionCoefficient: 0.82,
+    cargoRestraint: { springAccelerationPerM: 33, dampingPerSecond: 7.7, maxAccelerationG: capacityG },
+  });
+
+  it('moves a strapped + wrapped pallet as one unit when strap capacity covers the scenario', async () => {
+    const result = await runInertiaAnimation(bigContainer, cartons, 'braking', [pallet], undefined, strapped(0.58), { captureFrames: false });
+    expect(result.restraintMode).toBe('unit-load');
+    expect(result.scenarioDemandG).toBeCloseTo(0.5);
+    expect(result.maxCargoRelativeSlipM ?? Infinity).toBeLessThan(0.008);
+    expect(result.maxHorizontalShiftM).toBeLessThan(0.012);
+    expect(result.maxTiltDeg).toBeLessThan(1.8);
+    // Straps carry each carton's full inertial load (16 kg × 0.5 g), with no friction credit.
+    expect(result.maxCargoRestraintForceN).toBeCloseTo(16 * 9.81 * 0.5, 0);
+  }, 30_000);
+
+  it('falls back to per-carton simulation when strap capacity is below the scenario demand', async () => {
+    const result = await runInertiaAnimation(bigContainer, cartons, 'braking', [pallet], undefined, strapped(0.36), { captureFrames: false });
+    expect(result.restraintMode).toBe('per-carton');
+    expect(result.cargoRestraintCapacityG).toBeCloseTo(0.36);
+  }, 30_000);
+
+  it('keeps carton frames attached to the moving pallet for playback', async () => {
+    const result = await runInertiaAnimation(bigContainer, cartons.slice(0, 4), 'acceleration', [pallet], undefined, strapped(0.58));
+    const last = result.frames[result.frames.length - 1];
+    const first = result.frames[0];
+    const palletDx = last.supports[0] - first.supports[0];
+    const cartonDx = last.cargo[0] - first.cargo[0];
+    expect(Math.abs(cartonDx - palletDx)).toBeLessThan(0.002);
+  }, 30_000);
+});

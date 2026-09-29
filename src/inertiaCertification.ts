@@ -156,7 +156,7 @@ export function createPhysicsTargetSignature(target: PhysicsTarget) {
     .sort((a, b) => a.cargoId.localeCompare(b.cargoId) || a.quantity - b.quantity || a.reason.localeCompare(b.reason))
     .map(item => [item.cargoId, item.quantity, item.reason]);
   return JSON.stringify({
-    physicsModel: 'restraint-v4-certified-export',
+    physicsModel: 'restraint-v5-unit-load',
     bandingLayout: target.mode === 'pallets' ? 'grid-v1' : undefined,
     mode: target.mode,
     container: target.container,

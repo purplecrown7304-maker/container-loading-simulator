@@ -3,6 +3,7 @@ import {
   applyTopLayerFillPolicy,
   defaultPalletSpec,
   packOnPallets as packOnPalletsBase,
+  placeTopTierHolesInsideAll,
   type PalletLoad,
   type PalletPackingResult,
   type PalletSpec,
@@ -504,6 +505,13 @@ export function packOnPallets(
     columns.sort((a, b) => stop(b) - stop(a) || a[0].stackColumn - b[0].stackColumn);
     const moved = columns.flatMap((loads, i) => loads.map(load => moveLoad(load, slots[i].x, slots[i].y)));
     redistributed.result = rebuildMetrics(redistributed.result, moved, 0, container);
+  }
+  // Terminal layout pass: weight-limited top tiers keep a complete outer ring (banding/corner
+  // boards) and leave their holes in the middle. Carton set and pallet assignment are unchanged.
+  const cargoById = new Map(normalizedCargo.map(item => [item.id, item]));
+  const holesArranged = placeTopTierHolesInsideAll(redistributed.result.pallets, cargoById, pallet);
+  if (holesArranged.some((load, index) => load !== redistributed.result.pallets[index])) {
+    redistributed.result = rebuildMetrics(redistributed.result, holesArranged, 0, container);
   }
   return {
     ...redistributed.result,
