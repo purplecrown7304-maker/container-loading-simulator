@@ -1,4 +1,5 @@
 import {
+  absorbSparsePallets,
   defaultPalletSpec,
   packOnPallets as packOnPalletsBase,
   type PalletLoad,
@@ -256,6 +257,29 @@ function consolidateUntilStable(
   return { result: rebuildMetrics(input, pallets, passes, container), passes };
 }
 
+/**
+ * Field practice for every strategy: cartons from a nearly empty pallet go onto the
+ * spare top layers of other pallets instead of shipping as their own pallet. The
+ * unit-load height may grow up to the tallest load already accepted in this result,
+ * or the ordinary handling limit (2x the short pallet side; 1.15x when packaging is
+ * not minimized), whichever is larger. Hard limits are enforced in the base packer.
+ */
+function absorbIntoSpareTopLayers(
+  input: PalletPackingResult,
+  container: ContainerSpec,
+  cargo: CargoItem[],
+  pallet: PalletSpec,
+  strategy: LoadingStrategy,
+) {
+  if (input.pallets.length < 2) return { result: input, passes: 0 };
+  const shortSide = Math.min(pallet.length, pallet.width);
+  const handlingLimit = shortSide * (pallet.minimizePackaging ? 2 : STABLE_UNIT_LOAD_HEIGHT_RATIO);
+  const maxCargoHeight = Math.max(maxUnitLoadHeight(input), handlingLimit);
+  const absorbed = absorbSparsePallets(input.pallets, cargo, pallet, container, strategy, maxCargoHeight);
+  if (!absorbed.removed) return { result: input, passes: 0 };
+  return { result: rebuildMetrics(input, absorbed.pallets, absorbed.removed, container), passes: absorbed.removed };
+}
+
 function floorSlots(container: ContainerSpec, pallet: PalletSpec) {
   const bands = Math.max(1, Math.floor((container.length + EPS) / pallet.length));
   const lanes = Math.max(1, Math.floor((container.width + EPS) / pallet.width));
@@ -355,6 +379,21 @@ function candidateScoreTuple(result: PalletPackingResult) {
   };
 }
 
+/** betterCandidate's order up to, but not including, the balance (imbalance) tie-break. */
+function betterCandidateWithoutBalance(a: PalletPackingResult, b: PalletPackingResult, minimizePackaging: boolean): boolean | null {
+  const A = candidateScoreTuple(a);
+  const B = candidateScoreTuple(b);
+  if (A.loaded !== B.loaded) return A.loaded > B.loaded;
+  if (minimizePackaging) {
+    if (A.pallets !== B.pallets) return A.pallets < B.pallets;
+    if (Math.abs(a.totalPackagingWeightKg - b.totalPackagingWeightKg) > EPS) return a.totalPackagingWeightKg < b.totalPackagingWeightKg;
+  }
+  if (A.stacked !== B.stacked) return A.stacked < B.stacked;
+  if (A.maxStackLevel !== B.maxStackLevel) return A.maxStackLevel < B.maxStackLevel;
+  if (Math.abs(A.maxUnitHeight - B.maxUnitHeight) > EPS) return A.maxUnitHeight < B.maxUnitHeight;
+  return null;
+}
+
 function betterCandidate(a: PalletPackingResult, b: PalletPackingResult, minimizePackaging: boolean) {
   const A = candidateScoreTuple(a);
   const B = candidateScoreTuple(b);
@@ -396,7 +435,9 @@ export function packOnPallets(
     const candidateCargo = cargoForStackTarget(container, normalizedCargo, pallet, target);
     const packed = packOnPalletsBase(container, candidateCargo, { ...pallet, maxStackLevels: target }, strategy);
     const consolidated = strategy === 'unloading' ? { result: packed, passes: 0 } : consolidateUntilStable(packed, container, candidateCargo, pallet);
-    candidates.push({ result: consolidated.result, target, passes: consolidated.passes });
+    // Declared carton limits (not the per-target planning cap) govern the absorb pass.
+    const absorbed = absorbIntoSpareTopLayers(consolidated.result, container, normalizedCargo, pallet, strategy);
+    candidates.push({ result: absorbed.result, target, passes: consolidated.passes + absorbed.passes });
   }
 
   // Compare low unit loads before minimizing the number of pallet bases.
@@ -407,7 +448,8 @@ export function packOnPallets(
     const height = Math.min(pallet.length, pallet.width) * ratio;
     const lowCargo = normalizedCargo.map(item => ({ ...item, maxStackLayers: Math.min(item.maxStackLayers ?? Infinity, Math.max(1, Math.floor((height + EPS) / item.height))) }));
     const packed = packOnPalletsBase(container, lowCargo, pallet, strategy);
-    candidates.push({ result: packed, target: pallet.maxStackLevels, passes: 0 });
+    const absorbed = absorbIntoSpareTopLayers(packed, container, normalizedCargo, pallet, strategy);
+    candidates.push({ result: absorbed.result, target: pallet.maxStackLevels, passes: absorbed.passes });
   }
   const preference = (a: PalletPackingResult, b: PalletPackingResult) => {
     if (a.placements.length !== b.placements.length) return a.placements.length > b.placements.length;
@@ -418,15 +460,19 @@ export function packOnPallets(
     const tallA = Math.max(0, maxUnitLoadHeight(a) / Math.min(pallet.length, pallet.width) - 2);
     const tallB = Math.max(0, maxUnitLoadHeight(b) / Math.min(pallet.length, pallet.width) - 2);
     if (Math.abs(tallA - tallB) > EPS) return tallA < tallB;
+    // Pallet loading follows field practice for every strategy: consolidate the
+    // shipment first. Center of gravity is the last preference (대표 지시 2026-09-29).
+    if (a.palletCount !== b.palletCount) return a.palletCount < b.palletCount;
+    if (strategy !== 'stability') {
+      // Do not consume more floor positions merely to lower an already supported load.
+      const floorDiff = floorPositionCount(a) - floorPositionCount(b);
+      if (floorDiff) return floorDiff < 0;
+    }
+    const nonCog = betterCandidateWithoutBalance(a, b, pallet.minimizePackaging);
+    if (nonCog !== null) return nonCog;
     if (strategy === 'stability') {
       const qa = operationalQuality(container, a.placements), qb = operationalQuality(container, b.placements);
       if (Math.abs(qa.cogHeight - qb.cogHeight) > EPS) return qa.cogHeight < qb.cogHeight;
-    } else {
-      // Consolidate the shipment before considering balance preferences. Do not
-      // consume more floor positions merely to lower an already supported load.
-      if (a.palletCount !== b.palletCount) return a.palletCount < b.palletCount;
-      const floorDiff = floorPositionCount(a) - floorPositionCount(b);
-      if (floorDiff) return floorDiff < 0;
     }
     return betterCandidate(a, b, pallet.minimizePackaging);
   };

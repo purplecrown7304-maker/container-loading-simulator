@@ -121,6 +121,8 @@ Objectives are lexicographic. A lower item may not be improved at the expense of
 - Compatible SKUs should be mixed when doing so removes an avoidable pallet. SKU purity is not a reason to create a new pallet unless unloading/segregation/handling rules require separation.
 - For equal loaded quantity and pallet count, prefer complete lower layers, lower maximum unit-load height, and a compact rectangular envelope. A narrow upper tower ("horn") must lose to a flatter candidate whenever both carry the same demand safely.
 - After primary pallet building, collect compatible tail cartons across SKUs and deterministically repack them into the minimum feasible number of mixed tail pallets. Only the unavoidable final pallet should remain partially filled.
+- Field practice applies to every strategy (capacity, stability, unloading): cartons of a nearly empty pallet — including one riding on top of another stack — move onto the spare top layers of other column-top pallets when every hard limit holds, and that pallet is removed. Unloading only merges within one stop.
+- In pallet loading, center of gravity is the last preference: never keep an extra pallet or choose a candidate with more pallets only to lower the center of gravity (대표 지시 2026-09-29, #84).
 
 ## 10. Accessibility / working height
 When an operational retrieval-height rule is enabled, use it as an ergonomic constraint rather than an arbitrary stacking cap. The rule must be configurable and clearly separated from the physical ceiling constraint.
