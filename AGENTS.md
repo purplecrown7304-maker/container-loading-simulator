@@ -114,6 +114,7 @@ Objectives are lexicographic. A lower item may not be improved at the expense of
 - Pallet/pallet and pallet/wall spacing is configurable.
 
 ### Pallet count minimization
+- Owner rule #97 (2026-09-29): a regular pallet's highest occupied tier must cover at least 50% of the usable pallet deck (`minTopLayerFillRatio`, default 0.5). Move the ENTIRE tier below this threshold into a final mixed tail, even if another pallet base is needed. Exactly 50% stays. This terminal rule takes priority over pallet-count minimization and sparse absorption; no later pass may put those cartons back. Recombine an existing unfinished floor pallet when compatible. The final residual pallet per unloading stop may remain below 50%; if weight/geometry forces multiple single-tier tails, preserve every carton and every hard limit. Extra bases consume payload and floor/stack capacity; infeasible cartons remain explicitly waiting.
 - Fill existing compatible pallets before creating a new partial pallet.
 - Pallet count may only be reduced by legal consolidation, better assignment, or MIXED conversion of eligible low-fill tail pallets.
 - Loaded quantity outranks pallet count. Never drop cargo merely to reduce pallet count.

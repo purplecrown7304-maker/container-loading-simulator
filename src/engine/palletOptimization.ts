@@ -1,5 +1,6 @@
 import {
   absorbSparsePallets,
+  applyTopLayerFillPolicy,
   defaultPalletSpec,
   packOnPallets as packOnPalletsBase,
   type PalletLoad,
@@ -45,6 +46,7 @@ function palletInputError(pallet: PalletSpec) {
   if (!nonNegative(pallet.maxSupportedTopWeightKg)) return '팔레트 상부 허용중량은 0 이상의 유한한 값이어야 함';
   if (!nonNegative(pallet.cornerGuardWeightKg) || !nonNegative(pallet.cornerGuardExtraHeightM)) return '각대 중량·추가 높이는 0 이상의 유한한 값이어야 함';
   if (!nonNegative(pallet.wrappingWeightKg) || !nonNegative(pallet.wrappingExtraHeightM)) return '랩핑 중량·추가 높이는 0 이상의 유한한 값이어야 함';
+  if (pallet.minTopLayerFillRatio !== undefined && (!Number.isFinite(pallet.minTopLayerFillRatio) || pallet.minTopLayerFillRatio < 0 || pallet.minTopLayerFillRatio > 1)) return '최상단 최소충전율은 0~1 사이의 유한한 값이어야 함';
   return null;
 }
 
@@ -437,7 +439,7 @@ export function packOnPallets(
     const consolidated = strategy === 'unloading' ? { result: packed, passes: 0 } : consolidateUntilStable(packed, container, candidateCargo, pallet);
     // Declared carton limits (not the per-target planning cap) govern the absorb pass.
     const absorbed = absorbIntoSpareTopLayers(consolidated.result, container, normalizedCargo, pallet, strategy);
-    candidates.push({ result: absorbed.result, target, passes: consolidated.passes + absorbed.passes });
+    candidates.push({ result: applyTopLayerFillPolicy(absorbed.result, normalizedCargo, { ...pallet, maxStackLevels: target }, container, strategy), target, passes: consolidated.passes + absorbed.passes });
   }
 
   // Compare low unit loads before minimizing the number of pallet bases.
@@ -449,7 +451,7 @@ export function packOnPallets(
     const lowCargo = normalizedCargo.map(item => ({ ...item, maxStackLayers: Math.min(item.maxStackLayers ?? Infinity, Math.max(1, Math.floor((height + EPS) / item.height))) }));
     const packed = packOnPalletsBase(container, lowCargo, pallet, strategy);
     const absorbed = absorbIntoSpareTopLayers(packed, container, normalizedCargo, pallet, strategy);
-    candidates.push({ result: absorbed.result, target: pallet.maxStackLevels, passes: absorbed.passes });
+    candidates.push({ result: applyTopLayerFillPolicy(absorbed.result, normalizedCargo, pallet, container, strategy), target: pallet.maxStackLevels, passes: absorbed.passes });
   }
   const preference = (a: PalletPackingResult, b: PalletPackingResult) => {
     if (a.placements.length !== b.placements.length) return a.placements.length > b.placements.length;

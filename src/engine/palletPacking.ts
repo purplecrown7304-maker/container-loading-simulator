@@ -4,6 +4,8 @@ import { canPlaceByStackingRules, projectedTopLoadKg } from './stacking';
 import { packByBlockSpaceBeamV2 } from './blockSpaceBeamPackerV2';
 
 export type PalletSpec = {
+  /** Operational minimum for a regular pallet's top tier; final mixed tails are exempt. */
+  minTopLayerFillRatio?: number;
   /** Visual material metadata only; it does not change packing constraints. */
   material?: 'wood' | 'plastic';
   length: number;
@@ -23,6 +25,8 @@ export type PalletSpec = {
 };
 
 export type PalletLoad = {
+  /** Residual cartons collected after regular top tiers are completed. */
+  isMixedTail?: boolean;
   palletIndex: number;
   x: number;
   y: number;
@@ -59,6 +63,7 @@ export type PalletPackingResult = {
 };
 
 export const defaultPalletSpec: PalletSpec = {
+  minTopLayerFillRatio: 0.5,
   length: 1.1,
   width: 1.1,
   height: 0.15,
@@ -198,8 +203,8 @@ function slotFor(
     .filter(z => z + item.height + reserveHeight <= container.height + EPS)
     .sort((a, b) => a - b);
 
-  for (const option of options) {
-    for (const z of surfaces) {
+  for (const z of surfaces) {
+    for (const option of options) {
       for (let row = 0; row < option.colsX; row += 1) {
         for (let col = 0; col < option.colsY; col += 1) {
           const candidate: Placement = {
@@ -336,7 +341,10 @@ function moveLoad(load: PalletLoad, x: number, y: number, z: number, level: numb
 }
 
 function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number; y: number }>, container: ContainerSpec, pallet: PalletSpec, cargoMap: Map<string, CargoItem>, strategy: Strategy) {
-  pallets.sort((a, b) => (strategy === 'unloading' ? stopOf(b, cargoMap) - stopOf(a, cargoMap) : 0) || b.totalWeightKg - a.totalWeightKg);
+  // Keep the final residual tail last within its stop, even when it is heavier.
+  pallets.sort((a, b) => (strategy === 'unloading' ? stopOf(b, cargoMap) - stopOf(a, cargoMap) : 0)
+    || Number(Boolean(a.isMixedTail)) - Number(Boolean(b.isMixedTail))
+    || (a.isMixedTail && b.isMixedTail ? a.palletIndex - b.palletIndex : b.totalWeightKg - a.totalWeightKg));
   const columns: Array<{ positionIndex: number; loads: PalletLoad[]; totalWeightKg: number }> = [];
   const unplaced: PalletLoad[] = [];
   const maxLevels = Math.max(1, Math.floor(pallet.maxStackLevels || 1));
@@ -798,6 +806,131 @@ export function absorbSparsePallets(
 
 export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pallet: PalletSpec = defaultPalletSpec, strategy: Strategy = 'capacity'): PalletPackingResult {
   const { pallets, remaining, consolidated, cargoMap } = buildInitialPallets(cargo, pallet, container, strategy);
+  return finishPalletPacking(pallets, remaining, consolidated, cargoMap, container, pallet, strategy);
+}
+
+/** Footprint at the highest occupied tier, measured against the usable pallet deck. */
+export function palletTopLayerFill(load: PalletLoad) {
+  if (!load.cargoPlacements.length) return 0;
+  const z = Math.max(...load.cargoPlacements.map(p => p.z));
+  return load.cargoPlacements.filter(p => Math.abs(p.z - z) <= EPS)
+    .reduce((area, p) => area + p.length * p.width, 0) / (load.length * load.width);
+}
+
+/**
+ * Owner rule #97: a regular top tier below the minimum is moved in its entirety to
+ * the final mixed tail. This runs AFTER sparse-pallet absorption, which must never
+ * put these cartons back onto regular pallets. Extra bases are permitted, but every
+ * placement and the rebuilt pallet stacks still pass the ordinary hard checks.
+ */
+export function applyTopLayerFillPolicy(input: PalletPackingResult, cargo: CargoItem[], pallet: PalletSpec, container: ContainerSpec, strategy: Strategy): PalletPackingResult {
+  const minimum = pallet.minTopLayerFillRatio ?? 0.5;
+  if (minimum <= 0 || !input.pallets.length) return input;
+  const cargoMap = new Map(cargo.map(item => [item.id, item]));
+  const pending = new Map<string, number>();
+  const putBack = (placements: Placement[]) => placements.forEach(p => pending.set(p.cargoId, (pending.get(p.cargoId) ?? 0) + 1));
+  const strip = (load: PalletLoad) => {
+    while (load.cargoPlacements.length && palletTopLayerFill(load) + EPS < minimum) {
+      const z = Math.max(...load.cargoPlacements.map(p => p.z));
+      const tier = load.cargoPlacements.filter(p => Math.abs(p.z - z) <= EPS);
+      putBack(tier);
+      load.cargoPlacements = load.cargoPlacements.filter(p => Math.abs(p.z - z) > EPS);
+    }
+  };
+  const local = input.pallets.map((load, i) => makeDenseLoad(i + 1, load.cargoPlacements.map(p => ({ ...p, x: p.x - load.x, y: p.y - load.y, z: p.z - load.z - load.height })), pallet));
+  if (local.every(load => palletTopLayerFill(load) + EPS >= minimum)) return input;
+  // Keep one existing residual load per compatible stop in the tail pool. Otherwise
+  // splitting the already-final 20/20/5 example would pointlessly produce 20/20/4/1.
+  const groups = new Map<number, PalletLoad[]>();
+  for (const load of local) {
+    const key = strategy === 'unloading' ? stopOf(load, cargoMap) : 0;
+    groups.set(key, [...(groups.get(key) ?? []), load]);
+  }
+  const reservedTails = new Set<PalletLoad>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const tail = [...group].sort((a, b) => a.cargoPlacements.length - b.cargoPlacements.length || b.palletIndex - a.palletIndex)
+      .find(load => palletTopLayerFill(load) + EPS < minimum || (
+        new Set(load.cargoPlacements.map(p => p.z.toFixed(6))).size === 1 && cargo.some(item => {
+          if (strategy === 'unloading' && stopOf(load, cargoMap) !== (item.unloadPriority ?? 0)) return false;
+          const candidate = slotFor(load, item, pallet, container, cargoMap);
+          return candidate && Math.abs(candidate.z - load.cargoPlacements[0].z) <= EPS;
+        })
+      ));
+    if (tail) reservedTails.add(tail);
+  }
+  local.forEach(load => {
+    if (reservedTails.has(load)) { putBack(load.cargoPlacements); load.cargoPlacements = []; }
+    else strip(load);
+    load.cargoWeightKg = load.cargoPlacements.reduce((sum, p) => sum + p.weightKg, 0);
+  });
+  if (!pending.size) return input;
+  let regular = local.filter(load => load.cargoPlacements.length);
+  // Include an existing unfinished floor pallet when it can take a lifted carton
+  // on that same floor. Do not leave an old partial pallet beside the new mixed tail.
+  regular = regular.filter(load => {
+    if (new Set(load.cargoPlacements.map(p => p.z.toFixed(6))).size !== 1) return true;
+    const base = load.cargoPlacements[0].z;
+    const accepts = [...pending.keys()].some(id => {
+      const item = cargoMap.get(id)!;
+      if (strategy === 'unloading' && stopOf(load, cargoMap) !== (item.unloadPriority ?? 0)) return false;
+      const candidate = slotFor(load, item, pallet, container, cargoMap);
+      return candidate && Math.abs(candidate.z - base) <= EPS;
+    });
+    if (accepts) putBack(load.cargoPlacements);
+    return !accepts;
+  });
+  regular = regular.map((load, i) => makeDenseLoad(i + 1, load.cargoPlacements.map(p => ({ ...p, z: p.z - pallet.height })), pallet));
+  applyMinimumPackaging(regular, pallet);
+  let gross = regular.reduce((sum, load) => sum + load.totalWeightKg, 0);
+  const packagingWeight = (pallet.useCornerGuards ? pallet.cornerGuardWeightKg : 0) + (pallet.useWrapping ? pallet.wrappingWeightKg : 0);
+  const tails: PalletLoad[] = [];
+  const rows = [...cargoMap.values()].sort((a, b) => (strategy === 'unloading' ? (b.unloadPriority ?? 0) - (a.unloadPriority ?? 0) : 0) || b.weightKg - a.weightKg || a.id.localeCompare(b.id));
+  while ([...pending.values()].some(n => n > 0)) {
+    const load = makeDenseLoad(regular.length + tails.length + 1, [], pallet);
+    const available = container.maxPayloadKg - gross - pallet.tareWeightKg - packagingWeight;
+    while (true) {
+      let best: { item: CargoItem; placement: Placement } | undefined;
+      for (const item of rows) {
+        if (!(pending.get(item.id) ?? 0) || load.cargoWeightKg + item.weightKg > available + EPS) continue;
+        if (strategy === 'unloading' && load.cargoPlacements.length && stopOf(load, cargoMap) !== (item.unloadPriority ?? 0)) continue;
+        const placement = slotFor(load, item, pallet, container, cargoMap);
+        if (placement && (!best || placement.z < best.placement.z - EPS)) best = { item, placement };
+      }
+      if (!best) break;
+      load.cargoPlacements.push(best.placement);
+      load.cargoWeightKg += best.item.weightKg;
+      pending.set(best.item.id, pending.get(best.item.id)! - 1);
+    }
+    if (!load.cargoPlacements.length) break;
+    const hasNextInGroup = rows.some(item => (pending.get(item.id) ?? 0) > 0 && (strategy !== 'unloading' || (item.unloadPriority ?? 0) === stopOf(load, cargoMap)));
+    // Complete earlier tail pallets too. The unavoidable final tail for each stop
+    // is exempt. A weight/geometry-limited single tier must not be split forever.
+    if (hasNextInGroup) {
+      const before = [...load.cargoPlacements];
+      strip(load);
+      if (!load.cargoPlacements.length) {
+        load.cargoPlacements = before;
+        before.forEach(p => pending.set(p.cargoId, pending.get(p.cargoId)! - 1));
+      }
+    }
+    load.cargoWeightKg = load.cargoPlacements.reduce((sum, p) => sum + p.weightKg, 0);
+    load.isMixedTail = true;
+    centerCargoOnPallet(load, pallet);
+    applyMinimumPackaging([load], pallet);
+    load.centerOfGravity = palletCog(load, pallet);
+    tails.push(load);
+    gross += load.totalWeightKg;
+  }
+  const remaining = new Map(input.remaining.map(row => [row.cargoId, row.quantity]));
+  for (const [id, quantity] of pending) if (quantity > 0) remaining.set(id, (remaining.get(id) ?? 0) + quantity);
+  const result = finishPalletPacking([...regular, ...tails], remaining, input.consolidatedPallets, cargoMap, container, pallet, strategy);
+  result.remaining = result.remaining.map(row => row.quantity > (input.remaining.find(old => old.cargoId === row.cargoId)?.quantity ?? 0)
+    ? { ...row, reason: `최상단 최소충전율 ${Math.round(minimum * 100)}% 적용 후: ${row.reason}` } : row);
+  return result;
+}
+
+function finishPalletPacking(pallets: PalletLoad[], remaining: Map<string, number>, consolidated: number, cargoMap: Map<string, CargoItem>, container: ContainerSpec, pallet: PalletSpec, strategy: Strategy): PalletPackingResult {
   const positions = palletPositions(container, pallet);
   const unplaced = arrangePalletStacks(pallets, positions, container, pallet, cargoMap, strategy);
   const unplacedSet = new Set(unplaced);
