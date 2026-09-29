@@ -4,6 +4,8 @@ import { canPlaceByStackingRules, projectedTopLoadKg } from './stacking';
 import { packByBlockSpaceBeamV2 } from './blockSpaceBeamPackerV2';
 
 export type PalletSpec = {
+  /** Visual material metadata only; it does not change packing constraints. */
+  material?: 'wood' | 'plastic';
   length: number;
   width: number;
   height: number;

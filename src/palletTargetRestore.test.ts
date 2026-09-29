@@ -4,6 +4,8 @@ import type { CargoItem, ContainerSpec, Placement } from './engine/types';
 import { clearPalletSnapshot, publishPalletSnapshot } from './palletSnapshotStore';
 import { buildPalletPhysicsTarget, restorePalletPhysicsTarget } from './palletTargetRestore';
 import { clearPhysicsTarget, readPhysicsTarget } from './physicsTarget';
+import { unityPlan } from './unityProtocol';
+import { choosePalletType } from './palletTypeSelection';
 
 const container: ContainerSpec = {
   length: 5,
@@ -85,6 +87,15 @@ afterEach(() => {
 });
 
 describe('pallet target restoration', () => {
+  it('keeps the saved plastic skin through restoration and Unity serialization even after selection changes', () => {
+    publishPalletSnapshot({ spec: { ...defaultPalletSpec, material: 'plastic' }, result }, { preserveCertification: true, emitLegacyEvent: false });
+    choosePalletType('t11-wood');
+    const target = buildPalletPhysicsTarget(container, cargo)!;
+    const plan = unityPlan(container, target.result, 1, cargo, { supports: target.supports });
+    expect(plan.supports[0]).toMatchObject({ modelKey: 'plastic-pallet', length: pallet.length, width: pallet.width, height: pallet.height, weightKg: defaultPalletSpec.tareWeightKg });
+    expect(plan.placements[0]).toMatchObject(placement);
+    choosePalletType('auto');
+  });
   it('rebuilds the same pallet result and support geometry from the persisted snapshot', () => {
     publishPalletSnapshot({ spec: defaultPalletSpec, result }, { preserveCertification: true, emitLegacyEvent: false });
     const target = buildPalletPhysicsTarget(container, cargo);
@@ -95,6 +106,7 @@ describe('pallet target restoration', () => {
     expect(target?.supports).toHaveLength(1);
     expect(target?.supports?.[0]).toMatchObject({
       id: 'PALLET-01',
+      modelKey: 'wood-pallet',
       x: 0,
       y: 0,
       z: 0,

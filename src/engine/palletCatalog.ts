@@ -94,6 +94,7 @@ export function findPalletType(id: string | null | undefined) {
 export function palletSpecForType(type: PalletType, base: PalletSpec = defaultPalletSpec): PalletSpec {
   return {
     ...base,
+    material: type.material,
     length: type.length,
     width: type.width,
     height: type.height,

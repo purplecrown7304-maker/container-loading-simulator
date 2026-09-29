@@ -1,6 +1,7 @@
 import { validatePlacements } from './engine/constraints';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { readPalletSnapshot } from './palletSnapshotStore';
+import { palletModelKey } from './palletModel';
 import { publishPhysicsTarget, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
 /**
@@ -22,6 +23,7 @@ export function buildPalletPhysicsTarget(container: ContainerSpec, cargo: CargoI
     validationIssues: validatePlacements(container, placements),
   };
   const supports = snapshot.result.pallets.map((pallet) => ({
+    modelKey: palletModelKey(snapshot.spec),
     id: `PALLET-${String(pallet.palletIndex).padStart(2, '0')}`,
     x: pallet.x,
     y: pallet.y,

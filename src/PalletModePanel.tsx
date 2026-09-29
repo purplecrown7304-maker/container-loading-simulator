@@ -1,4 +1,5 @@
 import UnityLoadingViewer from './UnityLoadingViewer';
+import { palletModelKey } from './palletModel';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cargoColor } from './cargoColors';
@@ -46,15 +47,15 @@ function palletForPlacement(result: OptimizedPalletPackingResult, box: Placement
   ));
 }
 
-function PalletMiniPreview({ pallet }: { pallet: PalletLoad }) {
+function PalletMiniPreview({ pallet, modelKey }: { pallet: PalletLoad; modelKey: ReturnType<typeof palletModelKey> }) {
   const scene = useMemo(() => {
     const placements = pallet.cargoPlacements.map(box => ({ ...box, x: box.x - pallet.x, y: box.y - pallet.y, z: box.z - pallet.z }));
     return {
       container: { length: pallet.length, width: pallet.width, height: Math.max(pallet.height, ...placements.map(box => box.z + box.height)), maxPayloadKg: pallet.totalWeightKg },
       result: { placements, remaining: [], validationIssues: [], usedVolumeM3: 0, loadedWeightKg: pallet.cargoWeightKg },
-      supports: [{ id: `PALLET-${pallet.palletIndex}`, x: 0, y: 0, z: 0, length: pallet.length, width: pallet.width, height: pallet.height, weightKg: pallet.totalWeightKg - pallet.cargoWeightKg }],
+      supports: [{ modelKey, id: `PALLET-${pallet.palletIndex}`, x: 0, y: 0, z: 0, length: pallet.length, width: pallet.width, height: pallet.height, weightKg: pallet.totalWeightKg - pallet.cargoWeightKg }],
     };
-  }, [pallet]);
+  }, [pallet, modelKey]);
   return <div className="pallet-mini-canvas"><UnityLoadingViewer {...scene} geometry="platform" preview title={`팔레트 ${pallet.palletIndex} 상세`} /></div>;
 }
 
@@ -64,7 +65,7 @@ function clearanceValues(container: ContainerSpec, placements: Placement[]) {
   return { back: mm(Math.min(...placements.map(p => p.x))), door: mm(container.length - Math.max(...placements.map(p => p.x + p.length))), left: mm(Math.min(...placements.map(p => p.y))), right: mm(container.width - Math.max(...placements.map(p => p.y + p.width))), top: mm(container.height - Math.max(...placements.map(p => p.z + p.height))) };
 }
 
-function PalletContents({ pallet, cargo, onClose }: { pallet: PalletLoad; cargo: CargoItem[]; onClose: () => void }) {
+function PalletContents({ pallet, cargo, onClose, modelKey }: { pallet: PalletLoad; cargo: CargoItem[]; onClose: () => void; modelKey: ReturnType<typeof palletModelKey> }) {
   const groups = useMemo(() => {
     const map = new Map<string, number>();
     pallet.cargoPlacements.forEach((box) => map.set(box.cargoId, (map.get(box.cargoId) ?? 0) + 1));
@@ -87,7 +88,7 @@ function PalletContents({ pallet, cargo, onClose }: { pallet: PalletLoad; cargo:
         <div><span>팔레트 규격</span><strong>{Math.round(pallet.length * 1000)}×{Math.round(pallet.width * 1000)}</strong></div>
         <div><span>적재 높이</span><strong>{Math.round((maxTop - pallet.z) * 1000)} mm</strong></div>
       </div>
-      <PalletMiniPreview pallet={pallet} />
+      <PalletMiniPreview pallet={pallet} modelKey={modelKey} />
       <h4>팔레트 속 내용</h4>
       <div className="pallet-content-list">
         {groups.map(([id, count]) => {
@@ -116,6 +117,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
   const [spec, setSpec] = useState<PalletSpec>(() => palletSpecForType(resolvePalletType(), defaultPalletSpec));
   const [result, setResult] = useState<OptimizedPalletPackingResult | MixedModePackingResult>(() => packForMode(container, cargo.filter((item) => item.quantity > 0), palletSpecForType(resolvePalletType(), defaultPalletSpec), mode));
   const [opened, setOpened] = useState<PalletLoad | null>(null);
+  const modelKey = palletModelKey(spec);
   const [certification, setCertification] = useState<InertiaCertification | null>(() => {
     const latest = readLatestInertiaCertification();
     return latest?.mode === 'pallets' ? latest : null;
@@ -190,6 +192,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       validationIssues: validatePlacements(container, result.placements),
     };
     const supports = result.pallets.map((pallet) => ({
+      modelKey,
       id: `PALLET-${String(pallet.palletIndex).padStart(2, '0')}`,
       x: pallet.x,
       y: pallet.y,
@@ -202,14 +205,14 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
     }));
     publishPhysicsTarget({ mode: 'pallets', container, cargo, result: loadingResult, supports });
     return () => clearPhysicsTarget('pallets');
-  }, [container, cargo, result]);
+  }, [container, cargo, result, modelKey]);
 
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
   const securingUsage = certification?.securing ?? null;
   const scene = useMemo(() => ({
     result: { placements: result.placements, remaining: result.remaining, loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg, usedVolumeM3: result.placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0), validationIssues: validatePlacements(container, result.placements) },
-    supports: result.pallets.map(p => ({ id: `PALLET-${p.palletIndex}`, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) })),
-  }), [container, result]);
+    supports: result.pallets.map(p => ({ modelKey, id: `PALLET-${p.palletIndex}`, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) })),
+  }), [container, result, modelKey]);
 
   return (
     <div className="pallet-inline-workspace">
@@ -234,7 +237,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
                 <span>천장 <b>{clearances.top}</b></span>
               </div>
             )}
-            {opened && <PalletContents pallet={opened} cargo={cargo} onClose={() => setOpened(null)} />}
+            {opened && <PalletContents pallet={opened} cargo={cargo} modelKey={modelKey} onClose={() => setOpened(null)} />}
           </div>
         </div>
         <div className="pallet-metrics">
