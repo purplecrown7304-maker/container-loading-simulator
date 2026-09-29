@@ -2,7 +2,7 @@ export const ADMIN_ACCESS_EVENT = 'container-loading:admin-access-updated';
 
 const SESSION_KEY = 'container-loading-admin-session-v1';
 const ADMIN_ID = 'admin';
-const ADMIN_PASSWORD_SHA256 = '9163d1f08f14a0bbf5b526b09219f44ee69c2f914a8d0a9128ece8c78c01c37c';
+const ADMIN_PASSWORD_SHA256 = '2bca96f5990a0f640035d39c403e4e7d51b405ec0b51dd5e12543341407d6f15';
 
 type AdminSession = {
   role: 'admin';
