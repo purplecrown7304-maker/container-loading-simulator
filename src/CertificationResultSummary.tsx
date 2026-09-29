@@ -4,6 +4,7 @@ import {
   type InertiaScenario,
 } from './inertiaCertification';
 import { buildPalletSecuringPlan } from './palletSecuringPlan';
+import { palletBandingLabel } from './palletBanding';
 import { readPhysicsTarget } from './physicsTarget';
 import type { ResultsModalDetail } from './resultsModalEvents';
 
@@ -110,6 +111,7 @@ export default function CertificationResultSummary({ detail }: { detail: Results
         {[...palletPlan.items].sort((a, b) => a.palletIndex - b.palletIndex).map(item => <article key={item.supportId}>
           <header><b>P{item.palletIndex}</b><span>적재높이 {Math.round(item.loadHeightM * 1000)} mm</span></header>
           <p><span>밴딩</span><b>{item.bandingStraps}줄 · {item.bandingLengthM.toFixed(1)}m</b></p>
+          {item.bandingStraps > 0 && <p><span>밴딩 방향</span><b>{palletBandingLabel(item.bandingStraps)}</b></p>}
           <p><span>각대</span><b>{item.cornerGuards}EA · {item.cornerGuardLengthM.toFixed(1)}m</b></p>
           <p><span>랩핑</span><b>{item.wrappingLengthM > 0 ? `${item.wrappingLengthM.toFixed(1)}m` : '-'}</b></p>
           <p><span>미끄럼방지</span><b>{item.antiSlipMats > 0 ? `${item.antiSlipMats}EA` : '-'}</b></p>

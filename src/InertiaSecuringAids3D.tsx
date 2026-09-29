@@ -6,9 +6,9 @@ import type { PhysicsSupport } from './engine/physicsValidation';
 import type { Placement } from './engine/types';
 import type { SecuringUsage } from './inertiaCertification';
 import type { PhysicsTarget } from './physicsTarget';
+import { palletBandingSegments } from './palletBanding';
 
 const EPS = 1e-6;
-const STRAP_M = 0.022;
 const GUARD_M = 0.035;
 const MAT_M = 0.008;
 
@@ -72,7 +72,6 @@ function PalletSecuringUnit({
   const loadHeight = Math.max(0.02, supportLoadHeight(target, support));
   const current = pose(frame.supports, supportIndex);
   const centerY = support.height / 2 + loadHeight / 2;
-  const topY = support.height / 2 + loadHeight;
   const supportCount = Math.max(1, (target.supports ?? []).length);
   const straps = Math.max(0, Math.round(usage.bandingStraps / supportCount));
   const mats = Math.max(0, Math.round(usage.antiSlipMats / supportCount));
@@ -92,23 +91,12 @@ function PalletSecuringUnit({
       <Edges color="#55aeda" />
     </mesh>}
 
-    {Array.from({ length: straps }, (_, index) => {
-      const x = -support.length / 2 + support.length * ((index + 1) / (straps + 1));
-      return <group key={`inertia-strap-${supportIndex}-${index}`}>
-        <mesh position={[x, topY + STRAP_M / 2, 0]}>
-          <boxGeometry args={[STRAP_M, STRAP_M, support.width + STRAP_M * 2]} />
-          <meshStandardMaterial color="#111827" roughness={0.45} />
-        </mesh>
-        <mesh position={[x, centerY, -support.width / 2 - STRAP_M / 2]}>
-          <boxGeometry args={[STRAP_M, loadHeight, STRAP_M]} />
-          <meshStandardMaterial color="#111827" roughness={0.45} />
-        </mesh>
-        <mesh position={[x, centerY, support.width / 2 + STRAP_M / 2]}>
-          <boxGeometry args={[STRAP_M, loadHeight, STRAP_M]} />
-          <meshStandardMaterial color="#111827" roughness={0.45} />
-        </mesh>
-      </group>;
-    })}
+    {palletBandingSegments({ x: -support.length / 2, y: -support.width / 2, z: support.height / 2, length: support.length, width: support.width, height: loadHeight }, straps).map((band, index) =>
+      <mesh key={`inertia-strap-${supportIndex}-${index}`} position={[band.x + band.length / 2, band.z + band.height / 2, band.y + band.width / 2]}>
+        <boxGeometry args={[band.length, band.height, band.width]} />
+        <meshStandardMaterial color="#111827" roughness={0.45} />
+      </mesh>,
+    )}
 
     {showGuards && corners.map(([x, z], index) => <mesh key={`inertia-guard-${supportIndex}-${index}`} position={[x, centerY, z]}>
       <boxGeometry args={[GUARD_M, loadHeight, GUARD_M]} />

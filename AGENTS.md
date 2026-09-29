@@ -111,6 +111,7 @@ Objectives are lexicographic. A lower item may not be improved at the expense of
 - Do not stack above configured pallet stacking limits.
 - Respect pallet load, top-load, support, packaging-clearance, ceiling clearance, and container payload limits.
 - Forklift-loaded pallets must retain configured fork-entry/access clearance at loading time.
+- Owner banding rule (2026-09-29): four pallet straps form a grid with two across length and two across width. Keep all 3D viewers, work-order diagrams/instructions, and material length/weight calculations on the same directional layout. Preserve reinforcement-level strap counts and restraint coefficients; shorter-count stages distribute straps across both axes.
 - Pallet/pallet and pallet/wall spacing is configurable.
 
 ### Pallet count minimization

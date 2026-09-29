@@ -4,6 +4,7 @@ import type { PhysicsScenario, PhysicsSupport } from './engine/physicsValidation
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { readSecuringMaterialSettings, type SecuringMaterialSettings } from './securingMaterialSettings';
+import { palletBandingLengthM } from './palletBanding';
 
 export type InertiaScenario = Exclude<PhysicsScenario, 'settle'>;
 export type CertificationStatus = 'passed' | 'failed';
@@ -156,6 +157,7 @@ export function createPhysicsTargetSignature(target: PhysicsTarget) {
     .map(item => [item.cargoId, item.quantity, item.reason]);
   return JSON.stringify({
     physicsModel: 'restraint-v4-certified-export',
+    bandingLayout: target.mode === 'pallets' ? 'grid-v1' : undefined,
     mode: target.mode,
     container: target.container,
     cargo,
@@ -266,8 +268,7 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
 
     supports.forEach(support => {
       const loadHeight = supportLoadHeight(target, support);
-      const strapRun = 2 * (Math.min(support.length, support.width) + loadHeight) + 0.3;
-      bandingLengthM += strapsPerPallet * strapRun;
+      bandingLengthM += palletBandingLengthM(support.length, support.width, loadHeight, strapsPerPallet);
       cornerGuardLengthM += 4 * loadHeight;
       if (loadHeight > 0) {
         const wrapCircumference = 2 * (support.length + support.width);
