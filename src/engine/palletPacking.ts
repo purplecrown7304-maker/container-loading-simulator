@@ -695,6 +695,105 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
   return { pallets: dense.pallets, remaining, consolidated: consolidated + dense.removed, cargoMap };
 }
 
+function isColumnTop(load: PalletLoad, all: PalletLoad[]) {
+  return !all.some((other) => other !== load && other.stackColumn === load.stackColumn && other.stackLevel > load.stackLevel);
+}
+
+function columnBelow(load: PalletLoad, all: PalletLoad[]) {
+  return all
+    .filter((other) => other !== load && other.stackColumn === load.stackColumn && other.stackLevel < load.stackLevel)
+    .sort((a, b) => a.stackLevel - b.stackLevel);
+}
+
+/**
+ * Field practice: a nearly empty pallet (often the one riding on top of another
+ * stack) is not shipped on its own; its cartons go onto the spare top layers of
+ * another pallet. Starting from the sparsest pallet, move every carton onto pallets
+ * that are the top of their column. A source is removed only when all of its
+ * cartons move; otherwise every target is restored.
+ *
+ * Hard constraints are the same ones used when the pallets were built: container
+ * height with packaging reserve, pallet max load, carton support, declared stack
+ * layers and top load, and the top-load limits of every pallet below the target.
+ * Unloading keeps each pallet within one stop. `maxCargoHeight` bounds the resulting
+ * unit-load height. Center of gravity is intentionally not considered here.
+ */
+export function absorbSparsePallets(
+  input: PalletLoad[],
+  cargo: CargoItem[],
+  pallet: PalletSpec,
+  container: ContainerSpec,
+  strategy: Strategy,
+  maxCargoHeight: number,
+) {
+  const cargoMap = new Map(cargo.map((item) => [item.id, item]));
+  const maxPackagingWeight = (pallet.useCornerGuards ? pallet.cornerGuardWeightKg : 0) + (pallet.useWrapping ? pallet.wrappingWeightKg : 0);
+  let pallets = input.map((load) => ({ ...load, cargoPlacements: load.cargoPlacements.map((p) => ({ ...p })), centerOfGravity: { ...load.centerOfGravity } }));
+  let removed = 0;
+  let changed = true;
+  while (changed && pallets.length > 1) {
+    changed = false;
+    const sources = pallets
+      .filter((load) => load.cargoPlacements.length > 0 && isColumnTop(load, pallets))
+      .sort((a, b) => a.cargoPlacements.length - b.cargoPlacements.length || b.stackLevel - a.stackLevel || a.palletIndex - b.palletIndex);
+    for (const source of sources) {
+      const targets = pallets
+        .filter((load) => load !== source && isColumnTop(load, pallets))
+        .map((load) => ({ original: load, work: { ...load, cargoPlacements: [...load.cargoPlacements] } }));
+      if (!targets.length) continue;
+      const items = source.cargoPlacements
+        .map((placement) => cargoMap.get(placement.cargoId))
+        .sort((a, b) => (b?.weightKg ?? 0) - (a?.weightKg ?? 0) || (a?.id ?? '').localeCompare(b?.id ?? ''));
+      let success = true;
+      for (const item of items) {
+        if (!item) { success = false; break; }
+        let best: { target: typeof targets[number]; placement: Placement; index: number } | null = null;
+        targets.forEach((target, index) => {
+          if (strategy === 'unloading' && stopOf(target.work, cargoMap) !== (item.unloadPriority ?? 0)) return;
+          const placement = slotFor(target.work, item, pallet, container, cargoMap);
+          if (!placement) return;
+          if (placement.z + placement.height - target.work.z - target.work.height > maxCargoHeight + EPS) return;
+          // Pallets below the target must carry the extra carton. Packaging is counted at
+          // its maximum because the minimum-packaging recount happens after the move.
+          const below = columnBelow(target.original, pallets);
+          const upperWeight = target.work.cargoWeightKg + item.weightKg + pallet.tareWeightKg + maxPackagingWeight;
+          for (let i = 0; i < below.length; i += 1) {
+            const stackedAbove = below.slice(i + 1).reduce((sum, load) => sum + load.totalWeightKg, 0) + upperWeight;
+            if (!canSupportUpper(below[i], stackedAbove, cargoMap, pallet)) return;
+          }
+          if (!best || placement.z < best.placement.z - EPS || (Math.abs(placement.z - best.placement.z) <= EPS && index < best.index)) {
+            best = { target, placement, index };
+          }
+        });
+        if (!best) { success = false; break; }
+        const chosen = best as { target: typeof targets[number]; placement: Placement };
+        chosen.target.work.cargoPlacements.push(chosen.placement);
+        chosen.target.work.cargoWeightKg += item.weightKg;
+      }
+      if (!success) continue;
+      const touched = targets
+        .filter((target) => target.work.cargoPlacements.length !== target.original.cargoPlacements.length)
+        .map((target) => target.work);
+      const updated = new Map(targets.map((target) => [target.original, target.work]));
+      pallets = pallets
+        .filter((load) => load !== source)
+        .map((load) => updated.get(load) ?? load);
+      applyMinimumPackaging(touched, pallet);
+      touched.forEach((load) => { load.centerOfGravity = palletCog(load, pallet); });
+      // Packaging may add height after the recount; never exceed the ceiling.
+      if (touched.some((load) => palletTop(load) > container.height + EPS)) return { pallets: input, removed: 0 };
+      removed += 1;
+      changed = true;
+      break;
+    }
+  }
+  if (!removed) return { pallets: input, removed: 0 };
+  const beforeCount = input.reduce((sum, load) => sum + load.cargoPlacements.length, 0);
+  const afterCount = pallets.reduce((sum, load) => sum + load.cargoPlacements.length, 0);
+  if (beforeCount !== afterCount) return { pallets: input, removed: 0 };
+  return { pallets, removed };
+}
+
 export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pallet: PalletSpec = defaultPalletSpec, strategy: Strategy = 'capacity'): PalletPackingResult {
   const { pallets, remaining, consolidated, cargoMap } = buildInitialPallets(cargo, pallet, container, strategy);
   const positions = palletPositions(container, pallet);
