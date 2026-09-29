@@ -61,7 +61,7 @@ export const defaultPalletSpec: PalletSpec = {
   width: 1.1,
   height: 0.15,
   tareWeightKg: 25,
-  maxLoadKg: 1000,
+  maxLoadKg: 1500,
   maxStackLevels: 2,
   maxSupportedTopWeightKg: 1000,
   useCornerGuards: false,
