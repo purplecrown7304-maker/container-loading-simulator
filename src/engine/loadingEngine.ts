@@ -1,3 +1,4 @@
+import { fillUnloadingTrenches } from './trenchFilling';
 import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
 import { auditLoading } from './loadingAudit';
 import { centerPlacementsOnContainer } from './containerCentering';
@@ -155,7 +156,9 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   const packed = settleSparseTopLayer(container, normalizedCargo,
     completeResidualPacking(container, normalizedCargo, packByHybridOptimizer(container, normalizedCargo, strategy), strategy),
     strategy);
-  const centered = centerPlacementsOnContainer(container, packed.placements);
+  // Unloading layouts stack one block per stop; flatten trenches left between tall stop walls.
+  const flattened = strategy === 'unloading' ? fillUnloadingTrenches(container, normalizedCargo, packed.placements) : packed.placements;
+  const centered = centerPlacementsOnContainer(container, flattened);
   const finalPlacements = strategy === 'unloading'
     ? orientForUnloading(container, normalizedCargo, centered)
     : centered;
