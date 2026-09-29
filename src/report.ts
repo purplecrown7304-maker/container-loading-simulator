@@ -66,7 +66,7 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
   }
   const materialCards = materialItems.length
     ? materialItems.map(([name, value]) => `<div><span>${escapeHtml(name)}</span><b>${escapeHtml(value)}</b><i>□ 설치 확인</i></div>`).join('')
-    : '<div><span>추가 보강재</span><b>없음</b><i>기본 적재안</i></div>';
+    : `<div><span>추가 보강재</span><b>${securing ? '없음' : '미확인'}</b><i>${securing ? '기본 적재안' : '보강 계획을 확인하세요'}</i></div>`;
 
   const recommendations = certification
     ? buildWorkOrderRecommendations(certification)

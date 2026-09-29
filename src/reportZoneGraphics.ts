@@ -67,7 +67,14 @@ export function buildZone3d(container: ContainerSpec, cargo: CargoItem[], placem
   const project = (x: number, y: number, z: number) => [65 + (x + y * .65) * scale, 105 + (x * .28 - y * .5 - z * .8) * scale];
   const points = (coords: number[][]) => coords.map(([x, y, z]) => project(x, y, z).map(n => n.toFixed(1)).join(',')).join(' ');
   const floor = points([[0, 0, 0], [container.length, 0, 0], [container.length, container.width, 0], [0, container.width, 0]]);
-  const blocks = zones.filter(zone => active === undefined || zone.number <= active).flatMap(zone => reportBlocks(placements, zone.indices).map(p => ({ ...p, zone: zone.number })));
+  const blocks = zones.filter(zone => active === undefined || zone.number <= active).flatMap(zone => {
+    // Show actual carton edges for the completed view/current zone; previous zones
+    // are merged gray rectangles to keep each progress drawing light and readable.
+    const shapes = active === undefined || zone.number === active
+      ? zone.indices.map(i => ({ ...placements[i], count: 1 }))
+      : reportBlocks(placements, zone.indices);
+    return shapes.map(p => ({ ...p, zone: zone.number }));
+  });
   // Painter order from the far side to the +X/-Y door-side camera.
   blocks.sort((a, b) => a.z - b.z || a.x - b.x || b.y - a.y);
   const shapes = blocks.map(p => {

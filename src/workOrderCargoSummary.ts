@@ -45,7 +45,7 @@ export function buildWorkOrderCargoSummary(cargo: CargoItem[], counts: Map<strin
     const size = `${Math.round(item.length * 1000).toLocaleString()} × ${Math.round(item.width * 1000).toLocaleString()} × ${Math.round(item.height * 1000).toLocaleString()} mm`;
     return `<article class="cargo-intake-card">
       <div class="cargo-intake-image">${boxSvg(item, catalog)}</div>
-      <div class="cargo-intake-info"><b>${escapeHtml(catalog?.get(item.id)?.code ?? item.id)}${catalog?.get(item.id)?.partial ? ' · 잔량' : ''}</b><span>${escapeHtml(item.name)}</span><strong>${quantity.toLocaleString()} EA</strong><small>${escapeHtml(size)}</small></div>
+      <div class="cargo-intake-info"><b>${escapeHtml(catalog?.get(item.id)?.code ?? item.id)}${catalog?.get(item.id)?.partial ? ' · 잔량' : ''}</b>${!catalog ? `<span>${escapeHtml(item.name)}</span>` : ''}<strong>${quantity.toLocaleString()} EA</strong>${!catalog ? `<small>${escapeHtml(size)}</small>` : ''}</div>
     </article>`;
   }).join('');
   return `<section class="cargo-intake"><div class="cargo-intake-title"><h3>투입 적재단위</h3><span>실제 최종 적재 수량 기준</span></div><div class="cargo-intake-grid">${cards}</div></section>`;
