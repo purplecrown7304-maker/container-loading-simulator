@@ -74,6 +74,18 @@ const certification: InertiaCertification = {
 };
 
 describe('pallet worker report', () => {
+  it('shows four straps as a two-by-two grid and prints matching work instructions', () => {
+    const html = buildPalletLoadingReportHtml(container, cargo, snapshot, {
+      ...certification, securing: { ...certification.securing, level: 3, bandingStraps: 8 },
+    });
+    const document = new DOMParser().parseFromString(html.replace(/<link\b[^>]*>/g, ''), 'text/html');
+    const top = document.querySelector('svg[aria-label="팔레트 위에서 본 적재도"]')!;
+    const lines = [...top.querySelectorAll('line[stroke="#111827"]')];
+    expect(lines.filter(line => line.getAttribute('x1') === line.getAttribute('x2'))).toHaveLength(2);
+    expect(lines.filter(line => line.getAttribute('y1') === line.getAttribute('y2'))).toHaveLength(2);
+    expect(html).toContain('밴딩 4줄 결속 · 가로 2줄 + 세로 2줄 격자');
+  });
+
   it('renders pallet numbers, stack positions, securing legend and worker checks', () => {
     const html = buildPalletLoadingReportHtml(container, cargo, snapshot, certification);
     expect(html).toContain('팔레트 적재 작업지시서');

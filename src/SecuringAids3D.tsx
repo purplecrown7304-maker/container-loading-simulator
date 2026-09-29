@@ -4,6 +4,7 @@ import type { PalletLoad } from './engine/palletOptimization';
 import type { ContainerSpec } from './engine/types';
 import EquipmentShell3D from './EquipmentShell3D';
 import type { SecuringUsage } from './inertiaCertification';
+import { palletBandingSegments } from './palletBanding';
 
 type Props = {
   container: ContainerSpec;
@@ -12,7 +13,6 @@ type Props = {
   scale: number;
 };
 
-const STRAP_THICKNESS_M = 0.022;
 const GUARD_THICKNESS_M = 0.035;
 const MAT_THICKNESS_M = 0.008;
 const LOAD_BAR_LENGTH_M = 0.06;
@@ -58,26 +58,16 @@ function PalletSecuring({ container, pallet, usage, scale }: { container: Contai
       <Edges color="#68b9e7" />
     </mesh>}
 
-    {Array.from({ length: strapsPerPallet }, (_, index) => {
-      const ratio = (index + 1) / (strapsPerPallet + 1);
-      const x = pallet.x + pallet.length * ratio;
-      const zLeft = pallet.y - STRAP_THICKNESS_M / 2;
-      const zRight = pallet.y + pallet.width + STRAP_THICKNESS_M / 2;
-      return <group key={`strap-${pallet.palletIndex}-${index}`}>
-        <mesh position={[sceneX(container, x, scale), (top + STRAP_THICKNESS_M / 2) * scale, sceneZ(container, pallet.y + pallet.width / 2, scale)]}>
-          <boxGeometry args={[STRAP_THICKNESS_M * scale, STRAP_THICKNESS_M * scale, (pallet.width + STRAP_THICKNESS_M * 2) * scale]} />
-          <meshStandardMaterial color="#1f2937" roughness={0.48} />
-        </mesh>
-        <mesh position={[sceneX(container, x, scale), centerY * scale, sceneZ(container, zLeft, scale)]}>
-          <boxGeometry args={[STRAP_THICKNESS_M * scale, loadHeight * scale, STRAP_THICKNESS_M * scale]} />
-          <meshStandardMaterial color="#1f2937" roughness={0.48} />
-        </mesh>
-        <mesh position={[sceneX(container, x, scale), centerY * scale, sceneZ(container, zRight, scale)]}>
-          <boxGeometry args={[STRAP_THICKNESS_M * scale, loadHeight * scale, STRAP_THICKNESS_M * scale]} />
-          <meshStandardMaterial color="#1f2937" roughness={0.48} />
-        </mesh>
-      </group>;
-    })}
+    {palletBandingSegments({ ...pallet, z: base, height: loadHeight }, strapsPerPallet).map((band, index) =>
+      <mesh key={`strap-${pallet.palletIndex}-${index}`} position={[
+        sceneX(container, band.x + band.length / 2, scale),
+        (band.z + band.height / 2) * scale,
+        sceneZ(container, band.y + band.width / 2, scale),
+      ]}>
+        <boxGeometry args={[band.length * scale, band.height * scale, band.width * scale]} />
+        <meshStandardMaterial color="#1f2937" roughness={0.48} />
+      </mesh>,
+    )}
 
     {usage.cornerGuards > 0 && corners.map(([x, y], index) => <group key={`guard-${pallet.palletIndex}-${index}`}>
       <mesh position={[sceneX(container, x, scale), centerY * scale, sceneZ(container, y, scale)]}>

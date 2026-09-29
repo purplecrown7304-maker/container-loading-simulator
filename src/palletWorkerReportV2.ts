@@ -13,6 +13,7 @@ import {
 } from './inertiaWorkOrderPolicy';
 import { buildPalletSecuringPlan, type PalletSecuringPlan } from './palletSecuringPlan';
 import { readPhysicsTarget } from './physicsTarget';
+import { palletBandingLabel, palletBandingLayout } from './palletBanding';
 
 export type PalletWorkSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult };
 type PalletWindow = Window & { __containerLoadingPalletSnapshot?: PalletWorkSnapshot };
@@ -88,9 +89,13 @@ function topViewSvg(container: ContainerSpec, snapshot: PalletWorkSnapshot, plan
     const mainCargo = topLoad?.cargoPlacements[0]?.cargoId ?? base.cargoPlacements[0]?.cargoId ?? `C${column}`;
     const sequence = loads.map((load) => `P${load.palletIndex}`).join('→');
     const maxStraps = Math.max(0, ...loads.map((load) => planMap.get(load.palletIndex)?.bandingStraps ?? 0));
-    const straps = Array.from({ length: maxStraps }, (_, index) => {
-      const px = x + w * (index + 1) / (maxStraps + 1);
+    const layout = palletBandingLayout(maxStraps);
+    const straps = layout.acrossWidth.map(ratio => {
+      const px = x + w * ratio;
       return `<line x1="${px.toFixed(1)}" y1="${(y + 2).toFixed(1)}" x2="${px.toFixed(1)}" y2="${(y + h - 2).toFixed(1)}" stroke="#111827" stroke-width="3"/>`;
+    }).join('') + layout.acrossLength.map(ratio => {
+      const py = y + h * ratio;
+      return `<line x1="${(x + 2).toFixed(1)}" y1="${py.toFixed(1)}" x2="${(x + w - 2).toFixed(1)}" y2="${py.toFixed(1)}" stroke="#111827" stroke-width="3"/>`;
     }).join('');
     const hasGuards = loads.some((load) => (planMap.get(load.palletIndex)?.cornerGuards ?? 0) > 0);
     const corners = hasGuards
@@ -126,10 +131,11 @@ function sideViewSvg(container: ContainerSpec, snapshot: PalletWorkSnapshot, pla
     const palletY = padY + innerH - (pallet.z + pallet.height) * sz;
     const palletH = Math.max(3, pallet.height * sz);
     const mainCargo = pallet.cargoPlacements[0]?.cargoId ?? `P${pallet.palletIndex}`;
-    const straps = Array.from({ length: item?.bandingStraps ?? 0 }, (_, index) => {
-      const px = x + w * (index + 1) / ((item?.bandingStraps ?? 0) + 1);
+    const layout = palletBandingLayout(item?.bandingStraps ?? 0);
+    const straps = layout.acrossWidth.map(ratio => {
+      const px = x + w * ratio;
       return `<line x1="${px.toFixed(1)}" y1="${topY.toFixed(1)}" x2="${px.toFixed(1)}" y2="${palletY.toFixed(1)}" stroke="#111827" stroke-width="3"/>`;
-    }).join('');
+    }).join('') + (layout.acrossLength.length ? `<path d="M ${x.toFixed(1)} ${palletY.toFixed(1)} V ${topY.toFixed(1)} H ${(x + w).toFixed(1)} V ${palletY.toFixed(1)}" fill="none" stroke="#111827" stroke-width="3"/>` : '');
     const wrap = (item?.wrappingLengthM ?? 0) > 0 ? `<rect x="${(x + 2).toFixed(1)}" y="${(topY + 2).toFixed(1)}" width="${Math.max(1, w - 4).toFixed(1)}" height="${Math.max(1, h - palletH - 4).toFixed(1)}" fill="none" stroke="#38a3d1" stroke-width="2" stroke-dasharray="6 4"/>` : '';
     return `<g><rect x="${x.toFixed(1)}" y="${topY.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${cargoColor(mainCargo)}" fill-opacity=".78" stroke="#334155"/>${wrap}${straps}<rect x="${x.toFixed(1)}" y="${palletY.toFixed(1)}" width="${w.toFixed(1)}" height="${palletH.toFixed(1)}" fill="#9a6b3f" stroke="#704728"/><circle cx="${(x + w / 2).toFixed(1)}" cy="${Math.max(topY + 16, palletY - 12).toFixed(1)}" r="14" fill="#fff" stroke="#172033"/><text x="${(x + w / 2).toFixed(1)}" y="${Math.max(topY + 20, palletY - 8).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="800">P${pallet.palletIndex}</text><text x="${(x + w / 2).toFixed(1)}" y="${(bottomY - 4).toFixed(1)}" text-anchor="middle" font-size="8" font-weight="700">C${pallet.stackColumn} / ${pallet.stackLevel}단</text></g>`;
   }).join('');
@@ -142,7 +148,7 @@ function palletRows(snapshot: PalletWorkSnapshot, cargo: CargoItem[], plan: Pall
   return workOrder(snapshot.result.pallets).map((pallet, index) => {
     const item = planMap.get(pallet.palletIndex);
     const securing = item
-      ? [`밴딩 ${item.bandingStraps}줄/${item.bandingLengthM.toFixed(1)}m`, `각대 ${item.cornerGuards}EA/${item.cornerGuardLengthM.toFixed(1)}m`, item.wrappingLengthM > 0 ? `랩핑 ${item.wrappingLengthM.toFixed(1)}m` : '', item.antiSlipMats > 0 ? `미끄럼방지 ${item.antiSlipMats}EA` : ''].filter(Boolean).join(' · ')
+      ? [`밴딩 ${item.bandingStraps}줄/${item.bandingLengthM.toFixed(1)}m${item.bandingStraps > 0 ? ` · ${palletBandingLabel(item.bandingStraps)}` : ''}`, `각대 ${item.cornerGuards}EA/${item.cornerGuardLengthM.toFixed(1)}m`, item.wrappingLengthM > 0 ? `랩핑 ${item.wrappingLengthM.toFixed(1)}m` : '', item.antiSlipMats > 0 ? `미끄럼방지 ${item.antiSlipMats}EA` : ''].filter(Boolean).join(' · ')
       : '추가 보강 없음';
     const instruction = pallet.stackLevel === 1
       ? `컨테이너 안쪽부터 C${pallet.stackColumn} 위치에 바닥 배치`
@@ -159,7 +165,7 @@ function securingSequence(snapshot: PalletWorkSnapshot, plan: PalletSecuringPlan
       item && item.antiSlipMats > 0 ? `□ ① ${pallet.stackLevel === 1 ? '바닥' : '적층 접촉면'} 미끄럼방지재 ${item.antiSlipMats}EA 설치` : '',
       `□ ② P${pallet.palletIndex} → C${pallet.stackColumn} ${pallet.stackLevel}단 배치`,
       item && item.cornerGuards > 0 ? `□ ③ 각대 ${item.cornerGuards}EA 설치 · 총 ${item.cornerGuardLengthM.toFixed(1)}m` : '',
-      item && item.bandingStraps > 0 ? `□ ④ 밴딩 ${item.bandingStraps}줄 결속 · 총 ${item.bandingLengthM.toFixed(1)}m` : '',
+      item && item.bandingStraps > 0 ? `□ ④ 밴딩 ${item.bandingStraps}줄 결속 · ${palletBandingLabel(item.bandingStraps)} · 총 ${item.bandingLengthM.toFixed(1)}m` : '',
       item && item.wrappingLengthM > 0 ? `□ ⑤ 랩핑 ${item.wrappingLengthM.toFixed(1)}m 적용` : '',
       '□ ⑥ 흔들림 · 오버행 · 결속 풀림 확인',
     ].filter(Boolean);

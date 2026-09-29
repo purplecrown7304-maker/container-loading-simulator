@@ -111,9 +111,11 @@ Objectives are lexicographic. A lower item may not be improved at the expense of
 - Do not stack above configured pallet stacking limits.
 - Respect pallet load, top-load, support, packaging-clearance, ceiling clearance, and container payload limits.
 - Forklift-loaded pallets must retain configured fork-entry/access clearance at loading time.
+- Owner banding rule (2026-09-29): four pallet straps form a grid with two across length and two across width. Keep all 3D viewers, work-order diagrams/instructions, and material length/weight calculations on the same directional layout. Preserve reinforcement-level strap counts and restraint coefficients; shorter-count stages distribute straps across both axes.
 - Pallet/pallet and pallet/wall spacing is configurable.
 
 ### Pallet count minimization
+- Owner rule #97 (2026-09-29): a regular pallet's highest occupied tier must cover at least 50% of the usable pallet deck (`minTopLayerFillRatio`, default 0.5). Move the ENTIRE tier below this threshold into a final mixed tail, even if another pallet base is needed. Exactly 50% stays. This terminal rule takes priority over pallet-count minimization and sparse absorption; no later pass may put those cartons back. Recombine an existing unfinished floor pallet when compatible. The final residual pallet per unloading stop may remain below 50%; if weight/geometry forces multiple single-tier tails, preserve every carton and every hard limit. Extra bases consume payload and floor/stack capacity; infeasible cartons remain explicitly waiting.
 - Fill existing compatible pallets before creating a new partial pallet.
 - Pallet count may only be reduced by legal consolidation, better assignment, or MIXED conversion of eligible low-fill tail pallets.
 - Loaded quantity outranks pallet count. Never drop cargo merely to reduce pallet count.

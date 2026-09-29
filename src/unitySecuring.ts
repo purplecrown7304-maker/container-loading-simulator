@@ -1,6 +1,7 @@
 import type { ContainerSpec, Placement } from './engine/types';
 import type { PhysicsSupport } from './engine/physicsValidation';
 import type { SecuringUsage } from './inertiaCertification';
+import { palletBandingSegments } from './palletBanding';
 
 // Visual geometry only. Restraint forces and certification remain owned by the engine.
 export type UnityDecoration = { x: number; y: number; z: number; length: number; width: number; height: number; color: string; supportIndex: number; wire?: boolean; modelKey?: string };
@@ -22,10 +23,8 @@ export function securingGeometry(container: ContainerSpec, boxes: Placement[], s
     const base = p.z + p.height, top = Math.max(...load.map(b => b.z + b.height)), height = top - base;
     if (usage.wrappingLengthM > 0) add(p.x - .012, p.y - .012, base, p.length + .024, p.width + .024, height, '#68b9e7', index, true);
     const straps = Math.round(usage.bandingStraps / Math.max(1, supports.length));
-    for (let i = 0; i < straps; i++) {
-      const x = p.x + p.length * (i + 1) / (straps + 1) - .011;
-      add(x, p.y - .022, top, .022, p.width + .044, .022, '#1f2937', index);
-      for (const y of [p.y - .022, p.y + p.width]) add(x, y, base, .022, .022, height, '#1f2937', index);
+    for (const band of palletBandingSegments({ ...p, z: base, height }, straps)) {
+      add(band.x, band.y, band.z, band.length, band.width, band.height, '#1f2937', index);
     }
     if (usage.cornerGuards) for (const x of [p.x, p.x + p.length - .035]) for (const y of [p.y, p.y + p.width - .035]) add(x, y, base, .035, .035, height, '#d6b276', index, false, 'corner-guard');
     const mats = Math.round(usage.antiSlipMats / Math.max(1, supports.length));

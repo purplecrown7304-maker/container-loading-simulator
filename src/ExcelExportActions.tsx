@@ -10,6 +10,7 @@ import { buildWorkSequence } from './engine/workSequence';
 import { confirmUnverifiedExport, hasCurrentPhysicsVerification } from './exportVerification';
 import { readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
 import { buildPalletSecuringPlan } from './palletSecuringPlan';
+import { palletBandingLabel } from './palletBanding';
 import { readPhysicsTarget } from './physicsTarget';
 import { defaultSecuringMaterialSettings } from './securingMaterialSettings';
 
@@ -177,7 +178,7 @@ function exportPalletWorkbook(target: CurrentTarget, snapshot: PalletSnapshot, c
       item.antiSlipMats > 0 ? `① 미끄럼방지재 ${item.antiSlipMats}EA 설치` : '',
       `② P${item.palletIndex} ${pallet ? `C${pallet.stackColumn} ${pallet.stackLevel}단` : ''} 배치`,
       item.cornerGuards > 0 ? `③ 각대 ${item.cornerGuards}EA 설치` : '',
-      item.bandingStraps > 0 ? `④ 밴딩 ${item.bandingStraps}줄 결속` : '',
+      item.bandingStraps > 0 ? `④ 밴딩 ${item.bandingStraps}줄 결속 · ${palletBandingLabel(item.bandingStraps)}` : '',
       item.wrappingLengthM > 0 ? `⑤ 랩핑 ${item.wrappingLengthM.toFixed(1)}m` : '',
       '⑥ 흔들림/간섭 확인',
     ].filter(Boolean).join(' → ');

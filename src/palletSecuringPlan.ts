@@ -3,6 +3,7 @@ import type { Placement } from './engine/types';
 import type { SecuringUsage } from './inertiaCertification';
 import type { PhysicsTarget } from './physicsTarget';
 import { readSecuringMaterialSettings } from './securingMaterialSettings';
+import { palletBandingLengthM } from './palletBanding';
 
 const EPS = 1e-6;
 
@@ -72,9 +73,7 @@ export function buildPalletSecuringPlan(target: PhysicsTarget, usage: SecuringUs
   const items = supports.map((support, index): PalletSecuringPlanItem => {
     const loadHeightM = supportLoadHeight(target, support);
     const bandingStraps = strapsPerPallet;
-    const bandingLengthM = bandingStraps > 0
-      ? bandingStraps * (2 * (Math.min(support.length, support.width) + loadHeightM) + 0.3)
-      : 0;
+    const bandingLengthM = palletBandingLengthM(support.length, support.width, loadHeightM, bandingStraps);
     const cornerGuards = level > 0 ? 4 : 0;
     const cornerGuardLengthM = cornerGuards > 0 ? 4 * loadHeightM : 0;
     const wrappingLengthM = level >= 2 && loadHeightM > 0
