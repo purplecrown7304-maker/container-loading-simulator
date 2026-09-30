@@ -331,13 +331,17 @@ function spreadStacksToFreeFloor(
   return rebuildMetrics(input, pallets, 0, container);
 }
 
+function resultVolumeUtilization(input: PalletPackingResult, container: ContainerSpec) {
+  const volume = input.placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0);
+  return volume / Math.max(EPS, container.length * container.width * container.height);
+}
+
 function redistributeForLowUtilization(
   input: PalletPackingResult,
   container: ContainerSpec,
   pallet: PalletSpec,
 ) {
-  const volume = input.placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0);
-  const utilization = volume / Math.max(EPS, container.length * container.width * container.height);
+  const utilization = resultVolumeUtilization(input, container);
   if (utilization >= LOW_UTILIZATION_THRESHOLD || input.pallets.length < 2) return { result: input, redistributed: false };
 
   const byColumn = new Map<number, PalletLoad[]>();
@@ -480,8 +484,14 @@ export function packOnPallets(
     return betterCandidate(a, b, pallet.minimizePackaging);
   };
 
-  if (strategy === 'stability') {
-    for (const candidate of candidates) candidate.result = spreadStacksToFreeFloor(candidate.result, container, pallet);
+  // Below 50% container volume, use an available floor pallet position before
+  // stacking one pallet unit-load on another. This keeps low-CBM shipments low and
+  // easy to secure while preserving pallet count and every hard constraint.
+  // Stability mode keeps its existing always-spread behavior.
+  for (const candidate of candidates) {
+    if (strategy === 'stability' || resultVolumeUtilization(candidate.result, container) < LOW_UTILIZATION_THRESHOLD) {
+      candidate.result = spreadStacksToFreeFloor(candidate.result, container, pallet);
+    }
   }
   let selected = candidates[0] ?? {
     result: packOnPalletsBase(container, normalizedCargo, pallet),
