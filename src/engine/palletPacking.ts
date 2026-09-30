@@ -933,11 +933,12 @@ export function applyTopLayerFillPolicy(input: PalletPackingResult, cargo: Cargo
 const sameValue = (a: number, b: number) => Math.abs(a - b) <= 1e-6;
 
 /**
- * Field practice for a weight-limited top tier: keep the tier's outer ring complete so straps and
- * corner boards bear on cartons, and leave the unavoidable holes in the middle, in point-symmetric
- * pairs so the pallet's centre of gravity stays centred. Only uniform tiers that sit exactly on a
- * lower tier of the same carton footprint are rearranged; the carton set, counts and every
- * support/stacking/top-load check are unchanged or re-verified, otherwise the pallet is left as is.
+ * Field practice for a weight-limited top tier: never leave avoidable holes inside the visible
+ * top surface. Put unavoidable empty slots on the perimeter first, in point-symmetric pairs when
+ * possible so the pallet centre of gravity stays balanced. This keeps the top tier contiguous
+ * instead of producing "windows" between cartons. Only uniform tiers that sit exactly on a lower
+ * tier of the same carton footprint are rearranged; carton counts and every support/stacking/
+ * top-load check are unchanged or re-verified, otherwise the pallet is left as is.
  */
 export function placeTopTierHolesInside(load: PalletLoad, cargoMap: Map<string, CargoItem>): PalletLoad {
   const placements = load.cargoPlacements;
@@ -962,7 +963,10 @@ export function placeTopTierHolesInside(load: PalletLoad, cargoMap: Map<string, 
   const center = (p: Placement) => ({ x: p.x + p.length / 2, y: p.y + p.width / 2 });
   const ranked = [...slots].sort((a, b) => {
     const ca = center(a), cb = center(b);
-    return Math.hypot(ca.x - cx, ca.y - cy) - Math.hypot(cb.x - cx, cb.y - cy) || a.x - b.x || a.y - b.y;
+    // Empty the outside first. The previous ascending order deliberately put holes
+    // near the centre and produced visible cavities on almost every weight-limited
+    // pallet top (for example 30/32 cartons).
+    return Math.hypot(cb.x - cx, cb.y - cy) - Math.hypot(ca.x - cx, ca.y - cy) || a.x - b.x || a.y - b.y;
   });
   const holeCount = slots.length - tier.length;
   const holes = new Set<string>();
