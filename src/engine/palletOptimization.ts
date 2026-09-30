@@ -516,8 +516,9 @@ export function packOnPallets(
     const moved = columns.flatMap((loads, i) => loads.map(load => moveLoad(load, slots[i].x, slots[i].y)));
     redistributed.result = rebuildMetrics(redistributed.result, moved, 0, container);
   }
-  // Terminal layout pass: weight-limited top tiers keep a complete outer ring (banding/corner
-  // boards) and leave their holes in the middle. Carton set and pallet assignment are unchanged.
+  // Terminal layout pass: weight-limited top tiers keep unavoidable empty slots on
+  // the perimeter instead of leaving visible holes inside the top surface. Carton set,
+  // pallet assignment and every hard safety constraint remain unchanged.
   const cargoById = new Map(normalizedCargo.map(item => [item.id, item]));
   const holesArranged = placeTopTierHolesInsideAll(redistributed.result.pallets, cargoById, pallet);
   if (holesArranged.some((load, index) => load !== redistributed.result.pallets[index])) {
