@@ -130,7 +130,7 @@ describe('pallet material efficiency', () => {
       weightKg: 100,
       quantity: 13,
       maxStackLayers: 1,
-      maxTopLoadKg: 0,
+      maxTopLoadKg: 1000,
     })];
 
     const result = packOnPallets(short, cargo, pallet, 'capacity');
