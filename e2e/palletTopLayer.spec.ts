@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 
 test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
 
-test('sparse top tier moves to a final pallet and diagnostics download a local ZIP', async ({ page, context, baseURL }) => {
+test('sparse top tier stays on the existing pallet when splitting would add a base, and diagnostics still download', async ({ page, context, baseURL }) => {
   test.setTimeout(180_000);
   const mailRequests: string[] = [];
   const pageErrors: string[] = [];
@@ -40,9 +40,9 @@ test('sparse top tier moves to a final pallet and diagnostics download a local Z
   await page.getByRole('radio', { name: /T11 플라스틱 \(수출용 경량\)/ }).click();
   await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.palletCount)).toBe(2);
+  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.palletCount)).toBe(1);
   await expect(page.locator('.pallet-preview>.unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
-  await expect(page.locator('.pallet-preview>.unity-viewer')).toHaveAttribute('data-unity-supports', '2');
+  await expect(page.locator('.pallet-preview>.unity-viewer')).toHaveAttribute('data-unity-supports', '1');
   const result = await page.evaluate(() => {
     const result = (window as any).__containerLoadingPalletSnapshot.result;
     return {
@@ -60,9 +60,9 @@ test('sparse top tier moves to a final pallet and diagnostics download a local Z
   });
   expect(result.loaded).toBe(9);
   expect(result.remaining).toEqual([]);
-  expect(result.pallets.map((p: any) => p.count)).toEqual([8, 1]);
-  expect(result.pallets[0].fill).toBeCloseTo(1);
-  expect(result.pallets[1]).toMatchObject({ tail: true, count: 1 });
+  expect(result.pallets.map((p: any) => p.count)).toEqual([9]);
+  expect(result.pallets[0]).toMatchObject({ tail: false, count: 9 });
+  expect(result.pallets[0].fill).toBeCloseTo(.25);
   await page.screenshot({ path: test.info().outputPath('pallet-top-layer.png'), fullPage: true });
 
   await page.getByRole('button', { name: /메뉴/, exact: false }).filter({ has: page.locator('span', { hasText: '☰' }) }).click();

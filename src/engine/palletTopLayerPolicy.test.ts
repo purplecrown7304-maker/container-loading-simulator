@@ -28,25 +28,28 @@ function expectSafe(space: ContainerSpec, cargo: CargoItem[], pallet: typeof spe
   }
 }
 
-describe('regular top tiers below 50% move to a final mixed pallet (#97)', () => {
-  it.each(['capacity', 'stability', 'unloading'] as const)('%s: takes the entire sparse tier off, even when another pallet is needed', strategy => {
+describe('top-tier fill policy never creates avoidable pallet bases (#106)', () => {
+  it.each(['capacity', 'stability', 'unloading'] as const)('%s: keeps 4+4+1 on one safe pallet instead of creating an extra 1-carton pallet', strategy => {
     const cargo = [box()];
     const result = packOnPallets(container, cargo, spec, strategy);
-    expect(result.palletCount).toBe(2);
+    expect(result.palletCount).toBe(1);
     expect(result.placements).toHaveLength(9);
-    expect(result.pallets.filter(p => !p.isMixedTail).map(p => p.cargoPlacements.length)).toEqual([8]);
-    expect(result.pallets.filter(p => p.isMixedTail).map(p => p.cargoPlacements.length)).toEqual([1]);
+    expect(result.remaining).toEqual([]);
+    expect(result.pallets[0].cargoPlacements).toHaveLength(9);
+    expect(result.pallets[0].isMixedTail).not.toBe(true);
+    expect(palletTopLayerFill(result.pallets[0])).toBe(.25);
     expectSafe(container, cargo, spec, result);
     expect(packOnPallets(container, cargo, spec, strategy)).toEqual(result);
   });
 
-  it('keeps a tier at exactly 50% and moves one just below it', () => {
+  it('keeps a tier at exactly 50% and does not split one just below it when that would add a pallet', () => {
     const exact = packOnPallets(container, [box({ quantity: 10 })], spec);
     expect(exact.palletCount).toBe(1);
     expect(palletTopLayerFill(exact.pallets[0])).toBe(.5);
     const below = packOnPallets(container, [box({ width: .49, quantity: 10 })], spec);
-    expect(below.palletCount).toBe(2);
-    expect(below.pallets.filter(p => p.isMixedTail)[0].cargoPlacements).toHaveLength(2);
+    expect(below.palletCount).toBe(1);
+    expect(below.remaining).toEqual([]);
+    expect(palletTopLayerFill(below.pallets[0])).toBeCloseTo(.49);
   });
 
   it('can configure the threshold without changing declared physical limits', () => {
@@ -55,24 +58,25 @@ describe('regular top tiers below 50% move to a final mixed pallet (#97)', () =>
     expect(packOnPallets(container, [box()], { ...spec, minTopLayerFillRatio: 1.1 }).remaining[0].reason).toContain('최상단 최소충전율');
   });
 
-  it('preserves quantity as waiting when extra pallet weight cannot fit', () => {
+  it('does not strand cargo just because a second pallet base would exceed payload', () => {
     const cargo = [box()];
     const space = { ...container, maxPayloadKg: 120 };
     const result = packOnPallets(space, cargo, spec);
-    expect(result.remaining.reduce((n, p) => n + p.quantity, 0)).toBeGreaterThan(0);
-    expect(result.remaining.some(p => p.reason.includes('최상단 최소충전율'))).toBe(true);
+    expect(result.palletCount).toBe(1);
+    expect(result.placements).toHaveLength(9);
+    expect(result.remaining).toEqual([]);
     expectSafe(space, cargo, spec, result);
   });
 
-  it('keeps candidate stack limits and reports waiting when an extra base has no legal position', () => {
+  it('keeps candidate stack limits and retains the safe plan when no second pallet position exists', () => {
     const cargo = [box()];
     const stacked = packOnPallets(container, cargo, { ...spec, maxStackLevels: 2 });
     expect(stacked.maxUsedStackLevel).toBeLessThanOrEqual(stacked.optimization.selectedStackTarget);
     const space = { ...container, length: 1, width: 1 };
     const result = packOnPallets(space, cargo, spec);
-    expect(result.placements).toHaveLength(8);
-    expect(result.remaining).toMatchObject([{ cargoId: 'A', quantity: 1 }]);
-    expect(result.remaining[0].reason).toContain('최상단 최소충전율');
+    expect(result.palletCount).toBe(1);
+    expect(result.placements).toHaveLength(9);
+    expect(result.remaining).toEqual([]);
     expectSafe(space, cargo, spec, result);
   });
 

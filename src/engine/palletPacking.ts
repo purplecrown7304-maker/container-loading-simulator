@@ -818,10 +818,11 @@ export function palletTopLayerFill(load: PalletLoad) {
 }
 
 /**
- * Owner rule #97: a regular top tier below the minimum is moved in its entirety to
- * the final mixed tail. This runs AFTER sparse-pallet absorption, which must never
- * put these cartons back onto regular pallets. Extra bases are permitted, but every
- * placement and the rebuilt pallet stacks still pass the ordinary hard checks.
+ * Owner rule #97, revised 2026-09-30 (#106): a regular top tier below the minimum
+ * may be reorganized into an existing compatible tail pallet, but the fill policy
+ * is never allowed to create an additional pallet base or reduce loaded quantity.
+ * Existing pallet capacity and all hard safety constraints take priority; if the
+ * 50% presentation rule would cost a pallet or strand cargo, keep the safe input plan.
  */
 export function applyTopLayerFillPolicy(input: PalletPackingResult, cargo: CargoItem[], pallet: PalletSpec, container: ContainerSpec, strategy: Strategy): PalletPackingResult {
   const minimum = pallet.minTopLayerFillRatio ?? 0.5;
@@ -925,6 +926,13 @@ export function applyTopLayerFillPolicy(input: PalletPackingResult, cargo: Cargo
   const remaining = new Map(input.remaining.map(row => [row.cargoId, row.quantity]));
   for (const [id, quantity] of pending) if (quantity > 0) remaining.set(id, (remaining.get(id) ?? 0) + quantity);
   const result = finishPalletPacking([...regular, ...tails], remaining, input.consolidatedPallets, cargoMap, container, pallet, strategy);
+
+  // Owner decision #106: top-layer appearance/compactness is a preference, not a
+  // reason to pay for another pallet or leave previously loaded cargo behind.
+  // The input plan has already passed the hard placement checks, so revert to it
+  // whenever this terminal tidy-up would increase pallet count or reduce throughput.
+  if (result.palletCount > input.palletCount || result.placements.length < input.placements.length) return input;
+
   result.remaining = result.remaining.map(row => row.quantity > (input.remaining.find(old => old.cargoId === row.cargoId)?.quantity ?? 0)
     ? { ...row, reason: `최상단 최소충전율 ${Math.round(minimum * 100)}% 적용 후: ${row.reason}` } : row);
   return result;
