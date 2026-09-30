@@ -22,8 +22,10 @@ export function palletBandingLengthM(length: number, width: number, loadHeight: 
 
 type BandingEnvelope = { x: number; y: number; z: number; length: number; width: number; height: number };
 
-/** Top and side pieces in the engine's Z-up coordinates; shared by all 3D viewers. */
-export function palletBandingSegments(load: BandingEnvelope, strapCount: number, thickness = .022): BandingEnvelope[] {
+/** Top and side pieces in the engine's Z-up coordinates; shared by all 3D viewers.
+ * Visual width only. Restraint force and material-length calculations are unchanged.
+ */
+export function palletBandingSegments(load: BandingEnvelope, strapCount: number, thickness = .012): BandingEnvelope[] {
   const { acrossLength, acrossWidth } = palletBandingLayout(strapCount);
   const segments: BandingEnvelope[] = [];
   const top = load.z + load.height;
