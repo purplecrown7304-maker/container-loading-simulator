@@ -40,8 +40,8 @@ describe('crossed pallet banding', () => {
     const top = straps.filter(p => Math.abs(p.z - .72) < 1e-8);
     expect(top.filter(p => p.length > p.width)).toHaveLength(2);
     expect(top.filter(p => p.width > p.length)).toHaveLength(2);
-    const sides = straps.filter(p => p.height > .022);
-    for (const [key, value] of [['x', .178], ['x', 1.4], ['y', .278], ['y', 1.1]] as const) {
+    const sides = straps.filter(p => p.height > .012);
+    for (const [key, value] of [['x', .188], ['x', 1.4], ['y', .288], ['y', 1.1]] as const) {
       expect(sides.filter(p => Math.abs(p[key] - value) < 1e-8)).toHaveLength(2);
     }
     expect(JSON.stringify(target)).toBe(before);

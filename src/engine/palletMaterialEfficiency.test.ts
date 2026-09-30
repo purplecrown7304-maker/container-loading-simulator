@@ -96,4 +96,50 @@ describe('pallet material efficiency', () => {
     }
     expectSafe(result, cargo);
   });
+  it('uses free floor pallet positions before pallet-on-pallet stacking below 50% volume', () => {
+    const roomy: ContainerSpec = { length: 12.032, width: 2.352, height: 2.395, maxPayloadKg: 28750 };
+    const pallet = { ...defaultPalletSpec, length: 1.1, width: 1.1, height: 0.15, tareWeightKg: 25, maxStackLevels: 2 };
+    const cargo = [box({
+      id: 'LOW-CBM',
+      length: 1.1,
+      width: 1.1,
+      height: 0.2,
+      weightKg: 100,
+      quantity: 13,
+      maxStackLayers: 1,
+      maxTopLoadKg: 0,
+    })];
+
+    const result = packOnPallets(roomy, cargo, pallet, 'capacity');
+
+    expect(result.placements).toHaveLength(13);
+    expect(result.palletCount).toBe(13);
+    expect(result.optimization.floorPositions).toBe(13);
+    expect(result.pallets.every(load => load.stackLevel === 1)).toBe(true);
+    expectSafe(result, cargo);
+  });
+
+  it('keeps only the unavoidable pallet stacks when low-CBM floor positions are exhausted', () => {
+    const short: ContainerSpec = { length: 5.9, width: 2.352, height: 2.395, maxPayloadKg: 28130 };
+    const pallet = { ...defaultPalletSpec, length: 1.1, width: 1.1, height: 0.15, tareWeightKg: 25, maxStackLevels: 2 };
+    const cargo = [box({
+      id: 'LOW-CBM',
+      length: 1.1,
+      width: 1.1,
+      height: 0.2,
+      weightKg: 100,
+      quantity: 13,
+      maxStackLayers: 1,
+      maxTopLoadKg: 1000,
+    })];
+
+    const result = packOnPallets(short, cargo, pallet, 'capacity');
+
+    expect(result.placements).toHaveLength(13);
+    expect(result.palletCount).toBe(13);
+    expect(result.optimization.floorPositions).toBe(10);
+    expect(result.pallets.filter(load => load.stackLevel > 1)).toHaveLength(3);
+    expectSafe(result, cargo);
+  });
+
 });

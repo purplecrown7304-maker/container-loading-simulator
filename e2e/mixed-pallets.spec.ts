@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-test('mixed pallets remain two-tier through real workflow certification', async ({ page, context, baseURL }) => {
+test('low-CBM mixed pallets stay on the floor through real workflow certification', async ({ page, context, baseURL }) => {
   test.setTimeout(180000);
   await context.route('**/*', route => new URL(route.request().url()).origin === new URL(baseURL!).origin ? route.continue() : route.abort());
   await page.goto('/');
@@ -24,9 +24,9 @@ test('mixed pallets remain two-tier through real workflow certification', async 
     const result = (window as any).__containerLoadingPalletSnapshot?.result;
     return result && { count: result.placements.length, pallets: result.palletCount, tiers: result.maxUsedStackLevel, mixed: result.pallets.some((p: any) => new Set(p.cargoPlacements.map((b: any) => b.cargoId)).size > 1) };
   });
-  await expect.poll(snapshot).toEqual({ count: 6, pallets: 2, tiers: 2, mixed: true });
+  await expect.poll(snapshot).toEqual({ count: 6, pallets: 2, tiers: 1, mixed: true });
   await expect(page.locator('.pallet-preview>.unity-viewer')).toHaveAttribute('data-unity-supports', '2', { timeout: 90000 });
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 120000 });
-  expect(await snapshot()).toEqual({ count: 6, pallets: 2, tiers: 2, mixed: true });
+  expect(await snapshot()).toEqual({ count: 6, pallets: 2, tiers: 1, mixed: true });
 });
