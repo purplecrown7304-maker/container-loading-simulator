@@ -23,7 +23,7 @@ const cargo: CargoItem[] = [{
 }];
 
 describe('report-driven pallet optimization', () => {
-  it('mixes three partial SKUs into two pallets and preserves a supported second tier', () => {
+  it('mixes three partial SKUs into two pallets and keeps low-CBM pallets on the floor', () => {
     const mixed = ['A', 'B', 'C'].map(id => ({ ...cargo[0], id, quantity: 2,
       length: .5, width: .5, height: .4, maxStackLayers: 1, maxTopLoadKg: 500 }));
     const result = packOnPallets({ ...container, length: 4, width: 2, height: 2 }, mixed, {
@@ -32,8 +32,9 @@ describe('report-driven pallet optimization', () => {
     expect(result.placements).toHaveLength(6);
     expect(result.remaining).toEqual([]);
     expect(result.palletCount).toBe(2);
-    expect(result.maxUsedStackLevel).toBe(2);
-    expect(result.optimization.floorPositions).toBe(1);
+    expect(result.maxUsedStackLevel).toBe(1);
+    expect(result.optimization.floorPositions).toBe(2);
+    expect(result.pallets.every(load => load.stackLevel === 1)).toBe(true);
     expect(result.pallets.some(load => new Set(load.cargoPlacements.map(p => p.cargoId)).size > 1)).toBe(true);
   });
 
@@ -49,7 +50,7 @@ describe('report-driven pallet optimization', () => {
     }
   });
 
-  it('capacity preserves permitted pallet stacking to leave free floor space', () => {
+  it('capacity uses free floor space before permitted pallet stacking below 50% volume', () => {
     const result = packOnPallets(container, cargo, {
       ...defaultPalletSpec,
       length: 1.1,
@@ -60,8 +61,9 @@ describe('report-driven pallet optimization', () => {
     });
 
     expect(result.optimization.candidateCount).toBe(2);
-    expect(result.optimization.selectedStackTarget).toBe(2);
-    expect(result.maxUsedStackLevel).toBe(2);
+    expect(result.optimization.selectedStackTarget).toBe(1);
+    expect(result.maxUsedStackLevel).toBe(1);
+    expect(result.optimization.floorPositions).toBe(result.palletCount);
     expect(result.optimization.redistributedForLowUtilization).toBe(false);
     expect(result.placements).toHaveLength(32);
     expect(result.remaining.reduce((sum, item) => sum + item.quantity, 0)).toBe(0);
