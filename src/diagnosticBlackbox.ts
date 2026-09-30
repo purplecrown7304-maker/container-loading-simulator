@@ -2,6 +2,7 @@ import { isAdminSession } from './adminAccess';
 import { readFinalPhysicsValidation } from './autoCertification';
 import { analyzeConstraints, type ConstraintCheck } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
+import type { PhysicsSupport } from './engine/physicsValidation';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
 import { readEnterprisePackagingPlannerState } from './enterprisePackagingPlannerStore';
@@ -37,7 +38,9 @@ function overlap1d(a0: number, a1: number, b0: number, b1: number) {
   return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
 }
 
-function overlapArea(a: Placement, b: Placement) {
+type FootprintRect = Pick<Placement, 'x' | 'y' | 'length' | 'width'>;
+
+function overlapArea(a: FootprintRect, b: FootprintRect) {
   return overlap1d(a.x, a.x + a.length, b.x, b.x + b.length)
     * overlap1d(a.y, a.y + a.width, b.y, b.y + b.width);
 }
@@ -56,14 +59,20 @@ export function equipmentAwareConstraints(
   return checks;
 }
 
-export function buildStackAnalysis(cargo: CargoItem[], result: LoadingResult) {
+export function buildStackAnalysis(cargo: CargoItem[], result: LoadingResult, supports: PhysicsSupport[] = []) {
   const cargoMap = new Map(cargo.map(item => [item.id, item]));
-  const directSupporters = result.placements.map((placement, index) => result.placements.flatMap((candidate, supporterIndex) => {
+  const directCargoSupporters = result.placements.map((placement, index) => result.placements.flatMap((candidate, supporterIndex) => {
     if (supporterIndex === index) return [];
     if (Math.abs(candidate.z + candidate.height - placement.z) > 1e-5) return [];
     const area = overlapArea(placement, candidate);
     if (area <= EPS) return [];
     return [{ index: supporterIndex, cargoId: candidate.cargoId, overlapAreaM2: area }];
+  }));
+  const directPalletSupporters = result.placements.map((placement) => supports.flatMap((support, supportIndex) => {
+    if (Math.abs(support.z + support.height - placement.z) > 1e-5) return [];
+    const area = overlapArea(placement, support);
+    if (area <= EPS) return [];
+    return [{ index: supportIndex, supportId: support.id, overlapAreaM2: area }];
   }));
 
   const layerMemo = new Map<number, number>();
@@ -71,11 +80,17 @@ export function buildStackAnalysis(cargo: CargoItem[], result: LoadingResult) {
     const cached = layerMemo.get(index);
     if (cached) return cached;
     const placement = result.placements[index];
-    if (!placement || placement.z <= EPS) return 1;
+    if (!placement) return 1;
+    const cargoSupporters = directCargoSupporters[index] ?? [];
+    // A pallet is the base of carton layer 1. Only cargo-on-cargo support increments
+    // the carton stack level.
+    if (!cargoSupporters.length) {
+      layerMemo.set(index, 1);
+      return 1;
+    }
     if (visiting.has(index)) return 1;
     visiting.add(index);
-    const supporters = directSupporters[index] ?? [];
-    const layer = supporters.length ? 1 + Math.max(...supporters.map(item => layerOf(item.index, visiting))) : 1;
+    const layer = 1 + Math.max(...cargoSupporters.map(item => layerOf(item.index, visiting)));
     visiting.delete(index);
     layerMemo.set(index, layer);
     return layer;
@@ -83,19 +98,34 @@ export function buildStackAnalysis(cargo: CargoItem[], result: LoadingResult) {
 
   return result.placements.map((placement, index) => {
     const footprint = Math.max(EPS, placement.length * placement.width);
-    const supporters = directSupporters[index] ?? [];
-    const supportArea = Math.min(footprint, supporters.reduce((sum, item) => sum + item.overlapAreaM2, 0));
+    const cargoSupporters = directCargoSupporters[index] ?? [];
+    const palletSupporters = directPalletSupporters[index] ?? [];
+    const supportArea = Math.min(
+      footprint,
+      cargoSupporters.reduce((sum, item) => sum + item.overlapAreaM2, 0)
+        + palletSupporters.reduce((sum, item) => sum + item.overlapAreaM2, 0),
+    );
     const supportRatio = placement.z <= EPS ? 1 : supportArea / footprint;
     const centerX = placement.x + placement.length / 2;
     const centerY = placement.y + placement.width / 2;
-    const centerSupported = placement.z <= EPS || supporters.some(item => {
+    const cargoCenterSupported = cargoSupporters.some(item => {
       const support = result.placements[item.index];
       return Boolean(support)
         && centerX >= support.x - EPS && centerX <= support.x + support.length + EPS
         && centerY >= support.y - EPS && centerY <= support.y + support.width + EPS;
     });
+    const palletCenterSupported = palletSupporters.some(item => {
+      const support = supports[item.index];
+      return Boolean(support)
+        && centerX >= support.x - EPS && centerX <= support.x + support.length + EPS
+        && centerY >= support.y - EPS && centerY <= support.y + support.width + EPS;
+    });
+    const centerSupported = placement.z <= EPS || cargoCenterSupported || palletCenterSupported;
 
-    const supportObjects = supporters.map(item => result.placements[item.index]).filter((item): item is Placement => Boolean(item));
+    const supportObjects: FootprintRect[] = [
+      ...cargoSupporters.map(item => result.placements[item.index]).filter((item): item is Placement => Boolean(item)),
+      ...palletSupporters.map(item => supports[item.index]).filter((item): item is PhysicsSupport => Boolean(item)),
+    ];
     const supportBounds = supportObjects.length ? {
       minX: Math.min(...supportObjects.map(item => item.x)),
       maxX: Math.max(...supportObjects.map(item => item.x + item.length)),
@@ -122,6 +152,13 @@ export function buildStackAnalysis(cargo: CargoItem[], result: LoadingResult) {
     const topLoadUtilizationPct = spec?.maxTopLoadKg != null && spec.maxTopLoadKg > 0 ? topLoadKg / spec.maxTopLoadKg * 100 : null;
     const unsupported = placement.z > EPS && supportRatio < 0.95;
     const tippingRisk = unsupported || !centerSupported || maxOverhangM > 0.02 || (topLoadUtilizationPct ?? 0) > 100;
+    const supportType = placement.z <= EPS
+      ? 'floor'
+      : cargoSupporters.length
+        ? 'cargo'
+        : palletSupporters.length
+          ? 'pallet'
+          : 'unsupported';
 
     return {
       placementIndex: index,
@@ -130,10 +167,11 @@ export function buildStackAnalysis(cargo: CargoItem[], result: LoadingResult) {
       boxId: spec?.boxId ?? spec?.id ?? placement.cargoId,
       stackLevel: layerOf(index),
       zM: placement.z,
-      supportType: placement.z <= EPS ? 'floor' : supporters.length ? 'cargo' : 'unsupported',
+      supportType,
       supportRatioPct: supportRatio * 100,
       centerSupported,
-      supporters,
+      supporters: cargoSupporters,
+      palletSupporters,
       overhang,
       maxOverhangM,
       upperLoadKg: topLoadKg,
@@ -326,10 +364,29 @@ function validationChecks(container: ContainerSpec, cargo: CargoItem[], result: 
   ];
 }
 
+function matchingPhysicsTarget(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult) {
+  const published = readPhysicsTarget();
+  if (!published) return undefined;
+  const expectedTarget: PhysicsTarget = {
+    mode: published.mode,
+    container,
+    cargo,
+    result,
+    supports: published.supports,
+  };
+  return createPhysicsTargetSignature(expectedTarget) === createPhysicsTargetSignature(published)
+    ? published
+    : undefined;
+}
+
 export function buildConsistencyReport(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult) {
   const equipment = readTransportEquipment();
-  const weightFromPlacements = result.placements.reduce((sum, item) => sum + item.weightKg, 0);
-  const stack = buildStackAnalysis(cargo, result);
+  const target = matchingPhysicsTarget(container, cargo, result);
+  const supports = target?.mode === 'pallets' ? (target.supports ?? []) : [];
+  const cargoWeightKg = result.placements.reduce((sum, item) => sum + item.weightKg, 0);
+  const supportWeightKg = supports.reduce((sum, item) => sum + item.weightKg, 0);
+  const recalculatedLoadedWeightKg = cargoWeightKg + supportWeightKg;
+  const stack = buildStackAnalysis(cargo, result, supports);
   const unstableStack = stack.filter(item => item.unsupported || item.tippingRisk);
   const checks: DiagnosticCheck[] = [
     ...equipmentChecks(equipment, container, cargo),
@@ -340,9 +397,11 @@ export function buildConsistencyReport(container: ContainerSpec, cargo: CargoIte
     {
       id: 'loaded-weight-recalculation',
       label: '적재중량 재계산',
-      severity: Math.abs(weightFromPlacements - result.loadedWeightKg) <= 0.01 ? 'OK' : 'CRITICAL',
-      detail: `배치합 ${weightFromPlacements.toFixed(3)} kg / 엔진 ${result.loadedWeightKg.toFixed(3)} kg`,
-      expected: weightFromPlacements,
+      severity: Math.abs(recalculatedLoadedWeightKg - result.loadedWeightKg) <= 0.01 ? 'OK' : 'CRITICAL',
+      detail: supports.length
+        ? `화물 ${cargoWeightKg.toFixed(3)} kg + 파렛트/지지체 ${supportWeightKg.toFixed(3)} kg = ${recalculatedLoadedWeightKg.toFixed(3)} kg / 엔진 ${result.loadedWeightKg.toFixed(3)} kg`
+        : `배치합 ${cargoWeightKg.toFixed(3)} kg / 엔진 ${result.loadedWeightKg.toFixed(3)} kg`,
+      expected: recalculatedLoadedWeightKg,
       actual: result.loadedWeightKg,
     },
     {
@@ -382,7 +441,12 @@ export function buildBlackboxSnapshots(container: ContainerSpec, cargo: CargoIte
   const publishedTargetSignature = target ? createPhysicsTargetSignature(target) : null;
   const finalPhysics = readFinalPhysicsValidation();
   const inertia = readLatestInertiaCertification();
-  const stack = buildStackAnalysis(cargo, result);
+  const targetMatchesCurrentResult = Boolean(expectedTargetSignature && publishedTargetSignature === expectedTargetSignature);
+  const stack = buildStackAnalysis(
+    cargo,
+    result,
+    targetMatchesCurrentResult && target?.mode === 'pallets' ? (target.supports ?? []) : [],
+  );
   const consistency = buildConsistencyReport(container, cargo, result);
 
   const selectedProducts = (planner?.products ?? []).flatMap(product => {
@@ -433,7 +497,7 @@ export function buildBlackboxSnapshots(container: ContainerSpec, cargo: CargoIte
       schema: 'container-loading-physics-v2',
       expectedTargetSignature,
       publishedTargetSignature,
-      targetMatchesCurrentResult: Boolean(expectedTargetSignature && publishedTargetSignature === expectedTargetSignature),
+      targetMatchesCurrentResult,
       finalValidationSignature: finalPhysics?.signature ?? null,
       stale: Boolean(expectedTargetSignature && finalPhysics?.signature !== expectedTargetSignature),
       result: finalPhysics?.result ?? null,
