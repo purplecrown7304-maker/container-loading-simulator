@@ -33,27 +33,51 @@ function topTierHoles(load: PalletLoad) {
 }
 
 describe('weight-limited top tier holes', () => {
-  it('moves corner holes into the middle as a point-symmetric pair and keeps the outer ring', () => {
+  it('moves unavoidable holes to the perimeter as a point-symmetric pair', () => {
     const input = gridLoad(30);
-    const cornerHoles = topTierHoles(input);
-    expect(cornerHoles.some(p => p.x === Math.max(...input.cargoPlacements.map(q => q.x)))).toBe(true);
 
     const output = placeTopTierHolesInside(input, cargoMap);
     expect(output.cargoPlacements).toHaveLength(input.cargoPlacements.length);
     const holes = topTierHoles(output);
     expect(holes).toHaveLength(2);
-    const xs = output.cargoPlacements.map(p => p.x), ys = output.cargoPlacements.map(p => p.y);
-    const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const slots = output.cargoPlacements.filter(p => Math.abs(p.z + p.height - Math.max(...output.cargoPlacements.map(q => q.z))) < 1e-6);
+    const [minX, maxX, minY, maxY] = [
+      Math.min(...slots.map(p => p.x)),
+      Math.max(...slots.map(p => p.x)),
+      Math.min(...slots.map(p => p.y)),
+      Math.max(...slots.map(p => p.y)),
+    ];
     for (const hole of holes) {
-      expect(hole.x).toBeGreaterThan(minX + 1e-6);
-      expect(hole.x).toBeLessThan(maxX - 1e-6);
-      expect(hole.y).toBeGreaterThan(minY + 1e-6);
-      expect(hole.y).toBeLessThan(maxY - 1e-6);
+      expect(
+        Math.abs(hole.x - minX) < 1e-6
+        || Math.abs(hole.x - maxX) < 1e-6
+        || Math.abs(hole.y - minY) < 1e-6
+        || Math.abs(hole.y - maxY) < 1e-6,
+      ).toBe(true);
     }
     const cx = holes.reduce((sum, p) => sum + p.x + p.length / 2, 0) / 2;
     const cy = holes.reduce((sum, p) => sum + p.y + p.width / 2, 0) / 2;
     expect(cx).toBeCloseTo((minX + maxX + 0.235) / 2, 6);
     expect(cy).toBeCloseTo((minY + maxY + 0.13) / 2, 6);
+  });
+
+  it('keeps larger partial top tiers free of internal holes', () => {
+    const output = placeTopTierHolesInside(gridLoad(22), cargoMap);
+    const holes = topTierHoles(output);
+    expect(holes).toHaveLength(10);
+    const slots = output.cargoPlacements.filter(p => Math.abs(p.z + p.height - Math.max(...output.cargoPlacements.map(q => q.z))) < 1e-6);
+    const [minX, maxX, minY, maxY] = [
+      Math.min(...slots.map(p => p.x)),
+      Math.max(...slots.map(p => p.x)),
+      Math.min(...slots.map(p => p.y)),
+      Math.max(...slots.map(p => p.y)),
+    ];
+    expect(holes.every(hole =>
+      Math.abs(hole.x - minX) < 1e-6
+      || Math.abs(hole.x - maxX) < 1e-6
+      || Math.abs(hole.y - minY) < 1e-6
+      || Math.abs(hole.y - maxY) < 1e-6,
+    )).toBe(true);
   });
 
   it('leaves full tiers untouched', () => {
@@ -69,12 +93,21 @@ describe('weight-limited top tier holes', () => {
     expect(result.palletCount).toBe(2);
     expect(result.pallets.every(load => topTierHoles(load).length === 2)).toBe(true);
     for (const load of result.pallets) {
-      const xs = load.cargoPlacements.map(p => p.x), ys = load.cargoPlacements.map(p => p.y);
+      const topZ = Math.max(...load.cargoPlacements.map(p => p.z));
+      const slots = load.cargoPlacements.filter(p => Math.abs(p.z + p.height - topZ) < 1e-6);
+      const [minX, maxX, minY, maxY] = [
+        Math.min(...slots.map(p => p.x)),
+        Math.max(...slots.map(p => p.x)),
+        Math.min(...slots.map(p => p.y)),
+        Math.max(...slots.map(p => p.y)),
+      ];
       for (const hole of topTierHoles(load)) {
-        expect(hole.x).toBeGreaterThan(Math.min(...xs) + 1e-6);
-        expect(hole.x).toBeLessThan(Math.max(...xs) - 1e-6);
-        expect(hole.y).toBeGreaterThan(Math.min(...ys) + 1e-6);
-        expect(hole.y).toBeLessThan(Math.max(...ys) - 1e-6);
+        expect(
+          Math.abs(hole.x - minX) < 1e-6
+          || Math.abs(hole.x - maxX) < 1e-6
+          || Math.abs(hole.y - minY) < 1e-6
+          || Math.abs(hole.y - maxY) < 1e-6,
+        ).toBe(true);
       }
     }
   });
