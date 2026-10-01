@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
 
+// Match the repository's Unity/Meshy CI WebGL configuration in the default suite too.
+test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
+
 test('same plan, original models, view-only controls and renderer round trip', async ({ page }) => {
   test.setTimeout(180000);
   const errors: string[] = [];
