@@ -1,4 +1,4 @@
-import UnityLoadingViewer from './UnityLoadingViewer';
+import UnityLoadingViewer from './LoadingViewer';
 import { palletModelKey } from './palletModel';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useEffect, useMemo, useRef, useState } from 'react';

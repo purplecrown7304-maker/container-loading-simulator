@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
 import type { ContainerSpec, LoadingResult } from './engine/types';
-import UnityLoadingViewer from './UnityLoadingViewer';
+import UnityLoadingViewer from './LoadingViewer';
 import { BOX_VIEW_SNAPSHOT_EVENT } from './RemainingLengthIndicator';
 
 type Props = { result: LoadingResult; container: ContainerSpec };
