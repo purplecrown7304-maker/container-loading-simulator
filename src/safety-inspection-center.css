@@ -2,3 +2,4 @@
 
 .safety-center-dialog{max-height:92dvh}.safety-center-dialog>header,.safety-center-summary,.safety-center-dialog>footer{flex-shrink:0}.safety-center-grid{min-height:0}.safety-center-grid article{min-width:0}.safety-center-grid article>strong{overflow-wrap:anywhere;font-size:15px}.manual-inspection-details{margin:0;padding-left:18px;font-size:12px;line-height:1.7;max-height:180px;overflow:auto}.safety-center-grid article>p.manual-inspection-caution{font-size:12px;color:#475569}.safety-center-grid article>button{min-height:44px}.safety-center-dialog>header>button{min-width:56px;min-height:44px}.safety-center-grid progress{width:100%}
 .safety-center-grid article>*{flex-shrink:0}.safety-center-grid{grid-auto-rows:max-content}.manual-inspection-details:empty{display:none}
+.safety-center-single{width:min(680px,96vw)}.safety-center-single .safety-center-grid{grid-template-columns:1fr}

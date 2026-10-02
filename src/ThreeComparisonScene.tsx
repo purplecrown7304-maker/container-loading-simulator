@@ -20,6 +20,8 @@ export type ThreeComparisonSceneStats = {
   textures: number;
   acceptedFrameStep: number | null;
   rejectedFrame: boolean;
+  cgVisible: boolean;
+  cgPosition: [number, number, number] | null;
 };
 export type ThreeComparisonBenchmark = {
   durationMs: number;
@@ -124,6 +126,7 @@ function SceneRuntime({ resources, options, frameState }: { resources: Resources
       visibleLabelFaces: resources.visibleLabelFaces, visibleCargo: resources.visibleCargo,
       renderCalls: state.gl.info.render.calls, triangles: state.gl.info.render.triangles,
       geometries: state.gl.info.memory.geometries, textures: state.gl.info.memory.textures,
+      cgVisible: resources.centerOfGravityVisible, cgPosition: resources.centerOfGravityPosition,
       ...frameState.current,
     };
     if (readyResource.current !== resources) { readyResource.current = resources; callbacks.current.onReady?.(stats); }

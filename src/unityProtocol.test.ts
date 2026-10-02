@@ -27,6 +27,9 @@ it('keeps pallet bases and rotated physics poses in their existing units without
   expect(plan.supports).toEqual([support]);
   expect(plan.geometry).toBe('platform');
   expect(plan.cells.reduce((sum, cell) => sum + cell.loadKg, 0)).toBeCloseTo(10);
+  expect(plan.centerOfGravity.x).toBeCloseTo((1.4 * 10 + 1.6 * 25) / 35);
+  expect(plan.centerOfGravity.y).toBeCloseTo((.8 * 10 + 1 * 25) / 35);
+  expect(plan.centerOfGravity.z).toBeCloseTo((.4 * 10 + .075 * 25) / 35);
   const frame = { cargo: new Float32Array([-1.6, .4, -.4, Math.SQRT1_2, 0, 0, Math.SQRT1_2]), supports: new Float32Array([-1.4, .075, -.2, 0, 0, 0, 1]), phase: 'force' as const, step: 72 };
   const transformed = unityFrame(frame, plan.revision, 1, 1)!;
   expect(transformed.revision).toBe(3);

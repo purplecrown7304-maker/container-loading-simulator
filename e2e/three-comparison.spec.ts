@@ -13,6 +13,14 @@ test('same plan, original models, view-only controls and renderer round trip', a
   await expect(three).toHaveAttribute('data-three-count', '16');
   await expect(three).toHaveAttribute('data-three-supports', '2');
   await expect(three).toHaveAttribute('data-three-label-faces', '64');
+  await expect(three).toHaveAttribute('data-three-cg-visible', 'true');
+  await expect(three.locator('.three-cg-legend')).toBeVisible();
+  const originalCg = await three.getAttribute('data-three-cg-position');
+  expect(originalCg?.split(',').map(Number).every(Number.isFinite)).toBe(true);
+  await three.getByRole('button', { name: '무게중심 ON', exact: true }).click();
+  await expect(three).toHaveAttribute('data-three-cg-visible', 'false');
+  await three.getByRole('button', { name: '무게중심 OFF', exact: true }).click();
+  await expect(three).toHaveAttribute('data-three-cg-visible', 'true');
   await page.screenshot({ path: test.info().outputPath('three-pallets.png'), fullPage: true });
   await three.getByRole('button', { name: '상단', exact: true }).click();
   await three.getByRole('button', { name: '외벽 숨기기', exact: true }).click();
@@ -33,8 +41,10 @@ test('same plan, original models, view-only controls and renderer round trip', a
   await three.getByRole('button', { name: '3D 무게분포', exact: true }).click();
   await page.getByRole('button', { name: '합성 자세 재생 시작', exact: true }).click();
   await expect(page.getByText(/합성 프레임 재생: 물리 안전 시험 아님/)).toBeVisible();
+  await expect(three).not.toHaveAttribute('data-three-cg-position', originalCg!);
   await page.screenshot({ path: test.info().outputPath('three-replay.png'), fullPage: true });
   await page.getByRole('button', { name: '합성 자세 재생 중지', exact: true }).click();
+  await expect(three).toHaveAttribute('data-three-cg-position', originalCg!);
   await page.getByRole('group', { name: '3D 엔진 선택' }).getByRole('button', { name: 'Unity', exact: true }).click();
   const unity = page.getByRole('region', { name: 'Unity 동일 모델 비교 샘플', exact: true });
   await expect(unity).toHaveAttribute('data-unity-applied', 'true', { timeout: 100000 });
@@ -54,6 +64,7 @@ test('same plan, original models, view-only controls and renderer round trip', a
   await expect(three).toHaveAttribute('data-three-count', '0');
   await expect(three).toHaveAttribute('data-three-applied', 'true');
   await expect(three.getByRole('button', { name: '적재 순서 재생', exact: true })).toBeDisabled();
+  await expect(three).toHaveAttribute('data-three-cg-visible', 'false');
   expect(errors).toEqual([]);
 });
 

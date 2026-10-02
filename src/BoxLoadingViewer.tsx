@@ -28,5 +28,5 @@ export default function BoxLoadingViewer(props: Props) {
     };
   }, [props.container, props.result]);
 
-  return <UnityLoadingViewer {...props} syncSelection securing={certification?.mode === 'boxes' ? certification.securing : null} />;
+  return <UnityLoadingViewer {...props} inertiaHost syncSelection securing={certification?.mode === 'boxes' ? certification.securing : null} />;
 }

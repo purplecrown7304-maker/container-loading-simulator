@@ -3,6 +3,8 @@ import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import type { PhysicsSupport } from './engine/physicsValidation';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
 import { analyzeWeightDistribution } from './engine/weightDistribution';
+import { assessWeightBalance } from './engine/weightBalance';
+import { viewerWeightResult } from './viewerWeightResult';
 import type { SecuringUsage } from './inertiaCertification';
 import { securingGeometry } from './unitySecuring';
 
@@ -12,6 +14,9 @@ export function unityPlan(container: ContainerSpec, result: LoadingResult, revis
   const cargoById = new Map(cargo.map(item => [item.id, item]));
   const invalid = new Set(result.validationIssues.flatMap(issue => issue.placementIndexes));
   const analysis = analyzeWeightDistribution(container, result, 20, 8);
+  const centerOfGravity = options.supports?.length
+    ? assessWeightBalance(container, viewerWeightResult(result, options.supports)).centerOfGravity
+    : analysis.centerOfGravity;
   return { revision, container: { length: container.length, width: container.width, height: container.height }, geometry: options.geometry ?? 'closed', vehicle: options.vehicle ?? false,
     placements: result.placements.map((p, i) => {
       const item = cargoById.get(p.cargoId);
@@ -23,7 +28,7 @@ export function unityPlan(container: ContainerSpec, result: LoadingResult, revis
       };
     }),
     supports: options.supports ?? [], decorations: securingGeometry(container, result.placements, options.supports ?? [], options.securing),
-    cells: analysis.floor.cells, centerOfGravity: analysis.centerOfGravity,
+    cells: analysis.floor.cells, centerOfGravity,
   };
 }
 /** Rapier frames already use centered X, vertical Y and depth Z, in metres.
