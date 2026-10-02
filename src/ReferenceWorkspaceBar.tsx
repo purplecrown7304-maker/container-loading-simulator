@@ -1,3 +1,4 @@
+import { openSafetyInspectionCenter } from './SafetyInspectionCenter';
 import StudioIcon from './StudioIcon';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { ADMIN_ACCESS_EVENT, isAdminSession, loginAdmin, logoutAdmin } from './adminAccess';
@@ -228,9 +229,6 @@ export default function ReferenceWorkspaceBar() {
               <button type="button" onClick={() => runAndClose(() => openWorkspace('boxes'))}>
                 <span>□</span><div><b>박스 · 화물 선택</b><small>개인 등록 박스 선택, 수량 입력, 신규 박스 Excel 추가</small></div>
               </button>
-              <button type="button" onClick={() => runAndClose(() => openWorkspace('safety'))}>
-                <span>✓</span><div><b>안전 점검</b><small>규격 · 충돌 · 중량 · 미적재 상태 점검</small></div>
-              </button>
             </section>
 
             <section>
@@ -251,6 +249,7 @@ export default function ReferenceWorkspaceBar() {
                 <span>↺</span><div><b>전체 초기화</b><small>현재 작업의 화물과 적재 결과를 초기화</small></div>
               </button>
             </section>
+            <section aria-label="점검 메뉴"><strong>점검</strong><button type="button" onClick={() => runAndClose(openSafetyInspectionCenter)}><span aria-hidden="true">✓</span><div><b>적재 결과 점검</b><small>관성 테스트 · 무게중심 · 하중 · 경계·충돌 직접 실행</small></div></button></section>
           </nav>}
         </div>
       </div>

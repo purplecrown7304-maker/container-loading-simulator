@@ -41,8 +41,8 @@ test('sparse top tier moves to a final pallet and diagnostics download a local Z
   await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.palletCount)).toBe(2);
-  await expect(page.locator('.pallet-preview>.unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
-  await expect(page.locator('.pallet-preview>.unity-viewer')).toHaveAttribute('data-unity-supports', '2');
+  await expect(page.locator('.pallet-preview .three-comparison-viewer')).toHaveAttribute('data-three-applied', 'true', { timeout: 100_000 });
+  await expect(page.locator('.pallet-preview .three-comparison-viewer')).toHaveAttribute('data-three-supports', '2');
   const result = await page.evaluate(() => {
     const result = (window as any).__containerLoadingPalletSnapshot.result;
     return {

@@ -4,6 +4,7 @@ export default defineConfig({
   server: { watch: { ignored: ['**/unity/**'] } },
   build: {
     rolldownOptions: {
+      input: { index: 'index.html', comparison: 'comparison.html' },
       output: {
         strictExecutionOrder: true,
         codeSplitting: {

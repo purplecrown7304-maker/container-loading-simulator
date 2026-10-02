@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>3D 모델 비교 · 로컬 실험</title><link rel="stylesheet" href="/fonts/studio-font.css"/></head><body class="comparison-demo"><div id="root"></div><script type="module">
+const url = new URL(location.href);
+if (!url.searchParams.has('renderer')) { url.searchParams.set('renderer', 'three'); history.replaceState(history.state, '', url); }
+await import('/src/comparison/main.tsx');
+</script></body></html>

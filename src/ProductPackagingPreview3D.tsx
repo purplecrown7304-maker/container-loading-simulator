@@ -1,4 +1,4 @@
-import UnityLoadingViewer from './UnityLoadingViewer';
+import UnityLoadingViewer from './LoadingViewer';
 import { useMemo } from 'react';
 import { cargoColor } from './cargoColors';
 import type { CargoItem, ContainerSpec, Placement } from './engine/types';

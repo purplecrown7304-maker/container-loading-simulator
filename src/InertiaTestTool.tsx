@@ -1,4 +1,4 @@
-import UnityLoadingViewer from './UnityLoadingViewer';
+import UnityLoadingViewer from './LoadingViewer';
 import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { runInertiaAnimation, type InertiaAnimationResult, type InertiaPhase } from './engine/inertiaSimulation';
