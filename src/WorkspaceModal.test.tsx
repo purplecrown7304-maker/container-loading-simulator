@@ -76,7 +76,9 @@ describe('retained workspace dialog', () => {
     expect(close).toHaveBeenCalledTimes(2);
     await act(async () => host.querySelector('input')!.dispatchEvent(new Event('pointerdown', { bubbles: true })));
     expect(close).toHaveBeenCalledTimes(2);
-    await act(async () => host.querySelector('.workspace-modal-backdrop')!.dispatchEvent(new Event('pointerdown', { bubbles: true })));
+    const backdropPointer = new Event('pointerdown', { bubbles: true, cancelable: true });
+    await act(async () => host.querySelector('.workspace-modal-backdrop')!.dispatchEvent(backdropPointer));
+    expect(backdropPointer.defaultPrevented).toBe(true); // Native mousedown must not steal restored focus.
     expect(close).toHaveBeenCalledTimes(3);
     await render(false);
     expect((await key('Escape')).defaultPrevented).toBe(false);

@@ -88,3 +88,12 @@ html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .inertia-canvas
   html[data-guided-workflow="true"] .mockup-dashboard .viewer-bottom-actions { display: none; }
   html[data-guided-workflow="true"] .workflow-preview-status { bottom: 90px; }
 }
+/* Only the visible pallet information strips intercept input, never their empty overlay. */
+html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays { z-index: 30; }
+html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays .pallet-preview > :is(.reference-clearance-strip,.pallet-securing-strip) { position: absolute !important; top: auto !important; left: 50%; transform: translateX(-50%) !important; width: max-content; max-width: calc(100% - 32px); margin: 0; z-index: 1; pointer-events: auto; }
+html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays .pallet-preview > .reference-clearance-strip { bottom: 124px; }
+html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays .pallet-preview > .pallet-securing-strip { bottom: 164px; }
+@media(max-width:760px) {
+  html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays .pallet-preview > .reference-clearance-strip { bottom: 164px; }
+  html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays .pallet-preview > .pallet-securing-strip { bottom: 244px; }
+}

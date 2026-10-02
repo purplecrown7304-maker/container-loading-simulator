@@ -32,7 +32,7 @@ export default function WorkspaceModal({ open, title, onClose, children, footer 
       else document.querySelector<HTMLElement>('.guided-step-list button[aria-current="step"]')?.focus();
     };
   }, [open]);
-  return <div className="workspace-modal-backdrop" hidden={!open} onPointerDown={event => { if (event.target === event.currentTarget) close.current(); }}>
+  return <div className="workspace-modal-backdrop" hidden={!open} onPointerDown={event => { if (event.target === event.currentTarget) { event.preventDefault(); close.current(); } }}>
     <div ref={dialog} className="workspace-modal" role="dialog" aria-modal="true" aria-label={`${title} 설정`} tabIndex={-1}>
       <header className="workspace-modal-header"><span>WORKSPACE · {title}</span><button type="button" className="workspace-modal-close" aria-label="설정 닫기" onClick={onClose}>닫기 ×</button></header>
       <div className="workspace-modal-content">{children}</div>

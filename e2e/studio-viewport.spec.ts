@@ -19,6 +19,8 @@ test('equipment photo cards, persistent canvas and one font stay inside the view
     expect(center!.y + center!.height).toBeLessThanOrEqual(footer!.y + 1);
     expect(center!.width).toBeGreaterThan(size.width * .8);
     const summaryToggle = page.locator('.guided-job-summary > summary');
+    if (await page.locator('.guided-job-summary').getAttribute('open') !== null) await summaryToggle.click();
+    await expect(page.locator('.guided-job-summary')).not.toHaveAttribute('open');
     await summaryToggle.click();
     await expect(page.locator('.guided-job-summary')).toHaveAttribute('open');
     expect(await page.locator('.dashboard-center').boundingBox()).toEqual(center);
