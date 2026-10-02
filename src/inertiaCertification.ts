@@ -68,6 +68,8 @@ export type InertiaCertification = {
 };
 
 export type CertificationRequestDetail = {
+  /** Automatic loading finishes on the main canvas; manual requests may open a result dialog. */
+  automatic?: boolean;
   container: ContainerSpec;
   cargo: CargoItem[];
   result: LoadingResult;

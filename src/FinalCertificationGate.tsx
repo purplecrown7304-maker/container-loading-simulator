@@ -174,7 +174,7 @@ export default function FinalCertificationGate() {
         cache.current = { signature: requestedSignature, certification: result };
         setRunning(false);
         setOpen(false);
-        openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: result });
+        if (!detail.automatic) openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: result });
         return;
       }
 
@@ -253,7 +253,7 @@ export default function FinalCertificationGate() {
           setUsage(evaluated.certification.securing);
           setRunning(false);
           setOpen(false);
-          openResultsModal({ ...resultDetailFromTarget(evaluated.target), certification: evaluated.certification });
+          if (!detail.automatic) openResultsModal({ ...resultDetailFromTarget(evaluated.target), certification: evaluated.certification });
           return;
         }
 
@@ -295,7 +295,7 @@ export default function FinalCertificationGate() {
       }
       const signature = createPhysicsTargetSignature(nextTarget);
       if (cache.current?.signature === signature && cache.current.certification.status === 'passed') {
-        openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: cache.current.certification });
+        if (!detail.automatic) openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: cache.current.certification });
         return;
       }
       void execute(detail, nextTarget);

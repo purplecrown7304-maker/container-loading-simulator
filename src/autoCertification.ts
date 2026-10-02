@@ -119,7 +119,7 @@ async function validateThenCertify(target: PhysicsTarget) {
     }
 
     // 팔레트는 기존 팔레트 최종 게이트를 유지한다.
-    requestCertifiedResults({ container: target.container, cargo: target.cargo, result: target.result });
+    requestCertifiedResults({ container: target.container, cargo: target.cargo, result: target.result, automatic: true });
   } catch (error) {
     if (runId !== validationRunId) return;
     physicsWindow.__containerLoadingFinalPhysicsRunning = false;
