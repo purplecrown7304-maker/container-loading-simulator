@@ -25,9 +25,23 @@ afterEach(async () => {
 const renderThree = (frame?: InertiaAnimationFrame, weightView?: boolean) => act(async () => root.render(<ThreeLoadingViewer container={container} result={result} frameData={frame} weightView={weightView}/>));
 const renderUnity = (frame?: InertiaAnimationFrame, value = result, weightView?: boolean) => act(async () => root.render(<UnityLoadingViewer container={container} result={value} frameData={frame} weightView={weightView}/>));
 
+it('changes only the background while preserving the plan and active inertia frame', async () => {
+  await renderThree(frameData);
+  const plan = captured.scene!.plan;
+  const input = host.querySelector<HTMLSelectElement>('select[aria-label="3D 배경"]')!;
+  for (const value of ['forest', 'beach', 'space', 'warehouse']) {
+    await act(async () => { input.value = value; input.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(captured.scene!.environment).toBe(value);
+    expect(captured.scene!.plan).toBe(plan);
+    expect(captured.scene!.frameData).toBe(frameData);
+    expect(captured.scene!.step).toBe(2);
+    expect(captured.scene!.showCg).toBe(true);
+  }
+});
+
 it('temporarily overrides Three weight mode and saved sequence position without replacing its plan', async () => {
   await renderThree();
-  await act(async () => captured.scene!.onReady!({ revision: captured.scene!.plan.revision, modelCount: 2, labelFaces: 8, visibleLabelFaces: 8, visibleCargo: 2, renderCalls: 1, triangles: 1, geometries: 1, textures: 1, acceptedFrameStep: null, rejectedFrame: false, cgVisible: true, cgPosition: [0, 1, 0] }));
+  await act(async () => captured.scene!.onReady!({ revision: captured.scene!.plan.revision, modelCount: 2, labelFaces: 8, visibleLabelFaces: 8, visibleCargo: 2, renderCalls: 1, triangles: 1, geometries: 1, textures: 1, acceptedFrameStep: null, rejectedFrame: false, cgVisible: true, cgPosition: [0, 1, 0], cameraPose: '1,2,3,0,0,0,1' }));
   const originalPlan = captured.scene!.plan;
   const sequenceButton = Array.from(host.querySelectorAll('button')).find(button => button.textContent === '적재 순서 재생')!;
   await act(async () => sequenceButton.click());

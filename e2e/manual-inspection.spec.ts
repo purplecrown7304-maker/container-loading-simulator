@@ -44,7 +44,39 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   await expect(viewer).toHaveAttribute('data-three-count', '3', { timeout: 60_000 });
   await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 60_000 });
   await expect.poll(() => page.evaluate(() => Boolean((window as any).__containerLoadingPhysicsTarget && !(window as any).__containerLoadingFinalPhysicsRunning)), { timeout: 60_000 }).toBe(true);
+  // The first physics target precedes final-result publication. Start preservation
+  // checks only after the workflow confirms that completed result is usable.
+  await expect(page.locator('.guided-primary-cta')).toContainText('결과 확인', { timeout: 60_000 });
+  await expect(page.locator('.guided-primary-cta')).toBeEnabled();
+  await expect(viewer).toHaveAttribute('data-three-applied', 'true');
   await page.screenshot({ path: test.info().outputPath('three-default-loaded.png'), fullPage: true });
+  const loadedTarget = await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget));
+  expect(JSON.parse(loadedTarget).container.length).toBeCloseTo(12.032, 3);
+  const loadedRevision = await viewer.getAttribute('data-three-plan-revision');
+  const loadedCg = await viewer.getAttribute('data-three-cg-position');
+  const loadedCamera = await viewer.getAttribute('data-three-camera-pose');
+  const loadedCanvas = await viewer.locator('canvas').elementHandle();
+  expect(loadedCanvas).not.toBeNull();
+  for (const shot of [
+    { environment: 'warehouse', view: '측면', file: 'background-40ft-warehouse-side.png' },
+    { environment: 'forest', view: '측면', file: 'background-40ft-forest-side.png' },
+    { environment: 'space', view: '입체', file: 'background-40ft-space.png' },
+  ]) {
+    await viewer.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption(shot.environment);
+    await viewer.getByRole('button', { name: shot.view, exact: true }).click();
+    await expect(viewer).toHaveAttribute('data-three-environment', shot.environment);
+    await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(viewer).toHaveAttribute('data-three-plan-revision', loadedRevision!);
+    await expect(viewer).toHaveAttribute('data-three-cg-position', loadedCg!);
+    expect(await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget))).toBe(loadedTarget);
+    expect(await loadedCanvas!.evaluate(element => element === document.querySelector('.viewer-card canvas'))).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(shot.file), fullPage: true });
+  }
+  await viewer.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption('warehouse');
+  await viewer.getByRole('button', { name: '입체', exact: true }).click();
+  await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
+  await expect(viewer).toHaveAttribute('data-three-camera-pose', loadedCamera!);
   await page.locator('.header-menu-button').click();
   await page.locator('section[aria-label="점검 메뉴"]').scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath('four-inspection-menu.png'), fullPage: true });
@@ -86,7 +118,23 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   }
   await timeline.fill('60');
   await expect(viewer).toHaveAttribute('data-three-frame-step', '120');
+  // A background change must leave this paused, real simulation pose and its
+  // authoritative loading target intact, then allow playback to resume.
+  const pausedAttributes = ['data-three-plan-revision', 'data-three-camera-pose', 'data-three-cg-position', 'data-three-count', 'data-three-supports', 'data-three-frame-step', 'data-three-cut', 'data-three-step'];
+  const pausedState = await viewer.evaluate((element, attributes) => Object.fromEntries(attributes.map(name => [name, element.getAttribute(name)])), pausedAttributes);
+  const targetBeforeBackground = await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget));
+  await viewer.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption('beach');
+  await expect(viewer).toHaveAttribute('data-three-environment', 'beach');
+  await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  expect(await viewer.evaluate((element, attributes) => Object.fromEntries(attributes.map(name => [name, element.getAttribute(name)])), pausedAttributes)).toEqual(pausedState);
+  expect(await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget))).toBe(targetBeforeBackground);
+  expect(await page.evaluate(() => (window as any).__mainInertiaCanvas === document.querySelector('.viewer-card canvas'))).toBe(true);
+  await expect(timeline).toHaveValue('60');
   await page.screenshot({ path: test.info().outputPath('inertia-animation.png'), fullPage: true });
+  await motion.getByRole('button', { name: '재생', exact: true }).click();
+  await expect.poll(async () => Number(await timeline.inputValue())).toBeGreaterThan(60);
+  await motion.getByRole('button', { name: '일시정지', exact: true }).click();
   await motion.getByRole('button', { name: '관성 테스트 닫기' }).click();
   await expect(viewer).toHaveAttribute('data-three-frame-step', '');
   await expect(viewer).toHaveAttribute('data-three-cut', '25');
