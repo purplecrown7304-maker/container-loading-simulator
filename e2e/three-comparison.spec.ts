@@ -35,14 +35,14 @@ test('same plan, original models, view-only controls and renderer round trip', a
   await expect(page.getByText(/합성 프레임 재생: 물리 안전 시험 아님/)).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('three-replay.png'), fullPage: true });
   await page.getByRole('button', { name: '합성 자세 재생 중지', exact: true }).click();
-  await page.getByRole('group', { name: '비교용 3D 엔진' }).getByRole('button', { name: 'Unity', exact: true }).click();
+  await page.getByRole('group', { name: '3D 엔진 선택' }).getByRole('button', { name: 'Unity', exact: true }).click();
   const unity = page.getByRole('region', { name: 'Unity 동일 모델 비교 샘플', exact: true });
   await expect(unity).toHaveAttribute('data-unity-applied', 'true', { timeout: 100000 });
   await expect(unity).toHaveAttribute('data-unity-count', '16');
   await expect(unity).toHaveAttribute('data-unity-supports', '2');
   await expect(unity).toHaveAttribute('data-unity-label-faces', '64');
   await page.screenshot({ path: test.info().outputPath('unity-pallets.png'), fullPage: true });
-  await page.getByRole('group', { name: '비교용 3D 엔진' }).getByRole('button', { name: 'Three.js · 기존 모델', exact: true }).click();
+  await page.getByRole('group', { name: '3D 엔진 선택' }).getByRole('button', { name: 'Three.js · 기존 모델', exact: true }).click();
   await expect(three).toHaveAttribute('data-three-applied', 'true', { timeout: 30000 });
   await expect(three).toHaveAttribute('data-three-count', '16');
   await page.getByRole('button', { name: '트럭 캡 OFF', exact: true }).click();

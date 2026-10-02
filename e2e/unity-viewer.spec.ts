@@ -38,7 +38,7 @@ test('Unity renders the real loading plan and preserves certification during vie
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if(m.type() === 'error') errors.push(m.text()); });
-  await page.goto('/');
+  await page.goto('/?renderer=unity');
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.locator('.equipment-icon-grid')).toBeVisible();
   const viewer = page.getByRole('region', { name: 'Unity 적재 시뮬레이터', exact: true });

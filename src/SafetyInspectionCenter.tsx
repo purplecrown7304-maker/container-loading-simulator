@@ -1,182 +1,137 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { type ConstraintCheck } from './engine/constraintAnalysis';
-import { analyzeFloorLoad, type FloorLoadAnalysis } from './engine/floorLoad';
-import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
-import { assessWeightBalance, type BalanceAssessment } from './engine/weightBalance';
-import { equipmentAwareConstraints } from './diagnosticBlackbox';
-import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
-import { OPEN_PHYSICS_VALIDATION_EVENT } from './PhysicsValidationTool';
-import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
-import { readTransportEquipment } from './transportEquipment';
+import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
+import { buildSecuringUsage, createPhysicsTargetSignature, minimumSecuringLevelForMode, readLatestInertiaCertification, securingProfileForUsage } from './inertiaCertification';
+import { hasInspectionTarget, INSPECTIONS, type InspectionFinding, type InspectionKind, type InspectionResponse } from './manualInspection';
+import { clearPhysicsTarget, PHYSICS_TARGET_EVENT, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
+import { readTransportEquipment, TRANSPORT_EQUIPMENT_EVENT } from './transportEquipment';
+import { readSecuringMaterialSettings, SECURING_MATERIAL_SETTINGS_EVENT } from './securingMaterialSettings';
 import './safety-inspection-center.css';
 
 export const OPEN_SAFETY_INSPECTION_CENTER_EVENT = 'container-loading:open-safety-inspection-center';
-
-type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
-type LoadingWindow = Window & { __containerLoadingLatestResult?: LoadingDetail };
-type LocalChecks = {
-  constraints?: ConstraintCheck[];
-  floorLoad?: FloorLoadAnalysis;
-  balance?: BalanceAssessment;
-};
-
-export function openSafetyInspectionCenter() {
-  window.dispatchEvent(new Event(OPEN_SAFETY_INSPECTION_CENTER_EVENT));
-}
-
-function currentTarget(): PhysicsTarget | undefined {
-  const explicit = readPhysicsTarget();
-  if (explicit) return explicit;
-  const latest = (window as LoadingWindow).__containerLoadingLatestResult;
-  return latest ? { mode: 'boxes', container: latest.container, cargo: latest.cargo, result: latest.result } : undefined;
-}
-
-function statusText(checks: ConstraintCheck[] | undefined) {
-  if (!checks) return '미실행';
-  const fail = checks.filter(item => item.status === 'fail').length;
-  const warn = checks.filter(item => item.status === 'warn').length;
-  return fail ? `실패 ${fail}건` : warn ? `확인 ${warn}건` : '전체 통과';
-}
+export function openSafetyInspectionCenter() { window.dispatchEvent(new Event(OPEN_SAFETY_INSPECTION_CENTER_EVENT)); }
+type Record = { state: 'running' | 'done' | 'cancelled' | 'error'; progress: number; result?: InspectionFinding; error?: string };
 
 export default function SafetyInspectionCenter() {
   const [open, setOpen] = useState(false);
-  const [target, setTarget] = useState<PhysicsTarget | undefined>();
-  const [checks, setChecks] = useState<LocalChecks>({});
-  const [message, setMessage] = useState('');
+  const [target, setTarget] = useState<PhysicsTarget | undefined>(() => readPhysicsTarget());
+  const [records, setRecords] = useState<Partial<{ [K in InspectionKind]: Record }>>({});
+  const [message, setMessage] = useState('점검할 항목을 선택해 실행하세요.');
+  const worker = useRef<Worker | null>(null);
+  const runId = useRef(0);
+  const active = useRef<InspectionKind | null>(null);
+  const targetRef = useRef(target);
+  const opener = useRef<HTMLElement | null>(null);
+  const dialog = useRef<HTMLElement | null>(null);
+  const stop = () => { runId.current++; worker.current?.terminate(); worker.current = null; active.current = null; };
+  const close = () => {
+    stop(); setRecords({}); setOpen(false);
+    const returnFocus = opener.current?.isConnected ? opener.current : document.querySelector<HTMLButtonElement>('.header-menu-button');
+    returnFocus?.focus();
+  };
 
   useEffect(() => {
     const onOpen = () => {
-      const next = currentTarget();
-      setTarget(next);
-      setChecks({});
-      setMessage(next ? '자동 적재에서 사용한 최종 좌표를 기준으로 원하는 검증을 직접 실행하세요.' : '먼저 자동 적재를 실행해 검증할 적재 결과를 만들어 주세요.');
-      setOpen(true);
+      stop(); setRecords({});
+      const next = readPhysicsTarget(); targetRef.current = next; setTarget(next);
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setMessage('점검할 항목을 선택해 실행하세요.'); setOpen(true);
+    };
+    const invalidate = (next?: PhysicsTarget) => {
+      stop(); targetRef.current = next; setTarget(next); setRecords({});
+      setMessage('입력 또는 적재 결과가 변경되어 이전 점검을 폐기했습니다. 현재 결과로 다시 실행하세요.');
+    };
+    const onTarget = () => invalidate(readPhysicsTarget());
+    const onResult = (e: Event) => {
+      const next = readPhysicsTarget();
+      invalidate(next?.result === (e as CustomEvent).detail?.result ? next : undefined);
+    };
+    // Adapters re-announce unchanged equipment after applying a loading result.
+    // Only a changed calculation input invalidates that just-published target.
+    const settingsKey = () => JSON.stringify([readTransportEquipment(), readSecuringMaterialSettings()]);
+    let previousSettings = settingsKey();
+    const onSettings = () => {
+      const nextSettings = settingsKey();
+      if (nextSettings === previousSettings) return;
+      previousSettings = nextSettings; clearPhysicsTarget(); invalidate();
     };
     window.addEventListener(OPEN_SAFETY_INSPECTION_CENTER_EVENT, onOpen);
-    return () => window.removeEventListener(OPEN_SAFETY_INSPECTION_CENTER_EVENT, onOpen);
+    window.addEventListener(PHYSICS_TARGET_EVENT, onTarget);
+    window.addEventListener(LOADING_RESULT_EVENT, onResult);
+    window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, onSettings);
+    window.addEventListener(SECURING_MATERIAL_SETTINGS_EVENT, onSettings);
+    return () => {
+      stop();
+      window.removeEventListener(OPEN_SAFETY_INSPECTION_CENTER_EVENT, onOpen);
+      window.removeEventListener(PHYSICS_TARGET_EVENT, onTarget);
+      window.removeEventListener(LOADING_RESULT_EVENT, onResult);
+      window.removeEventListener(TRANSPORT_EQUIPMENT_EVENT, onSettings);
+      window.removeEventListener(SECURING_MATERIAL_SETTINGS_EVENT, onSettings);
+    };
   }, []);
 
-  const requireTarget = () => {
-    const next = currentTarget();
-    if (!next || (!next.result.placements.length && !(next.supports?.length))) {
-      setMessage('검증할 적재 결과가 없습니다. 자동 적재를 먼저 실행하세요.');
-      return undefined;
+  useEffect(() => {
+    if (!open) return;
+    dialog.current?.focus();
+    const onBack = () => close();
+    window.addEventListener('popstate', onBack);
+    return () => window.removeEventListener('popstate', onBack);
+  }, [open]);
+
+  const run = (kind: InspectionKind) => {
+    if (worker.current || !hasInspectionTarget(targetRef.current)) return;
+    const snapshot = targetRef.current;
+    if (snapshot !== readPhysicsTarget()) { setTarget(undefined); targetRef.current = undefined; setRecords({}); return; }
+    const id = ++runId.current;
+    active.current = kind;
+    setRecords(prev => ({ ...prev, [kind]: { state: 'running', progress: 0 } }));
+    try {
+      const w = new Worker(new URL('./manualInspection.worker.ts', import.meta.url), { type: 'module' });
+      worker.current = w;
+      const finish = (data: InspectionResponse) => {
+        if (id !== runId.current || snapshot !== targetRef.current || snapshot !== readPhysicsTarget()) return;
+        setRecords(prev => ({ ...prev, [kind]: { ...data, state: data.error ? 'error' : data.result ? 'done' : 'running' } }));
+        if (data.result || data.error) stop();
+      };
+      w.onmessage = (event: MessageEvent<InspectionResponse>) => finish(event.data);
+      w.onerror = () => finish({ progress: 0, error: '계산 작업을 실행하지 못했습니다. 다시 시도하세요.' });
+      const latest = readLatestInertiaCertification();
+      const usage = latest?.targetSignature === createPhysicsTargetSignature(snapshot) ? latest.securing : buildSecuringUsage(snapshot, minimumSecuringLevelForMode(snapshot.mode));
+      w.postMessage({ target: snapshot, kind, securing: securingProfileForUsage(snapshot.mode, usage), securingLabel: '결속 계산 조건: ' + usage.levelLabel });
+    } catch {
+      stop(); setRecords(prev => ({ ...prev, [kind]: { state: 'error', progress: 0, error: '점검 작업을 시작하지 못했습니다. 다시 시도하세요.' } }));
     }
-    setTarget(next);
-    return next;
   };
-
-  const runConstraints = () => {
-    const next = requireTarget();
-    if (!next) return;
-    const floorLoad = analyzeFloorLoad(next.container, next.result, 12, 4);
-    const equipment = readTransportEquipment();
-    const constraints = equipmentAwareConstraints(equipment, next.container, next.cargo, next.result);
-    setChecks(current => ({ ...current, constraints, floorLoad }));
-    setMessage(`제약조건 검사를 다시 실행했습니다. ${equipment.shortName} 기준 · ${statusText(constraints)}`);
+  const cancel = () => {
+    const kind = active.current; stop();
+    if (kind) setRecords(prev => ({ ...prev, [kind]: { state: 'cancelled', progress: 0 } }));
   };
-
-  const runBalance = () => {
-    const next = requireTarget();
-    if (!next) return;
-    const balance = assessWeightBalance(next.container, next.result);
-    setChecks(current => ({ ...current, balance }));
-    setMessage(`무게중심 검사를 다시 실행했습니다. 품질 ${balance.grade} · ${balance.loadingQualityScore.toFixed(0)}점`);
-  };
-
-  const runFloorLoad = () => {
-    const next = requireTarget();
-    if (!next) return;
-    const floorLoad = analyzeFloorLoad(next.container, next.result, 12, 4);
-    setChecks(current => ({ ...current, floorLoad }));
-    setMessage(`바닥하중 검사를 다시 실행했습니다. 최대 ${floorLoad.maxKgPerM2.toFixed(0)} kg/m²`);
-  };
-
-  const runQuickSet = () => {
-    const next = requireTarget();
-    if (!next) return;
-    const floorLoad = analyzeFloorLoad(next.container, next.result, 12, 4);
-    const equipment = readTransportEquipment();
-    const constraints = equipmentAwareConstraints(equipment, next.container, next.cargo, next.result);
-    const balance = assessWeightBalance(next.container, next.result);
-    setChecks({ constraints, floorLoad, balance });
-    setMessage(`기본 안전검사 3종을 다시 실행했습니다. ${equipment.shortName} 기준 · ${statusText(constraints)} · 무게중심 ${balance.grade}`);
-  };
-
-  const openPhysics = () => {
-    if (!requireTarget()) return;
-    setOpen(false);
-    window.setTimeout(() => window.dispatchEvent(new Event(OPEN_PHYSICS_VALIDATION_EVENT)), 0);
-  };
-
-  const openInertia = () => {
-    if (!requireTarget()) return;
-    setOpen(false);
-    window.setTimeout(() => window.dispatchEvent(new Event(OPEN_INERTIA_TEST_EVENT)), 0);
-  };
-
   if (!open) return null;
-
-  const equipment = readTransportEquipment();
-  const failCount = checks.constraints?.filter(item => item.status === 'fail').length ?? 0;
-  const warnCount = checks.constraints?.filter(item => item.status === 'warn').length ?? 0;
-  const floorLimit = target?.container.floorLoadLimitKgPerM2 ?? equipment.floorLoadLimitKgPerM2;
-  const floorWarning = Boolean(checks.floorLoad && checks.floorLoad.maxKgPerM2 > floorLimit);
-
-  return createPortal(
-    <div className="safety-center-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
-      <section className="safety-center-dialog" role="dialog" aria-modal="true" aria-label="안전 점검">
-        <header>
-          <div><span>MANUAL VALIDATION CENTER</span><h2>안전 점검</h2><p>자동 적재 때 실행한 검증을 현재 적재 좌표에 사용자가 직접 다시 실행합니다.</p></div>
-          <button type="button" onClick={() => setOpen(false)}>닫기</button>
-        </header>
-
-        <div className="safety-center-summary">
-          <div><span>대상</span><b>{target ? `${equipment.shortName} · ${target.mode === 'pallets' ? '팔레트' : '박스'} 적재 · ${target.result.placements.length} EA` : '적재 결과 없음'}</b></div>
-          <button type="button" className="primary" disabled={!target} onClick={runQuickSet}>기본 안전검사 3종 실행</button>
-        </div>
-
-        <div className="safety-center-grid">
-          <article className={failCount ? 'danger' : warnCount ? 'warn' : checks.constraints ? 'ok' : ''}>
-            <div className="safety-center-card-head"><span>01</span><div><b>제약조건 검사</b><small>중량 · 경계/충돌 · 높이 · 적층 · 상부하중 · 장비 유형별 출입구/개방부</small></div></div>
-            <strong>{statusText(checks.constraints)}</strong>
-            {checks.constraints && <div className="safety-center-results">{checks.constraints.map(item => <span key={item.id} className={item.status}><b>{item.label}</b><small>{item.detail}</small></span>)}</div>}
-            <button type="button" disabled={!target} onClick={runConstraints}>검사 실행</button>
-          </article>
-
-          <article className={checks.balance ? (checks.balance.grade === 'A' || checks.balance.grade === 'B' ? 'ok' : checks.balance.grade === 'C' ? 'warn' : 'danger') : ''}>
-            <div className="safety-center-card-head"><span>02</span><div><b>무게중심 검사</b><small>적재공간 전체 중심 기준 앞뒤 · 좌우 · 높이 분포</small></div></div>
-            <strong>{checks.balance ? `${checks.balance.grade} · ${checks.balance.loadingQualityScore.toFixed(0)}점` : '미실행'}</strong>
-            {checks.balance && <div className="safety-center-metrics"><span>앞뒤 편차 <b>{checks.balance.longitudinalDeviationPct.toFixed(1)}%</b></span><span>좌우 편차 <b>{checks.balance.lateralDeviationPct.toFixed(1)}%</b></span><span>CG 높이 <b>{checks.balance.verticalCenterPct.toFixed(1)}%</b></span></div>}
-            <button type="button" disabled={!target} onClick={runBalance}>검사 실행</button>
-          </article>
-
-          <article className={checks.floorLoad ? (floorWarning ? 'warn' : 'ok') : ''}>
-            <div className="safety-center-card-head"><span>03</span><div><b>바닥하중 검사</b><small>12×4 격자로 실제 배치 중량의 바닥 투영 하중 재계산</small></div></div>
-            <strong>{checks.floorLoad ? `${checks.floorLoad.maxKgPerM2.toFixed(0)} kg/m²` : '미실행'}</strong>
-            {checks.floorLoad && <div className="safety-center-metrics"><span>평균 <b>{checks.floorLoad.averageKgPerM2.toFixed(0)}</b></span><span>최대 <b>{checks.floorLoad.maxKgPerM2.toFixed(0)}</b></span><span>기준 <b>{floorLimit.toFixed(0)}</b></span></div>}
-            <button type="button" disabled={!target} onClick={runFloorLoad}>검사 실행</button>
-          </article>
-
-          <article>
-            <div className="safety-center-card-head"><span>04</span><div><b>Rapier 3D 물리 검증</b><small>정적 중력 · 급제동 0.50g · 횡가속 0.35g</small></div></div>
-            <strong>정밀 검증</strong>
-            <p>자동 적재에 사용되는 동일 물리 검증 도구를 직접 실행합니다.</p>
-            <button type="button" disabled={!target} onClick={openPhysics}>물리 검증 실행</button>
-          </article>
-
-          <article>
-            <div className="safety-center-card-head"><span>05</span><div><b>관성 검증</b><small>출발 0.30g · 급정거 0.50g · 급회전 0.35g</small></div></div>
-            <strong>동적 검증</strong>
-            <p>실제 적재 좌표와 보강 조건으로 움직임을 직접 재생하고 확인합니다.</p>
-            <button type="button" disabled={!target} onClick={openInertia}>관성 검증 실행</button>
-          </article>
-        </div>
-
-        <footer>{message}</footer>
-      </section>
-    </div>,
-    document.body,
-  );
+  const ready = hasInspectionTarget(target);
+  const busy = Object.values(records).some(r => r?.state === 'running');
+  return createPortal(<div className="safety-center-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close(); }}>
+    <section ref={dialog} tabIndex={-1} className="safety-center-dialog" role="dialog" aria-modal="true" aria-labelledby="manual-inspection-title" onKeyDown={e => {
+      if (e.key === 'Escape') { e.stopPropagation(); close(); }
+      if (e.key === 'Tab') {
+        const buttons = Array.from(dialog.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
+        const first = buttons[0], last = buttons[buttons.length - 1];
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { e.preventDefault(); last?.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+      }
+    }}>
+      <header><div><span>MANUAL INSPECTION</span><h2 id="manual-inspection-title">점검</h2><p>현재 적재 결과를 직접 점검합니다. 계산 결과는 실제 운송 안전 인증이 아닙니다.</p></div><button type="button" onClick={close}>닫기</button></header>
+      <div className="safety-center-summary"><div><span>점검 대상</span><b>{ready ? `${target.mode === 'pallets' ? '팔레트' : '박스'} 적재 · 상자 ${target.result.placements.length}개 · 팔레트 바닥판 ${target.supports?.length ?? 0}개` : '유효한 적재 결과가 없습니다. 먼저 자동 적재를 실행하세요.'}</b></div>{busy && <button type="button" onClick={cancel}>실행 취소</button>}</div>
+      <div className="safety-center-grid">{INSPECTIONS.map((item, index) => {
+        const row = records[item.id];
+        return <article key={item.id} aria-label={item.title} className={row?.result?.attention || row?.state === 'error' ? 'warn' : ''}>
+          <div className="safety-center-card-head"><span>0{index + 1}</span><div><b>{item.title}</b><small>{item.description}</small></div></div>
+          <strong role="status">{row?.state === 'running' ? `실행 중 ${row.progress}%` : row?.state === 'cancelled' ? '취소됨 · 결과 없음' : row?.state === 'error' ? '실행 실패' : row?.result?.summary ?? '미실행'}</strong>
+          {row?.state === 'running' && <progress aria-label={item.title + ' 진행률'} value={row.progress} max={100} />}
+          {row?.error && <p role="alert">{row.error}</p>}
+          {row?.result && <><ul className="manual-inspection-details">{row.result.details.map((line, i) => <li key={i}>{line}</li>)}</ul><p className="manual-inspection-caution">{row.result.caution}</p></>}
+          <button type="button" disabled={!ready || busy} onClick={() => run(item.id)}>{item.title} {row?.state === 'done' ? '다시 실행' : '실행'}</button>
+        </article>;
+      })}</div>
+      <footer aria-live="polite">{message} 닫기·뒤로 가기 시 실행 중인 계산과 점검 결과를 폐기합니다.</footer>
+    </section></div>, document.body);
 }

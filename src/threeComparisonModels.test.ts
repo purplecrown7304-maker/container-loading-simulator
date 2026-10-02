@@ -85,7 +85,7 @@ describe('original Unity Meshy asset parity', () => {
     });
 
     it(`${key}: uses the original MTL and unchanged JPEG bytes`, () => {
-      expect(readFileSync(assetFile(key, 'model.mtl'), 'utf8').trim()).toBe(
+      expect(readFileSync(assetFile(key, 'model.mtl'), 'utf8').replace(/\r\n/g, '\n').trim()).toBe(
         'newmtl meshy\nKd 1 1 1\nKa 1 1 1\nmap_Kd basecolor.jpg',
       );
       const jpeg = readFileSync(assetFile(key, 'basecolor.jpg'));

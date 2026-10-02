@@ -25,7 +25,7 @@ test('low-CBM mixed pallets stay on the floor through real workflow certificatio
     return result && { count: result.placements.length, pallets: result.palletCount, tiers: result.maxUsedStackLevel, mixed: result.pallets.some((p: any) => new Set(p.cargoPlacements.map((b: any) => b.cargoId)).size > 1) };
   });
   await expect.poll(snapshot).toEqual({ count: 6, pallets: 2, tiers: 1, mixed: true });
-  await expect(page.locator('.pallet-preview>.unity-viewer')).toHaveAttribute('data-unity-supports', '2', { timeout: 90000 });
+  await expect(page.locator('.pallet-preview .three-comparison-viewer')).toHaveAttribute('data-three-supports', '2', { timeout: 90000 });
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 120000 });
   expect(await snapshot()).toEqual({ count: 6, pallets: 2, tiers: 1, mixed: true });

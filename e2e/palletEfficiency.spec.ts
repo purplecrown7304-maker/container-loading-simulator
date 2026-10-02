@@ -13,7 +13,7 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
     }
     return route.abort('blockedbyclient');
   });
-  await page.goto('/');
+  await page.goto('/?renderer=unity');
   await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
   await page.evaluate(() => {
     const container = { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 };
@@ -42,8 +42,8 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   if (await summary.getAttribute('open') === null) await summary.locator('summary').click();
   const confirmation = summary.locator('.guided-loading-run-confirmation');
   await expect(confirmation).toBeVisible();
-  await expect(page.locator('.pallet-preview>.unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
-  await expect(page.locator('.pallet-preview>.unity-viewer')).toHaveAttribute('data-unity-supports', '1');
+  await expect(page.locator('.pallet-preview .unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
+  await expect(page.locator('.pallet-preview .unity-viewer')).toHaveAttribute('data-unity-supports', '1');
   await expect(summary.locator('dl > div').filter({ hasText: '사용 파렛트' }).locator('dd')).toHaveText(/(^| · )1개$/);
   await page.evaluate(() => {
     (window as any).__inertiaMessages = [];
