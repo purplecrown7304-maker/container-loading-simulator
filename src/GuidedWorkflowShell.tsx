@@ -415,7 +415,13 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
   selection: ProductSelectionMap;
   strategy: LoadingStrategy | null;
 }) {
-  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(() => window.innerWidth > 760);
+  useEffect(() => {
+    const media = window.matchMedia('(min-width:761px)');
+    const change = () => setSummaryOpen(media.matches);
+    media.addEventListener('change', change);
+    return () => media.removeEventListener('change', change);
+  }, []);
   const equipment = useTransportEquipment();
   const palletSnapshot = usePalletSnapshot();
   const palletType = resolvePalletType(usePalletTypeSelection());
@@ -598,8 +604,10 @@ export default function GuidedWorkflowShell() {
       if (!scene || !grid) return;
       const canvasBounds = scene.getBoundingClientRect(), gridBounds = grid.getBoundingClientRect();
       if (!canvasBounds.height) return;
-      grid.style.setProperty('--workspace-overlay-top', `${Math.max(8, canvasBounds.top - gridBounds.top + 10)}px`);
-      grid.style.setProperty('--workspace-overlay-height', `${Math.max(44, canvasBounds.height - 20)}px`);
+      const controlsBottom = window.innerWidth <= 760 ? Math.max(canvasBounds.top, ...Array.from(grid.querySelectorAll<HTMLElement>('.renderer-comparison-switch,.unity-toolbar,.three-environment-controls')).map(item => item.getBoundingClientRect().bottom)) : canvasBounds.top;
+      const top = Math.max(8, controlsBottom - gridBounds.top + 10);
+      grid.style.setProperty('--workspace-overlay-top', `${top}px`);
+      grid.style.setProperty('--workspace-overlay-height', `${Math.max(44, canvasBounds.bottom - gridBounds.top - top - 130)}px`);
     };
     const resize = new ResizeObserver(positionFloatingBars);
     const syncHosts = () => {

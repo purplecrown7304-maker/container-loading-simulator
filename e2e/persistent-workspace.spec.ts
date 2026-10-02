@@ -34,7 +34,7 @@ test('default page keeps a single main viewer and opens workspaces only on reque
   await expect(page.locator('.inertia-canvas-host')).toHaveCount(1);
   await expect(page.locator('.workspace-modal')).toBeHidden();
   await expect(page.locator('.guided-step-list button')).toHaveCount(6);
-  await expect(page.locator('.guided-job-summary')).not.toHaveAttribute('open');
+  await expect(page.locator('.guided-job-summary')).toHaveJSProperty('open', page.viewportSize()!.width > 760);
   await expect(page.locator('.workspace-modal canvas,.workspace-modal iframe')).toHaveCount(0);
   await expect(page.locator('.product-packaging-preview')).toHaveCount(0);
   await expectFloatingWorkspacesOverCanvas(page);

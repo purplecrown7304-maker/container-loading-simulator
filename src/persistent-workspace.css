@@ -58,3 +58,33 @@ html[data-guided-workflow="true"] .dashboard-center > .viewer-card { position: r
 .pallet-scene-overlays .pallet-preview > :is(.reference-clearance-strip,.pallet-securing-strip) { align-self: flex-start; max-width: calc(100% - 260px); background: #ffffffe8; }
 @media(max-width:760px) { .pallet-scene-overlays .pallet-preview > :is(.reference-clearance-strip,.pallet-securing-strip) { max-width: calc(100% - 175px); font-size: 11px; } }
 .pallet-scene-overlays .pallet-content-popover { pointer-events: auto; }
+/* Keep the actual rendering chain stretched, including after lazy viewer CSS loads. */
+html[data-guided-workflow="true"] .dashboard-center > .viewer-card > .viewer-host { flex: 1 1 0 !important; height: auto !important; min-height: 0 !important; }
+html[data-guided-workflow="true"] .viewer-host > .inertia-canvas-host { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; height: 100%; width: 100%; }
+html[data-guided-workflow="true"] .viewer-host > .inertia-canvas-host:not(:has(.inertia-inline-panel)) > .renderer-comparison { flex: 1 1 0; min-height: 0; height: 100%; }
+html[data-guided-workflow="true"] .viewer-host .renderer-comparison > .unity-viewer { flex: 1 1 0; min-height: 0 !important; height: 100% !important; }
+html[data-guided-workflow="true"] .viewer-host .unity-viewer > .unity-stage { flex: 1 1 0; min-height: 0 !important; }
+/* The actual canvas fills the content viewport BETWEEN the unchanged global bars. */
+html[data-guided-workflow="true"] .mockup-dashboard .dashboard-center > .viewer-card { position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; border: 0 !important; border-radius: 0 !important; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-card > .viewer-host { position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; margin: 0 !important; border-radius: 0 !important; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host > .inertia-canvas-host,
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .renderer-comparison,
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .renderer-comparison > .unity-viewer { position: static; background: transparent !important; border: 0 !important; border-radius: 0 !important; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-viewer > .unity-stage { position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; min-height: 0 !important; z-index: 0; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host :is(.renderer-comparison-switch,.unity-toolbar,.three-environment-controls) { position: relative; z-index: 35; flex: 0 0 auto; align-self: center; width: fit-content; max-width: calc(100% - 444px); margin: 6px auto 0; border: 1px solid var(--studio-line); border-radius: 10px; background: #ffffffed; box-shadow: 0 3px 12px #1118270c; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host :is(.unity-controls,.unity-summary,.three-comparison-metrics) { position: absolute; z-index: 35; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); border: 1px solid var(--studio-line); border-radius: 8px; background: #ffffffed; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-controls { bottom: 76px; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-summary { bottom: 42px; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .three-comparison-metrics { bottom: 8px; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-sequence-note { display: none; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-bottom-actions { position: absolute; z-index: 36; left: 14px; bottom: 10px; width: auto; max-width: 180px; background: #ffffffed; border-radius: 8px; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-bottom-actions > span { display: none; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .inertia-canvas-controls-host:has(.inertia-inline-panel) { position: absolute; right: 10px; bottom: 120px; z-index: 40; width: min(420px,calc(100% - 20px)); max-height: 45%; overflow: auto; }
+@media(max-width:760px) {
+  html[data-guided-workflow="true"] .mockup-dashboard .viewer-host :is(.renderer-comparison-switch,.unity-toolbar,.three-environment-controls) { max-width: calc(100% - 16px); margin-top: 4px; padding: 4px 6px; }
+  html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-toolbar > div:first-child { display: none; }
+  html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .three-environment-controls > span { display: none; }
+  html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-controls { bottom: 80px; max-width: calc(100% - 16px); }
+  html[data-guided-workflow="true"] .mockup-dashboard .viewer-bottom-actions { display: none; }
+  html[data-guided-workflow="true"] .workflow-preview-status { bottom: 90px; }
+}
