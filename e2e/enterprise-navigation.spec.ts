@@ -7,9 +7,10 @@ async function openProductManager(page: import('@playwright/test').Page) {
   return page.getByRole('dialog', { name: '회사 제품 관리' });
 }
 
-test('guided workflow starts at equipment and advances to product selection without route churn', async ({ page }) => {
+test('guided workflow starts with a persistent viewer and advances to product selection without route churn', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
+  await expect(page.locator('.viewer-card')).toBeVisible();
+  await expect(page.locator('.workspace-modal')).toBeHidden();
   await expect(page.locator('.guided-step-list button')).toHaveCount(6);
   const url = page.url();
 
@@ -28,6 +29,7 @@ test('company product manager is an in-place modal and closes back to the guided
 
   await dialog.locator('header button').click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
+  await expect(page.locator('.viewer-card')).toBeVisible();
+  await expect(page.locator('.workspace-modal')).toBeHidden();
   expect(page.url()).toBe(url);
 });

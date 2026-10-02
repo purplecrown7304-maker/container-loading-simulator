@@ -8,6 +8,8 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/');
   const openCheck = async (name: string) => {
+    const workspace = page.locator('.workspace-modal');
+    if (await workspace.isVisible()) await workspace.getByRole('button', { name: '설정 닫기', exact: true }).click();
     await page.locator('.header-menu-button').click();
     const inspections = page.locator('section[aria-label="점검 메뉴"]');
     await expect(inspections.getByRole('button')).toHaveCount(4);
@@ -46,8 +48,8 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   await expect.poll(() => page.evaluate(() => Boolean((window as any).__containerLoadingPhysicsTarget && !(window as any).__containerLoadingFinalPhysicsRunning)), { timeout: 60_000 }).toBe(true);
   // The first physics target precedes final-result publication. Start preservation
   // checks only after the workflow confirms that completed result is usable.
-  await expect(page.locator('.guided-primary-cta')).toContainText('결과 확인', { timeout: 60_000 });
-  await expect(page.locator('.guided-primary-cta')).toBeEnabled();
+  await expect(page.locator('.guided-primary-cta:visible')).toContainText('결과 확인', { timeout: 60_000 });
+  await expect(page.locator('.guided-primary-cta:visible')).toBeEnabled();
   await expect(viewer).toHaveAttribute('data-three-applied', 'true');
   await page.screenshot({ path: test.info().outputPath('three-default-loaded.png'), fullPage: true });
   const loadedTarget = await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget));

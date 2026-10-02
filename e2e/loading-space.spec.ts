@@ -34,7 +34,8 @@ test('Unity failure offers retry while the fixed-height product workflow remains
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/unity-viewer/build-config.json', route => route.fulfill({ status: 404, body: 'unavailable' }));
   await page.goto('/?renderer=unity');
-  await expect(page.locator('iframe')).toHaveCount(0);
+  await expect(page.locator('.viewer-host iframe')).toHaveCount(1);
+  await expect(page.locator('.workspace-modal iframe')).toHaveCount(0);
   await advanceToStrategy(page, 'SPACE-CHECK');
   await page.getByRole('radio', { name: /무게중심·안정성 우선형/ }).click();
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();

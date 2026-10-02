@@ -35,8 +35,10 @@ export function publishGuidedWorkflowState(next: GuidedWorkflowSnapshot) {
   }
 }
 
-export function shouldRenderGuidedViewer(state: GuidedWorkflowSnapshot) {
-  return !state.active || state.step === 5;
+export function shouldRenderGuidedViewer(_state: GuidedWorkflowSnapshot) {
+  // Stage panels are overlays. The canvas owns camera/environment state for the
+  // entire workspace and must not be removed when an overlay changes.
+  return true;
 }
 
 export function subscribeGuidedWorkflow(listener: () => void) {

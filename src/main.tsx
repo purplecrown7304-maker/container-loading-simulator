@@ -106,6 +106,7 @@ import './workflow-usability-fixes.css';
 import './loading-progress.css';
 import './studio-motion.css';
 import './studio-viewport.css';
+import './persistent-workspace.css';
 
 function renderApplication() {
   ReactDOM.createRoot(document.getElementById('root')!).render(

@@ -1,8 +1,9 @@
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
+import { vehicleLayout, type VehicleRigKind } from './threeVehicleLayout';
 import type { unityPlan } from './unityProtocol';
 
-export type ThreeComparisonPlan = ReturnType<typeof unityPlan>;
+export type ThreeComparisonPlan = ReturnType<typeof unityPlan> & { vehicleRig?: VehicleRigKind };
 export type SceneBox = Pick<ThreeComparisonPlan['placements'][number], 'x' | 'y' | 'z' | 'length' | 'width' | 'height'>;
 export const UNITY_CARTON_SCALE = .99;
 
@@ -59,8 +60,13 @@ export function sceneCameraPose(plan: ThreeComparisonPlan, view: string, aspect:
   const inverse = rotation.clone().invert();
   const vertical = Math.tan(20 * Math.PI / 180), horizontal = vertical * Math.max(.1, aspect);
   let distance = .5;
+  const rig = plan.vehicleRig && plan.vehicleRig !== 'none' ? vehicleLayout(plan.vehicleRig, plan.container) : null;
+  const minX = Math.min(-length / 2, rig?.bounds.min.x ?? (plan.vehicle ? -length * .5 - width * 1.22 : -length / 2));
+  const maxX = Math.max(length / 2, rig?.bounds.max.x ?? length / 2);
+  const minY = rig?.groundY ?? 0, maxY = Math.max(height, rig?.bounds.max.y ?? height);
+  const halfWidth = Math.max(width / 2, Math.abs(rig?.bounds.min.z ?? 0), Math.abs(rig?.bounds.max.z ?? 0));
   for (const x of [-1, 1]) for (const y of [0, 1]) for (const z of [-1, 1]) {
-    const p = new Vector3(x < 0 && plan.vehicle ? -length * .5 - width * 1.22 : x * length * .5, y * height, z * width * .5).sub(target).applyQuaternion(inverse);
+    const p = new Vector3(x < 0 ? minX : maxX, y ? maxY : minY, z * halfWidth).sub(target).applyQuaternion(inverse);
     distance = Math.max(distance, Math.abs(p.x) / horizontal - p.z, Math.abs(p.y) / vertical - p.z);
   }
   distance *= 1.12;

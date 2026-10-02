@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 
 test('box management downloads and imports its template without quantity or unloading order', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
+  await expect(page.locator('.guided-step-list button')).toHaveCount(6);
   // Isolated local catalog fixture; no remote account or account data is used.
   await page.evaluate(() => {
     sessionStorage.setItem('container-loading-local-operator-v1', JSON.stringify({ id: 'box-template-test', name: 'Box template test' }));

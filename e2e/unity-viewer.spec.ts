@@ -1,3 +1,4 @@
+import { openWorkspace } from './helpers/workspace';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 
@@ -26,7 +27,7 @@ async function advanceToStrategy(page: import('@playwright/test').Page, id: stri
   await page.screenshot({ path: fileURLToPath(new URL(`../../studio-products-${test.info().project.name}.png`, import.meta.url)), fullPage: true });
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
-  await expect(page.locator('.product-packaging-canvas .unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
+  await expect(page.locator('.viewer-host .unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
   await page.screenshot({ path: fileURLToPath(new URL(`../../studio-packaging-${test.info().project.name}.png`, import.meta.url)), fullPage: true });
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
 }
@@ -39,9 +40,10 @@ test('Unity renders the real loading plan and preserves certification during vie
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if(m.type() === 'error') errors.push(m.text()); });
   await page.goto('/?renderer=unity');
-  await expect(page.locator('iframe')).toHaveCount(0);
-  await expect(page.locator('.equipment-icon-grid')).toBeVisible();
-  const viewer = page.getByRole('region', { name: 'Unity 적재 시뮬레이터', exact: true });
+  await expect(page.locator('.viewer-host iframe')).toHaveCount(1);
+  await expect(page.locator('.workspace-modal')).toBeHidden();
+  await expect(page.locator('.viewer-card')).toBeVisible();
+  const viewer = page.locator('.viewer-host .unity-viewer');
   await advanceToStrategy(page, 'UNITY-TEST');
   await page.getByRole('radio', { name: /무게중심·안정성 우선형/ }).click();
   await page.screenshot({ path: fileURLToPath(new URL(`../../studio-strategy-${test.info().project.name}.png`, import.meta.url)), fullPage: true });
@@ -62,7 +64,7 @@ test('Unity renders the real loading plan and preserves certification during vie
   await page.getByRole('slider', { name: 'Unity 적재 순서', exact: true }).fill('0');
   await page.getByRole('button', { name: '적재 순서 재생', exact: true }).click();
   await expect(page.getByRole('slider', { name: 'Unity 적재 순서', exact: true })).toHaveValue('12', { timeout: 10_000 });
-  const canvas = page.frameLocator('iframe[title="Unity 3D 캔버스 · 적재 시뮬레이터"]').locator('canvas');
+  const canvas = page.frameLocator('.viewer-host iframe').locator('canvas');
   const area = await canvas.boundingBox();
   if (!area) throw Error('Unity canvas missing');
   for (const dx of [0, -20, 20, -40, 40]) {
@@ -77,7 +79,7 @@ test('Unity renders the real loading plan and preserves certification during vie
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
   await expect.poll(() => page.locator('#root').evaluate(el => el.scrollTop)).toBe(0);
   await page.screenshot({ path: fileURLToPath(new URL(`../../studio-results-${test.info().project.name}.png`, import.meta.url)), fullPage: true });
-  await page.locator('.guided-step-list button').nth(0).click();
+  await openWorkspace(page, 1);
   await page.getByRole('button', { name: '선택한 장비 변경', exact: true }).click();
   await page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' }).getByRole('button', { name: /^20' STANDARD/ }).click();
   await expect(page.getByRole('button', { name: '선택한 장비 변경', exact: true })).toContainText('20FT Standard');

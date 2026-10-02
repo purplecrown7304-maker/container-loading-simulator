@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
-import type { ContainerSpec, LoadingResult } from './engine/types';
-import UnityLoadingViewer from './LoadingViewer';
+import UnityLoadingViewer, { type LoadingViewerProps } from './LoadingViewer';
 import { BOX_VIEW_SNAPSHOT_EVENT } from './RemainingLengthIndicator';
 
-type Props = { result: LoadingResult; container: ContainerSpec };
+type Props = LoadingViewerProps & { mode?: 'boxes' | 'pallets' | 'mixed'; isPreview?: boolean };
 type SnapshotWindow = Window & {
   __containerLoadingBoxViewSnapshot?: Props;
 };
 
-export default function BoxLoadingViewer(props: Props) {
+/** Stable main host shared by box, pallet and mixed scenes. */
+export default function BoxLoadingViewer({ mode = 'boxes', isPreview = false, ...props }: Props) {
   const [certification, setCertification] = useState<InertiaCertification | undefined>(() => readLatestInertiaCertification() ?? undefined);
   useEffect(() => {
     const update = (event: Event) => setCertification((event as CustomEvent<InertiaCertification | undefined>).detail);
@@ -18,15 +18,18 @@ export default function BoxLoadingViewer(props: Props) {
   }, []);
   useEffect(() => {
     const publish = () => {
-      (window as SnapshotWindow).__containerLoadingBoxViewSnapshot = props;
-      window.dispatchEvent(new CustomEvent<Props>(BOX_VIEW_SNAPSHOT_EVENT, { detail: props }));
+      const snapshot = mode === 'boxes' && !isPreview ? props : undefined;
+      (window as SnapshotWindow).__containerLoadingBoxViewSnapshot = snapshot;
+      window.dispatchEvent(new CustomEvent<Props | undefined>(BOX_VIEW_SNAPSHOT_EVENT, { detail: snapshot }));
     };
     publish();
     return () => {
       (window as SnapshotWindow).__containerLoadingBoxViewSnapshot = undefined;
       window.dispatchEvent(new CustomEvent<undefined>(BOX_VIEW_SNAPSHOT_EVENT, { detail: undefined }));
     };
-  }, [props.container, props.result]);
+  }, [props.container, props.result, mode, isPreview]);
 
-  return <UnityLoadingViewer {...props} inertiaHost syncSelection securing={certification?.mode === 'boxes' ? certification.securing : null} />;
+  const certificationMode = mode === 'boxes' ? 'boxes' : 'pallets';
+  return <UnityLoadingViewer {...props} inertiaHost preview={isPreview} syncSelection={mode === 'boxes' && !isPreview}
+    securing={!isPreview && certification?.mode === certificationMode ? certification.securing : null} />;
 }

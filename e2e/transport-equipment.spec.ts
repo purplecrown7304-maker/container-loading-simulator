@@ -1,7 +1,9 @@
+import { openWorkspace } from './helpers/workspace';
 import { expect, test, type Page } from '@playwright/test';
 
 async function openEquipment(page: Page) {
   // Detailed specifications stay available beside the direct icon picker.
+  await openWorkspace(page, 1);
   const selector = page.getByRole('button', { name: '선택한 장비 변경', exact: true });
   await expect(selector).toBeVisible();
   await selector.click();
@@ -30,6 +32,7 @@ test('guided equipment selector changes the current container in place', async (
 
 test('truck category can select a Tautliner without leaving the guided workflow', async ({ page }) => {
   await page.goto('/');
+  await openWorkspace(page, 1);
   await page.getByRole('button', { name: '트럭', exact: true }).click();
   await expect(page.locator('.equipment-icon-option')).toHaveCount(6);
   await page.locator('.equipment-icon-option[data-equipment-id="tautliner"]').click();
@@ -39,6 +42,7 @@ test('truck category can select a Tautliner without leaving the guided workflow'
 
 test('custom truck dimensions can be applied from the current selector', async ({ page }) => {
   await page.goto('/');
+  await openWorkspace(page, 1);
   await page.getByRole('button', { name: '트럭', exact: true }).click();
   await page.locator('.equipment-icon-option[data-equipment-id="custom-truck"]').click();
   const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });

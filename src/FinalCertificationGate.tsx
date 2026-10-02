@@ -23,6 +23,7 @@ import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
 import { publishPhysicsTarget, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { openResultsModal } from './resultsModalEvents';
 import { STORAGE_UPDATED_EVENT, type StoredState } from './storage';
+import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
 
 const SCENARIO_LABEL = {
   acceleration: '출발 가속',
@@ -107,9 +108,19 @@ export default function FinalCertificationGate() {
   const [repositionAttempt, setRepositionAttempt] = useState({ index: 0, label: '' });
   const [search, setSearch] = useState<DirectSearchProgress | null>(null);
   const runId = useRef(0);
+  const activeSearch = useRef<AbortController | null>(null);
   const cache = useRef<CachedCertification | null>(null);
+  const cancel = useCallback(() => {
+    runId.current += 1;
+    activeSearch.current?.abort();
+    cache.current = null;
+    setRunning(false); setOpen(false); setCertification(null); setProgress(null); setSearch(null);
+  }, []);
 
   const execute = useCallback(async (detail: CertificationRequestDetail, nextTarget: PhysicsTarget) => {
+    activeSearch.current?.abort();
+    const controller = new AbortController();
+    activeSearch.current = controller;
     const id = ++runId.current;
     const requestedSignature = createPhysicsTargetSignature(nextTarget);
     const cancelled = () => runId.current !== id;
@@ -163,7 +174,7 @@ export default function FinalCertificationGate() {
         cache.current = { signature: requestedSignature, certification: result };
         setRunning(false);
         setOpen(false);
-        openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: result });
+        if (!detail.automatic) openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: result });
         return;
       }
 
@@ -182,6 +193,7 @@ export default function FinalCertificationGate() {
       setProgress(null);
       const searchResult = await buildDirectResultReoptimizationCandidatesAsync(nextTarget, MAX_DIRECT_REPOSITION_CANDIDATES, cancelled, {
         strategy: readLoadingStrategyPreference() ?? undefined,
+        signal: controller.signal,
         onProgress: next => { if (!cancelled()) setSearch(next); },
       });
       if (cancelled()) return;
@@ -241,7 +253,7 @@ export default function FinalCertificationGate() {
           setUsage(evaluated.certification.securing);
           setRunning(false);
           setOpen(false);
-          openResultsModal({ ...resultDetailFromTarget(evaluated.target), certification: evaluated.certification });
+          if (!detail.automatic) openResultsModal({ ...resultDetailFromTarget(evaluated.target), certification: evaluated.certification });
           return;
         }
 
@@ -283,7 +295,7 @@ export default function FinalCertificationGate() {
       }
       const signature = createPhysicsTargetSignature(nextTarget);
       if (cache.current?.signature === signature && cache.current.certification.status === 'passed') {
-        openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: cache.current.certification });
+        if (!detail.automatic) openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: cache.current.certification });
         return;
       }
       void execute(detail, nextTarget);
@@ -292,7 +304,12 @@ export default function FinalCertificationGate() {
     return () => window.removeEventListener(REQUEST_CERTIFIED_RESULTS_EVENT, onRequest);
   }, [execute]);
 
-  useEffect(() => () => { runId.current += 1; }, []);
+  useEffect(() => () => { runId.current += 1; activeSearch.current?.abort(); }, []);
+
+  useEffect(() => {
+    window.addEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, cancel);
+    return () => window.removeEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, cancel);
+  }, [cancel]);
 
   if (!open) return null;
   const currentUsage = usage ?? (target ? buildSecuringUsage(target, 1) : null);
@@ -308,7 +325,7 @@ export default function FinalCertificationGate() {
           <h2 id="final-cert-title">최종 적재 결과 전 관성 검증</h2>
           <p>출발 가속 · 급정거 · 급회전을 모두 검증합니다. 기본 적재안이 실패하면 DIRECT BOX는 정적 안전점수가 높은 상위 {MAX_DIRECT_REPOSITION_CANDIDATES}개 재배치만 추가 비교해 브라우저가 장시간 멈추는 것을 방지합니다.</p>
         </div>
-        <button type="button" onClick={() => { runId.current += 1; setRunning(false); setOpen(false); }}>{running ? '계산 취소' : '닫기'}</button>
+        <button type="button" onClick={cancel}>{running ? '계산 취소' : '닫기'}</button>
       </header>
 
       <div className="final-cert-flow">

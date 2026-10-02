@@ -15,6 +15,13 @@ export function setNextPalletCenteredResultOverride(result: OptimizedPalletPacki
   nextOverride = result;
 }
 
+/** Consume an explicitly applied UI result without running the packing algorithm again. */
+export function consumeNextPalletCenteredResultOverride() {
+  const result = nextOverride;
+  nextOverride = null;
+  return result;
+}
+
 function centerLoadCargo(load: PalletLoad): PalletLoad {
   if (!load.cargoPlacements.length) return { ...load, cargoPlacements: [] };
 

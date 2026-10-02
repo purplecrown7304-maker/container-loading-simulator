@@ -1,24 +1,25 @@
-import UnityLoadingViewer from './LoadingViewer';
+import UnityLoadingViewer, { type LoadingViewerProps } from './LoadingViewer';
 import { palletModelKey } from './palletModel';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cargoColor } from './cargoColors';
-import { centerPalletCargo } from './engine/palletCentering';
+import { centerPalletCargo, consumeNextPalletCenteredResultOverride } from './engine/palletCentering';
 import { validatePlacements } from './engine/constraints';
 import { defaultPalletSpec, packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
 import { packMixedMode, type MixedModePackingResult } from './engine/mixedModePacking';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
-import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
-import { clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
+import { INERTIA_CERTIFICATION_EVENT, createPhysicsTargetSignature, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
+import { clearPhysicsTarget, publishPhysicsTarget, readPhysicsTarget } from './physicsTarget';
 import { palletSpecForType } from './engine/palletCatalog';
 import { resolvePalletType, subscribePalletTypeSelection } from './palletTypeSelection';
+import { clearPalletSnapshot, publishPalletSnapshot, readPalletSnapshot } from './palletSnapshotStore';
+import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT } from './autoCertification';
 
-type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number; mode?: 'pallets' | 'mixed' };
-type PalletSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult };
-type PalletWindow = Window & { __containerLoadingPalletSnapshot?: PalletSnapshot };
+export type PalletViewerScene = LoadingViewerProps & { inputKey: string };
+type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number; mode?: 'pallets' | 'mixed'; inputKey: string; onSceneChange: (scene: PalletViewerScene | null) => void; onRunningChange: (running: boolean) => void };
 
 const PALLET_SPEC_FROM_RESULTS_EVENT = 'container-loading:pallet-spec-from-results';
-const PALLET_SNAPSHOT_UPDATED_EVENT = 'container-loading:pallet-snapshot-updated';
+const EMPTY_RESULT: OptimizedPalletPackingResult = { pallets: [], placements: [], remaining: [], palletCount: 0, loadedCargoWeightKg: 0, totalPackagingWeightKg: 0, avoidedPackagingWeightKg: 0, packagedPalletCount: 0, totalPalletizedWeightKg: 0, consolidatedPallets: 0, lateralImbalanceKg: 0, stackedPallets: 0, maxUsedStackLevel: 0, optimization: { selectedStackTarget: 0, candidateCount: 0, floorPositions: 0, redistributedForLowUtilization: false, consolidationPasses: 0 } };
 
 function sanitizeSpec(spec: PalletSpec): PalletSpec {
   return {
@@ -113,9 +114,13 @@ function PalletContents({ pallet, cargo, onClose, modelKey }: { pallet: PalletLo
   );
 }
 
-export default function PalletModePanel({ container, cargo, runToken, mode = 'pallets' }: Props) {
+export default function PalletModePanel({ container, cargo, runToken, mode = 'pallets', inputKey, onSceneChange, onRunningChange }: Props) {
   const [spec, setSpec] = useState<PalletSpec>(() => palletSpecForType(resolvePalletType(), defaultPalletSpec));
-  const [result, setResult] = useState<OptimizedPalletPackingResult | MixedModePackingResult>(() => packForMode(container, cargo.filter((item) => item.quantity > 0), palletSpecForType(resolvePalletType(), defaultPalletSpec), mode));
+  const [calculated, setCalculated] = useState<{ key: string; result: OptimizedPalletPackingResult | MixedModePackingResult } | null>(null);
+  const result = (calculated?.key === inputKey ? calculated.result : EMPTY_RESULT) as OptimizedPalletPackingResult | MixedModePackingResult;
+  const [specRunToken, setSpecRunToken] = useState(0);
+  const consumedRun = useRef({ run: 0, spec: 0 });
+  const adoptedResult = useRef<{ result: OptimizedPalletPackingResult; certification: InertiaCertification } | null>(null);
   const [opened, setOpened] = useState<PalletLoad | null>(null);
   const modelKey = palletModelKey(spec);
   const [certification, setCertification] = useState<InertiaCertification | null>(() => {
@@ -124,26 +129,74 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
   });
 
   useEffect(() => {
-    const safe = sanitizeSpec(spec);
-    setSpec(safe);
-    setResult(packForMode(container, cargo.filter((item) => item.quantity > 0), safe, mode));
+    const previous = consumedRun.current;
+    consumedRun.current = { run: runToken, spec: specRunToken };
+    const requested = (runToken !== previous.run && runToken > 0) || specRunToken !== previous.spec;
+    if (!requested) return;
+    adoptedResult.current = null;
+    let cancelled = false;
+    let publishTimer: number | undefined;
+    const timer = window.setTimeout(() => {
+      try {
+        const packed = packForMode(container, cargo.filter(item => item.quantity > 0), sanitizeSpec(spec), mode);
+        // Yield before publication so queued edits can cancel the obsolete run.
+        publishTimer = window.setTimeout(() => {
+          if (!cancelled) { setCalculated({ key: inputKey, result: packed }); onRunningChange(false); }
+        }, 0);
+      } catch (error) {
+        if (!cancelled) {
+          onRunningChange(false);
+          window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, { detail: { mode: 'pallets', error: String(error) } }));
+        }
+      }
+    }, 0);
+    return () => { cancelled = true; window.clearTimeout(timer); window.clearTimeout(publishTimer); };
+  }, [runToken, specRunToken, inputKey, spec]);
+
+  useEffect(() => {
+    adoptedResult.current = null;
     setOpened(null);
     setCertification(null);
-  }, [runToken, mode]);
+    setCalculated(null);
+    clearPalletSnapshot();
+    onSceneChange(null);
+    return () => { clearPalletSnapshot(); clearPhysicsTarget('pallets'); };
+  }, [inputKey, onSceneChange]);
 
   useEffect(() => {
     const onSpecFromResults = (event: Event) => {
       const requested = (event as CustomEvent<PalletSpec>).detail;
       if (!requested) return;
       const safe = sanitizeSpec(requested);
+      const snapshot = readPalletSnapshot();
+      const target = readPhysicsTarget();
+      const certified = readLatestInertiaCertification();
+      const applied = consumeNextPalletCenteredResultOverride();
+      // Adaptive report optimization already publishes this exact certified target.
+      // Its caller may open a result/report synchronously after this event returns.
+      if (snapshot && applied === snapshot.result && target?.mode === 'pallets' && certified?.mode === 'pallets'
+        && JSON.stringify(snapshot.spec) === JSON.stringify(requested)
+        && JSON.stringify(target.container) === JSON.stringify(container)
+        && JSON.stringify(target.cargo) === JSON.stringify(cargo)
+        && createPhysicsTargetSignature(target) === certified.targetSignature) {
+        adoptedResult.current = { result: snapshot.result, certification: certified };
+        setSpec(safe); setCalculated({ key: inputKey, result: snapshot.result });
+        setCertification(certified); setOpened(null); onRunningChange(false);
+        return;
+      }
+      adoptedResult.current = null;
       setSpec(safe);
-      setResult(packForMode(container, cargo.filter((item) => item.quantity > 0), safe, mode));
+      setCalculated(null);
+      onSceneChange(null);
+      clearPalletSnapshot();
+      clearPhysicsTarget('pallets');
+      setSpecRunToken(token => token + 1);
       setOpened(null);
       setCertification(null);
     };
     window.addEventListener(PALLET_SPEC_FROM_RESULTS_EVENT, onSpecFromResults);
     return () => window.removeEventListener(PALLET_SPEC_FROM_RESULTS_EVENT, onSpecFromResults);
-  }, [container, cargo, mode]);
+  }, [container, cargo, mode, inputKey, onRunningChange]);
 
   const specRef = useRef(spec);
   specRef.current = spec;
@@ -157,7 +210,10 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       currentId = type.id;
       const next = sanitizeSpec(palletSpecForType(type, specRef.current));
       setSpec(next);
-      setResult(packForMode(container, cargo.filter((item) => item.quantity > 0), next, mode));
+      setCalculated(null);
+      clearPalletSnapshot();
+      onSceneChange(null);
+      clearPhysicsTarget('pallets');
       setOpened(null);
       setCertification(null);
     });
@@ -173,16 +229,13 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
   }, []);
 
   useEffect(() => {
-    const snapshot: PalletSnapshot = { spec, result };
-    (window as PalletWindow).__containerLoadingPalletSnapshot = snapshot;
-    window.dispatchEvent(new CustomEvent<PalletSnapshot>(PALLET_SNAPSHOT_UPDATED_EVENT, { detail: snapshot }));
+    if (result === EMPTY_RESULT) return;
+    publishPalletSnapshot({ spec, result }, { preserveCertification: adoptedResult.current?.result === result });
   }, [spec, result]);
 
-  useEffect(() => () => {
-    (window as PalletWindow).__containerLoadingPalletSnapshot = undefined;
-  }, []);
-
   useEffect(() => {
+    if (result === EMPTY_RESULT) return;
+    if (adoptedResult.current?.result === result) { setCertification(adoptedResult.current.certification); return; }
     setCertification(null);
     const loadingResult: LoadingResult = {
       placements: result.placements,
@@ -204,7 +257,6 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       dynamic: true,
     }));
     publishPhysicsTarget({ mode: 'pallets', container, cargo, result: loadingResult, supports });
-    return () => clearPhysicsTarget('pallets');
   }, [container, cargo, result, modelKey]);
 
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
@@ -214,12 +266,21 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
     supports: result.pallets.map(p => ({ modelKey, id: `PALLET-${p.palletIndex}`, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) })),
   }), [container, result, modelKey]);
 
+  useEffect(() => {
+    if (result === EMPTY_RESULT) return;
+    onSceneChange({ container, cargo, ...scene, inputKey,
+      title: mode === 'mixed' ? '박스 + 팔레트 혼합 적재' : '팔레트 적재',
+      onSupportSelect: index => setOpened(result.pallets[index] ?? null),
+      onCargoSelect: index => setOpened(palletForPlacement(result, result.placements[index]) ?? null),
+    });
+  }, [container, cargo, scene, result, mode, inputKey, onSceneChange]);
+
+  if (result === EMPTY_RESULT) return null;
   return (
-    <div className="pallet-inline-workspace">
+    <div className="pallet-inline-workspace pallet-scene-overlays">
       <section className="pallet-mode-panel pallet-mode-panel-inline">
         <div className="pallet-view-stack">
           <div className="pallet-preview">
-            <UnityLoadingViewer inertiaHost container={container} cargo={cargo} {...scene} securing={securingUsage} title={mode === 'mixed' ? '박스 + 팔레트 혼합 적재' : '팔레트 적재'} onSupportSelect={index => setOpened(result.pallets[index] ?? null)} onCargoSelect={index => setOpened(palletForPlacement(result, result.placements[index]) ?? null)} />
             {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip">
               <b>관성 보강 적용</b>
               <span>밴딩 {securingUsage.bandingStraps}줄</span>

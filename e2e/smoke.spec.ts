@@ -1,3 +1,4 @@
+import { openWorkspace } from './helpers/workspace';
 import { expect, test } from '@playwright/test';
 
 async function registerDirectProduct(page: import('@playwright/test').Page, id: string) {
@@ -33,7 +34,8 @@ async function advanceToStrategy(page: import('@playwright/test').Page, id: stri
 
 test('current guided shell mounts with all six workflow stages', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
+  await expect(page.locator('.viewer-card')).toBeVisible();
+  await expect(page.locator('.workspace-modal')).toBeHidden();
   const steps = page.locator('.guided-step-list button');
   await expect(steps).toHaveCount(6);
   await expect(steps.nth(0)).toContainText('적재공간 선택');
@@ -123,6 +125,7 @@ test('mobile guided dashboard remains usable without horizontal body overflow', 
   // Check settled geometry: the entry animation can temporarily hide an overlap.
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
+  await openWorkspace(page, 1);
   await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
   await expect(page.getByRole('button', { name: /다음: 제품 선택/ })).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
@@ -132,9 +135,14 @@ test('mobile guided dashboard remains usable without horizontal body overflow', 
   expect(bodyWidth).toBeLessThanOrEqual(viewportWidth + 2);
   const rail = await page.locator('.guided-step-rail').boundingBox();
   const left = await page.locator('.dashboard-left').boundingBox();
-  const stage = await page.locator('.guided-stage-panel').boundingBox();
+  const stage = await page.locator('.workspace-modal').boundingBox();
   expect(rail!.y + rail!.height).toBeLessThanOrEqual(left!.y + left!.height);
-  expect(rail!.y + rail!.height).toBeLessThanOrEqual(stage!.y);
+  expect(stage!.x).toBeGreaterThanOrEqual(0);
+  expect(stage!.x + stage!.width).toBeLessThanOrEqual(viewportWidth + 1);
+  expect(stage!.y).toBeGreaterThanOrEqual(0);
+  expect(stage!.y + stage!.height).toBeLessThanOrEqual(845);
+  await expect(page.getByRole('button', { name: '설정 닫기', exact: true })).toBeInViewport();
+  await expect(page.getByRole('button', { name: /다음: 제품 선택/ })).toBeInViewport();
   await page.locator('.equipment-selected-strip').scrollIntoViewIfNeeded();
   await expect(page.locator('.equipment-selected-strip')).toContainText('용적');
 });
