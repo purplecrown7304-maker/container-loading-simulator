@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Texture } from 'three';
-import { unityPlan } from './unityProtocol';
+import { viewerPlan } from './viewerSceneProtocol';
 import { acquireComparisonLabels } from './threeComparisonLabels';
 
 function plan() {
-  return unityPlan({ length: 2, width: 1, height: 1, maxPayloadKg: 1000 }, {
+  return viewerPlan({ length: 2, width: 1, height: 1, maxPayloadKg: 1000 }, {
     placements: [
       { cargoId: 'A', x: 0, y: 0, z: 0, length: .5, width: .4, height: .3, weightKg: 12.5 },
       { cargoId: 'B', x: .5, y: 0, z: 0, length: .5, width: .4, height: .3, weightKg: 10 },

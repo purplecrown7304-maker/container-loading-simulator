@@ -16,7 +16,7 @@ import {
   type ModelKey,
 } from './threeComparisonModels';
 
-const assetFile = (key: ModelKey, file: string) => resolve(process.cwd(), 'unity/Assets/Resources/Meshy', key, file);
+const assetFile = (key: ModelKey, file: string) => resolve(process.cwd(), 'src/assets/Meshy', key, file);
 const source = (key: ModelKey) => readFileSync(assetFile(key, 'model.obj'), 'utf8');
 
 // Snapshot only the original JPEG bytes; no texture resampling or replacement

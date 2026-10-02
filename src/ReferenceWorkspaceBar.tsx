@@ -2,6 +2,7 @@ import { openSafetyInspectionCenter } from './SafetyInspectionCenter';
 import { INSPECTIONS } from './manualInspection';
 import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
 import StudioIcon from './StudioIcon';
+import ViewerBackgroundSelector from './ViewerBackgroundSelector';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { ADMIN_ACCESS_EVENT, isAdminSession, loginAdmin, logoutAdmin } from './adminAccess';
 import { exportLoadingDiagnostics } from './diagnosticExport';
@@ -177,12 +178,15 @@ export default function ReferenceWorkspaceBar() {
         <span className="ref-brand-text"><b>Load Studio</b><small>적재 계획 워크스페이스</small></span>
       </button>
 
-      <button className="header-equipment-pill" type="button" onClick={openEquipment} aria-label="현재 장비 변경">
-        <span className="equipment-kicker">현재 장비</span>
-        <b>{equipment.shortName}</b>
-        <small>{equipment.length.toFixed(2)} × {equipment.width.toFixed(2)} × {equipment.height.toFixed(2)}m</small>
-        <span aria-hidden="true">⌄</span>
-      </button>
+      <div className="header-scene-controls">
+        <button className="header-equipment-pill" type="button" onClick={openEquipment} aria-label="현재 장비 변경">
+          <span className="equipment-kicker">현재 장비</span>
+          <b>{equipment.shortName}</b>
+          <small>{equipment.length.toFixed(2)} × {equipment.width.toFixed(2)} × {equipment.height.toFixed(2)}m</small>
+          <span aria-hidden="true">⌄</span>
+        </button>
+        <ViewerBackgroundSelector />
+      </div>
 
       <div className="header-right-actions">
         <div className="header-account-wrap" ref={accountRef}>

@@ -1,4 +1,4 @@
-import UnityLoadingViewer from './LoadingViewer';
+import LoadingViewer from './LoadingViewer';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { analyzeWeightDistribution } from './engine/weightDistribution';
@@ -77,7 +77,7 @@ export default function PalletWeightDistributionDock() {
       {showGraph && <section className="pallet-weight-card" aria-label="박스 기준 팔레트 3D 무게 분포">
         {analysis && analysis.totalWeightKg > 0 ? <>
           <div className="pallet-weight-canvas">
-            <UnityLoadingViewer container={target.container} result={target.result} supports={target.supports} cargo={target.cargo} preview title="팔레트 무게분포" weightView showCg={showCg} view={view} />
+            <LoadingViewer container={target.container} result={target.result} supports={target.supports} cargo={target.cargo} preview title="팔레트 무게분포" weightView showCg={showCg} view={view} />
           </div>
           <WeightDistributionPanel analysis={analysis} />
           <div className="pallet-weight-basis">

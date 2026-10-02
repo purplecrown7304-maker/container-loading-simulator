@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-// Match the repository's Unity/Meshy CI WebGL configuration in the default suite too.
+// These checks require the repository's supported CI WebGL browser.
 test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
 
-test('same plan, original models, view-only controls and renderer round trip', async ({ page }) => {
+test('same plan, original models, view-only controls and a single Three canvas', async ({ page }) => {
   test.setTimeout(180000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/comparison.html?renderer=three');
+  await page.goto('/comparison.html');
   const three = page.getByRole('region', { name: 'Three.js 동일 모델 비교 샘플', exact: true });
   await expect(three).toHaveAttribute('data-three-applied', 'true', { timeout: 60000 });
   await expect(three).toHaveAttribute('data-three-count', '16');
@@ -45,15 +45,10 @@ test('same plan, original models, view-only controls and renderer round trip', a
   await page.screenshot({ path: test.info().outputPath('three-replay.png'), fullPage: true });
   await page.getByRole('button', { name: '합성 자세 재생 중지', exact: true }).click();
   await expect(three).toHaveAttribute('data-three-cg-position', originalCg!);
-  await page.getByRole('group', { name: '3D 엔진 선택' }).getByRole('button', { name: 'Unity', exact: true }).click();
-  const unity = page.getByRole('region', { name: 'Unity 동일 모델 비교 샘플', exact: true });
-  await expect(unity).toHaveAttribute('data-unity-applied', 'true', { timeout: 100000 });
-  await expect(unity).toHaveAttribute('data-unity-count', '16');
-  await expect(unity).toHaveAttribute('data-unity-supports', '2');
-  await expect(unity).toHaveAttribute('data-unity-label-faces', '64');
-  await page.screenshot({ path: test.info().outputPath('unity-pallets.png'), fullPage: true });
-  await page.getByRole('group', { name: '3D 엔진 선택' }).getByRole('button', { name: 'Three.js · 기존 모델', exact: true }).click();
-  await expect(three).toHaveAttribute('data-three-applied', 'true', { timeout: 30000 });
+  await expect(page.getByRole('group', { name: '3D 엔진 선택' })).toHaveCount(0);
+  await expect(page.locator('iframe')).toHaveCount(0);
+  await expect(page.getByText('3D 엔진 · 동일 적재 결과', { exact: true })).toHaveCount(0);
+  await expect(three).toHaveAttribute('data-three-applied', 'true');
   await expect(three).toHaveAttribute('data-three-count', '16');
   await page.getByRole('button', { name: '트럭 캡 OFF', exact: true }).click();
   await expect(three).toHaveAttribute('data-three-applied', 'true');
@@ -72,7 +67,7 @@ test('1200 original carton meshes remain responsive and expose a bounded render-
   test.setTimeout(120000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/comparison.html?renderer=three');
+  await page.goto('/comparison.html');
   await page.getByRole('button', { name: '박스 1200개', exact: true }).click();
   const three = page.locator('.three-comparison-viewer');
   await expect(three).toHaveAttribute('data-three-applied', 'true', { timeout: 60000 });

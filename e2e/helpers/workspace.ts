@@ -57,14 +57,14 @@ export async function expectFloatingWorkspacesOverCanvas(page: Page) {
   expect(geometry.canvasReceivesPointer).toBe(true);
   // Check the rendered scene itself, not only the full-height outer panel.
   // Regression: the old auto-loading page left a tiny 180px scene above a blank page.
-  const scene = page.locator('.viewer-host .unity-stage');
+  const scene = page.locator('.viewer-host .three-comparison-stage');
   const sceneBox = await scene.boundingBox();
   expect(sceneBox).not.toBeNull();
   expect(Math.abs(sceneBox!.height - center.height)).toBeLessThanOrEqual(3);
   expect(Math.abs(sceneBox!.width - center.width)).toBeLessThanOrEqual(3);
   expect(Math.abs(sceneBox!.x - center.x)).toBeLessThanOrEqual(2);
   expect(Math.abs(sceneBox!.y - center.y)).toBeLessThanOrEqual(2);
-  const actual = scene.locator('canvas,iframe').first();
+  const actual = scene.locator('canvas');
   if (await actual.count()) {
     const surface = await actual.boundingBox();
     expect(surface!.height).toBeGreaterThan(sceneBox!.height - 3);

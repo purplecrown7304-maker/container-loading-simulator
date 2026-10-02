@@ -4,7 +4,7 @@ import type { CargoItem, ContainerSpec, Placement } from './engine/types';
 import { clearPalletSnapshot, publishPalletSnapshot } from './palletSnapshotStore';
 import { buildPalletPhysicsTarget, restorePalletPhysicsTarget } from './palletTargetRestore';
 import { clearPhysicsTarget, readPhysicsTarget } from './physicsTarget';
-import { unityPlan } from './unityProtocol';
+import { viewerPlan } from './viewerSceneProtocol';
 import { choosePalletType } from './palletTypeSelection';
 
 const container: ContainerSpec = {
@@ -91,7 +91,7 @@ describe('pallet target restoration', () => {
     publishPalletSnapshot({ spec: { ...defaultPalletSpec, material: 'plastic' }, result }, { preserveCertification: true, emitLegacyEvent: false });
     choosePalletType('t11-wood');
     const target = buildPalletPhysicsTarget(container, cargo)!;
-    const plan = unityPlan(container, target.result, 1, cargo, { supports: target.supports });
+    const plan = viewerPlan(container, target.result, 1, cargo, { supports: target.supports });
     expect(plan.supports[0]).toMatchObject({ modelKey: 'plastic-pallet', length: pallet.length, width: pallet.width, height: pallet.height, weightKg: defaultPalletSpec.tareWeightKg });
     expect(plan.placements[0]).toMatchObject(placement);
     choosePalletType('auto');

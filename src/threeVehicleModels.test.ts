@@ -8,7 +8,7 @@ import { loadVehicleModel, prepareVehicleModel, VEHICLE_MODEL_URLS, type Vehicle
 import { createVehicleResources, fitVehicleRails } from './threeVehicleResources';
 import { CONTAINER_EQUIPMENT, TRUCK_EQUIPMENT } from './transportEquipment';
 import { sceneCameraPose } from './threeComparisonSceneState';
-import { unityPlan } from './unityProtocol';
+import { viewerPlan } from './viewerSceneProtocol';
 
 function source(key: VehicleModelKey) {
   const bytes = readFileSync(`public${VEHICLE_MODEL_URLS[key]}`);
@@ -111,7 +111,7 @@ describe('view-only equipment assembly', () => {
     const resources = createVehicleResources(footprint.kind, footprint, loaded), sourceDispose = vi.spyOn(loaded.cab!.parts[0].geometry, 'dispose');
     const owned = (resources.root.children[0].children[0] as THREE.Mesh).geometry, ownedDispose = vi.spyOn(owned, 'dispose');
     resources.dispose(); resources.dispose(); expect(ownedDispose).toHaveBeenCalledOnce(); expect(sourceDispose).not.toHaveBeenCalled();
-    const plan = { ...unityPlan({ ...footprint, maxPayloadKg: 1000 }, { placements: [], remaining: [], usedVolumeM3: 0, loadedWeightKg: 0, validationIssues: [] }, 1), vehicleRig: footprint.kind };
+    const plan = { ...viewerPlan({ ...footprint, maxPayloadKg: 1000 }, { placements: [], remaining: [], usedVolumeM3: 0, loadedWeightKg: 0, validationIssues: [] }, 1), vehicleRig: footprint.kind };
     for (const aspect of [.5, 2.4]) for (const view of ['free', 'top', 'side', 'door']) {
       const pose = sceneCameraPose(plan, view, aspect), camera = new THREE.PerspectiveCamera(40, aspect, .02, 500);
       camera.position.copy(pose.position); camera.lookAt(pose.target); camera.updateMatrixWorld(true);

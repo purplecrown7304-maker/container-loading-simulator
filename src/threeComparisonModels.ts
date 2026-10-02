@@ -16,32 +16,32 @@ import {
 } from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 
-// These are the existing Unity sources, not a second set of converted assets.
+// These are the original Meshy sources, relocated without conversion or resampling.
 // Explicit ?url imports let Vite serve/build OBJ and MTL files without a plugin.
-import cartonObj from '../unity/Assets/Resources/Meshy/carton/model.obj?url';
-import cartonMtl from '../unity/Assets/Resources/Meshy/carton/model.mtl?url';
-import cartonTexture from '../unity/Assets/Resources/Meshy/carton/basecolor.jpg?url';
-import woodObj from '../unity/Assets/Resources/Meshy/wood-pallet/model.obj?url';
-import woodMtl from '../unity/Assets/Resources/Meshy/wood-pallet/model.mtl?url';
-import woodTexture from '../unity/Assets/Resources/Meshy/wood-pallet/basecolor.jpg?url';
-import plasticObj from '../unity/Assets/Resources/Meshy/plastic-pallet/model.obj?url';
-import plasticMtl from '../unity/Assets/Resources/Meshy/plastic-pallet/model.mtl?url';
-import plasticTexture from '../unity/Assets/Resources/Meshy/plastic-pallet/basecolor.jpg?url';
-import truckObj from '../unity/Assets/Resources/Meshy/truck-cab/model.obj?url';
-import truckMtl from '../unity/Assets/Resources/Meshy/truck-cab/model.mtl?url';
-import truckTexture from '../unity/Assets/Resources/Meshy/truck-cab/basecolor.jpg?url';
-import shellObj from '../unity/Assets/Resources/Meshy/container-shell/model.obj?url';
-import shellMtl from '../unity/Assets/Resources/Meshy/container-shell/model.mtl?url';
-import shellTexture from '../unity/Assets/Resources/Meshy/container-shell/basecolor.jpg?url';
-import guardObj from '../unity/Assets/Resources/Meshy/corner-guard/model.obj?url';
-import guardMtl from '../unity/Assets/Resources/Meshy/corner-guard/model.mtl?url';
-import guardTexture from '../unity/Assets/Resources/Meshy/corner-guard/basecolor.jpg?url';
-import blockObj from '../unity/Assets/Resources/Meshy/dunnage-block/model.obj?url';
-import blockMtl from '../unity/Assets/Resources/Meshy/dunnage-block/model.mtl?url';
-import blockTexture from '../unity/Assets/Resources/Meshy/dunnage-block/basecolor.jpg?url';
-import airbagObj from '../unity/Assets/Resources/Meshy/dunnage-airbag/model.obj?url';
-import airbagMtl from '../unity/Assets/Resources/Meshy/dunnage-airbag/model.mtl?url';
-import airbagTexture from '../unity/Assets/Resources/Meshy/dunnage-airbag/basecolor.jpg?url';
+import cartonObj from './assets/Meshy/carton/model.obj?url';
+import cartonMtl from './assets/Meshy/carton/model.mtl?url';
+import cartonTexture from './assets/Meshy/carton/basecolor.jpg?url';
+import woodObj from './assets/Meshy/wood-pallet/model.obj?url';
+import woodMtl from './assets/Meshy/wood-pallet/model.mtl?url';
+import woodTexture from './assets/Meshy/wood-pallet/basecolor.jpg?url';
+import plasticObj from './assets/Meshy/plastic-pallet/model.obj?url';
+import plasticMtl from './assets/Meshy/plastic-pallet/model.mtl?url';
+import plasticTexture from './assets/Meshy/plastic-pallet/basecolor.jpg?url';
+import truckObj from './assets/Meshy/truck-cab/model.obj?url';
+import truckMtl from './assets/Meshy/truck-cab/model.mtl?url';
+import truckTexture from './assets/Meshy/truck-cab/basecolor.jpg?url';
+import shellObj from './assets/Meshy/container-shell/model.obj?url';
+import shellMtl from './assets/Meshy/container-shell/model.mtl?url';
+import shellTexture from './assets/Meshy/container-shell/basecolor.jpg?url';
+import guardObj from './assets/Meshy/corner-guard/model.obj?url';
+import guardMtl from './assets/Meshy/corner-guard/model.mtl?url';
+import guardTexture from './assets/Meshy/corner-guard/basecolor.jpg?url';
+import blockObj from './assets/Meshy/dunnage-block/model.obj?url';
+import blockMtl from './assets/Meshy/dunnage-block/model.mtl?url';
+import blockTexture from './assets/Meshy/dunnage-block/basecolor.jpg?url';
+import airbagObj from './assets/Meshy/dunnage-airbag/model.obj?url';
+import airbagMtl from './assets/Meshy/dunnage-airbag/model.mtl?url';
+import airbagTexture from './assets/Meshy/dunnage-airbag/basecolor.jpg?url';
 
 export const MESHY_MODEL_MANIFEST = {
   carton: { obj: cartonObj, mtl: cartonMtl, texture: cartonTexture },

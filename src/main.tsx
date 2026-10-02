@@ -107,6 +107,7 @@ import './loading-progress.css';
 import './studio-motion.css';
 import './studio-viewport.css';
 import './persistent-workspace.css';
+import './viewer-background-selector.css';
 
 function renderApplication() {
   ReactDOM.createRoot(document.getElementById('root')!).render(

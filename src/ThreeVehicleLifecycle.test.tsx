@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ThreeComparisonScene, { CameraController, type ThreeComparisonSceneProps } from './ThreeComparisonScene';
-import { unityPlan } from './unityProtocol';
+import { viewerPlan } from './viewerSceneProtocol';
 
 const state = vi.hoisted(() => ({ runtime: {} as Record<string, unknown>, load: vi.fn(), labels: vi.fn(), create: vi.fn() }));
 vi.mock('@react-three/fiber', () => ({ Canvas: () => null, useThree: () => state.runtime, useFrame: vi.fn() }));
@@ -13,7 +13,7 @@ vi.mock('./threeComparisonModels', () => ({ loadMeshyModel: vi.fn() }));
 vi.mock('./threeComparisonLabels', () => ({ acquireComparisonLabels: state.labels }));
 vi.mock('./threeComparisonSceneResources', () => ({ requiredComparisonModelKeys: () => [], createComparisonSceneResources: state.create }));
 let root: Root, host: HTMLDivElement;
-function plan(revision = 1) { return { ...unityPlan({ length: 5.9, width: 2.352, height: 2.395, maxPayloadKg: 1000 }, { placements: [], remaining: [], validationIssues: [], usedVolumeM3: 0, loadedWeightKg: 0 }, revision), vehicleRig: 'articulated' as const }; }
+function plan(revision = 1) { return { ...viewerPlan({ length: 5.9, width: 2.352, height: 2.395, maxPayloadKg: 1000 }, { placements: [], remaining: [], validationIssues: [], usedVolumeM3: 0, loadedWeightKg: 0 }, revision), vehicleRig: 'articulated' as const }; }
 function options(revision = 1): ThreeComparisonSceneProps { return { plan: plan(revision), cut: 100, shell: true, step: 0, labels: true, weight: false, showCg: false, view: 'free', selected: null, onSelect: vi.fn() }; }
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { palletBandingLayout, palletBandingLengthM, palletBandingLabel } from './palletBanding';
 import { buildSecuringUsage, createPhysicsTargetSignature } from './inertiaCertification';
 import { buildPalletSecuringPlan } from './palletSecuringPlan';
-import { securingGeometry } from './unitySecuring';
+import { securingGeometry } from './viewerSecuring';
 import type { PhysicsTarget } from './physicsTarget';
 
 const target: PhysicsTarget = {
