@@ -7,6 +7,8 @@ import { analyzeWeightDistribution } from './engine/weightDistribution';
 import { selectPlacement, PLACEMENT_SELECT_EVENT, type PlacementSelectDetail } from './selectionEvents';
 import ThreeComparisonScene, { type ThreeComparisonSceneStats } from './ThreeComparisonScene';
 import WeightDistributionPanel from './WeightDistributionPanel';
+import { normalizeViewerEnvironment, readViewerEnvironment, saveViewerEnvironment, VIEWER_ENVIRONMENTS } from './viewerEnvironment';
+import type { EnvironmentStatus } from './ThreeViewerEnvironment';
 import './unity-viewer.css';
 import './weight-distribution.css';
 import './three-comparison.css';
@@ -25,6 +27,9 @@ export default function ThreeLoadingViewer({ container, result, cargo, preview =
   const [playing, setPlaying] = useState(false), [step, setStep] = useState(result.placements.length), [selected, setSelected] = useState<number | null>(null), [labels, setLabels] = useState(true);
   const [stats, setStats] = useState<ThreeComparisonSceneStats | null>(null), [readyMs, setReadyMs] = useState<number | null>(null);
   const [benchmark, setBenchmark] = useState(false), [measurement, setMeasurement] = useState<Benchmark | null>(null);
+  const [environment, setEnvironment] = useState(readViewerEnvironment);
+  const [environmentStatus, setEnvironmentStatus] = useState<EnvironmentStatus | null>(null);
+  const [environmentAttempt, setEnvironmentAttempt] = useState(0);
   const started = useRef(performance.now()), revision = useRef(0);
   const plan = useMemo(() => unityPlan(container, result, ++revision.current, cargo ?? readStoredState()?.cargo, { supports, securing, geometry: geometry ?? readTransportEquipment().geometry, vehicle: vehicle ?? (geometry ? false : readTransportEquipment().category === 'truck') }), [container, result, cargo, supports, securing, geometry, vehicle]);
   const frameActive = Boolean(frameData);
@@ -61,7 +66,7 @@ export default function ThreeLoadingViewer({ container, result, cargo, preview =
   const selectedBox = selected === null ? undefined : result.placements[selected];
   const selectedCell = cell === null ? undefined : analysis.floor.cells[cell];
   const count = result.placements.length;
-  return <section className={`unity-viewer three-comparison-viewer ${preview ? 'unity-preview' : ''}`} aria-label={`Three.js ${title}`} data-three-count={count} data-three-supports={plan.supports.length} data-three-ready={ready} data-three-applied={ready && stats?.revision === plan.revision} data-three-model-count={stats?.modelCount ?? 0} data-three-label-faces={labels && !weightOn ? stats?.labelFaces ?? 0 : 0} data-three-step={visibleStep} data-three-cut={visibleCut} data-three-selected={selected ?? -1} data-three-ready-ms={readyMs?.toFixed(1)} data-three-cg-visible={ready && stats?.revision === plan.revision && Boolean(stats.cgVisible)} data-three-frame-step={ready && stats?.revision === plan.revision ? stats.acceptedFrameStep ?? '' : ''} data-three-frame-rejected={ready && stats?.revision === plan.revision && stats.rejectedFrame} data-three-cg-position={ready && stats?.revision === plan.revision ? stats.cgPosition?.map(value => value.toFixed(5)).join(',') : undefined}>
+  return <section className={`unity-viewer three-comparison-viewer ${preview ? 'unity-preview' : ''}`} aria-label={`Three.js ${title}`} data-three-plan-revision={plan.revision} data-three-camera-pose={stats?.cameraPose} data-three-environment={environment} data-three-environment-applied={environmentStatus?.id === environment && environmentStatus.status === 'ready'} data-three-geometries={stats?.geometries ?? 0} data-three-textures={stats?.textures ?? 0} data-three-render-calls={stats?.renderCalls ?? 0} data-three-count={count} data-three-supports={plan.supports.length} data-three-ready={ready} data-three-applied={ready && stats?.revision === plan.revision} data-three-model-count={stats?.modelCount ?? 0} data-three-label-faces={labels && !weightOn ? stats?.labelFaces ?? 0 : 0} data-three-step={visibleStep} data-three-cut={visibleCut} data-three-selected={selected ?? -1} data-three-ready-ms={readyMs?.toFixed(1)} data-three-cg-visible={ready && stats?.revision === plan.revision && Boolean(stats.cgVisible)} data-three-frame-step={ready && stats?.revision === plan.revision ? stats.acceptedFrameStep ?? '' : ''} data-three-frame-rejected={ready && stats?.revision === plan.revision && stats.rejectedFrame} data-three-cg-position={ready && stats?.revision === plan.revision ? stats.cgPosition?.map(value => value.toFixed(5)).join(',') : undefined}>
     <div className="unity-toolbar"><div><b>{title}</b><span className="studio-live-badge"><i/>THREE.JS</span></div><div className="unity-view-buttons">
       {[['free','입체'],['top','상단'],['door','문쪽'],['side','측면']].map(([key,label]) => <button key={key} data-view-only="true" aria-pressed={(view ?? activeView) === key} disabled={!ready} onClick={() => setActiveView(key)}>{label}</button>)}
       <button data-view-only="true" disabled={!ready} aria-pressed={shell} onClick={() => setShell(!shell)}>{shell ? '외벽 숨기기' : '외벽 표시'}</button>
@@ -69,9 +74,16 @@ export default function ThreeLoadingViewer({ container, result, cargo, preview =
       {!preview && weightView === undefined && <button data-view-only="true" disabled={!ready || !count || frameActive} aria-pressed={weightOn} onClick={() => setWeight(!weight)}>3D 무게분포</button>}
       {showCg && <button data-view-only="true" disabled={!ready || (!count && !plan.supports.length)} aria-pressed={cg} onClick={() => setCg(!cg)}>무게중심 {cg ? 'ON' : 'OFF'}</button>}
     </div></div>
+    {!preview && <div className="three-environment-controls">
+      <label>배경<select data-view-only="true" aria-label="3D 배경" value={environment} onChange={event => {
+        const next = normalizeViewerEnvironment(event.target.value); setEnvironment(next); saveViewerEnvironment(next);
+      }}>{VIEWER_ENVIRONMENTS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+      <span>보기 전용 · 적재 계산과 무관</span>
+    </div>}
     <div className="unity-stage three-comparison-stage">
-      <SceneErrorBoundary key={attempt} onError={onError}><ThreeComparisonScene plan={plan} cut={visibleCut} shell={shell} step={visibleStep} labels={labels} weight={weightOn} showCg={showCg && cg} view={view === 'rear' ? 'door' : view ?? activeView} selected={selected} frameData={frameData} onSelect={onSelect} onSupportSelect={onSupportSelect} onCellSelect={setCell} onReady={onReady} onStats={setStats} onError={onError} benchmark={benchmark} onBenchmark={onBenchmark} /></SceneErrorBoundary>
+      <SceneErrorBoundary key={attempt} onError={onError}><ThreeComparisonScene environment={environment} environmentAttempt={environmentAttempt} onEnvironmentStatus={setEnvironmentStatus} plan={plan} cut={visibleCut} shell={shell} step={visibleStep} labels={labels} weight={weightOn} showCg={showCg && cg} view={view === 'rear' ? 'door' : view ?? activeView} selected={selected} frameData={frameData} onSelect={onSelect} onSupportSelect={onSupportSelect} onCellSelect={setCell} onReady={onReady} onStats={setStats} onError={onError} benchmark={benchmark} onBenchmark={onBenchmark} /></SceneErrorBoundary>
       {ready && stats?.revision === plan.revision && stats.cgVisible && <div className="three-cg-legend"><i aria-hidden="true"/>전체 적재 무게중심 · 상자 + 파렛트 자체중량</div>}
+      {environmentStatus?.id === environment && environmentStatus.status === 'fallback' && <div className="three-environment-error" role="status">배경 표시 실패 · 기본 배경 사용 중 <button type="button" data-view-only="true" onClick={() => setEnvironmentAttempt(value => value + 1)}>배경 다시 시도</button></div>}
       {!ready && !error && <div className="unity-loading" role="status"><b>기존 3D 모델 준비 중</b><span>Unity 원본 OBJ · UV · 텍스처 불러오는 중</span></div>}
       {error && <div className="unity-loading three-comparison-error" role="alert"><b>3D 모델을 불러오지 못했습니다</b><span>{error}</span><span>상단에서 Unity로 돌아가거나 다시 시도할 수 있습니다</span><button onClick={() => { setError(''); setAttempt(value => value + 1); }}>다시 시도</button></div>}
       {ready && <div className="unity-hint">드래그 회전 · 휠 확대 · 우클릭 이동{weightOn ? ' · 격자 클릭: 하중 확인' : ' · 화물 클릭: 정보 확인'}</div>}

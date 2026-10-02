@@ -7,6 +7,8 @@ import { loadMeshyModel } from './threeComparisonModels';
 import { acquireComparisonLabels } from './threeComparisonLabels';
 import { createComparisonSceneResources, requiredComparisonModelKeys, type ComparisonModels } from './threeComparisonSceneResources';
 import { acceptSceneFrame, sceneCameraPose, type ThreeComparisonPlan } from './threeComparisonSceneState';
+import ThreeViewerEnvironment, { type EnvironmentStatus } from './ThreeViewerEnvironment';
+import { DEFAULT_VIEWER_ENVIRONMENT, type EnvironmentId } from './viewerEnvironment';
 
 export type ThreeComparisonSceneStats = {
   revision: number;
@@ -22,6 +24,7 @@ export type ThreeComparisonSceneStats = {
   rejectedFrame: boolean;
   cgVisible: boolean;
   cgPosition: [number, number, number] | null;
+  cameraPose: string;
 };
 export type ThreeComparisonBenchmark = {
   durationMs: number;
@@ -53,6 +56,9 @@ export type ThreeComparisonSceneProps = {
   onError?: (message: string) => void;
   benchmark?: boolean;
   onBenchmark?: (result: ThreeComparisonBenchmark) => void;
+  environment?: EnvironmentId;
+  environmentAttempt?: number;
+  onEnvironmentStatus?: (status: EnvironmentStatus) => void;
 };
 type Resources = ReturnType<typeof createComparisonSceneResources>;
 type FrameState = { acceptedFrameStep: number | null; rejectedFrame: boolean };
@@ -127,6 +133,7 @@ function SceneRuntime({ resources, options, frameState }: { resources: Resources
       renderCalls: state.gl.info.render.calls, triangles: state.gl.info.render.triangles,
       geometries: state.gl.info.memory.geometries, textures: state.gl.info.memory.textures,
       cgVisible: resources.centerOfGravityVisible, cgPosition: resources.centerOfGravityPosition,
+      cameraPose: [...state.camera.position.toArray(), ...state.camera.quaternion.toArray()].map(value => value.toFixed(5)).join(','),
       ...frameState.current,
     };
     if (readyResource.current !== resources) { readyResource.current = resources; callbacks.current.onReady?.(stats); }
@@ -187,7 +194,7 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
   const resources = loaded?.plan === plan ? loaded.resources : null;
   return <div style={{ width: '100%', height: '100%', position: 'relative', minHeight: 180 }} data-three-scene-ready={Boolean(resources)}>
     <Canvas frameloop="demand" camera={{ fov: 40, near: .02, far: 500, position: [10, 7, 10] }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }} onPointerMissed={event => { if (event.type === 'click') options.onSelect(null); }} onContextMenu={event => event.preventDefault()} fallback={<WebGLFallback onError={options.onError} />}>
-      <color attach="background" args={['#ecf3f9']} />
+      <ThreeViewerEnvironment id={options.environment ?? DEFAULT_VIEWER_ENVIRONMENT} length={plan.container.length} width={plan.container.width} height={plan.container.height} attempt={options.environmentAttempt} onStatus={options.onEnvironmentStatus} />
       {resources && <SceneContents resources={resources} options={options} bindings={bindings.current} frameState={frameState} />}
       <SceneRuntime resources={resources} options={options} frameState={frameState} />
     </Canvas>
