@@ -1,3 +1,4 @@
+import { openWorkspace } from './helpers/workspace';
 import { expect, test } from '@playwright/test';
 
 test('product selection cannot advance until at least one product quantity is selected', async ({ page }) => {
@@ -9,7 +10,8 @@ test('product selection cannot advance until at least one product quantity is se
 
 test('changing the active transport equipment invalidates stale physics state', async ({ page }) => {
   await page.goto('/');
-  // The selector remains accessible while the Unity preview loads.
+  await openWorkspace(page, 1);
+  // The selector remains accessible while the main preview loads.
   const selector = page.getByRole('button', { name: '선택한 장비 변경', exact: true });
   await expect(selector).toBeVisible();
   await selector.click();

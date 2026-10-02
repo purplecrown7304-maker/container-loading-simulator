@@ -3,6 +3,8 @@ import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
+import { vehicleLayout } from './threeVehicleLayout';
+import { loadVehicleModel, type VehicleModels } from './threeVehicleModels';
 import { loadMeshyModel } from './threeComparisonModels';
 import { acquireComparisonLabels } from './threeComparisonLabels';
 import { createComparisonSceneResources, requiredComparisonModelKeys, type ComparisonModels } from './threeComparisonSceneResources';
@@ -35,6 +37,7 @@ export type ThreeComparisonBenchmark = {
   renderCalls: number;
   triangles: number;
 };
+export type VehicleStatus = { status: 'loading' | 'ready' | 'fallback' | 'none'; message?: string };
 export type ThreeComparisonSceneProps = {
   plan: ThreeComparisonPlan;
   cut: number;
@@ -59,21 +62,27 @@ export type ThreeComparisonSceneProps = {
   environment?: EnvironmentId;
   environmentAttempt?: number;
   onEnvironmentStatus?: (status: EnvironmentStatus) => void;
+  vehicleAttempt?: number;
+  onVehicleStatus?: (status: VehicleStatus) => void;
 };
 type Resources = ReturnType<typeof createComparisonSceneResources>;
 type FrameState = { acceptedFrameStep: number | null; rejectedFrame: boolean };
 
-function CameraController({ plan, view, autoRotate }: { plan: ThreeComparisonPlan; view: string; autoRotate: boolean }) {
+export function CameraController({ plan, view, autoRotate }: { plan: ThreeComparisonPlan; view: string; autoRotate: boolean }) {
   const controls = useRef<ElementRef<typeof OrbitControls>>(null);
   const { camera, size, invalidate } = useThree();
   const { length, width, height } = plan.container;
+  const fitted = useRef('');
   useLayoutEffect(() => {
+    const identity = `${length}:${width}:${height}:${plan.vehicle}:${plan.vehicleRig}:${view}`;
+    if (fitted.current === identity) return;
+    fitted.current = identity;
     const pose = sceneCameraPose(plan, view, size.width / Math.max(1, size.height));
     camera.position.copy(pose.position); camera.up.set(0, 1, 0); camera.lookAt(pose.target);
     if (camera instanceof THREE.PerspectiveCamera) { camera.fov = 40; camera.near = .02; camera.far = 500; camera.updateProjectionMatrix(); }
     controls.current?.target.copy(pose.target); controls.current?.update(); invalidate();
     // Preserve user orbit/pan when only cargo or frame data changes.
-  }, [camera, length, width, height, plan.vehicle, view, size.width, size.height, invalidate]);
+  }, [camera, length, width, height, plan.vehicle, plan.vehicleRig, view, size.width, size.height, invalidate]);
   useEffect(() => { invalidate(); }, [autoRotate, invalidate]);
   return <OrbitControls ref={controls} makeDefault enableDamping={false} autoRotate={autoRotate} autoRotateSpeed={2} minDistance={.5} maxDistance={150} minPolarAngle={Math.PI / 180} maxPolarAngle={Math.PI / 2} />;
 }
@@ -175,11 +184,17 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
     setError(''); frameState.current = { acceptedFrameStep: null, rejectedFrame: false };
     const labels = acquireComparisonLabels(plan);
     const models = Promise.all(requiredComparisonModelKeys(plan).map(async key => [key, await loadMeshyModel(key)] as const));
-    Promise.all([models, labels]).then(([assets, acquired]) => {
+    const vehicleKeys = vehicleLayout(plan.vehicleRig ?? 'none', plan.container).placements.map(item => item.key);
+    callbacks.current.onVehicleStatus?.({ status: vehicleKeys.length ? 'loading' : 'none' });
+    const vehicles = Promise.all(vehicleKeys.map(async key => [key, await loadVehicleModel(key)] as const))
+      .then(assets => ({ models: Object.fromEntries(assets) as VehicleModels, error: '' }))
+      .catch((reason: unknown) => ({ models: {} as VehicleModels, error: reason instanceof Error ? reason.message : String(reason) }));
+    Promise.all([models, labels, vehicles]).then(([assets, acquired, vehicle]) => {
       if (cancelled) { acquired.release(); return; }
       const mapped = Object.fromEntries(assets) as ComparisonModels;
       try {
-        const resources = createComparisonSceneResources(plan, mapped, acquired.materials);
+        const resources = createComparisonSceneResources(vehicle.error ? { ...plan, vehicleRig: 'none' } : plan, mapped, acquired.materials, vehicle.models);
+        callbacks.current.onVehicleStatus?.(vehicle.error ? { status: 'fallback', message: vehicle.error } : { status: vehicleKeys.length ? 'ready' : 'none' });
         dispose = () => { resources.dispose(); acquired.release(); };
         setLoaded({ plan, resources });
       } catch (reason) { acquired.release(); throw reason; }
@@ -190,11 +205,13 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
       setError(message); callbacks.current.onError?.(message);
     });
     return () => { cancelled = true; dispose?.(); };
-  }, [plan]);
+  }, [plan, options.vehicleAttempt]);
   const resources = loaded?.plan === plan ? loaded.resources : null;
+  const groundY = vehicleLayout(plan.vehicleRig ?? 'none', plan.container).groundY;
   return <div style={{ width: '100%', height: '100%', position: 'relative', minHeight: 180 }} data-three-scene-ready={Boolean(resources)}>
     <Canvas frameloop="demand" camera={{ fov: 40, near: .02, far: 500, position: [10, 7, 10] }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }} onPointerMissed={event => { if (event.type === 'click') options.onSelect(null); }} onContextMenu={event => event.preventDefault()} fallback={<WebGLFallback onError={options.onError} />}>
-      <ThreeViewerEnvironment id={options.environment ?? DEFAULT_VIEWER_ENVIRONMENT} length={plan.container.length} width={plan.container.width} height={plan.container.height} attempt={options.environmentAttempt} onStatus={options.onEnvironmentStatus} />
+      <ambientLight intensity={1.5} /><directionalLight position={[-8, 12, 8]} intensity={2.4} /><directionalLight position={[6, 8, -6]} intensity={1.1} />
+      <ThreeViewerEnvironment groundY={groundY} id={options.environment ?? DEFAULT_VIEWER_ENVIRONMENT} length={plan.container.length} width={plan.container.width} height={plan.container.height} attempt={options.environmentAttempt} onStatus={options.onEnvironmentStatus} />
       {resources && <SceneContents resources={resources} options={options} bindings={bindings.current} frameState={frameState} />}
       <SceneRuntime resources={resources} options={options} frameState={frameState} />
     </Canvas>

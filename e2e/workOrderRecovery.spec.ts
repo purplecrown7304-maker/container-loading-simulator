@@ -1,3 +1,4 @@
+import { openWorkspace } from './helpers/workspace';
 import { expect, test } from '@playwright/test';
 
 test('stalled optional re-layout completes and a blocked warning report opens without recalculation', async ({ page, context, baseURL }) => {
@@ -35,6 +36,7 @@ test('stalled optional re-layout completes and a blocked warning report opens wi
     };
   });
   await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await openWorkspace(page, 1);
   await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
   await page.getByRole('button', { name: '선택한 장비 변경', exact: true }).click();
   await page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' }).locator('[data-equipment-id="20-standard"]').click();

@@ -3,6 +3,9 @@ import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
 import { createMeshyMaterial, meshyTint, type MeshyModel, type ModelKey } from './threeComparisonModels';
 import { poseMatrix, sceneBoxMatrix, sceneCenter, UNITY_CARTON_SCALE, visibleCargoIndexes, type ThreeComparisonPlan } from './threeComparisonSceneState';
 
+import { createVehicleResources } from './threeVehicleResources';
+import type { VehicleModels } from './threeVehicleModels';
+
 export type ComparisonModels = Partial<Record<ModelKey, MeshyModel>>;
 type CargoBatch = { indices: number[]; meshes: THREE.InstancedMesh[]; visibleIndices: number[] };
 type LabelBatch = { indices: number[]; mesh: THREE.InstancedMesh };
@@ -12,7 +15,7 @@ export function requiredComparisonModelKeys(plan: ThreeComparisonPlan): ModelKey
   const keys = new Set<ModelKey>();
   if (plan.placements.length) keys.add('carton');
   if (!['platform', 'flat-rack', 'tank'].includes(plan.geometry)) keys.add('container-shell');
-  if (plan.vehicle) keys.add('truck-cab');
+  if (plan.vehicle && !plan.vehicleRig) keys.add('truck-cab');
   for (const support of plan.supports) keys.add(support.modelKey || 'wood-pallet');
   for (const aid of plan.decorations) if (aid.modelKey) keys.add(aid.modelKey as ModelKey);
   return [...keys];
@@ -31,7 +34,7 @@ function surfaceMaterial(color: THREE.ColorRepresentation) {
 }
 
 /** Owns only per-scene material/primitive objects. Meshy geometry and textures are cache-owned. */
-export function createComparisonSceneResources(plan: ThreeComparisonPlan, models: ComparisonModels, labelMaterials: Map<string, THREE.MeshBasicMaterial>) {
+export function createComparisonSceneResources(plan: ThreeComparisonPlan, models: ComparisonModels, labelMaterials: Map<string, THREE.MeshBasicMaterial>, vehicleModels: VehicleModels = {}) {
   for (const key of requiredComparisonModelKeys(plan)) if (!models[key]) throw new Error(`Required Meshy asset is missing: ${key}`);
   const root = new THREE.Group(); root.name = 'Three comparison · exact Unity scene';
   const equipment = new THREE.Group(), cargoRoot = new THREE.Group(), supportRoot = new THREE.Group(), decorRoot = new THREE.Group(), weightRoot = new THREE.Group(), cgRoot = new THREE.Group();
@@ -91,7 +94,9 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
   for (let x = -l / 2; x <= l / 2; x++) cube('Floor grid', [x, .002, 0], [.009, .004, w], grid, equipment);
   for (let z = -w / 2; z <= w / 2; z += .5) cube('Floor grid', [0, .002, z], [l, .004, .009], grid, equipment);
   cube('Door threshold', [l / 2, .025, 0], [.08, .05, w], mat(new THREE.Color(.13, .56, .76)), equipment);
-  if (plan.vehicle) addModel('truck-cab', equipment, [-l / 2 - w * .64, h * .43, 0], [w * 1.15, h * 1.03, w]);
+  const vehicle = plan.vehicleRig ? createVehicleResources(plan.vehicleRig, plan.container, vehicleModels) : null;
+  if (vehicle) { equipment.add(vehicle.root); modelCount += vehicle.modelCount; }
+  if (plan.vehicle && !plan.vehicleRig) addModel('truck-cab', equipment, [-l / 2 - w * .64, h * .43, 0], [w * 1.15, h * 1.03, w]);
 
   const cargoMatrices = plan.placements.map(box => sceneBoxMatrix(box, plan.container, UNITY_CARTON_SCALE));
   const initialCargo = cargoMatrices.map(matrix => matrix.clone());
@@ -246,6 +251,7 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     dispose() {
       for (const material of ownedMaterials) material.dispose();
       for (const mesh of instanceMeshes) mesh.dispose();
+      vehicle?.dispose();
       boxGeometry.dispose(); labelGeometry.dispose(); sphereGeometry.dispose(); root.clear();
     },
   };

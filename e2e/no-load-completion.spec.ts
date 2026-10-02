@@ -1,3 +1,4 @@
+import { openWorkspace } from './helpers/workspace';
 import { expect, test } from '@playwright/test';
 
 test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
@@ -10,6 +11,7 @@ for (const mode of ['boxes', 'pallets']) test(`an oversized ${mode} shipment fin
       products: [{ id: 'OVERSIZE-E2E', name: '초대형 설비', length: 15, width: 3, height: 3, weightKg: 100, quantity: 1, requiresBoxPackaging: false }],
       boxes: [], settings: { allowCustom: false },
     }));
+    window.dispatchEvent(new Event('container-loading:enterprise-packaging-planner-updated'));
   });
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
   await page.getByPlaceholder('제품명 또는 제품코드 검색').fill('OVERSIZE-E2E');
@@ -28,9 +30,9 @@ for (const mode of ['boxes', 'pallets']) test(`an oversized ${mode} shipment fin
   await expect(page.locator('.guided-unloaded-list.enhanced')).toBeVisible();
   await expect(page.locator('.guided-unloaded-list.enhanced')).toContainText('크기가');
   await expect(page.locator('.guided-unloaded-list.enhanced')).toContainText('1 EA');
-  await expect(page.locator('.guided-bottom-bar .guided-primary-cta')).toBeDisabled();
+  await expect(page.locator('.guided-bottom-bar:visible .guided-primary-cta')).toBeDisabled();
   await expect(page.locator('.guided-status-row')).not.toContainText('작업 가능');
-  await page.locator('.guided-step-list button').nth(0).click();
+  await openWorkspace(page, 1);
   await page.getByRole('button', { name: '선택한 장비 변경', exact: true }).click();
   await page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' }).getByRole('button', { name: /^20' STANDARD/ }).click();
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();

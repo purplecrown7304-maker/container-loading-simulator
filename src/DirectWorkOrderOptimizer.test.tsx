@@ -8,6 +8,7 @@ import { buildSecuringUsage, createPhysicsTargetSignature, runInertiaCertificati
 import { completeCertificationForWorkOrder } from './inertiaWorkOrderPolicy';
 import { clearPhysicsTarget, publishPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { openLoadingReport } from './report';
+import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
 
 vi.mock('./engine/finalResultOptimization', async importOriginal => ({ ...await importOriginal<object>(), buildDirectResultReoptimizationCandidatesAsync: vi.fn() }));
 vi.mock('./inertiaCertification', async importOriginal => ({ ...await importOriginal<object>(), runInertiaCertification: vi.fn() }));
@@ -79,6 +80,14 @@ describe('work-order optimizer recovery', () => {
   it('closes immediately on cancel without issuing a report', async () => {
     await request();
     await click('계산 취소');
+    expect(searchSignal?.aborted).toBe(true);
+    expect(openLoadingReport).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('aborts the search and closes stale work-order UI when workspace inputs change', async () => {
+    await request();
+    await act(async () => window.dispatchEvent(new CustomEvent(WORKFLOW_INPUT_INVALIDATED_EVENT)));
     expect(searchSignal?.aborted).toBe(true);
     expect(openLoadingReport).not.toHaveBeenCalled();
     expect(host.querySelector('[role="dialog"]')).toBeNull();

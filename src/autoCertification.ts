@@ -138,7 +138,8 @@ subscribePhysicsTarget(() => {
   pendingPalletCertification = false;
   // publishPhysicsTarget notifies the store before emitting its invalidation event.
   // Finish an empty job only after that publication has completed.
-  queueMicrotask(() => { if (readPhysicsTarget() === target) void validateThenCertify(target); });
+  const scheduledRunId = validationRunId;
+  queueMicrotask(() => { if (validationRunId === scheduledRunId && readPhysicsTarget() === target) void validateThenCertify(target); });
 });
 
 export function requestExactCertification(target: PhysicsTarget) {
@@ -149,4 +150,12 @@ export function requestExactCertification(target: PhysicsTarget) {
 
 export function requestNextPalletCertification() {
   pendingPalletCertification = true;
+}
+
+/** Invalidate both queued and in-flight validation when real inputs change. */
+export function cancelPendingCertification() {
+  pendingPalletCertification = false;
+  ++validationRunId;
+  if (typeof window !== 'undefined') (window as FinalPhysicsWindow).__containerLoadingFinalPhysicsRunning = false;
+  clearFinalPhysicsRecord();
 }

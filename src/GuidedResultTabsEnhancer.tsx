@@ -7,7 +7,7 @@ import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
 import { useGuidedLoadingUnit } from './guidedLoadingUnitState';
-import { readLatestInertiaCertification } from './inertiaCertification';
+import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification } from './inertiaCertification';
 import { usePalletSnapshot } from './palletSnapshotStore';
 import { readStoredState, STORAGE_UPDATED_EVENT } from './storage';
 
@@ -43,6 +43,12 @@ function buildPalletDetail(snapshot: ReturnType<typeof usePalletSnapshot>): Deta
 export default function GuidedResultTabsEnhancer() {
   const loadingUnit = useGuidedLoadingUnit();
   const palletSnapshot = usePalletSnapshot();
+  const [latestCertification, setLatestCertification] = useState(readLatestInertiaCertification);
+  useEffect(() => {
+    const refresh = () => setLatestCertification(readLatestInertiaCertification());
+    window.addEventListener(INERTIA_CERTIFICATION_EVENT, refresh);
+    return () => window.removeEventListener(INERTIA_CERTIFICATION_EVENT, refresh);
+  }, []);
   const [host, setHost] = useState<HTMLElement | null>(null);
   const [stage, setStage] = useState<HTMLElement | null>(null);
   const [tab, setTab] = useState<ResultTab>('result');
@@ -114,11 +120,10 @@ export default function GuidedResultTabsEnhancer() {
     const floor = analyzeFloorLoad(detail.container, detail.result, 12, 4);
     const balance = assessWeightBalance(detail.container, detail.result);
     const checks = analyzeConstraints(detail.container, detail.cargo, detail.result, floor);
-    const latestCertification = readLatestInertiaCertification();
     const expectedMode = loadingUnit === 'pallets' ? 'pallets' : 'boxes';
     const certification = latestCertification?.mode === expectedMode ? latestCertification : undefined;
     return { floor, balance, checks, certification };
-  }, [detail, loadingUnit]);
+  }, [detail, loadingUnit, latestCertification]);
 
   if (!host) return null;
 

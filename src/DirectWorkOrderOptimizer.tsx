@@ -20,6 +20,7 @@ import {
 import { publishPhysicsTarget, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { openLoadingReport } from './report';
 import { STORAGE_UPDATED_EVENT, type StoredState } from './storage';
+import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
 
 const EPS = 1e-9;
 const MAX_DIRECT_WORK_ORDER_CANDIDATES = 8;
@@ -238,6 +239,12 @@ export default function DirectWorkOrderOptimizer() {
   }, [execute]);
 
   useEffect(() => () => { runId.current += 1; activeSearch.current?.abort(); }, []);
+
+  useEffect(() => {
+    const onInputChange = () => { cancel(); setReadyReport(null); setProgress(null); setSearch(null); };
+    window.addEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, onInputChange);
+    return () => window.removeEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, onInputChange);
+  }, [cancel]);
 
   if (!open) return null;
   // A completed scenario is not a completed optimization. Never show overall 100% while running.

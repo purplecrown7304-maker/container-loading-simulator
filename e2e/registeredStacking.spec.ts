@@ -1,3 +1,4 @@
+import { openWorkspace } from './helpers/workspace';
 import { expect, test } from '@playwright/test';
 
 test('registered stacking updates without reload and bulk packaging advances before loading', async ({ page, context, baseURL }) => {
@@ -12,7 +13,7 @@ test('registered stacking updates without reload and bulk packaging advances bef
     return route.abort('blockedbyclient');
   });
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
+  await expect(page.locator('.guided-step-list button')).toHaveCount(6);
   // Synthetic account data lives only in this isolated browser; all external data services are blocked.
   await page.evaluate(() => {
     const operator = { id: 'stack-regression', name: '적층 테스트' };
@@ -25,6 +26,7 @@ test('registered stacking updates without reload and bulk packaging advances bef
     localStorage.setItem('container-loading-user-box-catalog-v1:stack-regression', JSON.stringify([{ id: box.id, name: box.name, length: box.outerLength, width: box.outerWidth, height: box.outerHeight, weightKg: 22, quantity: 0, maxStackLayers: 1, maxTopLoadKg: 100, catalogOrigin: 'recommendation', recommendationRegistration: 'explicit' }]));
     window.dispatchEvent(new CustomEvent('container-loading:local-operator-updated', { detail: operator }));
   });
+  await openWorkspace(page, 1);
   await page.getByRole('button', { name: '선택한 장비 변경', exact: true }).click();
   await page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' }).locator('[data-equipment-id="20-standard"]').click();
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
@@ -33,8 +35,9 @@ test('registered stacking updates without reload and bulk packaging advances bef
   for (let i = 0; i < quantities.length; i++) await page.locator('.guided-product-table article').filter({ hasText: `STACK-${i + 1}` }).locator('input[type="number"]').fill(String(quantities[i]));
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('자동 적재 최대 1단', { exact: false })).toHaveCount(6);
-  await expect(page.locator('.product-packaging-preview-head')).toContainText('1,562');
+  await expect(page.locator('.workflow-preview-status')).toContainText('1,562');
 
+  await page.getByRole('button', { name: '설정 닫기', exact: true }).click();
   await page.getByRole('button', { name: /메뉴$/ }).click();
   await page.getByRole('button', { name: /박스 관리/ }).click();
   const modal = page.locator('.box-selector-modal');
@@ -42,6 +45,7 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await modal.getByLabel('최대적층단', { exact: true }).fill('10');
   await modal.getByRole('button', { name: '저장', exact: true }).click();
   await modal.getByRole('button', { name: '닫기', exact: true }).click();
+  await openWorkspace(page, 3);
   // 265 mm cartons fit at most nine layers inside this 20 FT container.
   await expect(page.getByText('자동 적재 최대 9단', { exact: false })).toHaveCount(6);
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click({ timeout: 10_000 });
@@ -63,7 +67,7 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await workerStarted;
   console.log('bulk packing worker started');
-  await expect(page.locator('.guided-primary-cta')).toContainText('검사 중');
+  await expect(page.locator('.guided-primary-cta:visible')).toContainText('검사 중');
   // UI actions remain usable while the real packing worker is calculating.
   await page.getByRole('button', { name: /메뉴$/ }).click({ timeout: 5000 });
   await expect(page.getByRole('navigation', { name: '적재 작업 전체 메뉴' })).toBeVisible();

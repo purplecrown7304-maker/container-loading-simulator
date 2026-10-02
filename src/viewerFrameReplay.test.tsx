@@ -5,6 +5,7 @@ import type { ThreeComparisonSceneProps } from './ThreeComparisonScene';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
 import ThreeLoadingViewer from './ThreeLoadingViewer';
 import UnityLoadingViewer from './UnityLoadingViewer';
+import { readTransportEquipment, selectTransportEquipment } from './transportEquipment';
 import type { Window as HappyWindow } from 'happy-dom';
 
 const captured = vi.hoisted(() => ({ scene: undefined as ThreeComparisonSceneProps | undefined }));
@@ -84,4 +85,24 @@ it('waits for Unity readiness, forces ordinary full cargo, and restores baseline
   posted.mockClear();
   await receive({ type: 'planApplied', revision: nextPlan.revision });
   expect(messages('frame')).toHaveLength(0);
+});
+
+it('shows the selected equipment rig and backgrounds in main workspace preview, without adding a vehicle to isolated pallets', async () => {
+  const equipment = readTransportEquipment();
+  await act(async () => root.render(<ThreeLoadingViewer container={equipment} result={result} geometry={equipment.geometry} vehicle={false} preview />));
+  expect(captured.scene!.plan.vehicleRig).toBe('articulated');
+  expect(host.querySelector('select[aria-label="3D 배경"]')).not.toBeNull();
+  await act(async () => root.render(<ThreeLoadingViewer container={{ length: 1.2, width: 1, height: 1.6, maxPayloadKg: 1000 }} result={result} geometry="platform" preview />));
+  expect(captured.scene!.plan.vehicleRig).toBe('none');
+});
+
+it('switches short custom trucks to the cab and rigid underbody without changing cargo inputs', async () => {
+  const original = readTransportEquipment();
+  const equipment = { ...original, id: 'custom-truck', category: 'truck' as const, geometry: 'custom' as const, length: 4, width: 1.8, height: 2.2 };
+  try {
+    act(() => selectTransportEquipment(equipment));
+    await act(async () => root.render(<ThreeLoadingViewer container={equipment} result={result} geometry="custom" vehicle preview />));
+    expect(captured.scene!.plan.vehicleRig).toBe('rigid');
+    expect(captured.scene!.plan.placements.map(({ cargoId, x, y, z }) => ({ cargoId, x, y, z }))).toEqual(result.placements.map(({ cargoId, x, y, z }) => ({ cargoId, x, y, z })));
+  } finally { act(() => selectTransportEquipment(original)); }
 });

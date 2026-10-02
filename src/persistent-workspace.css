@@ -1,0 +1,60 @@
+/* One permanent loading canvas. Workspaces are lightweight, retained dialogs. */
+[hidden] { display: none !important; }
+html[data-guided-workflow="true"] .dashboard-grid { position: relative; display: block !important; padding: 0 !important; gap: 0 !important; }
+html[data-guided-workflow="true"] .dashboard-center { position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; }
+html[data-guided-workflow="true"] :is(.dashboard-left,.dashboard-right) { position: absolute !important; top: var(--workspace-overlay-top,142px) !important; height: auto !important; max-height: var(--workspace-overlay-height,calc(100% - 228px)) !important; overflow: auto !important; z-index: 25; pointer-events: none; }
+html[data-guided-workflow="true"] .dashboard-left { left: 14px; width: 180px; }
+html[data-guided-workflow="true"] .dashboard-right { right: 14px; width: 230px; }
+html[data-guided-workflow="true"] :is(.guided-step-rail,.guided-job-summary) { pointer-events: auto; background: #ffffffed; border: 1px solid var(--studio-line); border-radius: 12px; box-shadow: 0 6px 20px #11182718; }
+html[data-guided-workflow="true"] .guided-step-rail { padding: 6px; }
+html[data-guided-workflow="true"] .guided-step-list { min-width: 0 !important; width: 100%; display: grid !important; grid-template-columns: minmax(0,1fr) !important; gap: 3px; }
+html[data-guided-workflow="true"] .guided-step-list button { width: 100%; min-width: 0; min-height: 42px; padding: 6px 8px; border: 0; background: transparent; }
+html[data-guided-workflow="true"] .guided-step-copy { min-width: 0; }
+html[data-guided-workflow="true"] .studio-rail-heading, html[data-guided-workflow="true"] .studio-rail-progress { display: none !important; }
+html[data-guided-workflow="true"] .studio-summary-toggle { display: list-item; font-size: 12px; font-weight: 600; cursor: pointer; }
+html[data-guided-workflow="true"] .studio-summary-heading { display: none !important; }
+html[data-guided-workflow="true"] .dashboard-center > .viewer-card { display: flex !important; animation: none !important; margin: 0 !important; padding: 0 !important; }
+html[data-guided-workflow="true"] .dashboard-center .viewer-host { display: flex !important; flex-direction: column; flex: 1; height: 100% !important; min-height: 0 !important; overflow: hidden !important; }
+html[data-guided-workflow="true"] .viewer-host > :is(.viewer,.inertia-canvas-host,.renderer-comparison), html[data-guided-workflow="true"] .inertia-canvas-host > .renderer-comparison { flex: 1; min-height: 0; height: 100%; }
+.workspace-modal-backdrop { position: fixed; inset: 0; z-index: 3000; display: grid; place-items: center; padding: 20px; background: #101b2d70; }
+.workspace-modal { display: flex; flex-direction: column; width: min(1040px,100%); max-height: calc(100dvh - 40px); min-height: 0; overflow: hidden; background: var(--studio-surface,#fff); color: var(--studio-ink,#172033); border: 1px solid var(--studio-line,#dfe3ea); border-radius: 16px; box-shadow: 0 24px 80px #07132755; }
+.workspace-modal-header { display: flex; align-items: center; justify-content: space-between; flex: none; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--studio-line); }
+.workspace-modal-header > span { font-size: 12px; font-weight: 650; letter-spacing: .03em; }
+.workspace-modal-close { min-height: 36px; padding: 6px 12px; border: 1px solid var(--studio-line-strong); border-radius: 7px; background: var(--studio-surface); color: var(--studio-secondary); cursor: pointer; }
+.workspace-modal-content { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 18px; scrollbar-gutter: stable; }
+.workspace-modal-content > div:not([hidden]) { min-height: 0; }
+.workspace-modal-footer { flex: none; }
+html[data-guided-workflow="true"] .workspace-modal-footer .guided-bottom-bar { position: static !important; width: 100%; inset: auto; }
+.workspace-modal-note { flex: none; margin: 0; padding: 0 18px 10px; color: var(--studio-faint); font-size: 11px; line-height: 1.5; }
+html[data-guided-workflow="true"] .workspace-modal .equipment-icon-grid { max-height: 48dvh; overflow: auto; }
+html[data-guided-workflow="true"] .workspace-modal .guided-product-table { max-height: 48dvh; overflow: auto; }
+html[data-guided-workflow="true"] .workspace-modal .guided-packaging-list { max-height: 48dvh; overflow: auto; }
+html[data-guided-workflow="true"] .workspace-modal .guided-unload-priorities { max-height: 30dvh; }
+@media (max-width:760px) {
+  html[data-guided-workflow="true"] :is(.dashboard-left,.dashboard-right) { top: var(--workspace-overlay-top,186px) !important; max-height: var(--workspace-overlay-height,calc(100% - 276px)) !important; }
+  html[data-guided-workflow="true"] .dashboard-left { left: 8px; width: 68px; }
+  html[data-guided-workflow="true"] .guided-step-rail { padding: 3px; }
+  html[data-guided-workflow="true"] .guided-step-list { gap: 3px; }
+  html[data-guided-workflow="true"] .guided-step-list button { padding: 4px 2px; min-height: 44px; gap: 2px; }
+  html[data-guided-workflow="true"] .guided-step-copy b { font-size: 11px; }
+  html[data-guided-workflow="true"] .guided-step-dot { display: none; }
+  html[data-guided-workflow="true"] .dashboard-right { right: 8px; width: 150px; }
+  html[data-guided-workflow="true"] .guided-job-summary dl { display: block; }
+  .workspace-modal-backdrop { padding: 8px; }
+  .workspace-modal { max-height: calc(100dvh - 16px); border-radius: 12px; }
+  .workspace-modal-header { padding: 8px 12px; }
+  .workspace-modal-content { padding: 12px; }
+  .workspace-modal-note { padding: 0 12px 8px; }
+  html[data-guided-workflow="true"] .workspace-modal .guided-panel-title { align-items: flex-start; }
+}
+.workflow-preview-status { position: absolute; left: 18px; bottom: 108px; z-index: 28; max-width: min(500px,calc(100% - 36px)); display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 9px 12px; border: 1px solid #bfdbfe; border-radius: 9px; background: #eff6fff2; color: #1e3a5f; font-size: 12px; pointer-events: none; }
+.workflow-preview-status strong { font-weight: 700; }
+.pallet-scene-overlays { position: absolute; inset: 0; pointer-events: none; }
+.pallet-scene-overlays > * { pointer-events: auto; }
+@media (max-width:760px) { .workflow-preview-status { left: 10px; bottom: 114px; max-width: calc(100% - 20px); font-size: 11px; padding: 7px 9px; } }
+html[data-guided-workflow="true"] .dashboard-center > .viewer-card { position: relative; }
+.pallet-scene-overlays :is(.pallet-mode-panel-inline,.pallet-view-stack,.pallet-preview) { background: transparent !important; border: 0 !important; padding: 0 !important; pointer-events: none; }
+.pallet-scene-overlays :is(button,input,select,[role="dialog"],.pallet-inspection-backdrop,.pallet-inspector-backdrop) { pointer-events: auto; }
+.pallet-scene-overlays .pallet-preview > :is(.reference-clearance-strip,.pallet-securing-strip) { align-self: flex-start; max-width: calc(100% - 260px); background: #ffffffe8; }
+@media(max-width:760px) { .pallet-scene-overlays .pallet-preview > :is(.reference-clearance-strip,.pallet-securing-strip) { max-width: calc(100% - 175px); font-size: 11px; } }
+.pallet-scene-overlays .pallet-content-popover { pointer-events: auto; }

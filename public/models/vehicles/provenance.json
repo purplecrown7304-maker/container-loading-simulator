@@ -1,0 +1,227 @@
+{
+  "purpose": "User supplied cosmetic vehicles; never loading or physics inputs. Original eight Unity Meshy assets are unchanged.",
+  "sources": [
+    {
+      "id": "1BVZO6nUyzfGhW9dshzD82FObx-YWW45m",
+      "filename": "cargo-1ton-cab-v2-web.glb",
+      "size": 2649524,
+      "url": "https://drive.google.com/file/d/1BVZO6nUyzfGhW9dshzD82FObx-YWW45m/view",
+      "source_filename": "Meshy_AI_cargo_1ton_cab_v2_web_1002105810_texture.glb",
+      "source_sha256": "fd8c393a110fdcef1e4aadd3945f9e8d3b4c83157e52357a282b3b25388e4466",
+      "sha256": "760acbdc77804fef50d6c430175e7973d31d2cf99326b9e83f91a88bf6b4b4ff",
+      "geometry_uv_normals_indices_bit_identical": true,
+      "non_image_buffers_sha256": "79fd4b06be5a1e8e5de824804b8e3da09fb324487a580c5590b0c4b59d8baba1",
+      "textures": [
+        {
+          "index": 0,
+          "role": "baseColor",
+          "source_dimensions": [
+            2048,
+            2048
+          ],
+          "output_dimensions": [
+            2048,
+            2048
+          ],
+          "source_bytes": 4611115,
+          "output_bytes": 1073427,
+          "output_mime": "image/jpeg"
+        },
+        {
+          "index": 1,
+          "role": "metallicRoughness",
+          "source_dimensions": [
+            4096,
+            4096
+          ],
+          "output_dimensions": [
+            1024,
+            1024
+          ],
+          "source_bytes": 8287717,
+          "output_bytes": 898829,
+          "output_mime": "image/png"
+        }
+      ]
+    },
+    {
+      "id": "16hawkdkuAtux8Nky1Cp2tSVijyxvyEao",
+      "filename": "cargo-container-tractor-v2-web.glb",
+      "size": 3847552,
+      "url": "https://drive.google.com/file/d/16hawkdkuAtux8Nky1Cp2tSVijyxvyEao/view",
+      "source_filename": "Meshy_AI_cargo_container_tract_1002105759_texture.glb",
+      "source_sha256": "9ee729305d6afa85fcf5ae02a886e0db185e4c1b5763e33c946cbe280867d522",
+      "sha256": "9282f024d5f723d242ee5c4bff1d970d591f93df4dd4b33055cf3210801d256b",
+      "geometry_uv_normals_indices_bit_identical": true,
+      "non_image_buffers_sha256": "5fe7b06fd0dbf6c499721ed6a1ffd8b60cd786df766e837acad2bb89a555167c",
+      "textures": [
+        {
+          "index": 0,
+          "role": "baseColor",
+          "source_dimensions": [
+            2048,
+            2048
+          ],
+          "output_dimensions": [
+            2048,
+            2048
+          ],
+          "source_bytes": 5614230,
+          "output_bytes": 1359268,
+          "output_mime": "image/jpeg"
+        },
+        {
+          "index": 1,
+          "role": "metallicRoughness",
+          "source_dimensions": [
+            4096,
+            4096
+          ],
+          "output_dimensions": [
+            1024,
+            1024
+          ],
+          "source_bytes": 10593250,
+          "output_bytes": 1240122,
+          "output_mime": "image/png"
+        }
+      ]
+    },
+    {
+      "id": "1WM2Gos7ILhaqAtpn2XJHyqCt1kC1Ayfe",
+      "filename": "cargo-truck-underbody-v2-web.glb",
+      "size": 2941020,
+      "url": "https://drive.google.com/file/d/1WM2Gos7ILhaqAtpn2XJHyqCt1kC1Ayfe/view",
+      "source_filename": "Meshy_AI_cargo_truck_underbody_1002105818_texture.glb",
+      "source_sha256": "300b7df14872f6502e96e74e7859b7981699a715bc4d5adb586243c20559370f",
+      "sha256": "9ec39732eab5f02b72f79c9bb29d54241d5311ea768b6c599e33c642b9b9ea2f",
+      "geometry_uv_normals_indices_bit_identical": true,
+      "non_image_buffers_sha256": "62155177a6c5ed09c778cc2846e606a56cf1fde866f32496fada4838c618c2c4",
+      "textures": [
+        {
+          "index": 0,
+          "role": "baseColor",
+          "source_dimensions": [
+            4096,
+            4096
+          ],
+          "output_dimensions": [
+            2048,
+            2048
+          ],
+          "source_bytes": 14509109,
+          "output_bytes": 970821,
+          "output_mime": "image/jpeg"
+        },
+        {
+          "index": 1,
+          "role": "metallicRoughness",
+          "source_dimensions": [
+            4096,
+            4096
+          ],
+          "output_dimensions": [
+            1024,
+            1024
+          ],
+          "source_bytes": 9395989,
+          "output_bytes": 1132927,
+          "output_mime": "image/png"
+        }
+      ]
+    },
+    {
+      "id": "1koO46aMmwfJ8mw2b_8Zmu6O6KuMzV_XH",
+      "filename": "cargo-container-chassis-v2-web.glb",
+      "size": 3432972,
+      "url": "https://drive.google.com/file/d/1koO46aMmwfJ8mw2b_8Zmu6O6KuMzV_XH/view",
+      "source_filename": "Meshy_AI_cargo_container_chass_1002105750_texture.glb",
+      "source_sha256": "ce5a0edd2456edc718a13e86ee1d498f0517265c5be9dd5ff0e1adf452e8a44f",
+      "sha256": "4ac77d1a7edbec28c378e72cba6e2fe988fcd53aa7bb65650e8677d4cf19b7ef",
+      "geometry_uv_normals_indices_bit_identical": true,
+      "non_image_buffers_sha256": "b56a17113def298e3a702894e75a4b4b27e576dcea50a6730cba00c8426830ab",
+      "textures": [
+        {
+          "index": 0,
+          "role": "baseColor",
+          "source_dimensions": [
+            2048,
+            2048
+          ],
+          "output_dimensions": [
+            2048,
+            2048
+          ],
+          "source_bytes": 5125862,
+          "output_bytes": 1065636,
+          "output_mime": "image/jpeg"
+        },
+        {
+          "index": 1,
+          "role": "metallicRoughness",
+          "source_dimensions": [
+            4096,
+            4096
+          ],
+          "output_dimensions": [
+            1024,
+            1024
+          ],
+          "source_bytes": 10192542,
+          "output_bytes": 1231562,
+          "output_mime": "image/png"
+        }
+      ]
+    }
+  ],
+  "cab_cleanup": [
+    {
+      "id": "1BVZO6nUyzfGhW9dshzD82FObx-YWW45m",
+      "filename": "cargo-1ton-cab-v2-web-clean.glb",
+      "url": "https://drive.google.com/file/d/1BVZO6nUyzfGhW9dshzD82FObx-YWW45m/view",
+      "size": 2610968,
+      "sha256": "cbe7b6709faf0a7f6a4c42b34a4ae8d0e9b00c8c8faee61b9323d554794376ff",
+      "source_sha256": "760acbdc77804fef50d6c430175e7973d31d2cf99326b9e83f91a88bf6b4b4ff",
+      "uploaded_source_sha256": "fd8c393a110fdcef1e4aadd3945f9e8d3b4c83157e52357a282b3b25388e4466",
+      "source_triangle_count": 11658,
+      "triangle_count": 10886,
+      "removed_triangles": 772,
+      "removal_rule": "Remove only the disconnected spare-wheel component: triangle minimum source X > 0.8. Main cab ends X=0.715034, component begins X=0.805358. Compact unreferenced vertices; preserve retained vertex attributes and embedded textures exactly.",
+      "removed_bounds": [
+        [
+          0.8053579926490784,
+          -0.21266399323940277,
+          -0.3217339813709259
+        ],
+        [
+          0.9508200287818909,
+          0.2450309842824936,
+          0.15382499992847443
+        ]
+      ],
+      "retained_attribute_hashes": {
+        "POSITION": "d1feee666a134523c59cf32da335af4d37ce5015b734029848994355e11d2264",
+        "NORMAL": "2e7d342cb10abaca83bc01d6f20662d1fe7b1c9bfa05a841c5fd4099c1c46ec8",
+        "TEXCOORD_0": "c7b38c5da4046b0e4d551a1e9dd766015b6b01b286bbbf26bec4e99bb9820f8b"
+      },
+      "unchanged_image_bufferview_hashes": {
+        "4": "d503bdc82f80c70b1a7cfaea83ca0c3f5b34f38daaf28d643314306c62120f32",
+        "5": "f872f524c3f80715cadbf88c68ca8fc94cfaf0720e93aac953b5b6af11bee936"
+      },
+      "retained_vertex_count": 17869,
+      "remaining_bounds": [
+        [
+          -0.9458140134811401,
+          -0.792263925075531,
+          -0.7339370250701904
+        ],
+        [
+          0.715034008026123,
+          0.7863590121269226,
+          0.7321860194206238
+        ]
+      ],
+      "deployed_filename": "cargo-1ton-cab-v2-clean.glb"
+    }
+  ]
+}

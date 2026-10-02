@@ -14,7 +14,7 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
     return route.abort('blockedbyclient');
   });
   await page.goto('/?renderer=unity');
-  await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
+  await expect(page.locator('.guided-step-list button')).toHaveCount(6);
   await page.evaluate(() => {
     const container = { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 };
     localStorage.setItem('container-loading-product-packaging-v1:guest', JSON.stringify({
@@ -23,6 +23,7 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
       boxes: [{ id: 'E2E-STACK-BOX', name: '적층 가능 박스', innerLength: 0.51, innerWidth: 0.51, innerHeight: 0.31, outerLength: 0.55, outerWidth: 0.55, outerHeight: 0.35, tareWeightKg: 0.2, maxGrossWeightKg: 20, maxTopLoadKg: 100 }],
       settings: { allowCustom: false },
     }));
+    window.dispatchEvent(new Event('container-loading:enterprise-packaging-planner-updated'));
   });
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
   await page.getByPlaceholder('제품명 또는 제품코드 검색').fill('E2E-STACK');
@@ -35,28 +36,31 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   await page.getByRole('spinbutton', { name: /하역 순서/ }).fill('3');
   await expect(page.getByRole('spinbutton', { name: /하역 순서/ })).toHaveValue('3');
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.optimization?.strategy)).toBe('unloading');
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('container-loading-simulator-v1')!).cargo[0].unloadPriority)).toBe(3);
 
   const summary = page.locator('.guided-job-summary');
   if (await summary.getAttribute('open') === null) await summary.locator('summary').click();
   const confirmation = summary.locator('.guided-loading-run-confirmation');
   await expect(confirmation).toBeVisible();
-  await expect(page.locator('.pallet-preview .unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
-  await expect(page.locator('.pallet-preview .unity-viewer')).toHaveAttribute('data-unity-supports', '1');
+  await expect(page.locator('.viewer-host .guided-loading-run-confirmation')).toHaveCount(0);
+  await page.getByRole('button', { name: /최종 적재 진행/ }).click();
+  await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 60_000 });
+  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.optimization?.strategy)).toBe('unloading');
+  await expect(page.locator('.viewer-host .unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
+  await expect(page.locator('.viewer-host .unity-viewer')).toHaveAttribute('data-unity-supports', '1');
   await expect(summary.locator('dl > div').filter({ hasText: '사용 파렛트' }).locator('dd')).toHaveText(/(^| · )1개$/);
   await page.evaluate(() => {
     (window as any).__inertiaMessages = [];
-    (window as any).__inertiaCanvasFrame = document.querySelector('.pallet-preview iframe');
+    (window as any).__inertiaCanvasFrame = document.querySelector('.viewer-host iframe');
     window.addEventListener('message', event => {
-      const frame = document.querySelector<HTMLIFrameElement>('.pallet-preview iframe');
+      const frame = document.querySelector<HTMLIFrameElement>('.viewer-host iframe');
       if (event.source === frame?.contentWindow && event.data?.source === 'cargo-unity-host') (window as any).__inertiaMessages.push(event.data.payload);
     });
     window.dispatchEvent(new Event('container-loading:open-inertia-test'));
   });
   const motion = page.getByRole('region', { name: '관성 애니메이션 테스트' });
   await expect(motion).toBeVisible();
-  await expect(page.locator('.pallet-preview .unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
+  await expect(page.locator('.viewer-host .unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
   await motion.getByRole('slider', { name: '관성 테스트 재생 위치' }).fill('0');
   await motion.getByRole('button', { name: '처음부터', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__inertiaMessages.filter((m: any) => m.type === 'frameApplied').length)).toBeGreaterThan(3);
@@ -69,19 +73,19 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   expect(await page.evaluate(() => (window as any).__inertiaMessages.filter((m: any) => m.type === 'planApplied').length)).toBe(planApplications);
   await motion.getByRole('button', { name: '관성 테스트 닫기' }).click();
   expect(await page.evaluate(() => (window as any).__inertiaMessages.filter((m: any) => m.type === 'planApplied').length)).toBe(0);
-  expect(await page.evaluate(() => (window as any).__inertiaCanvasFrame === document.querySelector('.pallet-preview iframe'))).toBe(true);
+  expect(await page.evaluate(() => (window as any).__inertiaCanvasFrame === document.querySelector('.viewer-host iframe'))).toBe(true);
   const snapshot = await page.evaluate(() => (window as typeof window & {
     __containerLoadingPalletSnapshot?: { result: { palletCount: number; placements: Array<{ z: number }> } };
   }).__containerLoadingPalletSnapshot?.result);
   expect(snapshot?.placements).toHaveLength(20);
   expect(new Set(snapshot?.placements.map(item => item.z)).size).toBe(5);
 
-  const visibleClearance = page.locator('.pallet-preview .reference-clearance-strip');
+  const visibleClearance = page.locator('.viewer-card .reference-clearance-strip');
   await expect(visibleClearance).toBeVisible({ timeout: 15_000 });
   await visibleClearance.scrollIntoViewIfNeeded();
   await expect(visibleClearance).toBeVisible();
   const bounds = await visibleClearance.boundingBox();
-  const notice = await confirmation.boundingBox();
+  const notice = await page.locator('.guided-bottom-bar:visible').boundingBox();
   expect(bounds).not.toBeNull();
   expect(notice).not.toBeNull();
   expect(notice!.x).toBeGreaterThanOrEqual(0);
@@ -95,8 +99,6 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   expect(clearanceHit.visible, JSON.stringify(clearanceHit)).toBe(true);
   await page.screenshot({ path: test.info().outputPath('pallet-canvas.png'), fullPage: true });
 
-  await page.getByRole('button', { name: /최종 적재 진행/ }).click();
-  await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 60_000 });
   await expect(page.locator('.guided-loading-run-confirmation')).toHaveCount(0);
   await expect(summary.locator('dl > div').filter({ hasText: '사용 파렛트' }).locator('dd')).toHaveText(/(^| · )1개$/);
 });

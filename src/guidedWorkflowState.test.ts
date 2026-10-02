@@ -24,9 +24,9 @@ describe('guided viewer rendering', () => {
     expect(shouldRenderGuidedViewer({ active: false, step: 1 })).toBe(true);
   });
 
-  it('renders the dashboard 3D viewer only during guided auto-loading step', () => {
-    for (const step of [1, 2, 3, 4, 6] as const) {
-      expect(shouldRenderGuidedViewer({ active: true, step })).toBe(false);
+  it('keeps the dashboard 3D viewer mounted through every guided stage', () => {
+    for (const step of [1, 2, 3, 4, 5, 6] as const) {
+      expect(shouldRenderGuidedViewer({ active: true, step })).toBe(true);
     }
     expect(shouldRenderGuidedViewer({ active: true, step: 5 })).toBe(true);
   });

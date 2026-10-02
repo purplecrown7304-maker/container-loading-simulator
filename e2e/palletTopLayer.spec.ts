@@ -21,7 +21,7 @@ test('sparse top tier moves to a final pallet and diagnostics download a local Z
     return route.abort('blockedbyclient');
   });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
+  await expect(page.locator('.guided-step-list button')).toHaveCount(6);
   await page.evaluate(() => {
     localStorage.setItem('container-loading-product-packaging-v1:guest', JSON.stringify({
       container: { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 },
@@ -29,6 +29,7 @@ test('sparse top tier moves to a final pallet and diagnostics download a local Z
       boxes: [{ id: 'E2E-TAIL-BOX', name: '층당 4개 박스', innerLength: .51, innerWidth: .51, innerHeight: .31, outerLength: .55, outerWidth: .55, outerHeight: .35, tareWeightKg: .2, maxGrossWeightKg: 20, maxTopLoadKg: 100 }],
       settings: { allowCustom: false },
     }));
+    window.dispatchEvent(new Event('container-loading:enterprise-packaging-planner-updated'));
   });
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
   await page.getByPlaceholder('제품명 또는 제품코드 검색').fill('E2E-TAIL');
@@ -40,9 +41,10 @@ test('sparse top tier moves to a final pallet and diagnostics download a local Z
   await page.getByRole('radio', { name: /T11 플라스틱 \(수출용 경량\)/ }).click();
   await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
+  await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.palletCount)).toBe(2);
-  await expect(page.locator('.pallet-preview .three-comparison-viewer')).toHaveAttribute('data-three-applied', 'true', { timeout: 100_000 });
-  await expect(page.locator('.pallet-preview .three-comparison-viewer')).toHaveAttribute('data-three-supports', '2');
+  await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-applied', 'true', { timeout: 100_000 });
+  await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-supports', '2');
   const result = await page.evaluate(() => {
     const result = (window as any).__containerLoadingPalletSnapshot.result;
     return {
