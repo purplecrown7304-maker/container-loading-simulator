@@ -164,13 +164,39 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     const color = t < .34 ? blue.lerp(green, t / .34) : t < .67 ? green.lerp(amber, (t - .34) / .33) : amber.lerp(red, (t - .67) / .33);
     cube(`Cell_${index}`, [cell.x + cell.length / 2 - l / 2, .025 + barHeight / 2, cell.y + cell.width / 2 - w / 2], [cell.length * .88, barHeight, cell.width * .82], mat(color), weightRoot, { kind: 'cell', index });
   });
-  if (plan.centerOfGravity && plan.placements.length) {
-    const cg = plan.centerOfGravity, purple = mat(new THREE.Color(.49, .23, .93));
-    cube('CG stem', [cg.x - l / 2, cg.z / 2, cg.y - w / 2], [.025, Math.max(.025, cg.z), .025], purple, cgRoot);
-    const sphere = new THREE.Mesh(sphereGeometry, purple); sphere.position.set(cg.x - l / 2, cg.z + .04, cg.y - w / 2); sphere.raycast = noRaycast; cgRoot.add(sphere);
+  const weightedBodies = [...plan.placements, ...plan.supports];
+  const totalWeight = weightedBodies.reduce((sum, body) => sum + body.weightKg, 0);
+  const hasCg = totalWeight > 0 && weightedBodies.every(body => Number.isFinite(body.weightKg) && body.weightKg >= 0)
+    && Object.values(plan.centerOfGravity).every(Number.isFinite);
+  let cgSphere: THREE.Mesh | undefined, cgStem: THREE.Mesh | undefined;
+  if (hasCg) {
+    // A cargo centroid is commonly inside a solid box. Render the annotation above
+    // cargo so it remains visible without changing the actual models or materials.
+    const purple = new THREE.MeshBasicMaterial({ color: '#7c3aed', depthTest: false, depthWrite: false, toneMapped: false });
+    ownedMaterials.push(purple);
+    cgStem = cube('CG stem', [0, 0, 0], [.025, .025, .025], purple, cgRoot); cgStem.renderOrder = 1000;
+    cgSphere = new THREE.Mesh(sphereGeometry, purple); cgSphere.name = 'CG marker'; cgSphere.renderOrder = 1001; cgSphere.raycast = noRaycast; cgRoot.add(cgSphere);
     const center = mat(new THREE.Color(.06, .46, .43));
     cube('Container center X', [0, .025, 0], [.5, .04, .025], center, cgRoot); cube('Container center Z', [0, .025, 0], [.025, .04, .5], center, cgRoot);
   }
+
+  function updateCenterOfGravity(frame?: InertiaAnimationFrame) {
+    if (!cgSphere || !cgStem) return;
+    const cg = plan.centerOfGravity;
+    const position = new THREE.Vector3(cg.x - l / 2, cg.z, cg.y - w / 2);
+    if (frame) {
+      position.set(0, 0, 0);
+      for (const [bodies, poses] of [[plan.placements, frame.cargo], [plan.supports, frame.supports]] as const) {
+        bodies.forEach((body, index) => {
+          const offset = index * 7, ratio = body.weightKg / totalWeight;
+          position.x += poses[offset] * ratio; position.y += poses[offset + 1] * ratio; position.z += poses[offset + 2] * ratio;
+        });
+      }
+    }
+    cgSphere.position.copy(position);
+    cgStem.position.set(position.x, position.y / 2, position.z); cgStem.scale.y = Math.max(.025, Math.abs(position.y));
+  }
+  updateCenterOfGravity();
 
   let visibleIndices: number[] = [];
   const scratch = new THREE.Matrix4();
@@ -178,7 +204,7 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     visibleIndices = visibleCargoIndexes(plan, options.cut, options.step, options.weight);
     const visible = new Set(visibleIndices);
     equipment.visible = options.shell; supportRoot.visible = decorRoot.visible = !options.weight;
-    weightRoot.visible = options.weight; cgRoot.visible = options.weight && options.showCg;
+    weightRoot.visible = options.weight; cgRoot.visible = hasCg && options.showCg;
     for (const batch of cargoBatches) {
       batch.visibleIndices = batch.indices.filter(index => visible.has(index));
       for (const mesh of batch.meshes) {
@@ -197,6 +223,7 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     root.updateMatrixWorld(true);
   }
   function applyFrame(frame?: InertiaAnimationFrame) {
+    updateCenterOfGravity(frame);
     cargoMatrices.forEach((matrix, index) => {
       if (!frame) matrix.copy(initialCargo[index]);
       else { const box = plan.placements[index]; poseMatrix(frame.cargo, index, new THREE.Vector3(box.length * UNITY_CARTON_SCALE, box.height * UNITY_CARTON_SCALE, box.width * UNITY_CARTON_SCALE), matrix); }
@@ -213,6 +240,8 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
   return {
     root, modelCount, labelFaces: labelBatches.reduce((count, batch) => count + batch.indices.length * 4, 0), updateVisibility, applyFrame,
     get visibleCargo() { return visibleIndices.length; },
+    get centerOfGravityVisible() { return cgRoot.visible && hasCg; },
+    get centerOfGravityPosition(): [number, number, number] | null { return cgSphere ? cgSphere.position.toArray() : null; },
     get visibleLabelFaces() { return labelBatches.reduce((count, batch) => count + batch.mesh.count, 0); },
     dispose() {
       for (const material of ownedMaterials) material.dispose();

@@ -85,6 +85,50 @@ const shown = { cut: 100, step: 999, shell: true, labels: true, weight: false, s
 });
 
 describe('Three comparison scene resources', () => {
+  it('shows the exact centroid in the ordinary canvas and keeps it visible through cargo, with an independent toggle', () => {
+    const plan = fixture(), { scene } = resourcesFor(plan);
+    scene.updateVisibility(shown);
+    expect(scene.centerOfGravityVisible).toBe(true);
+    const marker = scene.root.getObjectByName('CG marker') as THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+    expect(marker.material.depthTest).toBe(false);
+    expect(marker.material.depthWrite).toBe(false);
+    expect(marker.renderOrder).toBeGreaterThan(0);
+    const cg = plan.centerOfGravity;
+    expect(scene.centerOfGravityPosition).toEqual([cg.x - 3, cg.z, cg.y - 1.2]);
+    scene.updateVisibility({ ...shown, showCg: false });
+    expect(scene.centerOfGravityVisible).toBe(false);
+    scene.updateVisibility({ ...shown, weight: true });
+    expect(scene.centerOfGravityVisible).toBe(true);
+    scene.dispose();
+  });
+
+  it('follows accepted inertia poses with carton and tare mass, then restores the plan centroid', () => {
+    const plan = fixture(), { scene } = resourcesFor(plan), frame = frameFor(plan);
+    const original = scene.centerOfGravityPosition;
+    scene.applyFrame(frame); scene.updateVisibility(shown);
+    const position = scene.centerOfGravityPosition!;
+    for (let axis = 0; axis < 3; axis++) {
+      const cartonMoment = plan.placements.reduce((sum, box, index) => sum + box.weightKg * frame.cargo[index * 7 + axis], 0);
+      expect(position[axis]).toBeCloseTo((cartonMoment + 25 * frame.supports[axis]) / 55);
+    }
+    scene.applyFrame();
+    expect(scene.centerOfGravityPosition).toEqual(original);
+    scene.dispose();
+  });
+
+  it('does not manufacture a centroid for empty or massless results', () => {
+    for (const empty of [false, true]) {
+      const plan = fixture();
+      plan.placements = empty ? [] : plan.placements.map(box => ({ ...box, weightKg: 0 }));
+      plan.supports = []; plan.cells = [];
+      const { scene } = resourcesFor(plan);
+      scene.updateVisibility(shown);
+      expect(scene.centerOfGravityVisible).toBe(false);
+      expect(scene.centerOfGravityPosition).toBeNull();
+      scene.dispose();
+    }
+  });
+
   it('requires the exact Unity model keys and throws rather than substitute a primitive', () => {
     const plan = fixture(); plan.vehicle = true; plan.geometry = 'closed'; plan.supports[0].modelKey = 'plastic-pallet';
     plan.decorations = [{ x: 0, y: 0, z: 0, length: .1, width: .1, height: 1, color: '#aaa', supportIndex: 0, modelKey: 'corner-guard' }];

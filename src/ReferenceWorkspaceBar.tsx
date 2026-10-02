@@ -1,4 +1,6 @@
 import { openSafetyInspectionCenter } from './SafetyInspectionCenter';
+import { INSPECTIONS } from './manualInspection';
+import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
 import StudioIcon from './StudioIcon';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { ADMIN_ACCESS_EVENT, isAdminSession, loginAdmin, logoutAdmin } from './adminAccess';
@@ -221,6 +223,10 @@ export default function ReferenceWorkspaceBar() {
               </button>
             </section>
 
+            <section aria-label="점검 메뉴"><strong>점검</strong>{INSPECTIONS.map(item => <button key={item.id} type="button" onClick={() => runAndClose(() => item.id === 'inertia'
+              ? window.dispatchEvent(new Event(OPEN_INERTIA_TEST_EVENT))
+              : openSafetyInspectionCenter(item.id))}><span aria-hidden="true">{item.id === 'inertia' ? '▶' : '✓'}</span><div><b>{item.title}</b><small>{item.id === 'inertia' ? '출발·급정거·급회전 3D 애니메이션 재생' : item.description}</small></div></button>)}</section>
+
             <section>
               <strong>작업 준비</strong>
               <button type="button" onClick={openEquipment}>
@@ -249,7 +255,6 @@ export default function ReferenceWorkspaceBar() {
                 <span>↺</span><div><b>전체 초기화</b><small>현재 작업의 화물과 적재 결과를 초기화</small></div>
               </button>
             </section>
-            <section aria-label="점검 메뉴"><strong>점검</strong><button type="button" onClick={() => runAndClose(openSafetyInspectionCenter)}><span aria-hidden="true">✓</span><div><b>적재 결과 점검</b><small>관성 테스트 · 무게중심 · 하중 · 경계·충돌 직접 실행</small></div></button></section>
           </nav>}
         </div>
       </div>

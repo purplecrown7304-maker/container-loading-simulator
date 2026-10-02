@@ -27,7 +27,9 @@ export default function ThreeLoadingViewer({ container, result, cargo, preview =
   const [benchmark, setBenchmark] = useState(false), [measurement, setMeasurement] = useState<Benchmark | null>(null);
   const started = useRef(performance.now()), revision = useRef(0);
   const plan = useMemo(() => unityPlan(container, result, ++revision.current, cargo ?? readStoredState()?.cargo, { supports, securing, geometry: geometry ?? readTransportEquipment().geometry, vehicle: vehicle ?? (geometry ? false : readTransportEquipment().category === 'truck') }), [container, result, cargo, supports, securing, geometry, vehicle]);
-  const weightOn = weightView ?? weight;
+  const frameActive = Boolean(frameData);
+  const weightOn = frameActive ? false : weightView ?? weight;
+  const visibleCut = frameActive ? 100 : cut, visibleStep = frameActive ? result.placements.length : step;
   const analysis = useMemo(() => analyzeWeightDistribution(container, result, 20, 8), [container, result]);
   useEffect(() => {
     setReady(false); setStats(null); setReadyMs(null); started.current = performance.now();
@@ -51,24 +53,25 @@ export default function ThreeLoadingViewer({ container, result, cargo, preview =
     return () => window.removeEventListener(PLACEMENT_SELECT_EVENT, receive);
   }, [syncSelection, result.placements]);
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || frameActive) return;
     const timer = window.setInterval(() => setStep(current => { const next = Math.min(current + 1, result.placements.length); if (next === result.placements.length) setPlaying(false); return next; }), 250);
     return () => window.clearInterval(timer);
-  }, [playing, result.placements.length]);
-  useEffect(() => { if (frameData) setPlaying(false); }, [frameData]);
+  }, [playing, frameActive, result.placements.length]);
+  useEffect(() => { if (frameActive) { setPlaying(false); setBenchmark(false); } }, [frameActive]);
   const selectedBox = selected === null ? undefined : result.placements[selected];
   const selectedCell = cell === null ? undefined : analysis.floor.cells[cell];
   const count = result.placements.length;
-  return <section className={`unity-viewer three-comparison-viewer ${preview ? 'unity-preview' : ''}`} aria-label={`Three.js ${title}`} data-three-count={count} data-three-supports={plan.supports.length} data-three-ready={ready} data-three-applied={ready && stats?.revision === plan.revision} data-three-model-count={stats?.modelCount ?? 0} data-three-label-faces={labels && !weightOn ? stats?.labelFaces ?? 0 : 0} data-three-step={step} data-three-cut={cut} data-three-selected={selected ?? -1} data-three-ready-ms={readyMs?.toFixed(1)}>
+  return <section className={`unity-viewer three-comparison-viewer ${preview ? 'unity-preview' : ''}`} aria-label={`Three.js ${title}`} data-three-count={count} data-three-supports={plan.supports.length} data-three-ready={ready} data-three-applied={ready && stats?.revision === plan.revision} data-three-model-count={stats?.modelCount ?? 0} data-three-label-faces={labels && !weightOn ? stats?.labelFaces ?? 0 : 0} data-three-step={visibleStep} data-three-cut={visibleCut} data-three-selected={selected ?? -1} data-three-ready-ms={readyMs?.toFixed(1)} data-three-cg-visible={ready && stats?.revision === plan.revision && Boolean(stats.cgVisible)} data-three-frame-step={ready && stats?.revision === plan.revision ? stats.acceptedFrameStep ?? '' : ''} data-three-frame-rejected={ready && stats?.revision === plan.revision && stats.rejectedFrame} data-three-cg-position={ready && stats?.revision === plan.revision ? stats.cgPosition?.map(value => value.toFixed(5)).join(',') : undefined}>
     <div className="unity-toolbar"><div><b>{title}</b><span className="studio-live-badge"><i/>THREE.JS</span></div><div className="unity-view-buttons">
       {[['free','입체'],['top','상단'],['door','문쪽'],['side','측면']].map(([key,label]) => <button key={key} data-view-only="true" aria-pressed={(view ?? activeView) === key} disabled={!ready} onClick={() => setActiveView(key)}>{label}</button>)}
       <button data-view-only="true" disabled={!ready} aria-pressed={shell} onClick={() => setShell(!shell)}>{shell ? '외벽 숨기기' : '외벽 표시'}</button>
       {!preview && !weightOn && <button data-view-only="true" disabled={!ready || !count} aria-pressed={labels} onClick={() => setLabels(!labels)}>박스 정보 {labels ? 'ON' : 'OFF'}</button>}
-      {!preview && weightView === undefined && <button data-view-only="true" disabled={!ready || !count} aria-pressed={weightOn} onClick={() => setWeight(!weight)}>3D 무게분포</button>}
-      {weightOn && <button data-view-only="true" aria-pressed={cg} onClick={() => setCg(!cg)}>CG {cg ? 'ON' : 'OFF'}</button>}
+      {!preview && weightView === undefined && <button data-view-only="true" disabled={!ready || !count || frameActive} aria-pressed={weightOn} onClick={() => setWeight(!weight)}>3D 무게분포</button>}
+      {showCg && <button data-view-only="true" disabled={!ready || (!count && !plan.supports.length)} aria-pressed={cg} onClick={() => setCg(!cg)}>무게중심 {cg ? 'ON' : 'OFF'}</button>}
     </div></div>
     <div className="unity-stage three-comparison-stage">
-      <SceneErrorBoundary key={attempt} onError={onError}><ThreeComparisonScene plan={plan} cut={cut} shell={shell} step={step} labels={labels} weight={weightOn} showCg={showCg && cg} view={view === 'rear' ? 'door' : view ?? activeView} selected={selected} frameData={frameData} onSelect={onSelect} onSupportSelect={onSupportSelect} onCellSelect={setCell} onReady={onReady} onError={onError} benchmark={benchmark} onBenchmark={onBenchmark} /></SceneErrorBoundary>
+      <SceneErrorBoundary key={attempt} onError={onError}><ThreeComparisonScene plan={plan} cut={visibleCut} shell={shell} step={visibleStep} labels={labels} weight={weightOn} showCg={showCg && cg} view={view === 'rear' ? 'door' : view ?? activeView} selected={selected} frameData={frameData} onSelect={onSelect} onSupportSelect={onSupportSelect} onCellSelect={setCell} onReady={onReady} onStats={setStats} onError={onError} benchmark={benchmark} onBenchmark={onBenchmark} /></SceneErrorBoundary>
+      {ready && stats?.revision === plan.revision && stats.cgVisible && <div className="three-cg-legend"><i aria-hidden="true"/>전체 적재 무게중심 · 상자 + 파렛트 자체중량</div>}
       {!ready && !error && <div className="unity-loading" role="status"><b>기존 3D 모델 준비 중</b><span>Unity 원본 OBJ · UV · 텍스처 불러오는 중</span></div>}
       {error && <div className="unity-loading three-comparison-error" role="alert"><b>3D 모델을 불러오지 못했습니다</b><span>{error}</span><span>상단에서 Unity로 돌아가거나 다시 시도할 수 있습니다</span><button onClick={() => { setError(''); setAttempt(value => value + 1); }}>다시 시도</button></div>}
       {ready && <div className="unity-hint">드래그 회전 · 휠 확대 · 우클릭 이동{weightOn ? ' · 격자 클릭: 하중 확인' : ' · 화물 클릭: 정보 확인'}</div>}

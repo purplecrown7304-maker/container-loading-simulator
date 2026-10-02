@@ -1,284 +1,263 @@
-import UnityLoadingViewer from './LoadingViewer';
 import { createPortal } from 'react-dom';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { runInertiaAnimation, type InertiaAnimationResult, type InertiaPhase } from './engine/inertiaSimulation';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { PhysicsScenario } from './engine/physicsValidation';
-import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import {
-  buildSecuringUsage,
-  createPhysicsTargetSignature,
-  minimumSecuringLevelForMode,
-  readLatestInertiaCertification,
-  securingProfileForUsage,
-  type SecuringUsage,
+  buildSecuringUsage, createPhysicsTargetSignature, minimumSecuringLevelForMode,
+  readLatestInertiaCertification, securingProfileForUsage, type SecuringUsage,
 } from './inertiaCertification';
 import { openInertiaImprovementReport } from './inertiaReport';
 import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
-import { PHYSICS_TARGET_EVENT, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
+import { hasInspectionTarget, runStaticInspection } from './manualInspection';
+import { clearPhysicsTarget, PHYSICS_TARGET_EVENT, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
+import { readTransportEquipment, TRANSPORT_EQUIPMENT_EVENT } from './transportEquipment';
+import { readSecuringMaterialSettings, SECURING_MATERIAL_SETTINGS_EVENT } from './securingMaterialSettings';
+import { clearInertiaCanvasPlayback, inertiaHostMatchesTarget, nextInertiaCanvasRunId, publishInertiaCanvasPlayback, readInertiaCanvasHost, useInertiaCanvasHost } from './inertiaCanvasStore';
 
 export type InertiaScenario = Exclude<PhysicsScenario, 'settle'>;
 type CompletedInertiaResults = Partial<Record<InertiaScenario, InertiaAnimationResult>>;
-
-type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
-type LoadingWindow = Window & { __containerLoadingLatestResult?: LoadingDetail };
-
-type ScenarioInfo = {
-  id: InertiaScenario;
-  label: string;
-  forceLabel: string;
-  explanation: string;
-};
-
-const SCENARIOS: ScenarioInfo[] = [
-  { id: 'acceleration', label: '출발 가속', forceLabel: '← 뒤쪽 관성 0.30g', explanation: '트럭이 앞으로 출발할 때 화물이 뒤쪽으로 버티는지 확인합니다.' },
-  { id: 'braking', label: '급정거', forceLabel: '→ 앞쪽 관성 0.50g', explanation: '급제동 때 화물이 문쪽/전방으로 밀리거나 넘어지는지 확인합니다.' },
-  { id: 'cornering', label: '급회전', forceLabel: '→ 측면 관성 0.35g', explanation: '코너링 때 좌우 미끄러짐과 전도 위험을 확인합니다.' },
+const SCENARIOS: { id: InertiaScenario; label: string; forceLabel: string; explanation: string }[] = [
+  { id: 'acceleration', label: '출발 가속', forceLabel: '뒤 방향 관성 0.30g', explanation: '차량이 출발할 때 화물의 이동과 기울기를 계산합니다.' },
+  { id: 'braking', label: '급정거', forceLabel: '앞 방향 관성 0.50g', explanation: '제동 시 화물의 앞 방향 이동과 기울기를 계산합니다.' },
+  { id: 'cornering', label: '급회전', forceLabel: '옆 방향 관성 0.35g', explanation: '회전 시 화물의 옆 방향 이동과 기울기를 계산합니다.' },
 ];
-
-function currentTarget(): PhysicsTarget | undefined {
-  const explicit = readPhysicsTarget();
-  if (explicit) return explicit;
-  const detail = (window as LoadingWindow).__containerLoadingLatestResult;
-  return detail ? { mode: 'boxes', container: detail.container, cargo: detail.cargo, result: detail.result } : undefined;
-}
 
 function securingForTarget(target: PhysicsTarget): SecuringUsage {
   const latest = readLatestInertiaCertification();
-  const signature = createPhysicsTargetSignature(target);
-  if (latest?.mode === target.mode && latest.targetSignature === signature) return latest.securing;
+  if (latest?.mode === target.mode && latest.targetSignature === createPhysicsTargetSignature(target)) return latest.securing;
   return buildSecuringUsage(target, minimumSecuringLevelForMode(target.mode));
 }
-
 function securingSummary(usage: SecuringUsage, mode: PhysicsTarget['mode']) {
   const parts: string[] = [];
   if (mode === 'pallets') {
     if (usage.bandingStraps > 0) parts.push(`밴딩 ${usage.bandingStraps}줄`);
-    if (usage.cornerGuards > 0) parts.push(`각대 ${usage.cornerGuards}EA`);
+    if (usage.cornerGuards > 0) parts.push(`코너가드 ${usage.cornerGuards}EA`);
     if (usage.wrappingLengthM > 0) parts.push(`랩핑 ${usage.wrappingLengthM.toFixed(0)}m`);
-    if (usage.antiSlipMats > 0) parts.push(`미끄럼방지 ${usage.antiSlipMats}EA`);
-  } else {
-    if (usage.antiSlipMats > 0) parts.push(`미끄럼방지 ${usage.antiSlipMats}EA`);
-    if (usage.dunnageBlocks > 0) parts.push(`블로킹 ${usage.dunnageBlocks}EA`);
-  }
-  if (usage.loadBars > 0) parts.push(`고정바 ${usage.loadBars}EA`);
-  return parts.join(' · ') || '추가 보강 없음';
+  } else if (usage.dunnageBlocks > 0) parts.push(`블로킹 ${usage.dunnageBlocks}EA`);
+  if (usage.antiSlipMats > 0) parts.push(`미끄럼방지 ${usage.antiSlipMats}EA`);
+  if (usage.loadBars > 0) parts.push(`로드바 ${usage.loadBars}EA`);
+  return parts.join(' · ') || '추가 고정 없음';
 }
-
-function phaseLabel(phase: InertiaPhase) {
-  if (phase === 'settle') return '중력 정착';
-  if (phase === 'force') return '관성 하중 적용';
-  return '자유 감쇠';
-}
-
-function mm(value: number) {
-  return `${(value * 1000).toFixed(value * 1000 >= 10 ? 0 : 1)} mm`;
-}
-
-function InertiaScene({ target, animation, frameIndex, usage }: { target: PhysicsTarget; animation: InertiaAnimationResult; frameIndex: number; usage: SecuringUsage }) {
-  const frame = animation.frames[Math.min(frameIndex, animation.frames.length - 1)];
-  return <UnityLoadingViewer container={target.container} cargo={target.cargo} result={target.result} supports={target.supports} securing={usage} frameData={frame} preview title="관성 시험 재생" />;
-}
+const phaseLabel = (phase: InertiaPhase) => phase === 'settle' ? '중력 정착' : phase === 'force' ? '관성 하중 적용' : '잔류 움직임';
+const mm = (value: number) => `${(value * 1000).toFixed(value * 1000 >= 10 ? 0 : 1)} mm`;
 
 export default function InertiaTestTool() {
   const [open, setOpen] = useState(false);
-  const [target, setTarget] = useState<PhysicsTarget | undefined>(undefined);
+  const [target, setTarget] = useState<PhysicsTarget>();
   const [scenario, setScenario] = useState<InertiaScenario>('acceleration');
   const [animation, setAnimation] = useState<InertiaAnimationResult | null>(null);
+  const [animationRunId, setAnimationRunId] = useState(0);
+  const canvasHost = useInertiaCanvasHost();
   const [completedResults, setCompletedResults] = useState<CompletedInertiaResults>({});
+  const [securingUsage, setSecuringUsage] = useState<SecuringUsage | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [playhead, setPlayhead] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [error, setError] = useState('');
+  // Synchronous refs prevent late promises publishing between input/cancel and render.
   const generationId = useRef(0);
-
-  const openWithCurrentTarget = useCallback(() => {
-    const next = currentTarget();
-    setTarget(next);
-    setAnimation(null);
-    setCompletedResults({});
-    setScenario('acceleration');
-    setPlayhead(0);
-    setPlaying(false);
-    setError(next ? '' : '먼저 자동 적재를 실행해 적재 결과를 만들어 주세요.');
-    setOpen(true);
-  }, []);
+  const busy = useRef(false);
+  const openRef = useRef(false);
+  const targetRef = useRef<PhysicsTarget | undefined>(undefined);
+  const scenarioRef = useRef<InertiaScenario>('acceleration');
+  const opener = useRef<HTMLElement | null>(null);
+  const dialog = useRef<HTMLElement | null>(null);
+  const stop = () => {
+    generationId.current = nextInertiaCanvasRunId(); busy.current = false;
+    clearInertiaCanvasPlayback();
+    setGenerating(false); setGenerationProgress(0); setPlaying(false); setPlayhead(0); setAnimation(null);
+  };
+  const close = () => {
+    openRef.current = false; stop(); setCompletedResults({}); setOpen(false);
+    (opener.current?.isConnected ? opener.current : document.querySelector<HTMLButtonElement>('.header-menu-button'))?.focus();
+  };
+  const run = (snapshot: PhysicsTarget | undefined, nextScenario: InertiaScenario) => {
+    if (!openRef.current || busy.current || !hasInspectionTarget(snapshot) || snapshot !== targetRef.current || snapshot !== readPhysicsTarget()
+      || !inertiaHostMatchesTarget(readInertiaCanvasHost(), snapshot)) return;
+    const id = nextInertiaCanvasRunId(); generationId.current = id;
+    busy.current = true;
+    clearInertiaCanvasPlayback();
+    setAnimation(null); setPlaying(false); setPlayhead(0); setError(''); setGenerationProgress(0);
+    setCompletedResults(current => { const next = { ...current }; delete next[nextScenario]; return next; });
+    const cancelled = () => id !== generationId.current || !openRef.current || snapshot !== targetRef.current || snapshot !== readPhysicsTarget()
+      || !inertiaHostMatchesTarget(readInertiaCanvasHost(), snapshot);
+    try {
+      if (runStaticInspection(snapshot, 'geometry').attention) throw new Error('경계·충돌 문제가 있습니다. 배치를 수정한 후 다시 실행하세요.');
+      const usage = securingForTarget(snapshot);
+      setSecuringUsage(usage); setGenerating(true);
+      publishInertiaCanvasPlayback({ runId: id, target: snapshot, securing: usage });
+      void runInertiaAnimation(snapshot.container, snapshot.result.placements, nextScenario, snapshot.supports ?? [],
+        progress => { if (!cancelled()) setGenerationProgress(Math.round(progress * 100)); },
+        securingProfileForUsage(snapshot.mode, usage), { captureFrames: true, shouldCancel: cancelled },
+      ).then(result => {
+        if (cancelled()) return;
+        busy.current = false; setGenerating(false); setGenerationProgress(100);
+        setAnimationRunId(id); setAnimation(result); setCompletedResults(current => ({ ...current, [nextScenario]: { ...result, frames: [] } }));
+        // Original models may still be loading. Keep frame zero visible until
+        // the user starts playback so the clip cannot finish behind a loader.
+        setPlayhead(0); setPlaying(false);
+      }).catch(() => {
+        if (cancelled()) return;
+        busy.current = false; setGenerating(false);
+        clearInertiaCanvasPlayback();
+        setError('관성 애니메이션 계산에 실패했습니다. 다시 실행해 주세요.');
+      });
+    } catch (reason) {
+      busy.current = false; setGenerating(false);
+      setError(reason instanceof Error ? reason.message : '입력을 확인하고 다시 실행해 주세요.');
+    }
+  };
+  const chooseScenario = (next: InertiaScenario) => {
+    if (next === scenarioRef.current) return;
+    stop(); scenarioRef.current = next; setScenario(next); run(targetRef.current, next);
+  };
 
   useEffect(() => {
-    window.addEventListener(OPEN_INERTIA_TEST_EVENT, openWithCurrentTarget);
-    return () => window.removeEventListener(OPEN_INERTIA_TEST_EVENT, openWithCurrentTarget);
-  }, [openWithCurrentTarget]);
-
-  useEffect(() => {
-    const invalidate = () => {
-      if (!open) return;
-      setTarget(currentTarget());
-      setAnimation(null);
-      setCompletedResults({});
-      setPlaying(false);
-      setPlayhead(0);
-      setError('적재 결과가 변경되었습니다. 새 좌표로 관성 테스트를 다시 준비합니다.');
+    const onOpen = () => {
+      if (openRef.current) { dialog.current?.focus(); return; }
+      const next = readPhysicsTarget();
+      openRef.current = true; targetRef.current = next; scenarioRef.current = 'acceleration';
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setTarget(next); setOpen(true); setScenario('acceleration'); setCompletedResults({}); setSecuringUsage(null);
+      setError(!hasInspectionTarget(next) ? '유효한 적재 결과가 없습니다. 먼저 자동 적재를 실행하세요.'
+        : inertiaHostMatchesTarget(readInertiaCanvasHost(), next) ? '' : '자동 적재 단계의 3D 화면에서 실행하세요.');
+      run(next, 'acceleration');
     };
-    window.addEventListener(LOADING_RESULT_EVENT, invalidate);
-    window.addEventListener(PHYSICS_TARGET_EVENT, invalidate);
+    const invalidate = (next?: PhysicsTarget) => {
+      stop(); targetRef.current = next; setTarget(next); setCompletedResults({}); setSecuringUsage(null);
+      setError('입력 또는 적재 결과가 변경되어 이전 애니메이션을 폐기했습니다. 자동 적재 결과를 확인하고 다시 실행하세요.');
+    };
+    const onTarget = () => invalidate(readPhysicsTarget());
+    const onResult = (event: Event) => {
+      const next = readPhysicsTarget();
+      invalidate(next?.result === (event as CustomEvent).detail?.result ? next : undefined);
+    };
+    const settingsKey = () => JSON.stringify([readTransportEquipment(), readSecuringMaterialSettings()]);
+    let previousSettings = settingsKey();
+    const onSettings = () => {
+      const next = settingsKey();
+      if (next === previousSettings) return;
+      previousSettings = next; clearPhysicsTarget();
+    };
+    const onBack = () => { if (openRef.current) close(); };
+    window.addEventListener(OPEN_INERTIA_TEST_EVENT, onOpen);
+    window.addEventListener(PHYSICS_TARGET_EVENT, onTarget);
+    window.addEventListener(LOADING_RESULT_EVENT, onResult);
+    window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, onSettings);
+    window.addEventListener(SECURING_MATERIAL_SETTINGS_EVENT, onSettings);
+    window.addEventListener('popstate', onBack);
     return () => {
-      window.removeEventListener(LOADING_RESULT_EVENT, invalidate);
-      window.removeEventListener(PHYSICS_TARGET_EVENT, invalidate);
+      generationId.current = nextInertiaCanvasRunId(); openRef.current = false; busy.current = false;
+      clearInertiaCanvasPlayback();
+      window.removeEventListener(OPEN_INERTIA_TEST_EVENT, onOpen);
+      window.removeEventListener(PHYSICS_TARGET_EVENT, onTarget);
+      window.removeEventListener(LOADING_RESULT_EVENT, onResult);
+      window.removeEventListener(TRANSPORT_EQUIPMENT_EVENT, onSettings);
+      window.removeEventListener(SECURING_MATERIAL_SETTINGS_EVENT, onSettings);
+      window.removeEventListener('popstate', onBack);
     };
-  }, [open]);
-
+  }, []);
   useEffect(() => {
-    if (!open || !target || (!target.result.placements.length && !(target.supports?.length))) return;
-    const id = ++generationId.current;
-    const usage = securingForTarget(target);
-    const securingProfile = securingProfileForUsage(target.mode, usage);
-    setGenerating(true);
-    setGenerationProgress(0);
-    setAnimation(null);
-    setPlaying(false);
-    setPlayhead(0);
-    setError('');
-    void runInertiaAnimation(
-      target.container,
-      target.result.placements,
-      scenario,
-      target.supports ?? [],
-      value => { if (generationId.current === id) setGenerationProgress(Math.round(value * 100)); },
-      securingProfile,
-      { shouldCancel: () => generationId.current !== id },
-    ).then(result => {
-      if (generationId.current !== id) return;
-      setAnimation(result);
-      // 완료된 다른 시나리오는 보고서에 수치만 필요하다. 프레임까지 3세트 보관하지 않는다.
-      const summaryResult: InertiaAnimationResult = { ...result, frames: [] };
-      setCompletedResults(current => ({ ...current, [scenario]: summaryResult }));
-      setGenerating(false);
-      setGenerationProgress(100);
-      setPlayhead(0);
-      setPlaying(true);
-    }).catch(reason => {
-      if (generationId.current !== id) return;
-      console.error('Inertia animation failed', reason);
-      setGenerating(false);
-      setError('관성 애니메이션을 생성하지 못했습니다. 다시 시도하세요.');
-    });
-    return () => { generationId.current += 1; };
-  }, [open, scenario, target]);
-
+    if (open) { dialog.current?.focus(); canvasHost?.element.parentElement?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); }
+  }, [open, canvasHost]);
   useEffect(() => {
-    if (!playing || !animation || animation.frames.length === 0) return;
+    if (!openRef.current || inertiaHostMatchesTarget(canvasHost, targetRef.current)) return;
+    stop(); setCompletedResults({});
+    if (targetRef.current) setError('자동 적재 단계의 3D 화면에서 실행하세요.');
+  }, [canvasHost]);
+  useEffect(() => {
+    if (!open || !playing || !animation || animation.frames.length === 0) return;
     let frameId = 0;
     let previous = performance.now();
     const tick = (now: number) => {
-      const elapsed = Math.min(0.1, (now - previous) / 1000);
-      previous = now;
+      const elapsed = Math.min(0.1, (now - previous) / 1000); previous = now;
       setPlayhead(current => {
         const next = current + elapsed * animation.fps * speed;
-        if (next >= animation.frames.length - 1) {
-          setPlaying(false);
-          return animation.frames.length - 1;
-        }
+        if (next >= animation.frames.length - 1) { setPlaying(false); return animation.frames.length - 1; }
         return next;
       });
       frameId = requestAnimationFrame(tick);
     };
     frameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameId);
-  }, [animation, playing, speed]);
+  }, [animation, open, playing, speed]);
 
   const scenarioInfo = SCENARIOS.find(item => item.id === scenario) ?? SCENARIOS[0];
   const frameIndex = animation?.frames.length ? Math.min(animation.frames.length - 1, Math.floor(playhead)) : 0;
   const frame = animation?.frames[frameIndex];
-  const elapsedSeconds = animation && frame ? frame.step / 60 : 0;
   const testedCount = Object.keys(completedResults).length;
-  // Playback changes the pose only; rebuilding the Unity scene on every frame
-  // would reset the camera and lose the pending frame acknowledgement.
-  const securingUsage = useMemo(() => target ? securingForTarget(target) : null, [target, animation]);
+  const ready = hasInspectionTarget(target) && inertiaHostMatchesTarget(canvasHost, target);
+  useEffect(() => {
+    if (!openRef.current || !frame || !target || !securingUsage || animationRunId !== generationId.current || target !== targetRef.current) return;
+    publishInertiaCanvasPlayback({ runId: animationRunId, target, securing: securingUsage, frame });
+  }, [frame, target, securingUsage, animationRunId, canvasHost]);
   const openReport = () => {
-    if (!target || testedCount === 0) return;
-    if (!openInertiaImprovementReport(target, completedResults)) setError('팝업이 차단되어 보완 보고서를 열지 못했습니다.');
+    if (!target || target !== readPhysicsTarget() || testedCount === 0) return;
+    if (!openInertiaImprovementReport(target, completedResults)) setError('팝업이 차단되어 개선 보고서를 열지 못했습니다.');
   };
-
   if (!open) return null;
-  return createPortal(<div className="inertia-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
-    <section className="inertia-modal" role="dialog" aria-modal="true" aria-labelledby="inertia-title">
-      <header className="inertia-head">
-        <div>
-          <span>UNITY 3D LIVE MOTION · {target?.mode === 'pallets' ? 'PALLET MODE' : 'BOX MODE'}</span>
-          <h2 id="inertia-title">관성 애니메이션 테스트</h2>
-          <p>현재 적재안의 실제 보강자재와 같은 마찰·구속 조건으로 상자와 팔레트의 움직임을 눈으로 확인합니다.</p>
-        </div>
-        <div className="inertia-head-actions">
-          {testedCount > 0 && <button type="button" className="inertia-report-action" onClick={openReport}>평가 · 보완 보고서 <b>{testedCount}/3</b></button>}
-          <button type="button" onClick={() => setOpen(false)} aria-label="관성 테스트 닫기">닫기</button>
-        </div>
-      </header>
-
+  const inline = Boolean(canvasHost);
+  const conditions = <>
+    <div className="inertia-description"><b>{scenarioInfo.label}</b><span>{scenarioInfo.explanation}</span></div>
+    {target && securingUsage && <div className="inertia-description"><b>계산 가정 · {securingUsage.levelLabel}</b><span>{securingSummary(securingUsage, target.mode)}</span></div>}
+  </>;
+  const metrics = animation && frame && <div className="inertia-metrics"><span>화물 <b>{animation.cargoCount} EA</b></span>
+    {animation.supportCount > 0 && <span>파렛트 <b>{animation.supportCount} EA</b></span>}
+    <span>최대 이동 <b>{mm(animation.maxHorizontalShiftM)}</b></span><span>최대 기울기 <b>{animation.maxTiltDeg.toFixed(1)}°</b></span>
+    {securingUsage && <span>고정재 <b>{securingUsage.levelLabel}</b></span>}<span>계산한 상황 <b>{testedCount} / 3</b></span></div>;
+  const caution = <footer className="inertia-footnote">0.30g 출발 가속, 0.50g 급정거, 0.35g 급회전은 비교용 기본 상황입니다. Rapier 강체 시뮬레이션이며 실제 마찰·체결 성능과 도로 조건을 모두 재현하지 않습니다. 실제 운송 안전 인증이 아니며 현장 고정 상태를 별도로 확인해야 합니다. 입력 변경·닫기·뒤로 가기는 실행 중 계산과 재생 결과를 폐기합니다.</footer>;
+  const panel = <section ref={dialog} tabIndex={-1} className={inline ? 'inertia-modal inertia-inline-panel' : 'inertia-modal'} role={inline ? 'region' : 'dialog'} aria-modal={inline ? undefined : true} aria-labelledby="inertia-title" onKeyDown={event => {
+      if (event.key === 'Escape') { event.stopPropagation(); close(); }
+      if (!inline && event.key === 'Tab') {
+        const controls = Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]') ?? []);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) { event.preventDefault(); first?.focus(); }
+      }
+    }}>
+      <header className="inertia-head"><div>
+        <span>3D INERTIA ANIMATION · {target?.mode === 'pallets' ? 'PALLET MODE' : 'BOX MODE'}</span>
+        <h2 id="inertia-title">관성 애니메이션 테스트</h2>
+        <p>현재 적재 결과의 움직임을 계산하고 3D로 재생합니다. 계산상 비교이며 실제 운송 안전 인증이 아닙니다.</p>
+      </div><div className="inertia-head-actions">
+        {!inline && testedCount > 0 && <button type="button" className="inertia-report-action" onClick={openReport}>계산 결과·개선 보고서 <b>{testedCount}/3</b></button>}
+        <button type="button" onClick={close} aria-label="관성 테스트 닫기">닫기</button>
+      </div></header>
       <div className="inertia-scenario-tabs" role="tablist" aria-label="관성 테스트 상황">
-        {SCENARIOS.map(item => <button
-          key={item.id}
-          type="button"
-          role="tab"
-          aria-selected={scenario === item.id}
-          className={scenario === item.id ? 'active' : ''}
-          onClick={() => setScenario(item.id)}
-        >
-          <b>{item.label}</b><span>{item.forceLabel}{completedResults[item.id] ? ' · 완료' : ''}</span>
+        {SCENARIOS.map(item => <button key={item.id} type="button" role="tab" aria-selected={scenario === item.id}
+          className={scenario === item.id ? 'active' : ''} onClick={() => chooseScenario(item.id)}>
+          <b>{item.label}</b><span>{item.forceLabel}{completedResults[item.id] ? ' · 계산 완료' : ''}</span>
         </button>)}
       </div>
-
-      <div className="inertia-description"><b>{scenarioInfo.label}</b><span>{scenarioInfo.explanation}</span></div>
-      {target && securingUsage && <div className="inertia-description">
-        <b>적용 고정재 · {securingUsage.levelLabel}</b>
-        <span>{securingSummary(securingUsage, target.mode)}</span>
-      </div>}
-
-      <div className="inertia-stage">
-        {target && animation && frame && securingUsage ? <>
-          <InertiaScene target={target} animation={animation} frameIndex={frameIndex} usage={securingUsage} />
-          <div className="inertia-stage-status">
-            <b>{phaseLabel(frame.phase)}</b>
-            <span>{frame.phase === 'force' ? scenarioInfo.forceLabel : frame.phase === 'settle' ? '관성력 적용 전 적재물 정착 중' : '외력이 끝난 뒤 남은 흔들림 확인'}</span>
-          </div>
-          <div className="inertia-time">{elapsedSeconds.toFixed(2)} / {animation.simulatedSeconds.toFixed(2)} s</div>
-        </> : <div className="inertia-loading">
-          {generating ? <><div className="physics-spinner"/><b>Rapier 프레임 생성 중 · {generationProgress}%</b><span>상자·팔레트 위치와 포장자재 구속력을 함께 계산하고 있습니다.</span></> : <><b>관성 테스트 준비</b><span>{error || '자동 적재 후 테스트할 수 있습니다.'}</span></>}
-        </div>}
+      {!inline && conditions}
+      <div className="inertia-controls">
+        {generating ? <button type="button" onClick={() => { stop(); setError('계산을 취소했습니다. 결과는 저장되지 않았습니다.'); }}>관성 계산 취소</button>
+          : <button type="button" disabled={!ready} onClick={() => run(targetRef.current, scenarioRef.current)}>현재 상황 다시 계산</button>}
+        {animation && <span>재생을 눌러 3D 움직임을 확인하세요.</span>}
       </div>
-
-      {animation && animation.frames.length > 0 && <>
-        <div className="inertia-metrics">
-          <span>상자 <b>{animation.cargoCount} EA</b></span>
-          {animation.supportCount > 0 && <span>팔레트 <b>{animation.supportCount} EA</b></span>}
-          <span>최대 이동 <b>{mm(animation.maxHorizontalShiftM)}</b></span>
-          <span>최대 기울기 <b>{animation.maxTiltDeg.toFixed(1)}°</b></span>
-          {securingUsage && <span>고정재 <b>{securingUsage.levelLabel}</b></span>}
-          <span>평가 진행 <b>{testedCount} / 3</b></span>
+      {error && <p role="status">{error}</p>}
+      {generating && <div className="inertia-loading"><b role="status">Rapier 프레임 계산 중 · {generationProgress}%</b><progress max={100} value={generationProgress} aria-label="관성 프레임 계산 진행률" /></div>}
+      {animation && frame && <>
+        <div className="inertia-playback-status">
+          <div className="inertia-stage-status"><b>{phaseLabel(frame.phase)}</b><span>{frame.phase === 'force' ? scenarioInfo.forceLabel : frame.phase === 'settle' ? '관성 적용 전 적재물 정착 중' : '외력 제거 후 잔류 움직임 확인'}</span></div>
+          <div className="inertia-time">{(frame.step / 60).toFixed(2)} / {animation.simulatedSeconds.toFixed(2)} s</div>
         </div>
-        <input
-          className="inertia-timeline"
-          data-view-only="true"
-          type="range"
-          min="0"
-          max={Math.max(0, animation.frames.length - 1)}
-          step="1"
-          value={frameIndex}
-          aria-label="관성 테스트 재생 위치"
-          onChange={event => { setPlaying(false); setPlayhead(Number(event.target.value)); }}
-        />
+        {!inline && metrics}
+        <input className="inertia-timeline" data-view-only="true" type="range" min="0" max={animation.frames.length - 1} step="1" value={frameIndex}
+          aria-label="관성 테스트 재생 위치" onChange={event => { setPlaying(false); setPlayhead(Number(event.target.value)); }} />
         <div className="inertia-controls">
           <button type="button" onClick={() => { setPlayhead(0); setPlaying(true); }}>처음부터</button>
-          <button type="button" className="primary" onClick={() => setPlaying(value => !value)}>{playing ? '일시정지' : '재생'}</button>
-          <button type="button" className="inertia-report-control" onClick={openReport}>평가 · 보완 보고서</button>
-          <div className="inertia-speed" aria-label="재생 속도">
-            {[0.5, 1, 2].map(value => <button key={value} type="button" className={speed === value ? 'active' : ''} onClick={() => setSpeed(value)}>{value}×</button>)}
-          </div>
+          <button type="button" className="primary" onClick={() => { if (!playing && frameIndex === animation.frames.length - 1) setPlayhead(0); setPlaying(value => !value); }}>{playing ? '일시정지' : '재생'}</button>
+          {!inline && <button type="button" className="inertia-report-control" onClick={openReport}>계산 결과·개선 보고서</button>}
+          <div className="inertia-speed" aria-label="재생 속도">{[0.5, 1, 2].map(value => <button key={value} type="button" aria-pressed={speed === value} className={speed === value ? 'active' : ''} onClick={() => setSpeed(value)}>{value}배</button>)}</div>
         </div>
       </>}
-
-      <footer className="inertia-footnote">0.30g 출발 가속, 0.50g 급제동, 0.35g 횡가속은 적재안 비교용 기본 시나리오입니다. 관성 애니메이션은 메인 3D에 표시된 고정재와 동일한 보강 단계의 마찰·구속 프로필을 적용합니다. 실제 운송에서는 차량, 노면, 결박, 마찰계수와 회사/법규 기준을 별도로 확인해야 합니다.</footer>
-    </section>
-  </div>, document.body);
+      {inline ? <details className="inertia-calculation-details"><summary>계산 조건·결과·주의사항</summary>{conditions}{metrics}{caution}
+        {testedCount > 0 && <button type="button" className="inertia-report-control" onClick={openReport}>계산 결과·개선 보고서</button>}
+      </details> : caution}
+    </section>;
+  return createPortal(inline ? panel : <div className="inertia-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>{panel}</div>, canvasHost?.element ?? document.body);
 }

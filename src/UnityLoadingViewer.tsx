@@ -27,11 +27,22 @@ export default function UnityLoadingViewer({ container, result, cargo, preview =
   const [labels, setLabels] = useState(true), [labelFaces, setLabelFaces] = useState(0);
   const [applied, setApplied] = useState(-1);
   const revision = useRef(0);
+  const framedRevision = useRef<number | null>(null);
+  const replayVisibility = useRef(false);
   const plan = useMemo(() => unityPlan(container, result, ++revision.current, cargo ?? readStoredState()?.cargo, { supports, securing, geometry: geometry ?? readTransportEquipment().geometry, vehicle: vehicle ?? (geometry ? false : readTransportEquipment().category === 'truck') }), [container, result, cargo, supports, securing, geometry, vehicle]);
-  const weightOn = weightView ?? weight;
+  const frameActive = Boolean(frameData);
+  const weightOn = frameActive ? false : weightView ?? weight;
+  const visibleCut = frameActive ? 100 : cut, visibleStep = frameActive ? result.placements.length : step;
+  const baselineFrame = useMemo(() => {
+    const poses = (boxes: typeof plan.placements | typeof plan.supports) => boxes.flatMap(box => [
+      box.x + box.length / 2 - plan.container.length / 2,
+      box.z + box.height / 2, box.y + box.width / 2 - plan.container.width / 2, 0, 0, 0, 1,
+    ]);
+    return { revision: plan.revision, cargo: poses(plan.placements), supports: poses(plan.supports) };
+  }, [plan]);
   const analysis = useMemo(() => analyzeWeightDistribution(container, result, 20, 8), [container, result]);
-  const current = useRef({ plan, cut, shell, labels, weightOn, cg, showCg, view, activeView, syncSelection, onCargoSelect, onSupportSelect });
-  current.current = { plan, cut, shell, labels, weightOn, cg, showCg, view, activeView, syncSelection, onCargoSelect, onSupportSelect };
+  const current = useRef({ plan, cut: visibleCut, shell, labels, weightOn, cg, showCg, view, activeView, syncSelection, onCargoSelect, onSupportSelect, frameActive });
+  current.current = { plan, cut: visibleCut, shell, labels, weightOn, cg, showCg, view, activeView, syncSelection, onCargoSelect, onSupportSelect, frameActive };
   const post = useCallback((type: string, payload: unknown) => frame.current?.contentWindow?.postMessage({ source: 'cargo-web', type, payload }, window.location.origin), []);
   const command = useCallback((payload: UnityCommand) => post('command', payload), [post]);
   useEffect(() => {
@@ -58,7 +69,7 @@ export default function UnityLoadingViewer({ container, result, cargo, preview =
       }
       if (value?.type === 'support' && Number.isInteger(value.index) && current.current.plan.supports[value.index]) current.current.onSupportSelect?.(value.index);
       if (value?.type === 'cell') setCell(Number.isInteger(value.index) && current.current.plan.cells[value.index] ? value.index : null);
-      if (value?.type === 'step' && Number.isInteger(value.value)) { setStep(value.value); if (value.value >= current.current.plan.placements.length) setPlaying(false); }
+      if (value?.type === 'step' && Number.isInteger(value.value) && !current.current.frameActive) { setStep(value.value); if (value.value >= current.current.plan.placements.length) setPlaying(false); }
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
@@ -71,10 +82,24 @@ export default function UnityLoadingViewer({ container, result, cargo, preview =
   }, [syncSelection, ready, result.placements, command]);
   useEffect(() => { if (ready || error) return; const timer = window.setTimeout(() => setError('Unity 로딩 시간이 초과되었습니다. 다시 시도해 주세요.'), 120000); return () => window.clearTimeout(timer); }, [ready, error, attempt]);
   useEffect(() => {
-    if (!ready || applied !== plan.revision || !frameData) return;
-    const payload = unityFrame(frameData, plan.revision, plan.placements.length, plan.supports.length);
-    if (payload) post('frame', payload);
-  }, [ready, applied, plan, frameData, post]);
+    if (!ready || applied !== plan.revision) return;
+    if (frameData) {
+      const payload = unityFrame(frameData, plan.revision, plan.placements.length, plan.supports.length);
+      if (payload) { post('frame', payload); framedRevision.current = plan.revision; }
+    } else {
+      // Restore transforms directly, preserving the iframe, orbit camera and scene resources.
+      // An old replay must never apply its baseline to a newly loaded plan.
+      if (framedRevision.current === plan.revision) post('frame', baselineFrame);
+      framedRevision.current = null;
+    }
+  }, [ready, applied, plan, frameData, baselineFrame, post]);
+  useEffect(() => {
+    if (!ready || applied !== plan.revision) return;
+    if (frameActive) { replayVisibility.current = true; command({ action: 'play', value: 0 }); setPlaying(false); }
+    else if (replayVisibility.current) replayVisibility.current = false;
+    else return;
+    command({ action: 'cut', value: visibleCut }); command({ action: 'step', value: visibleStep });
+  }, [ready, applied, plan.revision, frameActive, visibleCut, visibleStep, command]);
   useEffect(() => { if (ready) { command({ action: 'weight', value: +weightOn }); command({ action: 'cg', value: +(showCg && cg) }); } }, [ready, weightOn, showCg, cg, command]);
   useEffect(() => { if (ready && view) command({ action: 'view', view: view === 'rear' ? 'door' : view }); }, [ready, view, command]);
   const retry = () => { setReady(false); setApplied(-1); setError(''); setProgress(0); setAttempt(x => x + 1); };
@@ -82,7 +107,7 @@ export default function UnityLoadingViewer({ container, result, cargo, preview =
   const selectedBox = selected === null ? undefined : result.placements[selected];
   const count = result.placements.length;
   return <section className={`unity-viewer ${preview ? 'unity-preview' : ''}`} aria-label={`Unity ${title}`} data-unity-count={result.placements.length} data-unity-supports={plan.supports.length} data-unity-label-faces={labelFaces} data-unity-ready={ready} data-unity-applied={applied === plan.revision}>
-    <div className="unity-toolbar"><div><b>{title}</b><span className="studio-live-badge"><i/>UNITY 3D</span></div><div className="unity-view-buttons">{[['free','입체'],['top','상단'],['door','문쪽'],['side','측면']].map(([view,label]) => <button key={view} aria-pressed={activeView === view} disabled={!ready} onClick={() => { setActiveView(view); command({ action: 'view', view }); }}>{label}</button>)}<button disabled={!ready} aria-pressed={shell} onClick={() => { setShell(!shell);command({ action: 'shell', value: shell ? 0 : 1 }); }}>{shell ? '외벽 숨기기' : '외벽 표시'}</button>{!preview && !weightOn && <button disabled={!ready || !count} aria-pressed={labels} onClick={() => { setLabels(!labels); command({ action: 'labels', value: labels ? 0 : 1 }); }}>박스 정보 {labels ? 'ON' : 'OFF'}</button>}{!preview && weightView === undefined && <button disabled={!ready || !count} aria-pressed={weightOn} onClick={() => setWeight(!weight)}>3D 무게분포</button>}{weightOn && <button aria-pressed={cg} onClick={() => setCg(!cg)}>CG {cg ? 'ON' : 'OFF'}</button>}</div></div>
+    <div className="unity-toolbar"><div><b>{title}</b><span className="studio-live-badge"><i/>UNITY 3D</span></div><div className="unity-view-buttons">{[['free','입체'],['top','상단'],['door','문쪽'],['side','측면']].map(([view,label]) => <button key={view} aria-pressed={activeView === view} disabled={!ready} onClick={() => { setActiveView(view); command({ action: 'view', view }); }}>{label}</button>)}<button disabled={!ready} aria-pressed={shell} onClick={() => { setShell(!shell);command({ action: 'shell', value: shell ? 0 : 1 }); }}>{shell ? '외벽 숨기기' : '외벽 표시'}</button>{!preview && !weightOn && <button disabled={!ready || !count} aria-pressed={labels} onClick={() => { setLabels(!labels); command({ action: 'labels', value: labels ? 0 : 1 }); }}>박스 정보 {labels ? 'ON' : 'OFF'}</button>}{!preview && weightView === undefined && <button disabled={!ready || !count || frameActive} aria-pressed={weightOn} onClick={() => setWeight(!weight)}>3D 무게분포</button>}{weightOn && <button aria-pressed={cg} onClick={() => setCg(!cg)}>CG {cg ? 'ON' : 'OFF'}</button>}</div></div>
     <div className="unity-stage">
       <iframe key={attempt} ref={frame} src="/unity-viewer/host.html" title={`Unity 3D 캔버스 · ${title}`} allow="fullscreen" />
       {!ready && !error && <div className="unity-loading" role="status"><b>Unity 엔진 준비 중</b><progress max="100" value={progress}/><span>{progress}%</span></div>}

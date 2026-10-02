@@ -219,7 +219,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       <section className="pallet-mode-panel pallet-mode-panel-inline">
         <div className="pallet-view-stack">
           <div className="pallet-preview">
-            <UnityLoadingViewer container={container} cargo={cargo} {...scene} securing={securingUsage} title={mode === 'mixed' ? '박스 + 팔레트 혼합 적재' : '팔레트 적재'} onSupportSelect={index => setOpened(result.pallets[index] ?? null)} onCargoSelect={index => setOpened(palletForPlacement(result, result.placements[index]) ?? null)} />
+            <UnityLoadingViewer inertiaHost container={container} cargo={cargo} {...scene} securing={securingUsage} title={mode === 'mixed' ? '박스 + 팔레트 혼합 적재' : '팔레트 적재'} onSupportSelect={index => setOpened(result.pallets[index] ?? null)} onCargoSelect={index => setOpened(palletForPlacement(result, result.placements[index]) ?? null)} />
             {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip">
               <b>관성 보강 적용</b>
               <span>밴딩 {securingUsage.bandingStraps}줄</span>

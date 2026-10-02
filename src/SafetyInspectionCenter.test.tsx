@@ -26,6 +26,20 @@ afterEach(async () => { await act(async () => root.unmount()); host.remove(); cl
 const open = () => act(async () => openSafetyInspectionCenter());
 const start = async () => { await act(async () => publishPhysicsTarget(fixture)); await open(); await act(async () => button('관성 테스트 실행').click()); return TestWorker.instances.at(-1)!; };
 describe('manual inspection lifecycle', () => {
+  it.each([
+    ['geometry', '경계·충돌 점검'], ['balance', '무게중심 점검'], ['load', '총중량·바닥 하중 추정'],
+  ] as const)('opens %s directly without a nested inspection chooser', async (kind, title) => {
+    await act(async () => publishPhysicsTarget(fixture));
+    await act(async () => openSafetyInspectionCenter(kind));
+    expect(document.querySelector('#manual-inspection-title')?.textContent).toBe(title);
+    expect(document.querySelectorAll('.safety-center-grid article')).toHaveLength(1);
+    await act(async () => button(title + ' 실행').click());
+    expect(TestWorker.instances[0].postMessage).toHaveBeenCalledWith(expect.objectContaining({ kind }));
+    await act(async () => openSafetyInspectionCenter('balance'));
+    expect(TestWorker.instances[0].terminate).toHaveBeenCalled();
+    await act(async () => TestWorker.instances[0].result());
+    expect(document.body.textContent).not.toContain('TEST RESULT');
+  });
   it('does not revive stale window results after clear or accept an empty target', async () => {
     Object.assign(window, { __containerLoadingLatestResult: fixture }); await open();
     expect(button('관성 테스트 실행').disabled).toBe(true);
