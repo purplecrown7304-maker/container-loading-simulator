@@ -64,7 +64,7 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
     { environment: 'forest', view: '측면', file: 'background-40ft-forest-side.png' },
     { environment: 'space', view: '입체', file: 'background-40ft-space.png' },
   ]) {
-    await viewer.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption(shot.environment);
+    await page.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption(shot.environment);
     await viewer.getByRole('button', { name: shot.view, exact: true }).click();
     await expect(viewer).toHaveAttribute('data-three-environment', shot.environment);
     await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
@@ -75,7 +75,7 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
     expect(await loadedCanvas!.evaluate(element => element === document.querySelector('.viewer-card canvas'))).toBe(true);
     await page.screenshot({ path: test.info().outputPath(shot.file), fullPage: true });
   }
-  await viewer.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption('warehouse');
+  await page.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption('warehouse');
   await viewer.getByRole('button', { name: '입체', exact: true }).click();
   await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
   await expect(viewer).toHaveAttribute('data-three-camera-pose', loadedCamera!);
@@ -104,6 +104,7 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   await expect(timeline).toBeVisible({ timeout: 60_000 });
   await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 60_000 });
   await expect(viewer).toHaveAttribute('data-three-frame-step', '0');
+  await expect(viewer.locator('.viewer-bottom-info')).toBeHidden();
   await expect(viewer).toHaveAttribute('data-three-cut', '100');
   await expect(viewer).toHaveAttribute('data-three-step', '3');
   await expect(timeline).toHaveValue('0');
@@ -125,7 +126,7 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   const pausedAttributes = ['data-three-plan-revision', 'data-three-camera-pose', 'data-three-cg-position', 'data-three-count', 'data-three-supports', 'data-three-frame-step', 'data-three-cut', 'data-three-step'];
   const pausedState = await viewer.evaluate((element, attributes) => Object.fromEntries(attributes.map(name => [name, element.getAttribute(name)])), pausedAttributes);
   const targetBeforeBackground = await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget));
-  await viewer.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption('beach');
+  await page.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption('beach');
   await expect(viewer).toHaveAttribute('data-three-environment', 'beach');
   await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -139,18 +140,16 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   await motion.getByRole('button', { name: '일시정지', exact: true }).click();
   await motion.getByRole('button', { name: '관성 테스트 닫기' }).click();
   await expect(viewer).toHaveAttribute('data-three-frame-step', '');
+  await expect(viewer.locator('.viewer-bottom-info')).toBeVisible();
   await expect(viewer).toHaveAttribute('data-three-cut', '25');
   await expect(viewer).toHaveAttribute('data-three-step', '1');
   expect(await page.evaluate(() => (window as any).__mainInertiaCanvas === document.querySelector('.viewer-card canvas'))).toBe(true);
   await viewer.getByRole('slider', { name: 'Three.js 높이 단면', exact: true }).fill('100');
-  // Renderer round-trip preserves the computed target.
-  const before = await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget));
-  const engine = page.locator('.viewer-card').getByRole('group', { name: '3D 엔진 선택' });
-  await engine.getByRole('button', { name: 'Unity', exact: true }).click();
-  await expect(page.locator('.viewer-card .unity-viewer')).toHaveAttribute('data-unity-applied', 'true', { timeout: 100_000 });
-  await engine.getByRole('button', { name: 'Three.js · 기존 모델', exact: true }).click();
-  await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 30_000 });
-  expect(await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget))).toBe(before);
+  // A completed real simulation stays authoritative with the sole Three renderer.
+  await expect(page.getByRole('group', { name: '3D 엔진 선택' })).toHaveCount(0);
+  await expect(page.locator('iframe[src*="unity-viewer"]')).toHaveCount(0);
+  await expect(page.getByText('3D 엔진 · 동일 적재 결과', { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget))).toBe(targetBeforeBackground);
   await page.getByRole('button', { name: '이전 단계', exact: true }).click();
   await page.getByRole('button', { name: '이전 단계', exact: true }).click();
   await page.getByRole('button', { name: '이전 단계', exact: true }).click();

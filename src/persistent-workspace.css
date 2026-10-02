@@ -71,20 +71,19 @@ html[data-guided-workflow="true"] .mockup-dashboard .viewer-host > .inertia-canv
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .renderer-comparison,
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .renderer-comparison > .unity-viewer { position: static; background: transparent !important; border: 0 !important; border-radius: 0 !important; }
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-viewer > .unity-stage { position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; min-height: 0 !important; z-index: 0; }
-html[data-guided-workflow="true"] .mockup-dashboard .viewer-host :is(.renderer-comparison-switch,.unity-toolbar,.three-environment-controls) { position: relative; z-index: 35; flex: 0 0 auto; align-self: center; width: fit-content; max-width: calc(100% - 444px); margin: 6px auto 0; border: 1px solid var(--studio-line); border-radius: 10px; background: #ffffffed; box-shadow: 0 3px 12px #1118270c; }
-html[data-guided-workflow="true"] .mockup-dashboard .viewer-host :is(.unity-controls,.unity-summary,.three-comparison-metrics) { position: absolute; z-index: 35; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); border: 1px solid var(--studio-line); border-radius: 8px; background: #ffffffed; }
-html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-controls { bottom: 76px; }
-html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-summary { bottom: 42px; }
-html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .three-comparison-metrics { bottom: 8px; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-toolbar { position: relative; z-index: 35; flex: 0 0 auto; align-self: center; width: fit-content; max-width: calc(100% - 444px); margin: 6px auto 0; border: 1px solid var(--studio-line); border-radius: 10px; background: #ffffffed; box-shadow: 0 3px 12px #1118270c; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .viewer-bottom-info { position: absolute; z-index: 35; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 14px; width: max-content; max-width: calc(100% - 32px); max-height: 30%; overflow: auto; padding: 7px 12px; border: 1px solid var(--studio-line); border-radius: 8px; background: #ffffffed; color: var(--studio-secondary); font-size: 12px; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .viewer-bottom-info > :is(.unity-controls,.unity-summary) { display: contents; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .viewer-bottom-info :is(label,span) { white-space: nowrap; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .inertia-canvas-host[data-inertia-active="true"] .viewer-bottom-info { display: none; }
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-sequence-note { display: none; }
-html[data-guided-workflow="true"] .mockup-dashboard .viewer-bottom-actions { position: absolute; z-index: 36; left: 14px; bottom: 10px; width: auto; max-width: 180px; background: #ffffffed; border-radius: 8px; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-bottom-actions { position: absolute; z-index: 36; left: 14px; bottom: 72px; width: auto; max-width: 180px; background: #ffffffed; border-radius: 8px; }
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-bottom-actions > span { display: none; }
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .inertia-canvas-controls-host:has(.inertia-inline-panel) { position: absolute; right: 10px; bottom: 120px; z-index: 40; width: min(420px,calc(100% - 20px)); max-height: 45%; overflow: auto; }
 @media(max-width:760px) {
-  html[data-guided-workflow="true"] .mockup-dashboard .viewer-host :is(.renderer-comparison-switch,.unity-toolbar,.three-environment-controls) { max-width: calc(100% - 16px); margin-top: 4px; padding: 4px 6px; }
+  html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-toolbar { max-width: calc(100% - 16px); margin-top: 4px; padding: 4px 6px; }
   html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-toolbar > div:first-child { display: none; }
-  html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .three-environment-controls > span { display: none; }
-  html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-controls { bottom: 80px; max-width: calc(100% - 16px); }
+  html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .viewer-bottom-info { bottom: 8px; max-width: calc(100% - 16px); gap: 5px 10px; padding: 6px 8px; font-size: 10px; }
   html[data-guided-workflow="true"] .mockup-dashboard .viewer-bottom-actions { display: none; }
   html[data-guided-workflow="true"] .workflow-preview-status { bottom: 90px; }
 }

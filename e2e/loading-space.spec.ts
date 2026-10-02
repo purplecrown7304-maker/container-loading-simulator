@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
+
 async function registerDirectProduct(page: import('@playwright/test').Page, id: string) {
   await page.evaluate(() => {
     window.dispatchEvent(new CustomEvent('container-loading:open-product-tool', { detail: 'products' }));
@@ -28,26 +30,26 @@ async function advanceToStrategy(page: import('@playwright/test').Page, id: stri
 }
 
 
-test('Unity failure offers retry while the fixed-height product workflow remains usable', async ({ page }) => {
+test('Three model failure offers retry while the fixed-height product workflow remains usable', async ({ page }) => {
   test.setTimeout(150_000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.route('**/unity-viewer/build-config.json', route => route.fulfill({ status: 404, body: 'unavailable' }));
-  await page.goto('/?renderer=unity');
-  await expect(page.locator('.viewer-host iframe')).toHaveCount(1);
+  await page.route(/\/[^/?]+\.obj(?:\?.*)?$/, route => route.fulfill({ status: 404, body: 'unavailable' }));
+  await page.goto('/');
+  await expect(page.locator('.viewer-host iframe')).toHaveCount(0);
   await expect(page.locator('.workspace-modal iframe')).toHaveCount(0);
   await advanceToStrategy(page, 'SPACE-CHECK');
   await page.getByRole('radio', { name: /무게중심·안정성 우선형/ }).click();
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
-  await expect(page.getByRole('button', { name: 'Unity 다시 시도', exact: true })).toBeVisible();
+  await expect(page.locator('.three-comparison-error').getByRole('button', { name: '다시 시도', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /기존 3D/ })).toHaveCount(0);
-  await page.unroute('**/unity-viewer/build-config.json');
-  await page.getByRole('button', { name: 'Unity 다시 시도', exact: true }).click();
-  await expect(page.locator('.unity-viewer')).toHaveAttribute('data-unity-ready', 'true', { timeout: 100_000 });
+  await page.unroute(/\/[^/?]+\.obj(?:\?.*)?$/);
+  await page.locator('.three-comparison-error').getByRole('button', { name: '다시 시도', exact: true }).click();
+  await expect(page.locator('.three-comparison-viewer')).toHaveAttribute('data-three-ready', 'true', { timeout: 100_000 });
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect(page.locator('.unity-summary')).toContainText('3 EA', { timeout: 60_000 });
   await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 60_000 });
-  await expect(page.locator('.unity-viewer')).toHaveAttribute('data-unity-applied', 'true');
+  await expect(page.locator('.three-comparison-viewer')).toHaveAttribute('data-three-applied', 'true');
   await expect(page.locator('.reference-3d canvas')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

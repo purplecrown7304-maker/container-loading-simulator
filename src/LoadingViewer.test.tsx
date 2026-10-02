@@ -7,17 +7,33 @@ import { buildSecuringUsage } from './inertiaCertification';
 import { clearInertiaCanvasPlayback, nextInertiaCanvasRunId, publishInertiaCanvasPlayback } from './inertiaCanvasStore';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
 
-const captured = vi.hoisted(() => ({ props: undefined as LoadingViewerProps | undefined, renderer: 'three' }));
-vi.mock('./UnityLoadingViewer', () => ({ default: (props: LoadingViewerProps) => { captured.props = props; return <canvas data-renderer-test="unity"/>; } }));
+const captured = vi.hoisted(() => ({ props: undefined as LoadingViewerProps | undefined }));
 vi.mock('./ThreeLoadingViewer', () => ({ default: (props: LoadingViewerProps) => { captured.props = props; return <canvas data-renderer-test="three"/>; } }));
-vi.mock('./viewerComparison', () => ({ useViewerComparison: () => ({ enabled: true, renderer: captured.renderer }), setComparisonRenderer: vi.fn() }));
 
 let root: Root, host: HTMLDivElement;
 beforeEach(() => { vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); clearInertiaCanvasPlayback(); clearPhysicsTarget(); vi.unstubAllGlobals(); });
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); clearInertiaCanvasPlayback(); clearPhysicsTarget(); window.history.replaceState(null, '', '/'); vi.unstubAllGlobals(); });
 
-it.each(['three', 'unity'])('preserves the %s main canvas plan objects across cloned-target replay and close', async renderer => {
-  captured.renderer = renderer;
+it.each(['', '?renderer=unity', '?renderer=compare', '?renderer=three', '?renderer=unknown'])('always renders Three.js without an engine selector for legacy query %s', async search => {
+  window.history.replaceState(null, '', `/${search}`);
+  const container = { length: 6, width: 2, height: 3, maxPayloadKg: 1000 };
+  const result = { placements: [], remaining: [], validationIssues: [], usedVolumeM3: 0, loadedWeightKg: 0 };
+  await act(async () => root.render(<LoadingViewer container={container} result={result} />));
+  const canvas = host.querySelector('canvas');
+  expect(canvas?.getAttribute('data-renderer-test')).toBe('three');
+  expect(host.querySelector('[data-renderer]')?.getAttribute('data-renderer')).toBe('three');
+  expect(host.querySelector('iframe')).toBeNull();
+  expect(host.querySelector('[aria-label="3D 엔진 선택"]')).toBeNull();
+  expect(host.textContent).not.toContain('3D 엔진 · 동일 적재 결과');
+  expect(captured.props!.result).toBe(result);
+  await act(async () => {
+    window.history.replaceState(null, '', '/?renderer=unity');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  expect(host.querySelector('canvas')).toBe(canvas);
+});
+
+it('preserves the Three main canvas plan objects across cloned-target replay and close', async () => {
   const container = { length: 6, width: 2, height: 3, maxPayloadKg: 1000 };
   const box = { cargoId: 'A', x: 1, y: .5, z: .2, length: 1, width: 1, height: 1, weightKg: 10 };
   const result = { placements: [box], remaining: [], validationIssues: [], usedVolumeM3: 1, loadedWeightKg: 35 };

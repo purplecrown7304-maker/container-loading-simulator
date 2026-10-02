@@ -21,7 +21,7 @@ async function renderedFrame(page: Page) {
 }
 
 async function selectEnvironment(page: Page, viewer: Locator, environment: string) {
-  await viewer.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption(environment);
+  await page.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption(environment);
   await expect(viewer).toHaveAttribute('data-three-environment', environment);
   await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
   await renderedFrame(page);
@@ -41,9 +41,9 @@ test('four backgrounds preserve the canvas, camera, cargo and controls without a
   test.setTimeout(120000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/comparison.html?renderer=three');
+  await page.goto('/comparison.html');
   const viewer = page.locator('.three-comparison-viewer');
-  const selector = viewer.getByRole('combobox', { name: '3D 배경', exact: true });
+  const selector = page.getByRole('combobox', { name: '3D 배경', exact: true });
   await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 60000 });
   await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
   await expect(selector).toHaveValue('warehouse');
@@ -102,7 +102,12 @@ test('four backgrounds preserve the canvas, camera, cargo and controls without a
 
   expect(await canvas!.evaluate(element => element === document.querySelector('.three-comparison-viewer canvas'))).toBe(true);
   expect(await page.evaluate(key => Object.fromEntries(Object.entries(localStorage).filter(([name]) => name !== key)), preferenceKey)).toEqual(storedInputs);
-  expect(await page.evaluate(key => localStorage.getItem(key), preferenceKey)).toBe('warehouse');
+  expect(await page.evaluate(key => sessionStorage.getItem(key), preferenceKey)).toBe('warehouse');
+  await selector.selectOption('beach');
+  await page.reload();
+  await expect(selector).toHaveValue('beach');
+  await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 60000 });
+  await expect(viewer).toHaveAttribute('data-three-environment', 'beach');
   await test.info().attach('warehouse-resource-cycles', { body: JSON.stringify(resourceHistory, null, 2), contentType: 'application/json' });
   expect(errors).toEqual([]);
 });
@@ -117,7 +122,7 @@ test('background selection remains usable during a model-load failure and its re
     failedModels++;
     await route.fulfill({ status: 503, contentType: 'text/plain', body: 'Intentional model failure for background isolation test' });
   });
-  await page.goto('/comparison.html?renderer=three');
+  await page.goto('/comparison.html');
   const viewer = page.locator('.three-comparison-viewer');
   const error = viewer.locator('.three-comparison-error');
   await expect(error).toBeVisible({ timeout: 30000 });

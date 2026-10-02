@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  server: { watch: { ignored: ['**/unity/**'] } },
   build: {
     rolldownOptions: {
       input: { index: 'index.html', comparison: 'comparison.html' },

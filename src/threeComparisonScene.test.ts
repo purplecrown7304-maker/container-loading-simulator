@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { unityPlan } from './unityProtocol';
+import { viewerPlan } from './viewerSceneProtocol';
 import { acceptSceneFrame, poseMatrix, sceneBoxMatrix, sceneCameraPose, sceneCenter, visibleCargoIndexes } from './threeComparisonSceneState';
 import { createComparisonSceneResources, requiredComparisonModelKeys, type ComparisonModels } from './threeComparisonSceneResources';
 import { createMeshyMaterial, MESHY_MODEL_KEYS } from './threeComparisonModels';
@@ -13,7 +13,7 @@ function fixture(revision = 1) {
     { cargoId: 'A', x: 1.1, y: .6, z: .65, length: .6, width: .4, height: .5, weightKg: 10 },
     { cargoId: 'B', x: 2, y: .6, z: .15, length: .4, width: .6, height: .5, weightKg: 10 },
   ];
-  return unityPlan(container, { placements, remaining: [], validationIssues: [], usedVolumeM3: .36, loadedWeightKg: 55 }, revision, [], {
+  return viewerPlan(container, { placements, remaining: [], validationIssues: [], usedVolumeM3: .36, loadedWeightKg: 55 }, revision, [], {
     supports: [{ id: 'p', x: 1, y: .5, z: 0, length: 1.2, width: 1, height: .15, weightKg: 25 }], geometry: 'platform',
   });
 }

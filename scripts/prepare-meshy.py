@@ -2,14 +2,14 @@ from pathlib import Path
 import argparse, trimesh, numpy as np, json, hashlib
 from PIL import Image
 root=Path(__file__).resolve().parents[1]
-parser=argparse.ArgumentParser(description='Import downloaded Meshy web GLBs into Unity with normalized bounds and original UVs.')
+parser=argparse.ArgumentParser(description='Prepare downloaded Meshy web GLBs for the Three.js viewer with normalized bounds and original UVs.')
 parser.add_argument('--input', type=Path, required=True)
 keys=['truck-cab','container-shell','carton','wood-pallet','plastic-pallet','corner-guard','dunnage-block','dunnage-airbag']
 parser.add_argument('--keys', nargs='+', choices=keys, help='Replace only these models, retaining other assets and provenance.')
 parser.add_argument('--project-url', help='Generation project for the replaced models.')
 parser.add_argument('--date', help='Generation date for the replaced models (YYYY-MM-DD).')
 args=parser.parse_args()
-out=root/'unity/Assets/Resources/Meshy'
+out=root/'src/assets/Meshy'
 manifest=[]
 selected=[key for key in keys if not args.keys or key in args.keys]
 manifest_path=root/'docs/meshy-models.json'
@@ -49,7 +49,7 @@ for key,src in zip(selected,files):
  image=material.baseColorTexture.convert('RGB');image.thumbnail((1024,1024),Image.Resampling.LANCZOS)
  folder=out/key;folder.mkdir(parents=True,exist_ok=True)
  image.save(folder/'basecolor.jpg',quality=90)
- # Export UV-preserving OBJ; Unity imports the MTL with its native importer.
+ # Export the UV-preserving OBJ, MTL and original texture contract used by the viewer.
  uv=mesh.visual.uv;normals=mesh.vertex_normals
  with (folder/'model.obj').open('w',encoding='utf-8',newline='\n') as f:
   f.write('mtllib model.mtl\no '+key+'\n')

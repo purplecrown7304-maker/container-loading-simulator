@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { expectGlobalBackgroundControl, expectThreeOnly } from './helpers/viewer';
 test('low-CBM mixed pallets stay on the floor through real workflow certification', async ({ page, context, baseURL }) => {
   test.setTimeout(180000);
   await context.route('**/*', route => new URL(route.request().url()).origin === new URL(baseURL!).origin ? route.continue() : route.abort());
@@ -29,5 +30,15 @@ test('low-CBM mixed pallets stay on the floor through real workflow certificatio
   await expect.poll(snapshot).toEqual({ count: 6, pallets: 2, tiers: 1, mixed: true });
   await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-supports', '2', { timeout: 90000 });
   await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 120000 });
+  const viewer = page.locator('.viewer-host .three-comparison-viewer');
+  const revision = await viewer.getAttribute('data-three-plan-revision');
+  const camera = await viewer.getAttribute('data-three-camera-pose');
+  const background = await expectGlobalBackgroundControl(page);
+  await background.selectOption('space');
+  await expect(viewer).toHaveAttribute('data-three-environment', 'space');
+  await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
+  await expect(viewer).toHaveAttribute('data-three-plan-revision', revision!);
+  await expect(viewer).toHaveAttribute('data-three-camera-pose', camera!);
+  await expectThreeOnly(page);
   expect(await snapshot()).toEqual({ count: 6, pallets: 2, tiers: 1, mixed: true });
 });

@@ -1,5 +1,9 @@
 # Meshy logistics assets
 
+The runtime uses Three.js only. Original OBJ/MTL/JPEG assets now live in
+`src/assets/Meshy`; the 2026-10-02 move preserved every asset byte. The old Unity
+project, editor metadata, WebGL runtime and build script have been removed.
+
 ## Pallet replacement — 2026-09-29
 
 The wood and plastic pallet source assets were regenerated with Meshy 7.1 in
@@ -21,18 +25,15 @@ top-level project/date/credits describe the original eight-asset batch below.
 
 ```powershell
 python scripts/prepare-meshy.py --input <downloaded-web-GLB-folder> --keys wood-pallet plastic-pallet --project-url https://www.meshy.ai/ko/agent/4RMArYCNcRfXhMqXMBIWH --date 2026-09-29
-powershell -File scripts/build-unity.ps1
+npm run build
 ```
 
 Inputs must be named `04-wood-pallet-web.glb` and `05-plastic-pallet-web.glb`.
 The import retains UVs and normalizes each model to centered unit bounds, with
-1024px base-color textures. Existing Unity `.meta` GUIDs are retained.
+1024px base-color textures. The Three.js loader references these exports directly.
 
-**Build status:** rebuilt with Unity 6000.6.2f1 and WebGL Build Support.
-`public/unity-viewer/Build/unity-viewer.data` includes both replacement models
-(9,383,560 bytes, previously 8,400,788). Unity validated textures and centered
-unit bounds for all eight assets. The JavaScript/Wasm runtime is unchanged.
-A Vite build alone does not rebuild Unity models.
+**Build status:** Vite packages the original exports directly for the Three.js
+viewer. No external editor or separate WebGL runtime build is required.
 
 ## Original asset batch
 
@@ -48,10 +49,10 @@ Install Python packages `trimesh`, `numpy`, `Pillow`, `scipy`, then run:
 
 ```
 python scripts/prepare-meshy.py --input <downloaded-web-GLB-folder>
-powershell -File scripts/build-unity.ps1
+npm run build
 ```
 
-The GLB filenames must be `01-truck-cab-web.glb` through `08-dunnage-airbag-web.glb` as recorded in the manifest. Import validates centered unit bounds and texture references before building Unity.
+The GLB filenames must be `01-truck-cab-web.glb` through `08-dunnage-airbag-web.glb` as recorded in the manifest. Import validates centered unit bounds and texture references before the Vite build.
 
 Cargo, supports, corner protectors and timber blocking use model skins. Truck cab is shown for truck equipment. A cutaway Meshy container shell is used for compatible rectangular equipment; platforms, flat racks and tank equipment retain their existing geometry treatment. Plastic pallet and dunnage airbag are included as additional assets; they do not introduce new physical materials or restraint rules.
 
@@ -59,4 +60,4 @@ The truck rear chassis is cropped; shell floor, door-side and near-side triangle
 
 Base-color textures are rendered through a shared instancing-capable shader with directional shading. PBR source maps remain in the downloadable GLBs; runtime uses the base color at 1024px to limit browser load. SKU tints and red invalid-cargo feedback remain visible.
 
-Unity OnDemandRendering reduces static scenes to one rendered frame per 15 update ticks. Camera movement, resize, selection, scene commands and physics replay immediately restore full rendering. This leaves input processing responsive and reduces competition with bulk loading certification without changing its checks.
+The Three.js scene renders on demand when stationary. Camera movement, resize, selection and physics replay invalidate the scene as needed without changing bulk loading certification checks.

@@ -1,9 +1,9 @@
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
 import { vehicleLayout, type VehicleRigKind } from './threeVehicleLayout';
-import type { unityPlan } from './unityProtocol';
+import type { viewerPlan } from './viewerSceneProtocol';
 
-export type ThreeComparisonPlan = ReturnType<typeof unityPlan> & { vehicleRig?: VehicleRigKind };
+export type ThreeComparisonPlan = ReturnType<typeof viewerPlan> & { vehicleRig?: VehicleRigKind };
 export type SceneBox = Pick<ThreeComparisonPlan['placements'][number], 'x' | 'y' | 'z' | 'length' | 'width' | 'height'>;
 export const UNITY_CARTON_SCALE = .99;
 

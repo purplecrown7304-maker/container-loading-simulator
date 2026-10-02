@@ -1,29 +1,39 @@
 import { expect, test } from '@playwright/test';
+import { comparisonFixture } from '../src/comparison/fixtures';
 
 test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
-test('Unity box-face labels and Meshy geometry respect the physical container envelope', async ({ page }) => {
-  test.setTimeout(120_000);
+
+test('Three carton labels, physical fixture bounds and cutaway controls stay consistent', async ({ page }) => {
+  test.setTimeout(90_000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.addInitScript(() => {
-    (window as any).__viewerEvents = [];
-    window.addEventListener('message', event => { if (event.data?.source === 'cargo-unity-host') (window as any).__viewerEvents.push(event.data.payload); });
-  });
-  await page.goto('/unity-viewer/host.html');
-  const events = (type: string) => page.evaluate(t => (window as any).__viewerEvents.filter((event: any) => event.type === t), type);
-  await expect.poll(() => events('ready'), { timeout: 100_000 }).toHaveLength(1);
-  const send = (type: string, payload: unknown) => page.evaluate(({ type, payload }) => window.postMessage({ source: 'cargo-web', type, payload }, location.origin), { type, payload });
-  const carton = { cargoId: 'SKU-042', length: .6, width: .4, height: .4, weightKg: 12.5, color: '#6a96b8', labelTitle: '정밀 부품 · 포장 박스', labelCode: 'BOX-042', labelDetail: '24 EA · 12.5 kg', labelSize: '600 × 400 × 400 mm' };
-  const plan = { revision: 10, geometry: 'closed', vehicle: false, container: { length: 2.4, width: 1.2, height: 1.2 },
-    placements: [{ ...carton, x: 0, y: 0, z: 0 }, { ...carton, x: 1.8, y: .8, z: 0 }, { ...carton, x: .9, y: .4, z: 0 }], supports: [], decorations: [], cells: [] };
-  await send('plan', plan);
-  await expect.poll(() => events('geometryAudit')).toContainEqual({ type: 'geometryAudit', revision: 10, outsideCargo: 0, interiorClipped: true });
-  await expect.poll(() => events('labelsApplied')).toContainEqual({ type: 'labelsApplied', revision: 10, faces: 12 });
-  await page.locator('canvas').screenshot({ path: `test-results/carton-labels-${test.info().project.name}.png` });
-  await send('command', { action: 'view', view: 'side' });
-  await page.locator('canvas').screenshot({ path: `test-results/carton-side-labels-${test.info().project.name}.png` });
-  await send('command', { action: 'labels', value: 0 });
-  await send('plan', { ...plan, revision: 11, placements: [] });
-  await expect.poll(() => events('labelsApplied')).toContainEqual({ type: 'labelsApplied', revision: 11, faces: 0 });
+  const fixture = comparisonFixture('boxes');
+  for (const box of fixture.result.placements) {
+    expect(box.x).toBeGreaterThanOrEqual(0); expect(box.y).toBeGreaterThanOrEqual(0); expect(box.z).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.length).toBeLessThanOrEqual(fixture.container.length);
+    expect(box.y + box.width).toBeLessThanOrEqual(fixture.container.width);
+    expect(box.z + box.height).toBeLessThanOrEqual(fixture.container.height);
+  }
+  await page.goto('/comparison.html');
+  await page.getByRole('button', { name: '박스 12개', exact: true }).click();
+  const viewer = page.locator('.three-comparison-viewer');
+  await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 60_000 });
+  await expect(viewer).toHaveAttribute('data-three-count', String(fixture.result.placements.length));
+  await expect(viewer).toHaveAttribute('data-three-label-faces', '48');
+  const revision = await viewer.getAttribute('data-three-plan-revision');
+  await viewer.locator('canvas').screenshot({ path: test.info().outputPath('carton-labels.png') });
+  await viewer.getByRole('button', { name: '측면', exact: true }).click();
+  await expect(viewer.getByRole('button', { name: '측면', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await viewer.locator('canvas').screenshot({ path: test.info().outputPath('carton-side-labels.png') });
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:placement-select', { detail: { index: 0 } })));
+  await expect(viewer.locator('.unity-inspector')).toContainText('SAMPLE-A');
+  await viewer.getByRole('button', { name: '박스 정보 ON', exact: true }).click();
+  await expect(viewer).toHaveAttribute('data-three-label-faces', '0');
+  await viewer.getByRole('button', { name: '박스 정보 OFF', exact: true }).click();
+  await expect(viewer).toHaveAttribute('data-three-label-faces', '48');
+  await expect(viewer).toHaveAttribute('data-three-plan-revision', revision!);
+  await page.getByRole('button', { name: '빈 컨테이너', exact: true }).click();
+  await expect(viewer).toHaveAttribute('data-three-applied', 'true');
+  await expect(viewer).toHaveAttribute('data-three-label-faces', '0');
   expect(errors).toEqual([]);
 });

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
-import UnityLoadingViewer, { type LoadingViewerProps } from './LoadingViewer';
+import LoadingViewer, { type LoadingViewerProps } from './LoadingViewer';
 import { BOX_VIEW_SNAPSHOT_EVENT } from './RemainingLengthIndicator';
 
 type Props = LoadingViewerProps & { mode?: 'boxes' | 'pallets' | 'mixed'; isPreview?: boolean };
@@ -30,6 +30,6 @@ export default function BoxLoadingViewer({ mode = 'boxes', isPreview = false, ..
   }, [props.container, props.result, mode, isPreview]);
 
   const certificationMode = mode === 'boxes' ? 'boxes' : 'pallets';
-  return <UnityLoadingViewer {...props} inertiaHost preview={isPreview} syncSelection={mode === 'boxes' && !isPreview}
+  return <LoadingViewer {...props} inertiaHost preview={isPreview} syncSelection={mode === 'boxes' && !isPreview}
     securing={!isPreview && certification?.mode === certificationMode ? certification.securing : null} />;
 }

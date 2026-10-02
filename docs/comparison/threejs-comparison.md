@@ -1,6 +1,6 @@
 # 기존 모델 Three.js 비교판 (로컬)
 
-> 2026-10-02 후속 요청: 현재 기본 렌더러는 Three.js입니다. 상단 Unity 선택 또는 `?renderer=unity`로 복귀할 수 있습니다. 아래 내용과 검증 기록은 최초 비교판(PR #108)의 기준이며, 현재 점검 메뉴와 렌더러 선택은 [사용 안내](../manual-inspections.md)를 참고하세요.
+> 2026-10-02 후속 요청: Three.js만 사용합니다. Unity 런타임·프로젝트와 엔진 선택 UI는 제거되었으며 `?renderer=unity` 같은 과거 주소도 Three.js를 엽니다. 원본 8종 Meshy OBJ·MTL·JPEG는 바이트 변경 없이 `src/assets/Meshy`로 이동했습니다. `comparison.html`은 Three.js 렌더링 점검용 샘플 화면으로 유지하며, 배경은 공통 선택기로 변경합니다. 아래는 최초 비교판(PR #108)의 과거 검증 기록입니다.
 
 기준: `bb3e337d64765286fdab00109fbf3fce0efa3610` (`main`, 2026-10-01 확인)
 

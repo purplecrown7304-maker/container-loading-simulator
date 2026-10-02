@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { expectFloatingWorkspacesOverCanvas, openWorkspace } from './helpers/workspace';
+import { expectCompactViewerFooter, expectGlobalBackgroundControl, expectThreeOnly } from './helpers/viewer';
 
 const mainViewer = '.viewer-host .three-comparison-viewer';
 const workspaceTitles = ['적재공간 선택', '제품 선택', '제품 포장', '적재 방식 선택'];
@@ -147,7 +148,13 @@ test('one real canvas survives equipment, product, packaging, loading-unit, resu
   await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 60_000 });
   const canvas = await viewer.locator('canvas').elementHandle();
   expect(canvas).not.toBeNull();
+  const background = await expectGlobalBackgroundControl(page, 'warehouse');
+  await background.selectOption('forest');
+  await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
   const assertCanvas = async () => {
+    await expectGlobalBackgroundControl(page, 'forest');
+    await expect(viewer).toHaveAttribute('data-three-environment', 'forest');
+    await expectThreeOnly(page);
     await expect(page.locator('.viewer-host canvas')).toHaveCount(1);
     await expect(page.locator('.workspace-modal canvas,.workspace-modal iframe,.product-packaging-preview')).toHaveCount(0);
     expect(await canvas!.evaluate(element => element === document.querySelector('.viewer-host canvas'))).toBe(true);
@@ -179,7 +186,19 @@ test('one real canvas survives equipment, product, packaging, loading-unit, resu
   await expect(workspace.locator('.guided-result-grid.enhanced > div').nth(1)).toContainText('6 EA');
   await assertCanvas();
   await workspace.getByRole('button', { name: '설정 닫기', exact: true }).click();
+  await expectCompactViewerFooter(page);
   const camera = await viewer.getAttribute('data-three-camera-pose');
+  const revision = await viewer.getAttribute('data-three-plan-revision');
+  const completedTarget = await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget));
+  const completedResult = await page.locator('.guided-result-grid.enhanced').textContent();
+  await background.selectOption('space');
+  await expect(viewer).toHaveAttribute('data-three-environment', 'space');
+  await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
+  await expect(viewer).toHaveAttribute('data-three-camera-pose', camera!);
+  await expect(viewer).toHaveAttribute('data-three-plan-revision', revision!);
+  expect(await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget))).toBe(completedTarget);
+  expect(await page.locator('.guided-result-grid.enhanced').textContent()).toBe(completedResult);
+  await background.selectOption('forest');
   for (let cycle = 0; cycle < 3; cycle++) {
     await openWorkspace(page, 6);
     await page.keyboard.press('Escape');
