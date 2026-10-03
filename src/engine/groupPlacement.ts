@@ -5,6 +5,8 @@ import { assessWeightBalance } from './weightBalance';
 import { buildPlacementAddresses } from './locationGrid';
 import { snapManualCoordinate } from './manualPlacement';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
+import { readRuleEngineMode } from '../rule-engine/mode';
+import { canPlaceWithLoadSim, validateExistingWithLoadSim } from '../rule-engine/loadSimEngine';
 
 const EPS = 0.001;
 
@@ -102,21 +104,35 @@ export function assessGroupMove(
   const finalPlacements = source.placements.map((placement, index) => movedByIndex.get(index) ?? placement);
   const cargoById = new Map(cargo.map(item => [item.id, item]));
 
+  const useLoadSim = readRuleEngineMode() === 'load-sim';
   for (const index of uniqueIndices) {
     const candidate = finalPlacements[index];
     const item = cargoById.get(candidate.cargoId);
     if (!item) { reasons.push(`품목 정보가 없습니다: ${candidate.cargoId}`); continue; }
-    if (!isInsideContainer(container, candidate)) reasons.push(`${candidate.cargoId}: 컨테이너 경계를 벗어납니다.`);
     const others = finalPlacements.filter((_, i) => i !== index);
-    if (others.some(other => overlaps(candidate, other))) reasons.push(`${candidate.cargoId}: 이동 후 다른 화물과 충돌합니다.`);
-    if (!fullySupported(candidate, others)) reasons.push(`${candidate.cargoId}: 이동 후 바닥면 전체가 지지되지 않습니다.`);
-    if (!canPlaceByStackingRules(item, candidate, others, cargoById)) reasons.push(`${candidate.cargoId}: 적층단 또는 상부 허용중량 조건을 만족하지 않습니다.`);
+    if (useLoadSim) {
+      reasons.push(...canPlaceWithLoadSim(container, cargo, others, candidate)
+        .filter(v => v.severity === 'error')
+        .map(v => `${candidate.cargoId}: ${v.message}`));
+    } else {
+      if (!isInsideContainer(container, candidate)) reasons.push(`${candidate.cargoId}: 컨테이너 경계를 벗어납니다.`);
+      if (others.some(other => overlaps(candidate, other))) reasons.push(`${candidate.cargoId}: 이동 후 다른 화물과 충돌합니다.`);
+      if (!fullySupported(candidate, others)) reasons.push(`${candidate.cargoId}: 이동 후 바닥면 전체가 지지되지 않습니다.`);
+      if (!canPlaceByStackingRules(item, candidate, others, cargoById)) reasons.push(`${candidate.cargoId}: 적층단 또는 상부 허용중량 조건을 만족하지 않습니다.`);
+    }
   }
 
-  const validationIssues = validatePlacements(container, finalPlacements);
-  if (validationIssues.length) reasons.push('최종 배치 검증에서 충돌 또는 경계 문제가 발견됐습니다.');
+  const nextValidation = useLoadSim ? validateExistingWithLoadSim(container, cargo, finalPlacements) : null;
+  const validationIssues = nextValidation?.validationIssues ?? validatePlacements(container, finalPlacements);
+  if (validationIssues.length) reasons.push('최종 배치 검증에서 충돌·경계·적재규칙 문제가 발견됐습니다.');
 
-  const result: LoadingResult = { ...source, placements: finalPlacements, validationIssues };
+  const result: LoadingResult = {
+    ...source,
+    placements: finalPlacements,
+    validationIssues,
+    operationalFindings: nextValidation?.operationalFindings ?? source.operationalFindings,
+    ruleEngine: useLoadSim ? 'load-sim' : 'legacy',
+  };
   const beforeQuality = assessWeightBalance(container, source);
   const afterQuality = assessWeightBalance(container, result);
   const beforeFloor = analyzeFloorLoad(container, source, 12, 4);
