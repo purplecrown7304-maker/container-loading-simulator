@@ -32,9 +32,9 @@ const BoxLoadingViewer = lazy(() => import('./BoxLoadingViewer'));
 const PalletModePanel = lazy(() => import('./PalletModePanel'));
 
 const defaultContainer: ContainerSpec = {
-  length: 12.03,
-  width: 2.35,
-  height: 2.69,
+  length: 12.032,
+  width: 2.352,
+  height: 2.698,
   maxPayloadKg: 26500,
   floorLoadLimitKgPerM2: 1500,
   floorLoadWarningMultiplier: 3,
