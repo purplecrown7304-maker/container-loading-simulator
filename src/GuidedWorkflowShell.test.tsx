@@ -62,9 +62,8 @@ async function prepareStrategy() {
   expect(action().disabled).toBe(false);
   await click(action());
   expect(modal().getAttribute('aria-label')).toBe('적재 방식 선택 설정');
-  const capacity = Array.from(modal().querySelectorAll<HTMLButtonElement>('[role="radio"]')).find(button => button.textContent!.includes('공간효율'))!;
-  await click(capacity);
-  expect(capacity.getAttribute('aria-checked')).toBe('true');
+  await settle();
+  expect(modal().textContent).toContain('load-sim 규칙 적용');
   expect(action().disabled).toBe(false);
 }
 
@@ -103,7 +102,7 @@ it('retains packaging confirmation and strategy across modal reopens, but resets
   for (const number of [1, 2, 3, 4]) { await open(number); await close(); }
   await open(4);
   expect(action().disabled).toBe(false);
-  expect(action().textContent).toContain('선택 완료');
+  expect(action().textContent).toContain('규칙 확인 완료');
   await click(action());
   expect(backdrop().hidden).toBe(true);
   expect(action().textContent).toContain('최종 적재 진행');
@@ -117,7 +116,7 @@ it('retains packaging confirmation and strategy across modal reopens, but resets
   expect(modal().querySelector('.guided-packaging-list')!.textContent).toContain('4 EA');
   await click(action());
   expect(readStoredState()!.cargo[0].quantity).toBe(4);
-  expect(action().disabled).toBe(true); // The new shipment needs a deliberate strategy choice.
+  expect(action().disabled).toBe(false); // load-sim 규칙은 별도 전략 선택 없이 자동 적용된다.
 });
 
 it('keeps completed results and canvas available through result-modal close/reopen without republishing a plan', async () => {
