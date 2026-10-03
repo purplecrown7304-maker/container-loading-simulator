@@ -294,7 +294,9 @@ export function consolidateFinalSparsePallets(
   while (changed) {
     changed = false;
     const topLoads = pallets
-      .filter(load => load.cargoPlacements.length > 0 && isTop(load, pallets))
+      // Keep owner rule #97 intact: regular pallets and the final residual pool
+      // stay separate. This pass only removes an avoidable *second mixed tail*.
+      .filter(load => Boolean(load.isMixedTail) && load.cargoPlacements.length > 0 && isTop(load, pallets))
       .sort((a, b) => a.cargoWeightKg - b.cargoWeightKg || b.stackLevel - a.stackLevel || a.palletIndex - b.palletIndex);
 
     outer: for (const source of topLoads) {
