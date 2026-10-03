@@ -9,7 +9,8 @@ import { containerInputError, preflightCargoInput } from './inputPreflight';
 import { completeResidualPacking } from './residualPacking';
 import { settleSparseTopLayer } from './topLayerSettling';
 import { loadContainerWithLoadSim } from '../rule-engine/loadSimEngine';
-import type { RuleEngineMode } from '../rule-engine/mode';
+import { readRuleEngineMode, type RuleEngineMode } from '../rule-engine/mode';
+import { validateExistingWithLoadSim } from '../rule-engine/loadSimEngine';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -55,8 +56,22 @@ export function pendingLoadingResult(container: ContainerSpec, cargo: CargoItem[
 /** Restore an explicitly applied layout without re-solving it on storage events. */
 export function restoreLoadingResult(container: ContainerSpec, cargo: CargoItem[]): LoadingResult {
   const manual = readManualOverride(container, cargo);
-  if (!manual || auditLoading(container, cargo, manual.placements).length > 0) return pendingLoadingResult(container, cargo);
-  const restored = { ...manual, operationalFindings: validateOperationalLoading(container, cargo, manual.placements) };
+  if (!manual) return pendingLoadingResult(container, cargo);
+  const mode = readRuleEngineMode();
+  if (mode === 'load-sim') {
+    const checked = validateExistingWithLoadSim(container, cargo, manual.placements);
+    if (checked.validationIssues.length > 0) return pendingLoadingResult(container, cargo);
+    const restored: LoadingResult = {
+      ...manual,
+      validationIssues: checked.validationIssues,
+      operationalFindings: checked.operationalFindings,
+      ruleEngine: 'load-sim',
+    };
+    publishLoadingResult(container, cargo, restored);
+    return restored;
+  }
+  if (auditLoading(container, cargo, manual.placements).length > 0) return pendingLoadingResult(container, cargo);
+  const restored = { ...manual, operationalFindings: validateOperationalLoading(container, cargo, manual.placements), ruleEngine: 'legacy' as const };
   publishLoadingResult(container, cargo, restored);
   return restored;
 }
