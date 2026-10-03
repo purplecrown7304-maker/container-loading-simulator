@@ -159,7 +159,7 @@ function finding(v: Violation, indexByItemId: Map<string, number[]>): Operationa
   };
 }
 
-function legacyIssues(findings: OperationalRuleFinding[]): ValidationIssue[] {
+export function legacyIssuesFromLoadSim(findings: OperationalRuleFinding[]): ValidationIssue[] {
   return findings
     .filter(v => v.severity === 'error')
     .map(v => ({
@@ -209,7 +209,7 @@ export function packWithLoadSimRules(container: ContainerSpec, cargo: CargoItem[
     remaining: remainingFromUnplaced(packed.unplaced, originalId),
     loadedWeightKg: packed.validation.metrics.totalWeight,
     usedVolumeM3: placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0),
-    validationIssues: legacyIssues(findings),
+    validationIssues: legacyIssuesFromLoadSim(findings),
     operationalFindings: findings,
     autoCorrections: [],
   };
