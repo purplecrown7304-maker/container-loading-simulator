@@ -27,6 +27,8 @@ export type TransportEquipment = {
   height: number;
   maxPayloadKg: number;
   floorLoadLimitKgPerM2: number;
+  tareKg?: number;
+  floorLineLoadKgPerM?: number;
   doorWidth?: number;
   doorHeight?: number;
   volumeM3?: number;
@@ -42,10 +44,10 @@ const containerSource = 'Hapag-Lloyd / Maersk 대표 장비값';
 const truckSource = 'DSV / 국제 도로운송 대표 장비값';
 
 export const CONTAINER_EQUIPMENT: TransportEquipment[] = [
-  { id: '20-standard', category: 'container', name: "20' STANDARD", shortName: '20FT Standard', geometry: 'closed', length: 5.9, width: 2.352, height: 2.395, maxPayloadKg: 28130, floorLoadLimitKgPerM2: 1500, doorWidth: 2.34, doorHeight: 2.292, volumeM3: 33.2, sourceLabel: containerSource },
-  { id: '40-standard', category: 'container', name: "40' STANDARD", shortName: '40FT Standard', geometry: 'closed', length: 12.032, width: 2.352, height: 2.395, maxPayloadKg: 28750, floorLoadLimitKgPerM2: 1500, doorWidth: 2.34, doorHeight: 2.292, volumeM3: 67.7, sourceLabel: containerSource },
-  { id: '40-high-cube', category: 'container', name: "40' HIGH-CUBE", shortName: '40FT High Cube', geometry: 'closed', length: 12.032, width: 2.35, height: 2.7, maxPayloadKg: 28600, floorLoadLimitKgPerM2: 1500, doorWidth: 2.34, doorHeight: 2.597, volumeM3: 76.3, sourceLabel: containerSource },
-  { id: '45-high-cube', category: 'container', name: "45' HIGH-CUBE", shortName: '45FT High Cube', geometry: 'closed', length: 13.556, width: 2.352, height: 2.7, maxPayloadKg: 27700, floorLoadLimitKgPerM2: 1500, doorWidth: 2.34, doorHeight: 2.597, volumeM3: 86, sourceLabel: containerSource },
+  { id: '20-standard', category: 'container', name: "20' STANDARD", shortName: '20FT Standard', geometry: 'closed', length: 5.9, width: 2.352, height: 2.395, maxPayloadKg: 28130, floorLoadLimitKgPerM2: 1500, tareKg: 2200, floorLineLoadKgPerM: 4500, doorWidth: 2.34, doorHeight: 2.292, volumeM3: 33.2, sourceLabel: containerSource },
+  { id: '40-standard', category: 'container', name: "40' STANDARD", shortName: '40FT Standard', geometry: 'closed', length: 12.032, width: 2.352, height: 2.395, maxPayloadKg: 28750, floorLoadLimitKgPerM2: 1500, tareKg: 3800, floorLineLoadKgPerM: 3000, doorWidth: 2.34, doorHeight: 2.292, volumeM3: 67.7, sourceLabel: containerSource },
+  { id: '40-high-cube', category: 'container', name: "40' HIGH-CUBE", shortName: '40FT High Cube', geometry: 'closed', length: 12.032, width: 2.35, height: 2.7, maxPayloadKg: 28600, floorLoadLimitKgPerM2: 1500, tareKg: 3900, floorLineLoadKgPerM: 3000, doorWidth: 2.34, doorHeight: 2.597, volumeM3: 76.3, sourceLabel: containerSource },
+  { id: '45-high-cube', category: 'container', name: "45' HIGH-CUBE", shortName: '45FT High Cube', geometry: 'closed', length: 13.556, width: 2.352, height: 2.7, maxPayloadKg: 27700, floorLoadLimitKgPerM2: 1500, tareKg: 4800, floorLineLoadKgPerM: 3000, doorWidth: 2.34, doorHeight: 2.597, volumeM3: 86, sourceLabel: containerSource },
   { id: '20-open-top', category: 'container', name: "20' OPEN TOP", shortName: '20FT Open Top', geometry: 'open-top', length: 5.895, width: 2.35, height: 2.34, maxPayloadKg: 30050, floorLoadLimitKgPerM2: 1500, doorWidth: 2.338, doorHeight: 2.28, volumeM3: 32.5, topLoading: true, sourceLabel: containerSource, note: '천장 개방형. 기본 계산은 등록된 내부 높이를 안전 한계로 사용합니다.' },
   { id: '40-open-top', category: 'container', name: "40' OPEN TOP", shortName: '40FT Open Top', geometry: 'open-top', length: 12.029, width: 2.35, height: 2.344, maxPayloadKg: 28450, floorLoadLimitKgPerM2: 1500, doorWidth: 2.34, doorHeight: 2.276, volumeM3: 66.8, topLoading: true, sourceLabel: containerSource, note: '천장 개방형. OOG 초과높이는 실제 운송조건 확인 후 사용자 규격으로 조정하세요.' },
   { id: '20-flatrack', category: 'container', name: "20' FLATRACK", shortName: '20FT Flatrack', geometry: 'flat-rack', length: 5.638, width: 2.438, height: 2.233, maxPayloadKg: 42100, floorLoadLimitKgPerM2: 2000, topLoading: true, sideLoading: true, sourceLabel: containerSource, note: '측면/상부 개방. 시뮬레이터는 안전상 입력 폭·높이를 기본 적재 한계로 사용합니다.' },

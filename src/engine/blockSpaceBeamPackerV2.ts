@@ -2,6 +2,7 @@ import type { CargoItem, ContainerSpec, Placement } from './types';
 import { isInsideContainer, overlaps } from './constraints';
 import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules } from './stacking';
+import { allowedCargoOrientations, orientedCargoSize } from './cargoOrientation';
 
 const EPS = 1e-9;
 const TOUCH = 0.0015;
@@ -23,7 +24,7 @@ export type BeamPackingOutput = {
 };
 
 export type Space = { x: number; y: number; z: number; length: number; width: number; height: number };
-type Orientation = { boxLength: number; boxWidth: number; rotated: boolean };
+type Orientation = { boxLength: number; boxWidth: number; boxHeight: number; rotated: boolean; orientation: import('./types').CargoOrientation };
 type Block = Orientation & {
   item: CargoItem;
   nx: number;
@@ -60,9 +61,16 @@ type Context = {
 type ContactMetrics = { allArea: number; sameSkuArea: number };
 
 function orientations(item: CargoItem): Orientation[] {
-  const normal = { boxLength: item.length, boxWidth: item.width, rotated: false };
-  if (item.allowRotation === false || Math.abs(item.length - item.width) <= EPS) return [normal];
-  return [normal, { boxLength: item.width, boxWidth: item.length, rotated: true }];
+  return allowedCargoOrientations(item).map(orientation => {
+    const size = orientedCargoSize(item, orientation);
+    return {
+      boxLength: size.length,
+      boxWidth: size.width,
+      boxHeight: size.height,
+      rotated: orientation !== 'LWH',
+      orientation,
+    };
+  });
 }
 
 function fitCount(available: number, size: number) {
@@ -90,7 +98,7 @@ function blocksFor(item: CargoItem, remaining: number, space: Space, allowSingle
   for (const orientation of orientations(item)) {
     const maxX = fitCount(space.length, orientation.boxLength);
     const maxY = fitCount(space.width, orientation.boxWidth);
-    const maxZ = Math.min(fitCount(space.height, item.height), safeLayers(item));
+    const maxZ = Math.min(fitCount(space.height, orientation.boxHeight), safeLayers(item));
     if (maxX < 1 || maxY < 1 || maxZ < 1) continue;
 
     const variants: Block[] = [];
@@ -99,7 +107,7 @@ function blocksFor(item: CargoItem, remaining: number, space: Space, allowSingle
       const quantity = nx * ny * nz;
       const rigidUnit = item.unitKind === 'pallet';
       if (quantity > remaining || (!allowSingles && quantity < 2 && !rigidUnit)) continue;
-      const key = `${orientation.rotated ? 1 : 0}:${nx}:${ny}:${nz}`;
+      const key = `${orientation.orientation}:${nx}:${ny}:${nz}`;
       if (seen.has(key)) continue;
       seen.add(key);
       variants.push({
@@ -111,7 +119,7 @@ function blocksFor(item: CargoItem, remaining: number, space: Space, allowSingle
         quantity,
         length: round6(nx * orientation.boxLength),
         width: round6(ny * orientation.boxWidth),
-        height: round6(nz * item.height),
+        height: round6(nz * orientation.boxHeight),
         weightKg: item.weightKg * quantity,
         volumeM3: volumeOfItem(item) * quantity,
       });
@@ -139,12 +147,13 @@ function unitsOf(block: Block, x: number, y: number, z: number): Placement[] {
           cargoId: block.item.id,
           x: round6(x + ix * block.boxLength),
           y: round6(y + iy * block.boxWidth),
-          z: round6(z + iz * block.item.height),
+          z: round6(z + iz * block.boxHeight),
           length: block.boxLength,
           width: block.boxWidth,
-          height: block.item.height,
+          height: block.boxHeight,
           weightKg: block.item.weightKg,
           rotated: block.rotated,
+          orientation: block.orientation,
         });
       }
     }
@@ -163,6 +172,7 @@ function occupied(candidate: Candidate): Placement {
     height: candidate.block.height,
     weightKg: candidate.block.weightKg,
     rotated: candidate.block.rotated,
+    orientation: candidate.block.orientation,
   };
 }
 
@@ -228,8 +238,10 @@ function remainingAfterCandidate(item: CargoItem, state: State, candidate?: Cand
 }
 
 function itemFitsSpace(item: CargoItem, space: Space) {
-  if (item.height > space.height + EPS) return false;
-  return orientations(item).some((o) => o.boxLength <= space.length + EPS && o.boxWidth <= space.width + EPS);
+  return orientations(item).some((o) =>
+    o.boxLength <= space.length + EPS
+    && o.boxWidth <= space.width + EPS
+    && o.boxHeight <= space.height + EPS);
 }
 
 function spaceCanFitRemaining(space: Space, state: State, context: Context, candidate?: Candidate) {
@@ -241,8 +253,9 @@ function bestTilingFill(space: Space, state: State, context: Context, candidate?
   let best = 0;
   for (const item of context.cargo) {
     const left = remainingAfterCandidate(item, state, candidate);
-    if (left <= 0 || item.height > space.height + EPS) continue;
+    if (left <= 0) continue;
     for (const o of orientations(item)) {
+      if (o.boxHeight > space.height + EPS) continue;
       const nx = fitCount(space.length, o.boxLength);
       const ny = fitCount(space.width, o.boxWidth);
       if (nx < 1 || ny < 1) continue;

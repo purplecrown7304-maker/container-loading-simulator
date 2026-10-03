@@ -21,9 +21,9 @@ function safeRejectedQuantity(item: CargoItem) {
 function rowError(item: CargoItem) {
   if (!item.id?.trim()) return 'SKU 코드가 비어 있어 적재 대상에서 제외됨';
   if (!finitePositive(item.length) || !finitePositive(item.width) || !finitePositive(item.height)) {
-    return '박스 길이·폭·높이는 0보다 큰 유한한 값이어야 함';
+    return '화물 길이·폭·높이는 0보다 큰 유한한 값이어야 함';
   }
-  if (!finitePositive(item.weightKg)) return '박스 중량은 0보다 큰 유한한 값이어야 함';
+  if (!finitePositive(item.weightKg)) return '화물 중량은 0보다 큰 유한한 값이어야 함';
   if (!Number.isInteger(item.quantity) || item.quantity < 0) return '수량은 0 이상의 정수여야 함';
   if (item.maxStackLayers != null && (!Number.isInteger(item.maxStackLayers) || item.maxStackLayers < 1)) {
     return '최대 적층단은 1 이상의 정수여야 함';
@@ -44,7 +44,13 @@ function samePhysicalSpec(a: CargoItem, b: CargoItem) {
     && a.weightKg === b.weightKg
     && a.maxStackLayers === b.maxStackLayers
     && a.maxTopLoadKg === b.maxTopLoadKg
+    && (a.cargoType ?? 'carton') === (b.cargoType ?? 'carton')
     && a.allowRotation === b.allowRotation
+    && a.thisSideUp === b.thisSideUp
+    && a.canBePlacedOnTop === b.canBePlacedOnTop
+    && a.friction === b.friction
+    && a.segregationClass === b.segregationClass
+    && a.tempZone === b.tempZone
     && a.unloadPriority === b.unloadPriority;
 }
 
@@ -53,7 +59,7 @@ export function preflightCargoInput(rows: CargoItem[]): CargoPreflightResult {
   const valid: CargoItem[] = [];
 
   for (const row of rows) {
-    const normalized = { ...row, id: row.id?.trim() ?? '', name: row.name?.trim() ?? '' };
+    const normalized = { ...row, id: row.id?.trim() ?? '', name: row.name?.trim() ?? '', cargoType: row.cargoType ?? 'carton' as const };
     const error = rowError(normalized);
     if (error) {
       rejected.push({ cargoId: normalized.id || '(빈 SKU)', quantity: safeRejectedQuantity(normalized), reason: error });

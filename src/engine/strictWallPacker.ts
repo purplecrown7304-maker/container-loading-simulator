@@ -2,6 +2,7 @@ import type { CargoItem, ContainerSpec, Placement } from './types';
 import { isInsideContainer, overlaps } from './constraints';
 import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules } from './stacking';
+import { allowedCargoOrientations, orientedCargoSize } from './cargoOrientation';
 
 const EPS = 1e-9;
 const TOUCH = 0.0015;
@@ -24,7 +25,7 @@ export type StrictWallOutput = {
   usedVolumeM3: number;
 };
 
-type Orientation = { boxLength: number; boxWidth: number; rotated: boolean };
+type Orientation = { boxLength: number; boxWidth: number; boxHeight: number; rotated: boolean; orientation: import('./types').CargoOrientation };
 type Block = Orientation & {
   item: CargoItem;
   nx: number;
@@ -68,9 +69,16 @@ type Context = {
 };
 
 function orientations(item: CargoItem): Orientation[] {
-  const normal = { boxLength: item.length, boxWidth: item.width, rotated: false };
-  if (item.allowRotation === false || Math.abs(item.length - item.width) <= EPS) return [normal];
-  return [normal, { boxLength: item.width, boxWidth: item.length, rotated: true }];
+  return allowedCargoOrientations(item).map(orientation => {
+    const size = orientedCargoSize(item, orientation);
+    return {
+      boxLength: size.length,
+      boxWidth: size.width,
+      boxHeight: size.height,
+      rotated: orientation !== 'LWH',
+      orientation,
+    };
+  });
 }
 
 function fitCount(available: number, size: number) {
@@ -142,7 +150,7 @@ function blockOptionsForDepth(
       if (nx < 1 || Math.abs(nx * o.boxLength - depth) > 0.00001) continue;
       const maxNy = fitCount(widthLeft, o.boxWidth);
       if (maxNy < 1) continue;
-      const maxByHeight = Math.min(fitCount(context.container.height, item.height), safeLayers(item));
+      const maxByHeight = Math.min(fitCount(context.container.height, o.boxHeight), safeLayers(item));
       for (const ny of countOptions(maxNy)) {
         const footprintUnits = nx * ny;
         if (footprintUnits > left) continue;
@@ -159,7 +167,7 @@ function blockOptionsForDepth(
             quantity,
             length: depth,
             width: round6(ny * o.boxWidth),
-            height: round6(nz * item.height),
+            height: round6(nz * o.boxHeight),
             weightKg: quantity * item.weightKg,
             volumeM3: quantity * volumeOfItem(item),
           });
@@ -267,12 +275,13 @@ function blockPlacements(block: Block, x0: number, y0: number): Placement[] {
           cargoId: block.item.id,
           x: round6(x0 + ix * block.boxLength),
           y: round6(y0 + iy * block.boxWidth),
-          z: round6(iz * block.item.height),
+          z: round6(iz * block.boxHeight),
           length: block.boxLength,
           width: block.boxWidth,
-          height: block.item.height,
+          height: block.boxHeight,
           weightKg: block.item.weightKg,
           rotated: block.rotated,
+          orientation: block.orientation,
         });
       }
     }

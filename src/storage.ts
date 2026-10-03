@@ -9,7 +9,11 @@ export type StoredState = {
 };
 
 export function normalizeCargo(cargo: CargoItem[]): CargoItem[] {
-  return cargo.map((item) => ({ ...item, allowRotation: item.allowRotation !== false }));
+  return cargo.map((item) => ({
+    ...item,
+    cargoType: item.cargoType ?? 'carton',
+    allowRotation: item.allowRotation !== false,
+  }));
 }
 
 export function readStoredState(): StoredState | null {
