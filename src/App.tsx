@@ -8,7 +8,7 @@ import { containerInputError, preflightCargoInput } from './engine/inputPrefligh
 import { pendingLoadingResult, publishLoadingResult, restoreLoadingResult, type LoadingStrategy } from './engine/loadingEngine';
 import { readManualOverride } from './engine/manualOverride';
 import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
-import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
+import type { CargoItem, CargoLoadType, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
 import { GUIDED_LOADING_UNIT_EVENT, readGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingUnitState';
 import { shouldRenderGuidedViewer, useGuidedWorkflowState } from './guidedWorkflowState';
@@ -48,8 +48,18 @@ type StatusMessage = { tone: StatusTone; text: string };
 
 const emptyDraft: CargoDraft = {
   id: '', name: '', length: 0.5, width: 0.4, height: 0.3,
-  weightKg: 10, quantity: 1, maxStackLayers: 7, maxTopLoadKg: 100, allowRotation: true,
+  weightKg: 10, quantity: 1, loadType: 'carton', maxStackLayers: 7, maxTopLoadKg: 100, allowRotation: true,
 };
+const LOAD_TYPE_OPTIONS: Array<{ value: CargoLoadType; label: string }> = [
+  { value: 'carton', label: '루즈 카톤' },
+  { value: 'pallet', label: '파렛트 화물' },
+  { value: 'drum', label: '드럼' },
+  { value: 'bag', label: '톤백·포대' },
+  { value: 'roll', label: '롤·코일' },
+  { value: 'long', label: '장척물' },
+  { value: 'machine', label: '기계·중량물' },
+];
+const loadTypeLabel = (value?: CargoLoadType) => LOAD_TYPE_OPTIONS.find(option => option.value === (value ?? 'carton'))?.label ?? '루즈 카톤';
 const strategyLabel = (strategy: LoadingStrategy) => strategy === 'stability' ? '안정성 우선' : strategy === 'capacity' ? '적재율 우선' : '하역 우선';
 
 function LoadingFallback() {
@@ -127,12 +137,12 @@ export default function App() {
     clearPhysicsTarget();
     if (typeof window !== 'undefined') (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = undefined;
   };
-  const switchMode = (next: LoadingMode) => {
-    if (next === mode) return;
+  const switchMode = (_next: LoadingMode) => {
+    if (mode === 'boxes') return;
     invalidatePhysics();
     setPalletRunToken(0);
-    setMode(next);
-    announce('info', next === 'boxes' ? '박스 적재 모드로 전환했습니다.' : next === 'mixed' ? '박스 + 팔레트 혼합 적재 모드로 전환했습니다.' : '팔레트 적재 모드로 전환했습니다.');
+    setMode('boxes');
+    announce('info', '업로드한 load-sim 규칙 기반 단일 적재 엔진을 사용합니다. 화물 유형은 품목별로 지정합니다.');
   };
   const scrollToViewer = () => {
     setNavSection('viewer');
@@ -153,11 +163,11 @@ export default function App() {
   }, [equipment.id, equipment.length, equipment.width, equipment.height, equipment.maxPayloadKg, equipment.floorLoadLimitKgPerM2]);
 
   useEffect(() => {
-    if (!guidedWorkflowState.active || !guidedLoadingUnit || guidedLoadingUnit === mode) return;
+    if (!guidedWorkflowState.active || mode === 'boxes') return;
     invalidatePhysics();
     setPalletRunToken(0);
-    setMode(guidedLoadingUnit);
-    announce('info', guidedLoadingUnit === 'boxes' ? '박스 직접 적재 유형을 적용했습니다.' : '파렛트 적재 유형을 적용했습니다.');
+    setMode('boxes');
+    announce('info', '적재 유형은 품목별 화물 유형으로 통합되었습니다.');
   }, [guidedWorkflowState.active, guidedLoadingUnit, mode]);
 
   // Invalidate on input identity, never on workspace navigation or modal visibility.
@@ -235,7 +245,7 @@ export default function App() {
       setDraft(current => ({ ...current, maxTopLoadKg: undefined }));
       return;
     }
-    const numeric: Array<keyof CargoDraft> = ['length', 'width', 'height', 'weightKg', 'quantity', 'maxStackLayers', 'maxTopLoadKg'];
+    const numeric: Array<keyof CargoDraft> = ['length', 'width', 'height', 'weightKg', 'quantity', 'maxStackLayers', 'maxTopLoadKg', 'maxTopPressureKgPerM2', 'unloadPriority', 'friction'];
     setDraft(current => ({ ...current, [field]: numeric.includes(field) ? Number(value) : value }));
   };
   const resetDraft = () => { setDraft(emptyDraft); setEditingId(null); };
@@ -289,20 +299,7 @@ export default function App() {
     }
     const activeCargo = preflight.cargo;
     if (!activeCargo.length) return announce('warning', '적재할 화물이 없습니다. 본인의 박스 목록에서 화물을 등록하거나 선택하세요.');
-    const guidedWorkflowActive = guidedWorkflowState.active;
-    const preferredStrategy = guidedWorkflowActive ? readLoadingStrategyPreference() : null;
-    if (guidedWorkflowActive && !preferredStrategy) return announce('warning', '적재 방식을 먼저 선택해 주세요.');
-    if (mode === 'pallets' || mode === 'mixed') {
-      invalidatePhysics();
-      setIsRunning(true);
-      setOptimizationMessage('팔레트 배치 후보 계산 중…');
-      requestNextPalletCertification();
-      setPalletRunToken(token => token + 1);
-      announce('info', mode === 'mixed'
-        ? '혼합 최적화 중 · 가득 찬 팔레트는 유지하고 저효율 잔량 팔레트는 직접 박스로 전환해 같은 EMS에서 함께 배치합니다.'
-        : '팔레트 최적 적재 계산 후 관성 3종을 자동 검증합니다. PASS한 적재안만 최종 결과로 엽니다.');
-      return;
-    }
+    const preferredStrategy = null;
     setIsRunning(true);
     const runInputKey = inputKey;
     const controller = loadingRun.current.start();
@@ -313,7 +310,7 @@ export default function App() {
     setOptimizationProgress(0);
     setOptimizationEtaSeconds(null);
     optimizationStartedAt.current = performance.now();
-    announce('info', preferredStrategy ? `${strategyLabel(preferredStrategy)} 전략으로 물리 기반 적재 계산 중…` : '물리 기반 최적 적재 계산 중…');
+    announce('info', '업로드한 load-sim 규칙으로 자동 적재 계산 중…');
     try {
       const optimized = await optimizeLoadingWithPhysics(container, activeCargo, progress => {
         if (!ownsRun()) return;
@@ -322,7 +319,7 @@ export default function App() {
         const physicsProgress = Math.max(0, Math.min(1, progress.physicsProgress));
         const overallProgress = Math.max(0, Math.min(99, ((candidateIndex - 1 + physicsProgress) / candidateCount) * 100));
         setOptimizationProgress(overallProgress);
-        setOptimizationMessage(`후보 ${candidateIndex}/${candidateCount} · ${strategyLabel(progress.strategy)} · 물리검증 ${Math.round(physicsProgress * 100)}%`);
+        setOptimizationMessage(`load-sim 배치 ${candidateIndex}/${candidateCount} · 물리검증 ${Math.round(physicsProgress * 100)}%`);
         const startedAt = optimizationStartedAt.current;
         if (startedAt !== null && overallProgress >= 3) {
           const elapsedSeconds = Math.max(0.1, (performance.now() - startedAt) / 1000);
