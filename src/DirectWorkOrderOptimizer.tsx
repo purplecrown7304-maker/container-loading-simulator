@@ -185,7 +185,11 @@ export default function DirectWorkOrderOptimizer() {
 
         const evaluated: Evaluated = { ...candidate, certification, risk: certificationRisk(certification) };
         const approval = assessWorkOrderCertification(certification);
-        if (approval === 'pass' || approval === 'caution') {
+        // Manual work-order requests may proceed with a verified caution result.
+        // Automatic final loading is stricter: a caution baseline must continue
+        // through the low-CG re-layout candidates instead of freezing the tall
+        // first-pass arrangement on screen.
+        if (approval === 'pass' || (!automatic && approval === 'caution')) {
           finish({ ...evaluated, certification: { ...certification, searchNotice: searchNotice || undefined } }, automatic);
           return;
         }
