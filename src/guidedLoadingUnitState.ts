@@ -13,7 +13,7 @@ export function normalizeGuidedLoadingUnit(value: unknown): GuidedLoadingUnit | 
 }
 
 export function guidedLoadingUnitLabel(unit: GuidedLoadingUnit | null | undefined) {
-  if (unit === 'boxes') return '박스 직접 적재';
+  if (unit === 'boxes') return '화물 유형 적재';
   if (unit === 'pallets') return '파렛트 적재';
   return '적재 유형 미선택';
 }
