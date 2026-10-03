@@ -35,7 +35,7 @@ const load = (
   };
 };
 
-it('merges a sparse stacked tail into a compatible sparse floor pallet before shipping another base', () => {
+it('compacts a sparse stacked tail and the newly freed compatible floor base until stable', () => {
   const a = item('A', 60);
   const b = item('B', 40);
   const baseCargo = item('BASE', 300);
@@ -59,13 +59,13 @@ it('merges a sparse stacked tail into a compatible sparse floor pallet before sh
   };
 
   const compacted = consolidateFinalSparsePallets(input, container, [a, b, baseCargo], pallet, 'capacity');
-  expect(compacted.passes).toBe(1);
-  expect(compacted.result.palletCount).toBe(2);
+  expect(compacted.passes).toBe(2);
+  expect(compacted.result.palletCount).toBe(1);
   expect(compacted.result.placements).toHaveLength(3);
-  const merged = compacted.result.pallets.find(row => row.stackColumn === 1)!;
+  const merged = compacted.result.pallets[0];
   expect(merged.stackLevel).toBe(1);
-  expect(merged.cargoWeightKg).toBe(100);
-  expect(new Set(merged.cargoPlacements.map(box => box.cargoId))).toEqual(new Set(['A', 'B']));
+  expect(merged.cargoWeightKg).toBe(400);
+  expect(new Set(merged.cargoPlacements.map(box => box.cargoId))).toEqual(new Set(['A', 'B', 'BASE']));
   expect(merged.cargoWeightKg).toBeLessThanOrEqual(pallet.maxLoadKg);
 });
 
