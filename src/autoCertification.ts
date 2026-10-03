@@ -1,6 +1,5 @@
 import { requestDirectWorkOrder } from './directWorkOrderEvents';
 import { runPhysicsValidationSuite, type PhysicsScenario, type PhysicsValidationSuite } from './engine/physicsValidation';
-import { operationalErrors } from './engine/operationalValidator';
 import { createPhysicsTargetSignature, requestCertifiedResults } from './inertiaCertification';
 import { publishPhysicsTarget, readPhysicsTarget, subscribePhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
@@ -78,7 +77,7 @@ async function validateThenCertify(target: PhysicsTarget) {
   const runId = ++validationRunId;
   const signature = createPhysicsTargetSignature(target);
   const physicsWindow = window as FinalPhysicsWindow;
-  const hardFindings = operationalErrors(target.result.operationalFindings ?? []);
+  const hardFindings = (target.result.operationalFindings ?? []).filter(finding => finding.severity === 'error');
   if (hardFindings.length) {
     physicsWindow.__containerLoadingFinalPhysicsRunning = false;
     clearFinalPhysicsRecord();
