@@ -3,6 +3,7 @@ import {
   applyTopLayerFillPolicy,
   defaultPalletSpec,
   packOnPallets as packOnPalletsBase,
+  packCargoOnSinglePalletDensely,
   palletTopLayerFill,
   placeTopTierHolesInsideAll,
   type PalletLoad,
@@ -311,26 +312,19 @@ export function consolidateFinalSparsePallets(
 
         const pairCargo = cargoCountsFromLoads([target, source], cargoMap);
         const expected = target.cargoPlacements.length + source.cargoPlacements.length;
-        const virtualContainer: ContainerSpec = {
-          length: pallet.length,
-          width: pallet.width,
-          height: container.height,
-          maxPayloadKg: Math.min(
-            container.maxPayloadKg,
-            pallet.maxLoadKg + pallet.tareWeightKg + pallet.cornerGuardWeightKg + pallet.wrappingWeightKg,
-          ),
-        };
-        const packed = packOnPalletsBase(virtualContainer, pairCargo, { ...pallet, maxStackLevels: 1 }, strategy);
-        if (packed.palletCount !== 1 || packed.placements.length !== expected || packed.remaining.some(item => item.quantity > 0)) continue;
-
-        const merged = packed.pallets[0];
+        const merged = packCargoOnSinglePalletDensely(pairCargo, { ...pallet, maxStackLevels: 1 }, container, strategy);
+        if (!merged || merged.cargoPlacements.length !== expected) continue;
         const allowedCargoHeight = Math.max(loadCargoHeight(source), loadCargoHeight(target), handlingLimit);
         if (loadCargoHeight(merged) > allowedCargoHeight + CONSOLIDATION_HEIGHT_TOLERANCE_M) continue;
         const mergedTopFill = palletTopLayerFill(merged);
-        if (minimumTopFill > 0 && mergedTopFill + EPS < minimumTopFill) continue;
+        // Absorbing a final tail into a regular pallet must not recreate the sparse
+        // top tier that rule #97 intentionally split off. Two existing mixed tails
+        // may still collapse into one unavoidable final tail.
+        if (!target.isMixedTail && minimumTopFill > 0 && mergedTopFill + EPS < minimumTopFill) continue;
+        const remainsMixedTail = mergedTopFill + EPS < minimumTopFill;
 
         const shifted = moveLoad(
-          { ...merged, isMixedTail: undefined, stackLevel: 1, stackColumn: target.stackColumn },
+          { ...merged, isMixedTail: remainsMixedTail || undefined, stackLevel: 1, stackColumn: target.stackColumn },
           target.x,
           target.y,
           0,
