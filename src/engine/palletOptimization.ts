@@ -294,12 +294,16 @@ export function consolidateFinalSparsePallets(
   while (changed) {
     changed = false;
     const topLoads = pallets
-      // Keep owner rule #97 intact: regular pallets and the final residual pool
-      // stay separate. This pass only removes an avoidable *second mixed tail*.
-      .filter(load => Boolean(load.isMixedTail) && load.cargoPlacements.length > 0 && isTop(load, pallets))
+      .filter(load => load.cargoPlacements.length > 0 && isTop(load, pallets))
       .sort((a, b) => a.cargoWeightKg - b.cargoWeightKg || b.stackLevel - a.stackLevel || a.palletIndex - b.palletIndex);
+    const tailSources = topLoads.filter(load => Boolean(load.isMixedTail));
 
-    outer: for (const source of topLoads) {
+    // The final mixed tail may still fit into an existing regular floor pallet.
+    // Try to absorb the tail into any compatible top load, but only keep the merge
+    // when the repacked pallet itself satisfies the ordinary top-layer fill rule.
+    // This preserves rule #97 for genuinely sparse 4+4+1 style loads while allowing
+    // cases such as the live 111 kg + 85 kg pallets to become one dense unit load.
+    outer: for (const source of tailSources) {
       for (const target of topLoads) {
         if (source === target || target.stackLevel !== 1) continue;
         if (strategy === 'unloading' && stopOfLoad(source) !== stopOfLoad(target)) continue;
@@ -322,11 +326,11 @@ export function consolidateFinalSparsePallets(
         const merged = packed.pallets[0];
         const allowedCargoHeight = Math.max(loadCargoHeight(source), loadCargoHeight(target), handlingLimit);
         if (loadCargoHeight(merged) > allowedCargoHeight + CONSOLIDATION_HEIGHT_TOLERANCE_M) continue;
-        const inheritsTail = Boolean(source.isMixedTail || target.isMixedTail);
-        if (!inheritsTail && minimumTopFill > 0 && palletTopLayerFill(merged) + EPS < minimumTopFill) continue;
+        const mergedTopFill = palletTopLayerFill(merged);
+        if (minimumTopFill > 0 && mergedTopFill + EPS < minimumTopFill) continue;
 
         const shifted = moveLoad(
-          { ...merged, isMixedTail: inheritsTail || undefined, stackLevel: 1, stackColumn: target.stackColumn },
+          { ...merged, isMixedTail: undefined, stackLevel: 1, stackColumn: target.stackColumn },
           target.x,
           target.y,
           0,
