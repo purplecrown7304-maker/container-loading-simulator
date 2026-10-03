@@ -135,11 +135,12 @@ function toPlacement(p: RulePlacement, originalId: Map<string, string>): Placeme
     height: m(size.z),
     weightKg: p.item.weight,
     rotated: p.orientation !== 'LWH',
+    loadSimOrientation: p.orientation,
   };
 }
 
 function toRulePlacement(p: Placement, cargo: CargoItem, uniqueId: string): RulePlacement {
-  const orientation: Orientation = p.rotated === true ? 'WLH' : 'LWH';
+  const orientation: Orientation = p.loadSimOrientation ?? (p.rotated === true ? 'WLH' : 'LWH');
   return {
     item: ruleItem(cargo, uniqueId),
     pos: { x: mm(p.x), y: mm(p.y), z: mm(p.z) },
