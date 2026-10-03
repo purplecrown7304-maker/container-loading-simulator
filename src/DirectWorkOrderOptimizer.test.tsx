@@ -77,6 +77,71 @@ describe('work-order optimizer recovery', () => {
     expect((window as any).__containerLoadingLatestCertification.searchNotice).toContain('모든 후보를 탐색한 결과는 아닙니다');
   });
 
+
+
+  it('automatic final loading searches safer layouts when the baseline is only caution', async () => {
+    const caution: InertiaCertification = {
+      ...certification,
+      status: 'failed',
+      maxHorizontalShiftM: 0.02,
+      maxTiltDeg: 2.2,
+      passedScenarios: 0,
+      failedScenarios: ['acceleration', 'braking', 'cornering'],
+      results: {},
+    };
+    for (const scenario of ['acceleration', 'braking', 'cornering'] as const) {
+      caution.results[scenario] = {
+        scenario, fps: 0, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [],
+        maxHorizontalShiftM: 0.02, maxTiltDeg: 2.2,
+      };
+    }
+    const saferResult = {
+      ...target.result,
+      placements: [{ ...target.result.placements[0], x: 0.6 }],
+    };
+    const saferTarget: PhysicsTarget = { ...target, result: saferResult };
+    const passed: InertiaCertification = {
+      ...caution,
+      status: 'passed',
+      targetSignature: createPhysicsTargetSignature(saferTarget),
+      passedScenarios: 3,
+      failedScenarios: [],
+      maxHorizontalShiftM: 0.004,
+      maxTiltDeg: 0.6,
+      results: {},
+    };
+    for (const scenario of ['acceleration', 'braking', 'cornering'] as const) {
+      passed.results[scenario] = {
+        scenario, fps: 0, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [],
+        maxHorizontalShiftM: 0.004, maxTiltDeg: 0.6,
+      };
+    }
+
+    vi.mocked(runInertiaCertification)
+      .mockResolvedValueOnce(caution)
+      .mockResolvedValueOnce(passed);
+    vi.mocked(completeCertificationForWorkOrder)
+      .mockResolvedValueOnce(caution)
+      .mockResolvedValueOnce(passed);
+    vi.mocked(buildDirectResultReoptimizationCandidatesAsync).mockResolvedValue({
+      candidates: [{ label: '저중심 재배치', result: saferResult, target: saferTarget, staticPenalty: -1 }],
+      timedOut: false,
+    });
+
+    await act(async () => {
+      requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(buildDirectResultReoptimizationCandidatesAsync).toHaveBeenCalledOnce();
+    expect(runInertiaCertification).toHaveBeenCalledTimes(2);
+    expect((window as any).__containerLoadingLatestCertification.status).toBe('passed');
+    expect(createPhysicsTargetSignature((window as any).__containerLoadingPhysicsTarget)).toBe(createPhysicsTargetSignature(saferTarget));
+    expect(openLoadingReport).not.toHaveBeenCalled();
+  });
+
   it('closes immediately on cancel without issuing a report', async () => {
     await request();
     await click('계산 취소');
