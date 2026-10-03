@@ -33,8 +33,23 @@ export type CargoItem = {
   unitsPerPackage?: number;
   /** 박스 자중을 제외한, 이 적재단위 안 제품들의 실제 총중량. */
   contentWeightKg?: number;
-  /** 바닥면 기준 90도 회전 허용. 생략 시 허용으로 간주한다. */
+  /** 바닥면 기준 90도 회전 허용. legacy 엔진에서 사용한다. */
   allowRotation?: boolean;
+  /** 새 load-sim 규칙의 화물 유형. 미입력 legacy 데이터는 carton으로 해석한다. */
+  loadSimType?: 'carton' | 'pallet' | 'drum' | 'bag' | 'roll' | 'long' | 'machine';
+  /** 천지무용. 새 load-sim 규칙에서는 수직축 회전만 허용한다. */
+  thisSideUp?: boolean;
+  /** 새 규칙의 국부 상부 면압 허용값 kg/m². */
+  maxTopPressureKgPerM2?: number;
+  /** false면 다른 화물 위에 놓을 수 없다. */
+  canBePlacedOnTop?: boolean;
+  groupId?: string;
+  segregationClass?: string;
+  tempZone?: string;
+  /** 화물 고유 좌표 기준 무게중심 오프셋(m). */
+  cgOffsetM?: { l: number; w: number; h: number };
+  friction?: number;
+  forklift?: boolean;
   /** 하역 순서. 1이 가장 먼저 하역되며 큰 숫자일수록 컨테이너 안쪽에 배치하는 것을 우선한다. */
   unloadPriority?: number;
   /** 내부 최적화에서 이 적재단위 1개가 대표하는 실제 출하 EA. 일반 박스는 1. */
@@ -56,8 +71,9 @@ export type Placement = {
   width: number;
   height: number;
   weightKg: number;
-  /** 원래 길이/폭 대비 90도 회전되어 배치됐는지 여부 */
+  /** legacy 호환용 회전 여부. 6방향의 정확한 정보는 loadSimOrientation을 사용한다. */
   rotated?: boolean;
+  loadSimOrientation?: 'LWH' | 'WLH' | 'LHW' | 'HLW' | 'WHL' | 'HWL';
 };
 
 export type ValidationIssue = {
@@ -96,4 +112,8 @@ export type LoadingResult = {
   operationalFindings?: OperationalRuleFinding[];
   /** 적재 완료 후 자동 형상 보정이 실제 수행된 경우의 이력. */
   autoCorrections?: AutoCorrectionRecord[];
+  /** 비교·점진 전환용 규칙 엔진 메타데이터. */
+  ruleEngine?: 'legacy' | 'load-sim';
+  ruleEngineStrategy?: string;
+  loadSimShift?: { x: number; y: number };
 };
