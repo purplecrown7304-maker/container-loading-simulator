@@ -535,6 +535,28 @@ function makeDenseLoad(index: number, placements: Placement[], pallet: PalletSpe
 }
 
 /**
+ * Repack a known set of cartons onto exactly one pallet with the block-space beam
+ * solver. This is used by late consolidation after the top-layer policy, where the
+ * linear slot grid may miss mixed-orientation layouts that physically fit.
+ */
+export function packCargoOnSinglePalletDensely(
+  cargo: CargoItem[],
+  pallet: PalletSpec,
+  container: ContainerSpec,
+  strategy: Strategy = 'capacity',
+): PalletLoad | null {
+  const requested = cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
+  if (!requested) return null;
+  const packed = densePackOnePallet(cargo, pallet, container, strategy);
+  if (!packed || packed.placements.length !== requested || packed.remaining.some(item => item.quantity > 0)) return null;
+  const load = makeDenseLoad(1, packed.placements, pallet);
+  applyMinimumPackaging([load], pallet);
+  load.centerOfGravity = palletCog(load, pallet);
+  if (palletTop(load) > container.height + EPS) return null;
+  return load;
+}
+
+/**
  * Rebuild all already-loadable cartons into the fewest dense pallet loads we can find.
  * Loaded quantity is frozen before this pass, so pallet reduction can never be achieved
  * by silently dropping cartons. For non-unloading strategies all compatible SKUs compete
