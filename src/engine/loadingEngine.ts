@@ -8,12 +8,14 @@ import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
 import { completeResidualPacking } from './residualPacking';
 import { settleSparseTopLayer } from './topLayerSettling';
+import { loadContainerWithLoadSim } from '../rule-engine/loadSimEngine';
+import type { RuleEngineMode } from '../rule-engine/mode';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
 export const LOADING_STRATEGY_STORAGE_KEY = 'container-loading-strategy';
 export type LoadingStrategy = 'capacity' | 'stability' | 'unloading';
-export type LoadingOptions = { strategy?: LoadingStrategy; publish?: boolean };
+export type LoadingOptions = { strategy?: LoadingStrategy; publish?: boolean; ruleEngineMode?: RuleEngineMode };
 
 type CorrectionWindow = Window & {
   __containerLoadingAutoCorrections?: AutoCorrectionRecord[];
@@ -125,6 +127,11 @@ function orientForUnloading(container: ContainerSpec, cargo: CargoItem[], placem
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
   const shouldPublish = options.publish !== false;
+  if (options.ruleEngineMode === 'load-sim') {
+    const next = loadContainerWithLoadSim(container, cargo);
+    if (shouldPublish) publishLoadingResult(container, cargo, next);
+    return next;
+  }
   const preflight = preflightCargoInput(cargo);
   const normalizedCargo = preflight.cargo;
   const invalidContainer = containerInputError(container);
@@ -141,6 +148,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
       validationIssues: [],
       operationalFindings: [],
       autoCorrections: [],
+      ruleEngine: 'legacy',
     };
     if (shouldPublish) {
       publishLoadingResult(container, normalizedCargo, result);
@@ -176,6 +184,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     validationIssues: auditLoading(container, normalizedCargo, finalPlacements),
     operationalFindings: validateOperationalLoading(container, normalizedCargo, finalPlacements),
     autoCorrections: [],
+    ruleEngine: 'legacy',
   };
 
   if (shouldPublish) {
