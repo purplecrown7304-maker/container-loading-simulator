@@ -9,7 +9,8 @@ const store = createExternalStore<GuidedLoadingUnit | null>(null);
 let hydrated = false;
 
 export function normalizeGuidedLoadingUnit(value: unknown): GuidedLoadingUnit | null {
-  return value === 'boxes' || value === 'pallets' ? value : null;
+  // load-sim 규칙으로 단일화: 기존 boxes/pallets 선택값은 모두 일반 화물 유형 적재로 마이그레이션한다.
+  return value === 'boxes' || value === 'pallets' ? 'boxes' : null;
 }
 
 export function guidedLoadingUnitLabel(unit: GuidedLoadingUnit | null | undefined) {
