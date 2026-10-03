@@ -3,6 +3,7 @@ import {
   applyTopLayerFillPolicy,
   defaultPalletSpec,
   packOnPallets as packOnPalletsBase,
+  palletTopLayerFill,
   placeTopTierHolesInsideAll,
   type PalletLoad,
   type PalletPackingResult,
@@ -261,6 +262,89 @@ function consolidateUntilStable(
 }
 
 /**
+ * Final residual-pallet compaction.
+ *
+ * The top-layer policy can intentionally create a mixed tail after the ordinary
+ * consolidation pass. If another top-of-column pallet still exists on the floor,
+ * repack the pair together and remove the extra pallet whenever every carton fits
+ * one pallet under the same hard weight/geometry/stacking constraints.
+ *
+ * A floor target is required so removing a stacked source never increases the load
+ * carried by another pallet. Unloading mode only combines the same stop.
+ */
+function consolidateFinalSparsePallets(
+  input: PalletPackingResult,
+  container: ContainerSpec,
+  cargo: CargoItem[],
+  pallet: PalletSpec,
+  strategy: LoadingStrategy,
+) {
+  if (input.pallets.length < 2) return { result: input, passes: 0 };
+  const cargoMap = new Map(cargo.map(item => [item.id, item]));
+  const stopOfLoad = (load: PalletLoad) => cargoMap.get(load.cargoPlacements[0]?.cargoId)?.unloadPriority ?? 0;
+  const isTop = (load: PalletLoad, all: PalletLoad[]) =>
+    !all.some(other => other !== load && other.stackColumn === load.stackColumn && other.stackLevel > load.stackLevel);
+  const shortSide = Math.min(pallet.length, pallet.width);
+  const handlingLimit = shortSide * (pallet.minimizePackaging ? 2 : STABLE_UNIT_LOAD_HEIGHT_RATIO);
+  const minimumTopFill = pallet.minTopLayerFillRatio ?? 0.5;
+
+  let pallets = input.pallets.map(cloneLoad);
+  let passes = 0;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const topLoads = pallets
+      .filter(load => load.cargoPlacements.length > 0 && isTop(load, pallets))
+      .sort((a, b) => a.cargoWeightKg - b.cargoWeightKg || b.stackLevel - a.stackLevel || a.palletIndex - b.palletIndex);
+
+    outer: for (const source of topLoads) {
+      for (const target of topLoads) {
+        if (source === target || target.stackLevel !== 1) continue;
+        if (strategy === 'unloading' && stopOfLoad(source) !== stopOfLoad(target)) continue;
+        if (source.cargoWeightKg + target.cargoWeightKg > pallet.maxLoadKg + EPS) continue;
+
+        const pairCargo = cargoCountsFromLoads([target, source], cargoMap);
+        const expected = target.cargoPlacements.length + source.cargoPlacements.length;
+        const virtualContainer: ContainerSpec = {
+          length: pallet.length,
+          width: pallet.width,
+          height: container.height,
+          maxPayloadKg: Math.min(
+            container.maxPayloadKg,
+            pallet.maxLoadKg + pallet.tareWeightKg + pallet.cornerGuardWeightKg + pallet.wrappingWeightKg,
+          ),
+        };
+        const packed = packOnPalletsBase(virtualContainer, pairCargo, { ...pallet, maxStackLevels: 1 }, strategy);
+        if (packed.palletCount !== 1 || packed.placements.length !== expected || packed.remaining.some(item => item.quantity > 0)) continue;
+
+        const merged = packed.pallets[0];
+        const allowedCargoHeight = Math.max(loadCargoHeight(source), loadCargoHeight(target), handlingLimit);
+        if (loadCargoHeight(merged) > allowedCargoHeight + CONSOLIDATION_HEIGHT_TOLERANCE_M) continue;
+        const inheritsTail = Boolean(source.isMixedTail || target.isMixedTail);
+        if (!inheritsTail && minimumTopFill > 0 && palletTopLayerFill(merged) + EPS < minimumTopFill) continue;
+
+        const shifted = moveLoad(
+          { ...merged, isMixedTail: inheritsTail || undefined, stackLevel: 1, stackColumn: target.stackColumn },
+          target.x,
+          target.y,
+          0,
+        );
+        const targetIndex = pallets.indexOf(target);
+        const sourceIndex = pallets.indexOf(source);
+        if (targetIndex < 0 || sourceIndex < 0) continue;
+        pallets[targetIndex] = shifted;
+        pallets.splice(sourceIndex, 1);
+        passes += 1;
+        changed = true;
+        break outer;
+      }
+    }
+  }
+
+  return { result: rebuildMetrics(input, pallets, passes, container), passes };
+}
+
+/**
  * Field practice for every strategy: cartons from a nearly empty pallet go onto the
  * spare top layers of other pallets instead of shipping as their own pallet. The
  * unit-load height may grow up to the tallest load already accepted in this result,
@@ -444,7 +528,9 @@ export function packOnPallets(
     const consolidated = strategy === 'unloading' ? { result: packed, passes: 0 } : consolidateUntilStable(packed, container, candidateCargo, pallet);
     // Declared carton limits (not the per-target planning cap) govern the absorb pass.
     const absorbed = absorbIntoSpareTopLayers(consolidated.result, container, normalizedCargo, pallet, strategy);
-    candidates.push({ result: applyTopLayerFillPolicy(absorbed.result, normalizedCargo, { ...pallet, maxStackLevels: target }, container, strategy), target, passes: consolidated.passes + absorbed.passes });
+    const topLayered = applyTopLayerFillPolicy(absorbed.result, normalizedCargo, { ...pallet, maxStackLevels: target }, container, strategy);
+    const finalConsolidated = consolidateFinalSparsePallets(topLayered, container, normalizedCargo, { ...pallet, maxStackLevels: target }, strategy);
+    candidates.push({ result: finalConsolidated.result, target, passes: consolidated.passes + absorbed.passes + finalConsolidated.passes });
   }
 
   // Compare low unit loads before minimizing the number of pallet bases.
@@ -456,7 +542,9 @@ export function packOnPallets(
     const lowCargo = normalizedCargo.map(item => ({ ...item, maxStackLayers: Math.min(item.maxStackLayers ?? Infinity, Math.max(1, Math.floor((height + EPS) / item.height))) }));
     const packed = packOnPalletsBase(container, lowCargo, pallet, strategy);
     const absorbed = absorbIntoSpareTopLayers(packed, container, normalizedCargo, pallet, strategy);
-    candidates.push({ result: applyTopLayerFillPolicy(absorbed.result, normalizedCargo, pallet, container, strategy), target: pallet.maxStackLevels, passes: absorbed.passes });
+    const topLayered = applyTopLayerFillPolicy(absorbed.result, normalizedCargo, pallet, container, strategy);
+    const finalConsolidated = consolidateFinalSparsePallets(topLayered, container, normalizedCargo, pallet, strategy);
+    candidates.push({ result: finalConsolidated.result, target: pallet.maxStackLevels, passes: absorbed.passes + finalConsolidated.passes });
   }
   const preference = (a: PalletPackingResult, b: PalletPackingResult) => {
     if (a.placements.length !== b.placements.length) return a.placements.length > b.placements.length;
