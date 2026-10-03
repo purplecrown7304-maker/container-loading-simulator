@@ -3,7 +3,9 @@ export type ContainerSpec = {
   width: number;
   height: number;
   maxPayloadKg: number;
-  /** 컨테이너/운영 기준 바닥 허용하중. 미입력 시 1,500 kg/m²를 사용한다. */
+  /** 업로드 load-sim 규칙의 X방향 바닥 허용 선하중 kg/m. */
+  floorLineLoadKgPerM?: number;
+  /** 레거시 UI 호환 필드. 새 규칙 판정에는 사용하지 않는다. */
   floorLoadLimitKgPerM2?: number;
   /** 평균 바닥하중 대비 국부하중 경고 배수. 미입력 시 3배를 사용한다. */
   floorLoadWarningMultiplier?: number;
