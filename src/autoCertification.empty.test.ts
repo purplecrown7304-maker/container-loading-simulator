@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { cancelPendingCertification, FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT, FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, NO_LOAD_RESULT_EVENT, requestExactCertification, requestNextPalletCertification } from './autoCertification';
+import { cancelPendingCertification, FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT, FINAL_PHYSICS_VALIDATION_ERROR_EVENT, FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, NO_LOAD_RESULT_EVENT, requestExactCertification, requestNextPalletCertification } from './autoCertification';
 import { publishPhysicsTarget, clearPhysicsTarget } from './physicsTarget';
 import { runPhysicsValidationSuite } from './engine/physicsValidation';
 import type { PhysicsTarget } from './physicsTarget';
@@ -46,4 +46,25 @@ it('ignores late progress and completion from cancelled final validation', async
   expect(progress).not.toHaveBeenCalled(); expect(complete).not.toHaveBeenCalled();
   window.removeEventListener(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, progress);
   window.removeEventListener(FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT, complete);
+});
+
+
+it('blocks physics certification when the applied operational validator has hard errors', async () => {
+  const failed = vi.fn();
+  window.addEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, failed);
+  requestExactCertification({
+    mode: 'boxes',
+    container: { length: 4, width: 2, height: 2, maxPayloadKg: 1000 },
+    cargo: [{ id: 'A', name: 'A', length: 1, width: 1, height: .5, weightKg: 100, quantity: 1 }],
+    result: {
+      placements: [{ cargoId: 'A', x: 0, y: 0, z: 0, length: 1, width: 1, height: .5, weightKg: 100 }],
+      remaining: [], loadedWeightKg: 100, usedVolumeM3: .5, validationIssues: [],
+      operationalFindings: [{ code: 'CG_LONGITUDINAL', severity: 'error', message: '무게중심 오류', placementIndexes: [] }],
+    },
+  });
+  await Promise.resolve();
+  expect(runPhysicsValidationSuite).not.toHaveBeenCalled();
+  expect(failed).toHaveBeenCalledOnce();
+  expect((failed.mock.calls[0][0] as CustomEvent).detail.error).toContain('운영 규칙 검증 실패');
+  window.removeEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, failed);
 });
