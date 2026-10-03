@@ -142,6 +142,69 @@ describe('work-order optimizer recovery', () => {
     expect(openLoadingReport).not.toHaveBeenCalled();
   });
 
+
+
+  it('automatic final loading still compares low-CG candidates when the tall baseline already passes', async () => {
+    const baselinePass: InertiaCertification = {
+      ...certification,
+      status: 'passed',
+      testedScenarios: 3,
+      passedScenarios: 3,
+      failedScenarios: [],
+      maxHorizontalShiftM: 0.011,
+      maxTiltDeg: 1.7,
+      results: {},
+    };
+    for (const scenario of ['acceleration', 'braking', 'cornering'] as const) {
+      baselinePass.results[scenario] = {
+        scenario, fps: 0, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [],
+        maxHorizontalShiftM: 0.011, maxTiltDeg: 1.7,
+      };
+    }
+    const saferResult = {
+      ...target.result,
+      placements: [{ ...target.result.placements[0], x: 0.8 }],
+    };
+    const saferTarget: PhysicsTarget = { ...target, result: saferResult };
+    const saferPass: InertiaCertification = {
+      ...baselinePass,
+      targetSignature: createPhysicsTargetSignature(saferTarget),
+      maxHorizontalShiftM: 0.002,
+      maxTiltDeg: 0.3,
+      results: {},
+    };
+    for (const scenario of ['acceleration', 'braking', 'cornering'] as const) {
+      saferPass.results[scenario] = {
+        scenario, fps: 0, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [],
+        maxHorizontalShiftM: 0.002, maxTiltDeg: 0.3,
+      };
+    }
+
+    vi.mocked(runInertiaCertification)
+      .mockResolvedValueOnce(baselinePass)
+      .mockResolvedValueOnce(saferPass);
+    vi.mocked(completeCertificationForWorkOrder)
+      .mockResolvedValueOnce(baselinePass)
+      .mockResolvedValueOnce(saferPass);
+    vi.mocked(buildDirectResultReoptimizationCandidatesAsync).mockResolvedValue({
+      candidates: [{ label: '저중심 재배치', result: saferResult, target: saferTarget, staticPenalty: -1 }],
+      timedOut: false,
+    });
+
+    await act(async () => {
+      requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(buildDirectResultReoptimizationCandidatesAsync).toHaveBeenCalledOnce();
+    expect(runInertiaCertification).toHaveBeenCalledTimes(2);
+    expect(createPhysicsTargetSignature((window as any).__containerLoadingPhysicsTarget)).toBe(createPhysicsTargetSignature(saferTarget));
+    expect((window as any).__containerLoadingLatestCertification.maxTiltDeg).toBe(0.3);
+    expect(openLoadingReport).not.toHaveBeenCalled();
+  });
+
   it('closes immediately on cancel without issuing a report', async () => {
     await request();
     await click('계산 취소');
