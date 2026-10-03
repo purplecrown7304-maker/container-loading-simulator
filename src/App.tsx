@@ -47,9 +47,14 @@ type StatusTone = 'success' | 'warning' | 'error' | 'info';
 type StatusMessage = { tone: StatusTone; text: string };
 
 const emptyDraft: CargoDraft = {
-  id: '', name: '', length: 0.5, width: 0.4, height: 0.3,
-  weightKg: 10, quantity: 1, maxStackLayers: 7, maxTopLoadKg: 100, allowRotation: true,
+  id: '', name: '', cargoType: 'carton', length: 0.5, width: 0.4, height: 0.3,
+  weightKg: 10, quantity: 1, maxStackLayers: undefined, maxTopLoadKg: undefined,
+  allowRotation: true, thisSideUp: false,
 };
+const cargoTypeLabel = (type: CargoItem['cargoType']) => ({
+  carton: '카톤', pallet: '파렛트', drum: '드럼', bag: '톤백/포대',
+  roll: '롤/코일', long: '장척물', machine: '기계/중량물',
+}[type ?? 'carton']);
 const strategyLabel = (strategy: LoadingStrategy) => strategy === 'stability' ? '안정성 우선' : strategy === 'capacity' ? '적재율 우선' : '하역 우선';
 
 function LoadingFallback() {
@@ -235,6 +240,10 @@ export default function App() {
       setDraft(current => ({ ...current, maxTopLoadKg: undefined }));
       return;
     }
+    if (field === 'maxStackLayers' && typeof value === 'string' && value.trim() === '') {
+      setDraft(current => ({ ...current, maxStackLayers: undefined }));
+      return;
+    }
     const numeric: Array<keyof CargoDraft> = ['length', 'width', 'height', 'weightKg', 'quantity', 'maxStackLayers', 'maxTopLoadKg'];
     setDraft(current => ({ ...current, [field]: numeric.includes(field) ? Number(value) : value }));
   };
@@ -247,8 +256,8 @@ export default function App() {
       && Number.isInteger(draft.quantity) && draft.quantity >= 0
       && (draft.maxStackLayers == null || (Number.isInteger(draft.maxStackLayers) && draft.maxStackLayers >= 1))
       && (draft.maxTopLoadKg == null || (Number.isFinite(draft.maxTopLoadKg) && draft.maxTopLoadKg >= 0));
-    if (!valid) return announce('error', '박스 코드·이름·치수·중량·수량·적층조건을 확인하세요. 수량은 0 이상의 정수이고 상부 허용중량은 0 이상이어야 합니다.');
-    if (!editingId && cargo.some(item => item.id === id)) return announce('error', `이미 등록된 박스 코드입니다: ${id}`);
+    if (!valid) return announce('error', '화물 코드·이름·치수·중량·수량·적층조건을 확인하세요.');
+    if (!editingId && cargo.some(item => item.id === id)) return announce('error', `이미 등록된 화물 코드입니다: ${id}`);
     const next: CargoItem = {
       ...draft,
       id,
@@ -257,7 +266,9 @@ export default function App() {
       maxStackLayers: draft.maxStackLayers,
       maxTopLoadKg: draft.maxTopLoadKg,
       displayColor: draft.displayColor ?? randomUniqueCargoColor(cargo.map(item => cargoColor(item.id, item.displayColor))),
+      cargoType: draft.cargoType ?? 'carton',
       allowRotation: draft.allowRotation !== false,
+      floorOnly: draft.canBePlacedOnTop === false,
     };
     invalidatePhysics();
     setCargo(items => editingId ? items.map(item => item.id === editingId ? next : item) : [...items, next]);
@@ -266,7 +277,7 @@ export default function App() {
   };
   const editCargo = (item: CargoItem) => {
     setEditingId(item.id);
-    setDraft({ ...item, maxStackLayers: item.maxStackLayers ?? 7, maxTopLoadKg: item.maxTopLoadKg, allowRotation: item.allowRotation !== false });
+    setDraft({ ...item, cargoType: item.cargoType ?? 'carton', maxStackLayers: item.maxStackLayers, maxTopLoadKg: item.maxTopLoadKg, allowRotation: item.allowRotation !== false });
   };
   const deleteCargo = (id: string) => {
     invalidatePhysics();
@@ -460,15 +471,13 @@ export default function App() {
 
         <section className="dashboard-card cargo-browser">
           <div className="card-heading-row"><h2>2. 적재할 화물</h2><span>{waitingCount} EA</span></div>
-          <div className="mode-tabs">
-            <button className={mode === 'boxes' ? 'active' : ''} onClick={() => switchMode('boxes')}>박스</button>
-            <button className={mode === 'pallets' ? 'active' : ''} onClick={() => switchMode('pallets')}>팔레트</button>
-            <button className={mode === 'mixed' ? 'active' : ''} onClick={() => switchMode('mixed')}>혼합</button>
+          <div className="mode-tabs load-sim-type-legend" aria-label="적재 유형">
+            {(['carton','pallet','drum','bag','roll','long','machine'] as const).map(type => <span key={type}>{cargoTypeLabel(type)}</span>)}
           </div>
           {cargo.length === 0 ? <div className="empty-cargo"><b>등록된 화물이 없습니다.</b><span>로그인 후 본인의 박스 목록에서 화물을 선택하거나 새 박스를 등록하세요.</span></div> : <div className="cargo-scroll">
             {cargo.map(item => <article className="cargo-list-item" key={item.id} style={{ borderLeft: `3px solid ${cargoColor(item.id, item.displayColor)}`, paddingLeft: 8 }}>
               <div className="cargo-icon" style={{ background: cargoTint(item.id, item.displayColor), color: cargoColor(item.id, item.displayColor), border: `1px solid ${cargoColor(item.id, item.displayColor)}55` }}>■</div>
-              <div><b>{item.id} {item.name}</b><span>{Math.round(item.length * 1000)} × {Math.round(item.width * 1000)} × {Math.round(item.height * 1000)} mm</span><small>{item.weightKg} kg · {item.maxTopLoadKg == null ? '상부허용 제한없음' : `상부허용 ${item.maxTopLoadKg} kg`}</small></div>
+              <div><b>{item.id} {item.name}</b><span>{cargoTypeLabel(item.cargoType)} · {Math.round(item.length * 1000)} × {Math.round(item.width * 1000)} × {Math.round(item.height * 1000)} mm</span><small>{item.weightKg} kg · {item.maxTopLoadKg == null ? '상부허용 제한없음' : `상부허용 ${item.maxTopLoadKg} kg`}</small></div>
               <strong>{item.quantity}</strong>
               <div className="cargo-inline-actions">
                 <button aria-label={`${item.id} 수량 1 감소`} onClick={() => changeQuantity(item.id, -1)}>−</button>
@@ -481,17 +490,23 @@ export default function App() {
           <details className="cargo-add-panel" open={Boolean(editingId)}><summary>＋ 새 화물 추가</summary><div className="cargo-form">
             <label>코드<input value={draft.id} onChange={e => updateDraft('id', e.target.value)} disabled={Boolean(editingId)} /></label>
             <label>이름<input value={draft.name} onChange={e => updateDraft('name', e.target.value)} /></label>
+            <label>화물 유형<select value={draft.cargoType ?? 'carton'} onChange={e => updateDraft('cargoType', e.target.value)}>
+              <option value="carton">카톤</option><option value="pallet">파렛트</option><option value="drum">드럼</option>
+              <option value="bag">톤백/포대</option><option value="roll">롤/코일</option><option value="long">장척물</option><option value="machine">기계/중량물</option>
+            </select></label>
             <div className="form-grid">
               <label>길이(m)<input type="number" min="0.01" step="0.01" value={draft.length} onChange={e => updateDraft('length', e.target.value)} /></label>
               <label>폭(m)<input type="number" min="0.01" step="0.01" value={draft.width} onChange={e => updateDraft('width', e.target.value)} /></label>
               <label>높이(m)<input type="number" min="0.01" step="0.01" value={draft.height} onChange={e => updateDraft('height', e.target.value)} /></label>
               <label>중량(kg)<input type="number" min="0.01" step="0.01" value={draft.weightKg} onChange={e => updateDraft('weightKg', e.target.value)} /></label>
               <label>수량<input type="number" min="0" step="1" value={draft.quantity} onChange={e => updateDraft('quantity', e.target.value)} /></label>
-              <label>최대 적층단<input type="number" min="1" step="1" value={draft.maxStackLayers ?? 1} onChange={e => updateDraft('maxStackLayers', e.target.value)} /></label>
+              <label>최대 적층단<input type="number" min="1" step="1" value={draft.maxStackLayers ?? ''} placeholder="제한 없음" onChange={e => updateDraft('maxStackLayers', e.target.value)} /></label>
               <label>상부 허용중량(kg)<input type="number" min="0" step="0.1" value={draft.maxTopLoadKg ?? ''} placeholder="제한 없음" onChange={e => updateDraft('maxTopLoadKg', e.target.value)} /></label>
               <label><input type="checkbox" checked={draft.allowRotation !== false} onChange={e => updateDraft('allowRotation', e.target.checked)} /> 회전 허용</label>
+              <label><input type="checkbox" checked={draft.thisSideUp === true} onChange={e => updateDraft('thisSideUp', e.target.checked)} /> 천지무용</label>
+              <label><input type="checkbox" checked={draft.canBePlacedOnTop === false} onChange={e => updateDraft('canBePlacedOnTop', !e.target.checked)} /> 바닥 전용</label>
             </div>
-            <button onClick={saveCargo}>{editingId ? '수정 저장' : '박스 추가'}</button>
+            <button onClick={saveCargo}>{editingId ? '수정 저장' : '화물 추가'}</button>
           </div></details>
           {statusMessage && <p className={`status-message status-${statusMessage.tone}`} role={statusMessage.tone === 'error' ? 'alert' : 'status'} aria-live="polite">{statusMessage.text}</p>}
         </section>
@@ -499,10 +514,10 @@ export default function App() {
         <section className="dashboard-card loading-options">
           <h2>3. 적재 옵션</h2>
           <div className="fixed-option-list">
-            <span><b>적재 방식</b><em>물리 검증 자동 최적화</em></span>
-            <span><b>박스 회전</b><em>품목별 허용 설정 + 자동 방향 선택</em></span>
-            <span><b>혼합 적재</b><em>잔량에 대해 자동 허용</em></span>
-            <span><b>운송 검증</b><em>정적 · 출발 0.30g · 급제동 0.50g · 횡가속 0.35g</em></span>
+            <span><b>적재 규칙</b><em>load-sim 규칙 명세 단일 기준</em></span>
+            <span><b>화물 유형</b><em>카톤 · 파렛트 · 드럼 · 톤백 · 롤 · 장척물 · 기계</em></span>
+            <span><b>회전 규칙</b><em>카톤 6방향 · 천지무용/비카톤 수평 2방향</em></span>
+            <span><b>운송 검증</b><em>경계 · 도어 · 지지 80% · 적층하중 · 하역순서 · 중량 · 무게중심 · 고정</em></span>
           </div>
           <small className="setting-note">변경 가능한 설정만 입력 컨트롤로 표시합니다. 고정 동작은 설명으로만 표시합니다.</small>
         </section>
