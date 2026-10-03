@@ -3,6 +3,8 @@ import { canPlaceByStackingRules } from './stacking';
 import { analyzeFloorLoad } from './floorLoad';
 import { assessWeightBalance } from './weightBalance';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
+import { readRuleEngineMode } from '../rule-engine/mode';
+import { canPlaceWithLoadSim, validateExistingWithLoadSim } from '../rule-engine/loadSimEngine';
 
 const EPS = 0.001;
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
@@ -67,17 +69,30 @@ export function assessManualMove(
   };
   const reasons: string[] = [];
   if (supportsOtherPlacement(placementIndex, source.placements)) reasons.push('이 박스는 위 화물을 지지하고 있어 먼저 이동할 수 없습니다.');
-  if (!isInsideContainer(container,candidate)) reasons.push('컨테이너 벽·바닥·천장 경계를 벗어납니다.');
-  if (others.some(p => overlaps(candidate,p))) reasons.push('다른 화물과 충돌합니다.');
-  if (!fullySupported(candidate,others)) reasons.push('바닥 또는 하부 박스가 전체 바닥면을 지지하지 못합니다.');
-  const cargoById = new Map(cargo.map(c => [c.id,c]));
-  if (!canPlaceByStackingRules(item,candidate,others,cargoById)) reasons.push('최대 적층단 또는 상부 허용중량 조건을 만족하지 않습니다.');
+  const useLoadSim = readRuleEngineMode() === 'load-sim';
+  if (useLoadSim) {
+    const violations = canPlaceWithLoadSim(container, cargo, others, candidate);
+    reasons.push(...violations.filter(v => v.severity === 'error').map(v => v.message));
+  } else {
+    if (!isInsideContainer(container,candidate)) reasons.push('컨테이너 벽·바닥·천장 경계를 벗어납니다.');
+    if (others.some(p => overlaps(candidate,p))) reasons.push('다른 화물과 충돌합니다.');
+    if (!fullySupported(candidate,others)) reasons.push('바닥 또는 하부 박스가 전체 바닥면을 지지하지 못합니다.');
+    const cargoById = new Map(cargo.map(c => [c.id,c]));
+    if (!canPlaceByStackingRules(item,candidate,others,cargoById)) reasons.push('최대 적층단 또는 상부 허용중량 조건을 만족하지 않습니다.');
+  }
 
   const placements = [...others];
   placements.splice(Math.min(placementIndex, placements.length),0,candidate);
-  const validationIssues = validatePlacements(container,placements);
-  if (validationIssues.length) reasons.push('최종 충돌/경계 검증에서 문제가 발견됐습니다.');
-  const result: LoadingResult = { ...source, placements, validationIssues };
+  const nextValidation = useLoadSim ? validateExistingWithLoadSim(container, cargo, placements) : null;
+  const validationIssues = nextValidation?.validationIssues ?? validatePlacements(container,placements);
+  if (validationIssues.length) reasons.push('최종 충돌/경계/적재규칙 검증에서 문제가 발견됐습니다.');
+  const result: LoadingResult = {
+    ...source,
+    placements,
+    validationIssues,
+    operationalFindings: nextValidation?.operationalFindings ?? source.operationalFindings,
+    ruleEngine: useLoadSim ? 'load-sim' : 'legacy',
+  };
   const beforeQuality = assessWeightBalance(container,source);
   const afterQuality = assessWeightBalance(container,result);
   const beforeFloor = analyzeFloorLoad(container,source,12,4);
