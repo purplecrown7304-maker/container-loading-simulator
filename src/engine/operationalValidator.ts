@@ -146,16 +146,18 @@ function checkOverlap(bodies: Body[]) {
 function checkDoor(container: ContainerSpec, bodies: Body[]) {
   const out: OperationalRuleFinding[] = [];
   const equipment = equipmentFor(container);
-  if (!equipment?.doorWidth || !equipment?.doorHeight) return out;
+  const doorWidth = equipment?.doorWidth;
+  const doorHeight = equipment?.doorHeight;
+  if (doorWidth == null || doorHeight == null) return out;
 
   bodies.forEach((body, index) => {
     if (body.kind !== 'cargo') return;
     const p = body.placement;
-    if (p.width > equipment.doorWidth + EPS || p.height > equipment.doorHeight + EPS) {
+    if (p.width > doorWidth + EPS || p.height > doorHeight + EPS) {
       out.push(finding(
         'DOOR_NOT_PASSABLE',
         'error',
-        `${p.cargoId}: 도어 개구 ${Math.round(equipment.doorWidth * 1000)}×${Math.round(equipment.doorHeight * 1000)}mm를 통과할 수 없습니다.`,
+        `${p.cargoId}: 도어 개구 ${Math.round(doorWidth * 1000)}×${Math.round(doorHeight * 1000)}mm를 통과할 수 없습니다.`,
         cargoIndexes(bodies, [index]),
       ));
     }
