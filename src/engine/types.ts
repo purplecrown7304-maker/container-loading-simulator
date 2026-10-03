@@ -9,9 +9,14 @@ export type ContainerSpec = {
   floorLoadWarningMultiplier?: number;
 };
 
+export type CargoType = 'carton' | 'pallet' | 'drum' | 'bag' | 'roll' | 'long' | 'machine';
+export type CargoOrientation = 'LWH' | 'WLH' | 'LHW' | 'HLW' | 'WHL' | 'HWL';
+
 export type CargoItem = {
   id: string;
   name: string;
+  /** load-sim 규칙의 화물 유형. 기존 데이터는 carton으로 마이그레이션한다. */
+  cargoType?: CargoType;
   length: number;
   width: number;
   height: number;
@@ -33,8 +38,16 @@ export type CargoItem = {
   unitsPerPackage?: number;
   /** 박스 자중을 제외한, 이 적재단위 안 제품들의 실제 총중량. */
   contentWeightKg?: number;
-  /** 바닥면 기준 90도 회전 허용. 생략 시 허용으로 간주한다. */
+  /** 바닥면 기준 회전 허용. cargoType/thisSideUp 규칙과 함께 적용한다. */
   allowRotation?: boolean;
+  /** 천지무용. true면 수직축 회전(LWH/WLH)만 허용한다. */
+  thisSideUp?: boolean;
+  /** false면 다른 화물 위에 놓을 수 없다. */
+  canBePlacedOnTop?: boolean;
+  /** 바닥면 마찰계수. 생략 시 0.45. */
+  friction?: number;
+  segregationClass?: string;
+  tempZone?: string;
   /** 하역 순서. 1이 가장 먼저 하역되며 큰 숫자일수록 컨테이너 안쪽에 배치하는 것을 우선한다. */
   unloadPriority?: number;
   /** 내부 최적화에서 이 적재단위 1개가 대표하는 실제 출하 EA. 일반 박스는 1. */
@@ -58,6 +71,8 @@ export type Placement = {
   weightKg: number;
   /** 원래 길이/폭 대비 90도 회전되어 배치됐는지 여부 */
   rotated?: boolean;
+  /** load-sim 6방향 회전 표기. 없으면 기존 rotated 값에서 LWH/WLH로 해석한다. */
+  orientation?: CargoOrientation;
 };
 
 export type ValidationIssue = {
