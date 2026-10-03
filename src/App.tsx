@@ -1,15 +1,12 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT, cancelPendingCertification, requestExactCertification, requestNextPalletCertification } from './autoCertification';
 import { cargoColor, cargoTint, randomUniqueCargoColor } from './cargoColors';
-import { analyzeConstraints } from './engine/constraintAnalysis';
-import { analyzeFloorLoad } from './engine/floorLoad';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import { containerInputError, preflightCargoInput } from './engine/inputPreflight';
 import { pendingLoadingResult, publishLoadingResult, restoreLoadingResult, type LoadingStrategy } from './engine/loadingEngine';
 import { readManualOverride } from './engine/manualOverride';
 import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
 import type { CargoItem, CargoLoadType, ContainerSpec, LoadingResult } from './engine/types';
-import { assessWeightBalance } from './engine/weightBalance';
 import { GUIDED_LOADING_UNIT_EVENT, readGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingUnitState';
 import { shouldRenderGuidedViewer, useGuidedWorkflowState } from './guidedWorkflowState';
 import { clearLatestInertiaCertification } from './inertiaCertification';
@@ -36,8 +33,7 @@ const defaultContainer: ContainerSpec = {
   width: 2.352,
   height: 2.698,
   maxPayloadKg: 26500,
-  floorLoadLimitKgPerM2: 1500,
-  floorLoadWarningMultiplier: 3,
+  floorLineLoadKgPerM: 3000,
 };
 
 type CargoDraft = Omit<CargoItem, 'id'> & { id: string };
@@ -60,6 +56,16 @@ const LOAD_TYPE_OPTIONS: Array<{ value: CargoLoadType; label: string }> = [
   { value: 'machine', label: '기계·중량물' },
 ];
 const loadTypeLabel = (value?: CargoLoadType) => LOAD_TYPE_OPTIONS.find(option => option.value === (value ?? 'carton'))?.label ?? '루즈 카톤';
+const LOAD_SIM_RULE_GROUPS = [
+  { id: 'geometry', label: '경계·도어·겹침·회전', codes: ['OUT_OF_BOUNDS','HEIGHT_EXCEEDED','LOAD_LINE_EXCEEDED','DOOR_NOT_PASSABLE','DOOR_HEADER_CLEARANCE','OVERLAP','ORIENTATION_NOT_ALLOWED'] },
+  { id: 'support', label: '지지율·지지 무게중심', codes: ['FLOATING','INSUFFICIENT_SUPPORT','CG_OUTSIDE_SUPPORT'] },
+  { id: 'stack', label: '적층 하중·단수·면압', codes: ['TOP_LOAD_EXCEEDED','NO_STACK_ON_TOP','TIER_EXCEEDED','MUST_BE_ON_FLOOR','TOP_PRESSURE_EXCEEDED'] },
+  { id: 'segregation', label: '혼적·온도대', codes: ['INCOMPATIBLE_CARGO','MIXED_TEMP_ZONE'] },
+  { id: 'unload', label: '하역 순서', codes: ['UNLOAD_BLOCKED','UNLOAD_BLOCKED_ABOVE'] },
+  { id: 'weight', label: '총중량·선하중', codes: ['PAYLOAD_EXCEEDED','LINE_LOAD_EXCEEDED'] },
+  { id: 'cog', label: '무게중심·축하중', codes: ['CG_LONGITUDINAL','CG_LATERAL','CG_HIGH','FRONT_AXLE_OVERLOAD','REAR_AXLE_OVERLOAD','GROSS_WEIGHT_EXCEEDED','FRONT_AXLE_TOO_LIGHT'] },
+  { id: 'securing', label: '고정·전도·빈틈', codes: ['TIPPING_RISK','REAR_GAP','LATERAL_GAP'] },
+] as const;
 const strategyLabel = (strategy: LoadingStrategy) => strategy === 'stability' ? '안정성 우선' : strategy === 'capacity' ? '적재율 우선' : '하역 우선';
 
 function LoadingFallback() {
@@ -113,11 +119,20 @@ export default function App() {
   const fillRate = totalVolume > 0 ? result.usedVolumeM3 / totalVolume * 100 : 0;
   const weightRate = container.maxPayloadKg > 0 ? result.loadedWeightKg / container.maxPayloadKg * 100 : 0;
   const waitingCount = useMemo(() => cargo.reduce((sum, item) => sum + item.quantity, 0), [cargo]);
-  const quality = useMemo(() => assessWeightBalance(container, result), [container, result]);
-  const floorLoad = useMemo(() => analyzeFloorLoad(container, result, 12, 4), [container, result]);
-  const constraintChecks = useMemo(() => analyzeConstraints(container, cargo, result, floorLoad), [container, cargo, result, floorLoad]);
-  const hasConstraintFailure = constraintChecks.some(check => check.status === 'fail');
-  const hasConstraintWarning = constraintChecks.some(check => check.status === 'warn');
+  const ruleFindings = result.operationalFindings ?? [];
+  const constraintChecks = LOAD_SIM_RULE_GROUPS.map(group => {
+    const findings = ruleFindings.filter(finding => group.codes.includes(finding.code as never));
+    const fail = findings.some(finding => finding.severity === 'error');
+    const warn = !fail && findings.some(finding => finding.severity === 'warning');
+    return {
+      id: group.id,
+      label: group.label,
+      status: fail ? 'fail' as const : warn ? 'warn' as const : 'pass' as const,
+      detail: findings.length ? findings.map(finding => finding.message).join(' / ') : 'load-sim 규칙 통과',
+    };
+  });
+  const hasConstraintFailure = ruleFindings.some(finding => finding.severity === 'error');
+  const hasConstraintWarning = ruleFindings.some(finding => finding.severity === 'warning');
   const addresses = useMemo(() => buildPlacementAddresses(result.placements, container.length), [result.placements, container.length]);
   const maxLayer = useMemo(() => addresses.reduce((max, item) => Math.max(max, item?.layer ?? 0), 0), [addresses]);
   const renderViewer = shouldRenderGuidedViewer(guidedWorkflowState);
@@ -155,12 +170,13 @@ export default function App() {
 
   useEffect(() => {
     const next = { ...container, length: equipment.length, width: equipment.width, height: equipment.height,
-      maxPayloadKg: equipment.maxPayloadKg, floorLoadLimitKgPerM2: equipment.floorLoadLimitKgPerM2 };
+      maxPayloadKg: equipment.maxPayloadKg,
+      floorLineLoadKgPerM: equipment.id === '20-standard' ? 4500 : ['40-standard','40-high-cube','45-high-cube'].includes(equipment.id) ? 3000 : container.floorLineLoadKgPerM };
     // The shared canvas follows real equipment changes; equal input is not an edit.
     if (JSON.stringify(next) === JSON.stringify(container)) return;
     invalidatePhysics();
     setContainer(next);
-  }, [equipment.id, equipment.length, equipment.width, equipment.height, equipment.maxPayloadKg, equipment.floorLoadLimitKgPerM2]);
+  }, [equipment.id, equipment.length, equipment.width, equipment.height, equipment.maxPayloadKg]);
 
   useEffect(() => {
     if (!guidedWorkflowState.active || mode === 'boxes') return;
@@ -443,15 +459,14 @@ export default function App() {
             <span>내부 높이 <b>{(container.height * 1000).toLocaleString()} mm</b></span>
             <span>적재 용적 <b>{totalVolume.toFixed(1)} m³</b></span>
             <span>최대 적재중량 <b>{container.maxPayloadKg.toLocaleString()} kg</b></span>
-            <span>바닥 경고기준 <b>{(container.floorLoadLimitKgPerM2 ?? 1500).toLocaleString()} kg/m²</b></span>
+            <span>바닥 허용 선하중 <b>{container.floorLineLoadKgPerM != null ? `${container.floorLineLoadKgPerM.toLocaleString()} kg/m` : '검사 안 함'}</b></span>
           </div>
           <details><summary>상세 규격 / 직접 수정</summary><div className="form-grid compact-form">
             <label>길이(m)<input type="number" min="0.01" step="0.01" value={container.length} onChange={e => updateContainer('length', e.target.value)} /></label>
             <label>폭(m)<input type="number" min="0.01" step="0.01" value={container.width} onChange={e => updateContainer('width', e.target.value)} /></label>
             <label>높이(m)<input type="number" min="0.01" step="0.01" value={container.height} onChange={e => updateContainer('height', e.target.value)} /></label>
             <label>최대중량<input type="number" min="1" value={container.maxPayloadKg} onChange={e => updateContainer('maxPayloadKg', e.target.value)} /></label>
-            <label>바닥 허용하중(kg/m²)<input type="number" min="1" value={container.floorLoadLimitKgPerM2 ?? 1500} onChange={e => updateContainer('floorLoadLimitKgPerM2', e.target.value)} /></label>
-            <label>국부하중 경고배수<input type="number" min="0.1" step=".1" value={container.floorLoadWarningMultiplier ?? 3} onChange={e => updateContainer('floorLoadWarningMultiplier', e.target.value)} /></label>
+            <label>바닥 허용 선하중(kg/m)<input type="number" min="1" value={container.floorLineLoadKgPerM ?? ''} placeholder="검사 안 함" onChange={e => updateContainer('floorLineLoadKgPerM', e.target.value)} /></label>
           </div></details>
         </section>
 
@@ -548,16 +563,16 @@ export default function App() {
         <section className="dashboard-card summary-card"><h2>4. 적재 요약</h2><div className="summary-metric-grid">
           <div><span>총 부피</span><b>{result.usedVolumeM3.toFixed(1)} / {totalVolume.toFixed(1)} m³</b><small>{fillRate.toFixed(1)}%</small></div>
           <div><span>총 중량</span><b>{result.loadedWeightKg.toLocaleString()} / {container.maxPayloadKg.toLocaleString()} kg</b><small>{weightRate.toFixed(1)}%</small></div>
-          <div><span>사용 박스 수</span><b>{result.placements.length} EA</b></div>
-          <div><span>물리 안정성</span><b>{physicsScore !== null ? `${physicsScore} 점` : '검증 전'}</b><small>{physicsStrategy ? strategyLabel(physicsStrategy) : `${maxLayer} 층`}</small></div>
-        </div><button className={`constraint-ok ${hasConstraintFailure ? 'failure' : hasConstraintWarning ? 'warning' : ''}`} onClick={showResults}>{hasConstraintFailure ? '제약 조건 실패 항목 있음' : hasConstraintWarning ? '현장 확인 항목 있음' : physicsScore !== null ? '물리 최적안 선택 완료' : '제약 조건 모두 만족'}</button></section>
+          <div><span>적재 화물 수</span><b>{result.placements.length} EA</b></div>
+          <div><span>물리 안정성</span><b>{physicsScore !== null ? `${physicsScore} 점` : '검증 전'}</b><small>{maxLayer} 단 · load-sim 후속 검증</small></div>
+        </div><button className={`constraint-ok ${hasConstraintFailure ? 'failure' : hasConstraintWarning ? 'warning' : ''}`} onClick={showResults}>{hasConstraintFailure ? 'load-sim 하드 규칙 실패' : hasConstraintWarning ? 'load-sim 경고 확인 필요' : physicsScore !== null ? 'load-sim + 물리 검증 완료' : 'load-sim 하드 규칙 통과'}</button></section>
 
-        <section className="dashboard-card constraint-card"><h2>5. 제약 조건 체크</h2><div className="constraint-list">
+        <section className="dashboard-card constraint-card"><h2>5. load-sim 규칙 체크</h2><div className="constraint-list">
           {constraintChecks.map(check => <span key={check.id} className={check.status === 'pass' ? 'constraint-pass' : check.status === 'warn' ? 'constraint-warn' : 'constraint-fail'} title={check.detail}><span>{check.label}</span><b>{check.status === 'pass' ? '통과' : check.status === 'warn' ? '확인' : '실패'}</b></span>)}
         </div></section>
 
         <section className="dashboard-card quick-card"><h2>6. 빠른 작업</h2>
-          <button className="primary-action" onClick={() => void runLoading()} disabled={isRunning}>{isRunning ? '물리 검증 중…' : '물리 최적 자동 적재'}</button>
+          <button className="primary-action" onClick={() => void runLoading()} disabled={isRunning}>{isRunning ? 'load-sim 계산·물리 검증 중…' : 'load-sim 자동 적재'}</button>
           <button className="result-open-action" onClick={showResults} disabled={isRunning || isPreview}>결과 보기</button>
           <div className="quick-row"><button onClick={printReport}>작업 지시서</button><button onClick={saveLocal}>저장</button></div>
           <button className="danger ghost" onClick={resetAll}>전체 초기화</button>
