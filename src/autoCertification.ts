@@ -1,5 +1,6 @@
 import { requestDirectWorkOrder } from './directWorkOrderEvents';
 import { runPhysicsValidationSuite, type PhysicsScenario, type PhysicsValidationSuite } from './engine/physicsValidation';
+import { operationalErrors } from './engine/operationalValidator';
 import { createPhysicsTargetSignature, requestCertifiedResults } from './inertiaCertification';
 import { publishPhysicsTarget, readPhysicsTarget, subscribePhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
@@ -77,6 +78,20 @@ async function validateThenCertify(target: PhysicsTarget) {
   const runId = ++validationRunId;
   const signature = createPhysicsTargetSignature(target);
   const physicsWindow = window as FinalPhysicsWindow;
+  const hardFindings = operationalErrors(target.result.operationalFindings ?? []);
+  if (hardFindings.length) {
+    physicsWindow.__containerLoadingFinalPhysicsRunning = false;
+    clearFinalPhysicsRecord();
+    window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, {
+      detail: {
+        mode: target.mode,
+        signature,
+        error: `운영 규칙 검증 실패 ${hardFindings.length}건`,
+        findings: hardFindings,
+      },
+    }));
+    return;
+  }
   physicsWindow.__containerLoadingFinalPhysicsRunning = true;
   clearFinalPhysicsRecord();
   publishProgress(target, signature, 0, 'settle');

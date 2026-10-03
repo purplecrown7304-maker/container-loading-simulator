@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { cargoColor } from './cargoColors';
 import { centerPalletCargo, consumeNextPalletCenteredResultOverride } from './engine/palletCentering';
 import { validatePlacements } from './engine/constraints';
+import { validateOperationalLoading } from './engine/operationalValidator';
 import { defaultPalletSpec, packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
 import { packMixedMode, type MixedModePackingResult } from './engine/mixedModePacking';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
@@ -237,13 +238,6 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
     if (result === EMPTY_RESULT) return;
     if (adoptedResult.current?.result === result) { setCertification(adoptedResult.current.certification); return; }
     setCertification(null);
-    const loadingResult: LoadingResult = {
-      placements: result.placements,
-      remaining: result.remaining,
-      loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg,
-      usedVolumeM3: result.placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0),
-      validationIssues: validatePlacements(container, result.placements),
-    };
     const supports = result.pallets.map((pallet) => ({
       modelKey,
       id: `PALLET-${String(pallet.palletIndex).padStart(2, '0')}`,
@@ -256,15 +250,30 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       weightKg: Math.max(0.01, pallet.totalWeightKg - pallet.cargoWeightKg),
       dynamic: true,
     }));
+    const loadingResult: LoadingResult = {
+      placements: result.placements,
+      remaining: result.remaining,
+      loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg,
+      usedVolumeM3: result.placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0),
+      validationIssues: validatePlacements(container, result.placements),
+      operationalFindings: validateOperationalLoading(container, cargo, result.placements, supports),
+    };
     publishPhysicsTarget({ mode: 'pallets', container, cargo, result: loadingResult, supports });
   }, [container, cargo, result, modelKey]);
 
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
   const securingUsage = certification?.securing ?? null;
   const scene = useMemo(() => ({
-    result: { placements: result.placements, remaining: result.remaining, loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg, usedVolumeM3: result.placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0), validationIssues: validatePlacements(container, result.placements) },
+    result: {
+      placements: result.placements,
+      remaining: result.remaining,
+      loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg,
+      usedVolumeM3: result.placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0),
+      validationIssues: validatePlacements(container, result.placements),
+      operationalFindings: validateOperationalLoading(container, cargo, result.placements, result.pallets.map(p => ({ id: `PALLET-${p.palletIndex}`, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) }))),
+    },
     supports: result.pallets.map(p => ({ modelKey, id: `PALLET-${p.palletIndex}`, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) })),
-  }), [container, result, modelKey]);
+  }), [container, cargo, result, modelKey]);
 
   useEffect(() => {
     if (result === EMPTY_RESULT) return;

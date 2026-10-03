@@ -1,6 +1,7 @@
 import { fillUnloadingTrenches } from './trenchFilling';
 import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
 import { auditLoading } from './loadingAudit';
+import { validateOperationalLoading } from './operationalValidator';
 import { centerPlacementsOnContainer } from './containerCentering';
 import { packByHybridOptimizer } from './hybridLoadingOptimizer';
 import { readManualOverride } from './manualOverride';
@@ -43,7 +44,7 @@ export function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[
 export function pendingLoadingResult(container: ContainerSpec, cargo: CargoItem[]): LoadingResult {
   const result: LoadingResult = {
     placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0,
-    validationIssues: [], autoCorrections: [],
+    validationIssues: [], operationalFindings: [], autoCorrections: [],
   };
   publishLoadingResult(container, cargo, result);
   return result;
@@ -53,8 +54,9 @@ export function pendingLoadingResult(container: ContainerSpec, cargo: CargoItem[
 export function restoreLoadingResult(container: ContainerSpec, cargo: CargoItem[]): LoadingResult {
   const manual = readManualOverride(container, cargo);
   if (!manual || auditLoading(container, cargo, manual.placements).length > 0) return pendingLoadingResult(container, cargo);
-  publishLoadingResult(container, cargo, manual);
-  return manual;
+  const restored = { ...manual, operationalFindings: validateOperationalLoading(container, cargo, manual.placements) };
+  publishLoadingResult(container, cargo, restored);
+  return restored;
 }
 
 function averageDepthByPriority(cargo: CargoItem[], placements: Placement[]) {
@@ -137,6 +139,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
       loadedWeightKg: 0,
       usedVolumeM3: 0,
       validationIssues: [],
+      operationalFindings: [],
       autoCorrections: [],
     };
     if (shouldPublish) {
@@ -171,6 +174,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     loadedWeightKg: packed.loadedWeightKg,
     usedVolumeM3: packed.usedVolumeM3,
     validationIssues: auditLoading(container, normalizedCargo, finalPlacements),
+    operationalFindings: validateOperationalLoading(container, normalizedCargo, finalPlacements),
     autoCorrections: [],
   };
 
