@@ -69,6 +69,9 @@ export default function App() {
   const [draft, setDraft] = useState<CargoDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [mode, setMode] = useState<LoadingMode>('boxes');
+  useEffect(() => {
+    if (mode !== 'boxes') setMode('boxes');
+  }, [mode]);
   const [navSection, setNavSection] = useState<NavSection>('dashboard');
   const [palletRunToken, setPalletRunToken] = useState(0);
   const [result, setResult] = useState<LoadingResult>(() => pendingLoadingResult(stored?.container ?? defaultContainer, startingCargo));
