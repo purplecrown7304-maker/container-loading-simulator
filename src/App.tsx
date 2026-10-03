@@ -171,7 +171,7 @@ export default function App() {
   useEffect(() => {
     const next = { ...container, length: equipment.length, width: equipment.width, height: equipment.height,
       maxPayloadKg: equipment.maxPayloadKg,
-      floorLineLoadKgPerM: equipment.id === '20-standard' ? 4500 : ['40-standard','40-high-cube','45-high-cube'].includes(equipment.id) ? 3000 : container.floorLineLoadKgPerM };
+      floorLineLoadKgPerM: equipment.id === '20-standard' ? 4500 : ['40-standard','40-high-cube','45-high-cube'].includes(equipment.id) ? 3000 : undefined };
     // The shared canvas follows real equipment changes; equal input is not an edit.
     if (JSON.stringify(next) === JSON.stringify(container)) return;
     invalidatePhysics();
@@ -254,6 +254,10 @@ export default function App() {
 
   const updateContainer = (field: keyof ContainerSpec, value: string) => {
     invalidatePhysics();
+    if (field === 'floorLineLoadKgPerM' && value.trim() === '') {
+      setContainer(current => ({ ...current, floorLineLoadKgPerM: undefined }));
+      return;
+    }
     setContainer(current => ({ ...current, [field]: Number(value) }));
   };
   const updateDraft = (field: keyof CargoDraft, value: string | boolean) => {
