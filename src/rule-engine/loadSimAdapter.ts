@@ -17,9 +17,10 @@ function itemType(cargo: CargoItem): ItemType {
   return cargo.loadSimType ?? (cargo.unitKind === 'pallet' ? 'pallet' : 'carton');
 }
 
-function legacyOrientationPolicy(cargo: CargoItem): Orientation[] | undefined {
+function loadSimOrientationPolicy(cargo: CargoItem): Orientation[] | undefined {
+  // The legacy engine keeps its old 0/90-degree policy. Once the explicit
+  // load-sim engine is selected, A's native type/thisSideUp rules are authoritative.
   if (cargo.allowRotation === false) return ['LWH'];
-  if (cargo.loadSimType == null && cargo.thisSideUp !== true) return ['LWH', 'WLH'];
   return undefined;
 }
 
@@ -36,7 +37,7 @@ export function expandCargoToLoadSim(cargo: CargoItem[]): { items: Item[]; conte
         type: itemType(row),
         dims: { l: row.length * MM_PER_M, w: row.width * MM_PER_M, h: row.height * MM_PER_M },
         weight: row.weightKg,
-        allowedOrientations: legacyOrientationPolicy(row),
+        allowedOrientations: loadSimOrientationPolicy(row),
         thisSideUp: row.thisSideUp,
         maxTopLoad: row.maxTopLoadKg,
         maxTopPressure: row.maxTopPressureKgPerM2,
@@ -96,7 +97,7 @@ export function bPlacementToLoadSim(
     type: itemType(cargo),
     dims: base,
     weight: cargo.weightKg,
-    allowedOrientations: legacyOrientationPolicy(cargo),
+    allowedOrientations: loadSimOrientationPolicy(cargo),
     thisSideUp: cargo.thisSideUp,
     maxTopLoad: cargo.maxTopLoadKg,
     maxTopPressure: cargo.maxTopPressureKgPerM2,
@@ -112,7 +113,7 @@ export function bPlacementToLoadSim(
   return { item, pos: { x: placement.x * MM_PER_M, y: placement.y * MM_PER_M, z: placement.z * MM_PER_M }, orientation };
 }
 
-function validationType(code: string): ValidationIssue['type'] {
+export function loadSimValidationType(code: string): ValidationIssue['type'] {
   if (code === 'OUT_OF_BOUNDS' || code === 'HEIGHT_EXCEEDED' || code === 'DOOR_NOT_PASSABLE') return 'OUT_OF_BOUNDS';
   if (code === 'OVERLAP') return 'COLLISION';
   if (code === 'FLOATING' || code === 'INSUFFICIENT_SUPPORT' || code === 'CG_OUTSIDE_SUPPORT' || code.startsWith('AFTER_STOP_')) return 'UNSUPPORTED';
@@ -180,7 +181,7 @@ export function packResultToLoadingResult(
     loadedWeightKg: packed.validation.metrics.totalWeight,
     usedVolumeM3: placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0),
     validationIssues: errors.map(v => ({
-      type: validationType(v.code),
+      type: loadSimValidationType(v.code),
       message: `[${v.code}] ${v.message}`,
       placementIndexes: [...new Set(v.itemIds.flatMap(id => {
         const index = indexByExpanded.get(id);
