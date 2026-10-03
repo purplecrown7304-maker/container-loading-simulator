@@ -113,7 +113,7 @@ export function bPlacementToLoadSim(
 }
 
 function validationType(code: string): ValidationIssue['type'] {
-  if (code === 'OUT_OF_BOUNDS' || code === 'HEIGHT_EXCEEDED' || code === 'LOAD_LINE_EXCEEDED' || code === 'DOOR_NOT_PASSABLE') return 'OUT_OF_BOUNDS';
+  if (code === 'OUT_OF_BOUNDS' || code === 'HEIGHT_EXCEEDED' || code === 'DOOR_NOT_PASSABLE') return 'OUT_OF_BOUNDS';
   if (code === 'OVERLAP') return 'COLLISION';
   if (code === 'FLOATING' || code === 'INSUFFICIENT_SUPPORT' || code === 'CG_OUTSIDE_SUPPORT' || code.startsWith('AFTER_STOP_')) return 'UNSUPPORTED';
   if (code === 'TIER_EXCEEDED' || code === 'MUST_BE_ON_FLOOR' || code === 'UNLOAD_BLOCKED' || code === 'UNLOAD_BLOCKED_ABOVE' || code === 'ORIENTATION_NOT_ALLOWED') return 'STACK_LIMIT';
