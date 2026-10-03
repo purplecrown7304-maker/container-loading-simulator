@@ -67,8 +67,10 @@ export type Placement = {
   width: number;
   height: number;
   weightKg: number;
-  /** 원래 길이/폭 대비 90도 회전되어 배치됐는지 여부 */
+  /** 원래 길이/폭 대비 회전되었는지 여부 */
   rotated?: boolean;
+  /** 업로드된 load-sim의 6방향 회전값. */
+  loadSimOrientation?: 'LWH' | 'WLH' | 'LHW' | 'HLW' | 'WHL' | 'HWL';
 };
 
 export type ValidationIssue = {
