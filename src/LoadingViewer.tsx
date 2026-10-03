@@ -11,7 +11,7 @@ export type LoadingViewerProps = ViewerSceneOptions & {
   title?: string; syncSelection?: boolean; frameData?: InertiaAnimationFrame;
   onCargoSelect?: (index: number) => void; onSupportSelect?: (index: number) => void;
   weightView?: boolean; showCg?: boolean; view?: string; inertiaHost?: boolean;
-  showDiagnostics?: boolean;
+  showDiagnostics?: boolean; compact?: boolean;
 };
 const ThreeLoadingViewer = lazy(() => import('./ThreeLoadingViewer'));
 

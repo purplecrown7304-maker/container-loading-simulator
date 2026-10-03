@@ -58,3 +58,15 @@ html[data-guided-workflow="true"] .unity-controls { padding: 6px 8px; gap: 6px 1
 @media (max-width: 760px) {
 html[data-guided-workflow="true"][data-guided-step="5"] .viewer-host { min-height: 660px !important; height: 660px !important; }
 }
+
+.pallet-mini-canvas .unity-viewer.unity-compact{height:100%!important;min-height:0!important;margin:0!important;border:0!important;border-radius:0!important;background:#edf3f9!important}
+.pallet-mini-canvas .unity-compact .unity-stage{min-height:0!important;height:100%!important}
+.pallet-mini-canvas .unity-compact .unity-toolbar,
+.pallet-mini-canvas .unity-compact .viewer-bottom-info,
+.pallet-mini-canvas .unity-compact .unity-hint,
+.pallet-mini-canvas .unity-compact .three-cg-legend,
+.pallet-mini-canvas .unity-compact .three-environment-error,
+.pallet-mini-canvas .unity-compact .unity-sequence-note,
+.pallet-mini-canvas .unity-compact .three-comparison-metrics,
+.pallet-mini-canvas .unity-compact .unity-inspector,
+.pallet-mini-canvas .unity-compact .unity-weight-details{display:none!important}

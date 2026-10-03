@@ -66,3 +66,13 @@ it('preserves the Three main canvas plan objects across cloned-target replay and
   expect(captured.props!.frameData).toBeUndefined();
   expect(host.querySelector('.inertia-canvas-host')?.getAttribute('data-inertia-active')).toBe('false');
 });
+
+
+it('forwards compact embedded mode to the Three.js renderer', async () => {
+  const container = { length: 1.1, width: 1.1, height: .42, maxPayloadKg: 1000 };
+  const result = { placements: [], remaining: [], validationIssues: [], usedVolumeM3: 0, loadedWeightKg: 0 };
+  await act(async () => root.render(<LoadingViewer container={container} result={result} preview compact showCg={false} />));
+  expect(captured.props?.compact).toBe(true);
+  expect(captured.props?.preview).toBe(true);
+  expect(captured.props?.showCg).toBe(false);
+});
