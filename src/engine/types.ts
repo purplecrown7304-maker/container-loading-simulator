@@ -9,6 +9,8 @@ export type ContainerSpec = {
   floorLoadWarningMultiplier?: number;
 };
 
+export type CargoLoadType = 'carton' | 'pallet' | 'drum' | 'bag' | 'roll' | 'long' | 'machine';
+
 export type CargoItem = {
   id: string;
   name: string;
@@ -17,8 +19,17 @@ export type CargoItem = {
   height: number;
   weightKg: number;
   quantity: number;
+  /** 업로드된 load-sim 규칙의 화물 유형. 생략 시 carton. */
+  loadType?: CargoLoadType;
   maxStackLayers?: number;
   maxTopLoadKg?: number;
+  maxTopPressureKgPerM2?: number;
+  thisSideUp?: boolean;
+  groupId?: string;
+  segregationClass?: string;
+  tempZone?: string;
+  friction?: number;
+  forklift?: boolean;
   /** 사용자 목록/엑셀 등록 시 부여되는 화면 표시용 고유 색상. */
   displayColor?: string;
   /** 제품 포장 흐름에서 생성된 화물의 원 제품 코드. */
@@ -61,7 +72,7 @@ export type Placement = {
 };
 
 export type ValidationIssue = {
-  type: 'OUT_OF_BOUNDS' | 'COLLISION' | 'INVALID_CARGO' | 'UNSUPPORTED' | 'QUANTITY' | 'STACK_LIMIT' | 'TOP_LOAD' | 'PAYLOAD';
+  type: 'OUT_OF_BOUNDS' | 'COLLISION' | 'INVALID_CARGO' | 'UNSUPPORTED' | 'QUANTITY' | 'STACK_LIMIT' | 'TOP_LOAD' | 'PAYLOAD' | 'RULE';
   message: string;
   placementIndexes: number[];
 };
