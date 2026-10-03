@@ -57,7 +57,7 @@ function PalletMiniPreview({ pallet, modelKey }: { pallet: PalletLoad; modelKey:
       supports: [{ modelKey, id: `PALLET-${pallet.palletIndex}`, x: 0, y: 0, z: 0, length: pallet.length, width: pallet.width, height: pallet.height, weightKg: pallet.totalWeightKg - pallet.cargoWeightKg }],
     };
   }, [pallet, modelKey]);
-  return <div className="pallet-mini-canvas"><LoadingViewer {...scene} geometry="platform" preview title={`팔레트 ${pallet.palletIndex} 상세`} /></div>;
+  return <div className="pallet-mini-canvas"><LoadingViewer {...scene} geometry="platform" preview compact showCg={false} title={`팔레트 ${pallet.palletIndex} 상세`} /></div>;
 }
 
 function clearanceValues(container: ContainerSpec, placements: Placement[]) {
