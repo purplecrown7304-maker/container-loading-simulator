@@ -445,7 +445,7 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
       <div><dt>적재공간</dt><dd>{equipment.shortName}</dd></div>
       <div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div>
       <div><dt>포장 적재단위</dt><dd>{live.cargo.length ? `${live.cargo.length}종` : '-'}</dd></div>
-      <div><dt>적재 유형</dt><dd>{mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재'}</dd></div>
+      <div><dt>적재 유형</dt><dd>{mode === 'pallets' ? '파렛트 적재(레거시)' : '화물 유형 적재'}</dd></div>
       <div><dt>적재 전략</dt><dd>{strategy ? strategyLabel(strategy) : '-'}</dd></div>
       {mode === 'pallets' && <div><dt>사용 파렛트</dt><dd>{palletSnapshot ? `${palletName}${palletSnapshot.result.palletCount}개` : palletType.name}</dd></div>}
       <div><dt>적재</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div>
@@ -457,7 +457,7 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
     <div className="studio-capacity"><span>공간 사용률<b>{mode === 'boxes' ? `${fillRate.toFixed(1)}%` : '팔레트 결과 참고'}</b></span><meter aria-label="공간 사용률" min="0" max="100" value={mode === 'boxes' ? Math.min(100, fillRate) : 0}/><small>전체 공간 {maxVolume.toFixed(1)} m³</small></div>
     {step === 5 && !running && !finalReady && <div className="guided-loading-run-confirmation" aria-label="자동 적재 실행 설정 확인">
       <b>실행 설정 확인</b>
-      <span>{mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재'} · {strategy ? strategyLabel(strategy) : '전략 미선택'}</span>
+      <span>{mode === 'pallets' ? '파렛트 적재(레거시)' : '화물 유형 적재'} · {strategy ? strategyLabel(strategy) : '전략 미선택'}</span>
       <small>설정을 확인한 뒤 ‘최종 적재 진행’을 눌러 관성·물리 검증을 시작하세요.</small>
     </div>}
     {step === 5 && mode === 'pallets' && restrictedCount > 0 && <p className="guided-pallet-stack-note">
