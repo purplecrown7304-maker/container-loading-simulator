@@ -2,17 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { guidedLoadingUnitLabel, normalizeGuidedLoadingUnit } from './guidedLoadingUnitState';
 
 describe('guided loading unit state', () => {
-  it('accepts only supported loading units', () => {
+  it('normalizes legacy global modes into the single load-sim mode', () => {
     expect(normalizeGuidedLoadingUnit('boxes')).toBe('boxes');
-    expect(normalizeGuidedLoadingUnit('pallets')).toBe('pallets');
+    expect(normalizeGuidedLoadingUnit('pallets')).toBe('boxes');
     expect(normalizeGuidedLoadingUnit('box')).toBeNull();
     expect(normalizeGuidedLoadingUnit('')).toBeNull();
     expect(normalizeGuidedLoadingUnit(undefined)).toBeNull();
   });
 
-  it('provides operator-facing labels', () => {
-    expect(guidedLoadingUnitLabel('boxes')).toBe('박스 직접 적재');
-    expect(guidedLoadingUnitLabel('pallets')).toBe('파렛트 적재');
-    expect(guidedLoadingUnitLabel(null)).toBe('적재 유형 미선택');
+  it('provides the load-sim operator-facing label', () => {
+    expect(guidedLoadingUnitLabel('boxes')).toBe('load-sim 규칙 기반');
+    expect(guidedLoadingUnitLabel(null)).toBe('적재 유형 준비 중');
   });
 });
