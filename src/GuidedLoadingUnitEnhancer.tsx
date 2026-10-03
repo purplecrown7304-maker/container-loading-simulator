@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import GuidedPalletTypePicker from './GuidedPalletTypePicker';
 import { useGuidedWorkflowState } from './guidedWorkflowState';
 import {
   guidedLoadingUnitLabel,
   publishGuidedLoadingUnit,
   readGuidedLoadingUnit,
   useGuidedLoadingUnit,
-  type GuidedLoadingUnit,
 } from './guidedLoadingUnitState';
 
 export default function GuidedLoadingUnitEnhancer() {
@@ -57,25 +55,17 @@ export default function GuidedLoadingUnitEnhancer() {
     return () => { delete document.documentElement.dataset.guidedLoadingUnit; };
   }, [unit]);
 
-  const choose = (next: GuidedLoadingUnit) => publishGuidedLoadingUnit(next);
-
   const selector = guidedWorkflow.active && guidedWorkflow.step === 4 && strategyHost ? createPortal(
     <section className="guided-loading-unit-inline" aria-label="적재 유형 선택">
       <div className="guided-loading-unit-block">
         <div className="guided-loading-unit-heading">
-          <div><b>1. 적재 유형</b><span>포장된 화물을 박스로 직접 적재할지, 파렛트 단위로 적재할지 선택합니다.</span></div>
-          <strong className={unit ? 'ready' : ''}>{guidedLoadingUnitLabel(unit)}</strong>
+          <div><b>1. 화물 유형</b><span>기존 박스/파렛트 전역 모드를 사용하지 않습니다. 각 화물에 load-sim 유형을 지정합니다.</span></div>
+          <strong className="ready">{guidedLoadingUnitLabel(unit ?? 'boxes')}</strong>
         </div>
-        <div className="guided-loading-unit-grid" role="radiogroup" aria-label="박스 또는 파렛트 선택">
-          <button type="button" role="radio" aria-checked={unit === 'boxes'} className={unit === 'boxes' ? 'selected' : ''} onClick={() => choose('boxes')}>
-            <i>{unit === 'boxes' ? '✓' : '□'}</i><span><b>박스 직접 적재</b><small>포장된 박스를 컨테이너·트럭 바닥에 직접 최적 배치합니다.</small></span>
-          </button>
-          <button type="button" role="radio" aria-checked={unit === 'pallets'} className={unit === 'pallets' ? 'selected' : ''} onClick={() => choose('pallets')}>
-            <i>{unit === 'pallets' ? '✓' : '▤'}</i><span><b>파렛트 적재</b><small>포장된 박스를 파렛트에 구성한 뒤 파렛트 단위로 최적 배치합니다.</small></span>
-          </button>
+        <div className="guided-loading-unit-grid" aria-label="load-sim 화물 유형">
+          <div className="selected"><i>✓</i><span><b>루즈 카톤 · 파렛트 · 드럼 · 톤백/포대 · 롤/코일 · 장척물 · 기계/중량물</b><small>품목별 유형에 따라 회전, 지게차, 적층, 하역 규칙이 자동 적용됩니다.</small></span></div>
         </div>
-        {unit === 'pallets' && <GuidedPalletTypePicker />}
-        <div className="guided-loading-unit-divider"><span>2. 적재 전략</span></div>
+        <div className="guided-loading-unit-divider"><span>2. 배치 실행</span></div>
       </div>
     </section>,
     strategyHost,
