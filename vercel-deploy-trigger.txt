@@ -1,3 +1,4 @@
 Production redeploy trigger
-2026-09-09 08:42 KST
-Latest feature commit: f08596a482d4b5edfef93c3d53a3cbb2122be0be
+2026-10-03 17:53 KST
+Latest feature commit: d4699a2ea18103fb9d2a41f6dc0e94d8c6b7f4e1
+Reason: redeploy final certification gate + sparse pallet consolidation
