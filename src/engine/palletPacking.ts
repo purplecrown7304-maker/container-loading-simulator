@@ -535,6 +535,21 @@ function makeDenseLoad(index: number, placements: Placement[], pallet: PalletSpe
 }
 
 /**
+ * Build a pallet load from already validated local deck placements (z starts at 0).
+ * Packaging and centre-of-gravity are recalculated exactly like normal pallet loads.
+ */
+export function buildPalletLoadFromDeckPlacements(
+  index: number,
+  placements: Placement[],
+  pallet: PalletSpec,
+): PalletLoad {
+  const load = makeDenseLoad(index, placements, pallet);
+  applyMinimumPackaging([load], pallet);
+  load.centerOfGravity = palletCog(load, pallet);
+  return load;
+}
+
+/**
  * Rebuild all already-loadable cartons into the fewest dense pallet loads we can find.
  * Loaded quantity is frozen before this pass, so pallet reduction can never be achieved
  * by silently dropping cartons. For non-unloading strategies all compatible SKUs compete

@@ -3,6 +3,7 @@ import {
   applyTopLayerFillPolicy,
   defaultPalletSpec,
   packOnPallets as packOnPalletsBase,
+  buildPalletLoadFromDeckPlacements,
   palletTopLayerFill,
   placeTopTierHolesInsideAll,
   type PalletLoad,
@@ -11,7 +12,7 @@ import {
 } from './palletPacking';
 import { centeredPalletLaneLayout } from './palletLaneLayout';
 import { containerInputError, preflightCargoInput, type RejectedCargoRow } from './inputPreflight';
-import type { CargoItem, ContainerSpec } from './types';
+import type { CargoItem, ContainerSpec, Placement } from './types';
 import type { LoadingStrategy } from './loadingEngine';
 import { operationalQuality, unloadingObstructions } from './operationalQuality';
 
@@ -166,6 +167,107 @@ function cargoCountsFromLoads(loads: PalletLoad[], cargoMap: Map<string, CargoIt
   });
 }
 
+
+type DeckFreeRect = { x: number; y: number; length: number; width: number };
+const MAX_FINAL_TAIL_DECK_CARTONS = 64;
+
+function packCargoOnSingleDeck(cargo: CargoItem[], pallet: PalletSpec): Placement[] | null {
+  const items = cargo
+    .flatMap(item => Array.from({ length: Math.max(0, Math.floor(item.quantity)) }, () => item))
+    .sort((a, b) =>
+      (b.length * b.width) - (a.length * a.width)
+      || Math.max(b.length, b.width) - Math.max(a.length, a.width)
+      || b.weightKg - a.weightKg
+      || a.id.localeCompare(b.id));
+
+  if (!items.length || items.length > MAX_FINAL_TAIL_DECK_CARTONS) return null;
+  const totalWeight = items.reduce((sum, item) => sum + item.weightKg, 0);
+  const totalArea = items.reduce((sum, item) => sum + item.length * item.width, 0);
+  if (totalWeight > pallet.maxLoadKg + EPS || totalArea > pallet.length * pallet.width + EPS) return null;
+
+  let free: DeckFreeRect[] = [{ x: 0, y: 0, length: pallet.length, width: pallet.width }];
+  const placed: Placement[] = [];
+  const intersects = (a: DeckFreeRect, b: DeckFreeRect) =>
+    a.x < b.x + b.length - EPS && a.x + a.length > b.x + EPS
+    && a.y < b.y + b.width - EPS && a.y + a.width > b.y + EPS;
+  const contains = (outer: DeckFreeRect, inner: DeckFreeRect) =>
+    inner.x >= outer.x - EPS && inner.y >= outer.y - EPS
+    && inner.x + inner.length <= outer.x + outer.length + EPS
+    && inner.y + inner.width <= outer.y + outer.width + EPS;
+
+  for (const item of items) {
+    const orientations = [{ length: item.length, width: item.width, rotated: false }];
+    if (item.allowRotation !== false && Math.abs(item.length - item.width) > EPS) {
+      orientations.push({ length: item.width, width: item.length, rotated: true });
+    }
+
+    let best: { freeIndex: number; length: number; width: number; rotated: boolean; score: number[] } | null = null;
+    free.forEach((space, freeIndex) => {
+      orientations.forEach(option => {
+        if (option.length > space.length + EPS || option.width > space.width + EPS) return;
+        const remainX = Math.max(0, space.length - option.length);
+        const remainY = Math.max(0, space.width - option.width);
+        const score = [
+          Math.min(remainX, remainY),
+          Math.max(remainX, remainY),
+          space.length * space.width - option.length * option.width,
+          space.y,
+          space.x,
+          option.rotated ? 1 : 0,
+        ];
+        if (!best || score.some((value, index) => value < best!.score[index] - EPS
+          && score.slice(0, index).every((prior, priorIndex) => Math.abs(prior - best!.score[priorIndex]) <= EPS))) {
+          best = { freeIndex, ...option, score };
+        }
+      });
+    });
+    if (!best) return null;
+
+    const chosen = best as { freeIndex: number; length: number; width: number; rotated: boolean; score: number[] };
+    const space = free[chosen.freeIndex];
+    const candidate: Placement = {
+      cargoId: item.id,
+      x: space.x,
+      y: space.y,
+      z: 0,
+      length: chosen.length,
+      width: chosen.width,
+      height: item.height,
+      weightKg: item.weightKg,
+      rotated: chosen.rotated,
+    };
+    const used: DeckFreeRect = { x: candidate.x, y: candidate.y, length: candidate.length, width: candidate.width };
+    placed.push(candidate);
+
+    const split: DeckFreeRect[] = [];
+    for (const rect of free) {
+      if (!intersects(rect, used)) { split.push(rect); continue; }
+      if (used.x > rect.x + EPS) split.push({ x: rect.x, y: rect.y, length: used.x - rect.x, width: rect.width });
+      if (used.x + used.length < rect.x + rect.length - EPS) split.push({
+        x: used.x + used.length, y: rect.y,
+        length: rect.x + rect.length - used.x - used.length, width: rect.width,
+      });
+      if (used.y > rect.y + EPS) split.push({ x: rect.x, y: rect.y, length: rect.length, width: used.y - rect.y });
+      if (used.y + used.width < rect.y + rect.width - EPS) split.push({
+        x: rect.x, y: used.y + used.width,
+        length: rect.length, width: rect.y + rect.width - used.y - used.width,
+      });
+    }
+
+    free = split.filter((rect, index, all) => {
+      if (rect.length <= EPS || rect.width <= EPS) return false;
+      const area = rect.length * rect.width;
+      return !all.some((other, otherIndex) => {
+        if (otherIndex === index || !contains(other, rect)) return false;
+        const otherArea = other.length * other.width;
+        return otherArea > area + EPS || (Math.abs(otherArea - area) <= EPS && otherIndex < index);
+      });
+    });
+  }
+
+  return placed;
+}
+
 function recalcLateralImbalance(pallets: PalletLoad[], container: ContainerSpec) {
   let left = 0;
   let right = 0;
@@ -294,12 +396,16 @@ export function consolidateFinalSparsePallets(
   while (changed) {
     changed = false;
     const topLoads = pallets
-      // Keep owner rule #97 intact: regular pallets and the final residual pool
-      // stay separate. This pass only removes an avoidable *second mixed tail*.
-      .filter(load => Boolean(load.isMixedTail) && load.cargoPlacements.length > 0 && isTop(load, pallets))
+      .filter(load => load.cargoPlacements.length > 0 && isTop(load, pallets))
       .sort((a, b) => a.cargoWeightKg - b.cargoWeightKg || b.stackLevel - a.stackLevel || a.palletIndex - b.palletIndex);
+    const tailSources = topLoads.filter(load => Boolean(load.isMixedTail));
 
-    outer: for (const source of topLoads) {
+    // The final mixed tail may still fit into an existing regular floor pallet.
+    // Try to absorb the tail into any compatible top load, but only keep the merge
+    // when the repacked pallet itself satisfies the ordinary top-layer fill rule.
+    // This preserves rule #97 for genuinely sparse 4+4+1 style loads while allowing
+    // cases such as the live 111 kg + 85 kg pallets to become one dense unit load.
+    outer: for (const source of tailSources) {
       for (const target of topLoads) {
         if (source === target || target.stackLevel !== 1) continue;
         if (strategy === 'unloading' && stopOfLoad(source) !== stopOfLoad(target)) continue;
@@ -307,26 +413,21 @@ export function consolidateFinalSparsePallets(
 
         const pairCargo = cargoCountsFromLoads([target, source], cargoMap);
         const expected = target.cargoPlacements.length + source.cargoPlacements.length;
-        const virtualContainer: ContainerSpec = {
-          length: pallet.length,
-          width: pallet.width,
-          height: container.height,
-          maxPayloadKg: Math.min(
-            container.maxPayloadKg,
-            pallet.maxLoadKg + pallet.tareWeightKg + pallet.cornerGuardWeightKg + pallet.wrappingWeightKg,
-          ),
-        };
-        const packed = packOnPalletsBase(virtualContainer, pairCargo, { ...pallet, maxStackLevels: 1 }, strategy);
-        if (packed.palletCount !== 1 || packed.placements.length !== expected || packed.remaining.some(item => item.quantity > 0)) continue;
-
-        const merged = packed.pallets[0];
+        const deckPlacements = packCargoOnSingleDeck(pairCargo, pallet);
+        if (!deckPlacements || deckPlacements.length !== expected) continue;
+        const merged = buildPalletLoadFromDeckPlacements(1, deckPlacements, pallet);
+        if (pallet.height + loadCargoHeight(merged) + merged.packagingExtraHeightM > container.height + EPS) continue;
         const allowedCargoHeight = Math.max(loadCargoHeight(source), loadCargoHeight(target), handlingLimit);
         if (loadCargoHeight(merged) > allowedCargoHeight + CONSOLIDATION_HEIGHT_TOLERANCE_M) continue;
-        const inheritsTail = Boolean(source.isMixedTail || target.isMixedTail);
-        if (!inheritsTail && minimumTopFill > 0 && palletTopLayerFill(merged) + EPS < minimumTopFill) continue;
+        const mergedTopFill = palletTopLayerFill(merged);
+        // Absorbing a final tail into a regular pallet must not recreate the sparse
+        // top tier that rule #97 intentionally split off. Two existing mixed tails
+        // may still collapse into one unavoidable final tail.
+        if (!target.isMixedTail && minimumTopFill > 0 && mergedTopFill + EPS < minimumTopFill) continue;
+        const remainsMixedTail = mergedTopFill + EPS < minimumTopFill;
 
         const shifted = moveLoad(
-          { ...merged, isMixedTail: inheritsTail || undefined, stackLevel: 1, stackColumn: target.stackColumn },
+          { ...merged, isMixedTail: remainsMixedTail || undefined, stackLevel: 1, stackColumn: target.stackColumn },
           target.x,
           target.y,
           0,
