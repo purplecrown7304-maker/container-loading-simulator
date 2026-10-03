@@ -1,7 +1,7 @@
 import { containerInputError, preflightCargoInput } from '../engine/inputPreflight';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from '../engine/types';
 import { pack, validate, canPlace, type Config as LoadSimConfig, type Violation } from '../load-sim';
-import { bPlacementToLoadSim, containerToLoadSimSpace, expandCargoToLoadSim, packResultToLoadingResult } from './loadSimAdapter';
+import { bPlacementToLoadSim, containerToLoadSimSpace, expandCargoToLoadSim, loadSimValidationType, packResultToLoadingResult, validationToFindings } from './loadSimAdapter';
 
 export type LoadSimRunOptions = { config?: Partial<LoadSimConfig>; iterations?: number; seed?: number; centerCargo?: boolean; maxAttemptsPerItem?: number };
 
@@ -77,4 +77,36 @@ export function canPlaceWithLoadSim(
   const convertedCandidate = convert(candidate);
   if (!convertedCandidate) return [{ code: 'UNKNOWN_CARGO', severity: 'error', itemIds: [candidate.cargoId], message: `${candidate.cargoId}: 품목 정보를 찾을 수 없음` }];
   return canPlace(convertedExisting, convertedCandidate, containerToLoadSimSpace(container), config);
+}
+
+
+export function validateExistingWithLoadSim(
+  container: ContainerSpec,
+  cargo: CargoItem[],
+  placements: Placement[],
+  config?: Partial<LoadSimConfig>,
+) {
+  const result = validatePlacementsWithLoadSim(container, cargo, placements, config);
+  const byCargo = new Map(cargo.map(item => [item.id, item]));
+  const occurrence = new Map<string, number>();
+  const indexByExpandedId = new Map<string, number>();
+  placements.forEach((placement, index) => {
+    if (!byCargo.has(placement.cargoId)) return;
+    const count = (occurrence.get(placement.cargoId) ?? 0) + 1;
+    occurrence.set(placement.cargoId, count);
+    indexByExpandedId.set(`${placement.cargoId}#${String(count).padStart(6, '0')}`, index);
+  });
+  const errors = result.violations.filter(v => v.severity === 'error');
+  return {
+    validation: result,
+    validationIssues: errors.map(v => ({
+      type: loadSimValidationType(v.code),
+      message: `[${v.code}] ${v.message}`,
+      placementIndexes: [...new Set(v.itemIds.flatMap(id => {
+        const index = indexByExpandedId.get(id);
+        return index == null ? [] : [index];
+      }))],
+    })),
+    operationalFindings: validationToFindings(result, indexByExpandedId),
+  };
 }
