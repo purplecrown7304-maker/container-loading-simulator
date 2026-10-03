@@ -1,8 +1,28 @@
+export type AxleModel = {
+  frontX: number;
+  rearX: number;
+  emptyFront: number;
+  emptyRear: number;
+  maxFront: number;
+  maxRear: number;
+  rearAxleCount: number;
+  frontAxleCount?: number;
+  maxGross: number;
+};
+
 export type ContainerSpec = {
   length: number;
   width: number;
   height: number;
   maxPayloadKg: number;
+  kind?: 'container' | 'truck';
+  doorWidth?: number;
+  doorHeight?: number;
+  access?: Array<'rear' | 'left' | 'right' | 'top'>;
+  tareKg?: number;
+  floorLineLoadKgPerM?: number;
+  heightLimit?: number;
+  axles?: AxleModel;
   /** 컨테이너/운영 기준 바닥 허용하중. 미입력 시 1,500 kg/m²를 사용한다. */
   floorLoadLimitKgPerM2?: number;
   /** 평균 바닥하중 대비 국부하중 경고 배수. 미입력 시 3배를 사용한다. */
