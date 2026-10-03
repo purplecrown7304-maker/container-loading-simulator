@@ -143,10 +143,13 @@ export default function DirectWorkOrderOptimizer() {
       target: current,
       staticPenalty: 0,
     };
-    // Validate the current layout first; passing layouts need no additional packing.
+    // Manual work-order requests may stop on an acceptable baseline.
+    // Automatic final loading always compares the baseline with low-CG alternatives,
+    // even when the baseline technically passes, so the first tall arrangement does
+    // not become final merely because securing materials made it pass.
     const candidates = [baseline];
     setAttempt({ index: 0, total: candidates.length, label: '' });
-    let bestWarning: Evaluated | null = null;
+    let bestEvaluated: Evaluated | null = null;
     let searchNotice = '';
 
     try {
@@ -185,16 +188,15 @@ export default function DirectWorkOrderOptimizer() {
 
         const evaluated: Evaluated = { ...candidate, certification, risk: certificationRisk(certification) };
         const approval = assessWorkOrderCertification(certification);
-        // Manual work-order requests may proceed with a verified caution result.
-        // Automatic final loading is stricter: a caution baseline must continue
-        // through the low-CG re-layout candidates instead of freezing the tall
-        // first-pass arrangement on screen.
-        if (approval === 'pass' || (!automatic && approval === 'caution')) {
-          finish({ ...evaluated, certification: { ...certification, searchNotice: searchNotice || undefined } }, automatic);
+        // Manual report generation keeps its existing fast path. Automatic final
+        // loading never short-circuits on the baseline: it compares the same cargo
+        // quantity against lower/safer layouts before publishing the final scene.
+        if (!automatic && (approval === 'pass' || approval === 'caution')) {
+          finish({ ...evaluated, certification: { ...certification, searchNotice: searchNotice || undefined } }, false);
           return;
         }
-        if (!bestWarning || better(evaluated, bestWarning)) bestWarning = evaluated;
-        setReadyReport(bestWarning);
+        if (!bestEvaluated || better(evaluated, bestEvaluated)) bestEvaluated = evaluated;
+        setReadyReport(bestEvaluated);
         if (index === 0) {
           setProgress(null);
           setMessage('동일 수량을 유지하는 안전 재배치 후보를 계산 중입니다.');
@@ -215,13 +217,13 @@ export default function DirectWorkOrderOptimizer() {
 
       if (cancelled()) return;
       setRunning(false);
-      if (!bestWarning) {
+      if (!bestEvaluated) {
         setError('관성 결과를 만들지 못했습니다. 현재 적재안을 유지합니다.');
         if (!automatic) setOpen(true);
         return;
       }
 
-      finish({ ...bestWarning, certification: { ...bestWarning.certification, searchNotice: searchNotice || undefined } }, automatic);
+      finish({ ...bestEvaluated, certification: { ...bestEvaluated.certification, searchNotice: searchNotice || undefined } }, automatic);
     } catch (reason) {
       if (cancelled()) return;
       console.error('Direct work-order inertia search failed', reason);
