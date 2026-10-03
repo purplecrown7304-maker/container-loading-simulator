@@ -324,6 +324,9 @@ function LoadingStrategyStage({ strategy, onStrategy, live }: {
   strategy: LoadingStrategy | null;
   onStrategy: (strategy: LoadingStrategy) => void;
 }) {
+  useEffect(() => {
+    if (strategy !== 'capacity') onStrategy('capacity');
+  }, [strategy, onStrategy]);
   const updateStop = (id: string, stop: number) => {
     if (!Number.isInteger(stop) || stop < 1) return;
     const product = live.cargo.find(item => item.id === id)?.productId;
@@ -332,34 +335,24 @@ function LoadingStrategyStage({ strategy, onStrategy, live }: {
   return <section className="guided-stage-panel guided-strategy-stage">
     <div className="guided-panel-title">
       <div>
-        <h1>적재 방식 선택</h1>
-        <p>이번 작업에서 가장 중요한 목표를 선택합니다. 안전 제약은 어떤 전략에서도 동일하게 유지됩니다.</p>
+        <h1>load-sim 규칙 적용</h1>
+        <p>기존 공간효율·안정성·하역 우선 전략은 제거했습니다. 업로드 파일의 pack()이 중량·부피·밑면적 정렬과 셔플을 자동 비교합니다.</p>
       </div>
-      <span className={`guided-strategy-status ${strategy ? 'ready' : ''}`}>{strategy ? '전략 선택 완료' : '전략 선택 필요'}</span>
+      <span className="guided-strategy-status ready">규칙 적용 완료</span>
     </div>
-    <div className="guided-strategy-grid" role="radiogroup" aria-label="적재 전략 선택">
-      {loadingStrategyOptions.map(option => {
-        const selected = strategy === option.id;
-        return <button
-          key={option.id}
-          type="button"
-          role="radio"
-          aria-checked={selected}
-          className={`guided-strategy-card ${selected ? 'selected' : ''}`}
-          onClick={() => onStrategy(option.id)}
-        >
-          <span className="guided-strategy-check">{selected ? '✓' : ''}</span>
-          <strong>{option.title}</strong>
-          <b>{option.summary}</b>
-          <small>{option.detail}</small>
-        </button>;
-      })}
+    <div className="guided-strategy-grid">
+      <div className="guided-strategy-card selected">
+        <span className="guided-strategy-check">✓</span>
+        <strong>업로드 파일 원본 규칙</strong>
+        <b>하드 제약 우선 · 탐욕 탐색 8회</b>
+        <small>경계 · 도어 · 겹침 · 회전 · 지지율 · 적층 하중 · 혼적 · 하역 순서 · 총중량 · 선하중 · 무게중심 · 축하중을 검사합니다.</small>
+      </div>
     </div>
-    {strategy === 'unloading' && <div className="guided-unload-priorities" aria-label="하역 순서 설정">
-      <b>배송지별 하역 순서</b><p>1번이 가장 먼저 문쪽에서 하역됩니다. 기본값은 제품 목록 순서이며, 같은 배송지는 같은 번호로 지정하세요.</p>
-      <div>{live.cargo.map(item => <label key={item.id}><span>{item.productName || item.name}<small>{item.id}</small></span><input aria-label={`${item.name} 하역 순서`} type="number" min="1" step="1" value={item.unloadPriority ?? 1} onChange={event => updateStop(item.id, Number(event.target.value))}/></label>)}</div>
-    </div>}
-    <div className="guided-strategy-note"><b>선택 전략 적용 범위</b><span>박스 위치 · 방향 · 공간 사용률 · 무게중심 · 하역 우선순위의 평가 가중치가 바뀝니다. 충돌, 지지율, 적층, 최대중량 같은 안전 제한은 완화하지 않습니다.</span></div>
+    <div className="guided-unload-priorities" aria-label="하역 순서 설정">
+      <b>화물별 하역 순서</b><p>필요한 경우 1번부터 지정하세요. 숫자가 작을수록 먼저 내리며 컨테이너에서는 후방 도어 LIFO 규칙을 적용합니다.</p>
+      <div>{live.cargo.map(item => <label key={item.id}><span>{item.productName || item.name}<small>{item.id}</small></span><input aria-label={`${item.name} 하역 순서`} type="number" min="1" step="1" value={item.unloadPriority ?? ''} placeholder="없음" onChange={event => updateStop(item.id, Number(event.target.value))}/></label>)}</div>
+    </div>
+    <div className="guided-strategy-note"><b>규칙 기준</b><span>최소 지지율 80% · 길이/폭 무게중심 ±5% · 높이 50% 경고 · 빈틈 150mm 경고 · 도로 가속도 0.8/0.5/0.5g.</span></div>
   </section>;
 }
 
@@ -399,7 +392,7 @@ function StagePanel({ step, live, selection, strategy, onSelection, onBundle, on
     <div hidden={step !== 2}><ProductSelectionStage container={live.container} selection={selection} onSelection={onSelection} /></div>
     <div hidden={step !== 3}><PackagingStage container={live.container} selection={selection} onBundle={onBundle} /></div>
     <div hidden={step !== 4}><LoadingStrategyStage strategy={strategy} onStrategy={onStrategy} live={live} /></div>
-    <div hidden={step !== 5}><section className="guided-stage-panel"><div className="guided-panel-title"><div><h1>자동 적재</h1><p>선택한 포장·적재 유형·전략을 확인한 뒤 최종 적재를 실행하세요. 계산과 검사는 메인 3D 화면에서 진행됩니다.</p></div></div></section></div>
+    <div hidden={step !== 5}><section className="guided-stage-panel"><div className="guided-panel-title"><div><h1>자동 적재</h1><p>포장과 화물 유형을 확인한 뒤 업로드한 load-sim 규칙으로 최종 적재를 실행하세요. 계산과 검사는 메인 3D 화면에서 진행됩니다.</p></div></div></section></div>
     <div hidden={step !== 6}><ResultStage live={live} /></div>
   </>;
 }
@@ -445,24 +438,20 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
       <div><dt>적재공간</dt><dd>{equipment.shortName}</dd></div>
       <div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div>
       <div><dt>포장 적재단위</dt><dd>{live.cargo.length ? `${live.cargo.length}종` : '-'}</dd></div>
-      <div><dt>적재 유형</dt><dd>{mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재'}</dd></div>
-      <div><dt>적재 전략</dt><dd>{strategy ? strategyLabel(strategy) : '-'}</dd></div>
-      {mode === 'pallets' && <div><dt>사용 파렛트</dt><dd>{palletSnapshot ? `${palletName}${palletSnapshot.result.palletCount}개` : palletType.name}</dd></div>}
+      <div><dt>적재 규칙</dt><dd>load-sim 원본 규칙</dd></div>
+      <div><dt>탐색 방식</dt><dd>중량·부피·밑면적 + 셔플</dd></div>
       <div><dt>적재</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div>
       <div><dt>미적재</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div>
       <div><dt>총 중량</dt><dd>{weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div>
 
       <div className="guided-status-row"><dt>상태</dt><dd><i className={finalReady ? 'good' : running ? 'running' : ''}/>{status}</dd></div>
     </dl>
-    <div className="studio-capacity"><span>공간 사용률<b>{mode === 'boxes' ? `${fillRate.toFixed(1)}%` : '팔레트 결과 참고'}</b></span><meter aria-label="공간 사용률" min="0" max="100" value={mode === 'boxes' ? Math.min(100, fillRate) : 0}/><small>전체 공간 {maxVolume.toFixed(1)} m³</small></div>
+    <div className="studio-capacity"><span>공간 사용률<b>{fillRate.toFixed(1)}%</b></span><meter aria-label="공간 사용률" min="0" max="100" value={Math.min(100, fillRate)}/><small>전체 공간 {maxVolume.toFixed(1)} m³</small></div>
     {step === 5 && !running && !finalReady && <div className="guided-loading-run-confirmation" aria-label="자동 적재 실행 설정 확인">
       <b>실행 설정 확인</b>
-      <span>{mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재'} · {strategy ? strategyLabel(strategy) : '전략 미선택'}</span>
+      <span>load-sim 원본 규칙 · 자동 탐색</span>
       <small>설정을 확인한 뒤 ‘최종 적재 진행’을 눌러 관성·물리 검증을 시작하세요.</small>
     </div>}
-    {step === 5 && mode === 'pallets' && restrictedCount > 0 && <p className="guided-pallet-stack-note">
-      {restrictedCount}종은 1단 또는 상부 적재 금지로 설정되어 있습니다. 더 쌓으려면 박스 관리에 검증된 최대 적층단과 상부 허용중량을 등록하세요.
-    </p>}
   </details>;
 }
 
@@ -498,10 +487,10 @@ function BottomBar({ step, selectionCount, packagedReady, packagingConfirmed, st
   let action = () => onAdvance(2);
   if (step === 2) { label = '다음: 제품 포장'; disabled = selectionCount < 1; action = () => onAdvance(3); }
   else if (step === 3) { label = '포장 확정 · 다음: 적재 방식 선택'; disabled = !packagedReady; action = onApplyPackaging; }
-  else if (step === 4) { label = !packagingConfirmed ? '제품 포장을 먼저 확정하세요' : strategy ? '선택 완료 · 다음: 자동 적재' : '적재 방식을 선택하세요'; disabled = !strategy || !packagingConfirmed; action = () => onAdvance(5); }
+  else if (step === 4) { label = !packagingConfirmed ? '제품 포장을 먼저 확정하세요' : '규칙 확인 완료 · 다음: 자동 적재'; disabled = !packagingConfirmed; action = () => onAdvance(5); }
   else if (step === 5) {
     if (finalReady) { label = '결과 확인'; action = () => onAdvance(6); }
-    else { label = running ? '최종 적재 검사 중…' : '최종 적재 진행'; disabled = running || !strategy || !packagingConfirmed; action = () => dispatchAppAction('run-loading'); }
+    else { label = running ? '최종 적재 검사 중…' : '최종 적재 진행'; disabled = running || !packagingConfirmed; action = () => dispatchAppAction('run-loading'); }
   } else if (step === 6) { label = canReport ? '통합 출하·적재 작업지시서 보기' : '미적재 사유 확인 · 조건을 변경해 다시 계산하세요'; disabled = !finalReady || !canReport; action = () => dispatchAppAction('print-report'); }
   return <div ref={barRef} className="guided-bottom-bar"><div className="studio-footer-left"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><span className="studio-footer-step">STEP {String(step).padStart(2, '0')} <i>/</i> 06</span></div><div className="studio-footer-actions">{step > 1 && <button type="button" className="studio-back" onClick={() => onAdvance((step - 1) as StepId)}>이전 단계</button>}<button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 6 ? '  ›' : ''}</button></div></div>;
 }

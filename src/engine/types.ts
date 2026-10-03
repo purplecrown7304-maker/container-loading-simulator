@@ -3,11 +3,15 @@ export type ContainerSpec = {
   width: number;
   height: number;
   maxPayloadKg: number;
-  /** 컨테이너/운영 기준 바닥 허용하중. 미입력 시 1,500 kg/m²를 사용한다. */
+  /** 업로드 load-sim 규칙의 X방향 바닥 허용 선하중 kg/m. */
+  floorLineLoadKgPerM?: number;
+  /** 레거시 UI 호환 필드. 새 규칙 판정에는 사용하지 않는다. */
   floorLoadLimitKgPerM2?: number;
   /** 평균 바닥하중 대비 국부하중 경고 배수. 미입력 시 3배를 사용한다. */
   floorLoadWarningMultiplier?: number;
 };
+
+export type CargoLoadType = 'carton' | 'pallet' | 'drum' | 'bag' | 'roll' | 'long' | 'machine';
 
 export type CargoItem = {
   id: string;
@@ -17,8 +21,17 @@ export type CargoItem = {
   height: number;
   weightKg: number;
   quantity: number;
+  /** 업로드된 load-sim 규칙의 화물 유형. 생략 시 carton. */
+  loadType?: CargoLoadType;
   maxStackLayers?: number;
   maxTopLoadKg?: number;
+  maxTopPressureKgPerM2?: number;
+  thisSideUp?: boolean;
+  groupId?: string;
+  segregationClass?: string;
+  tempZone?: string;
+  friction?: number;
+  forklift?: boolean;
   /** 사용자 목록/엑셀 등록 시 부여되는 화면 표시용 고유 색상. */
   displayColor?: string;
   /** 제품 포장 흐름에서 생성된 화물의 원 제품 코드. */
@@ -56,12 +69,14 @@ export type Placement = {
   width: number;
   height: number;
   weightKg: number;
-  /** 원래 길이/폭 대비 90도 회전되어 배치됐는지 여부 */
+  /** 원래 길이/폭 대비 회전되었는지 여부 */
   rotated?: boolean;
+  /** 업로드된 load-sim의 6방향 회전값. */
+  loadSimOrientation?: 'LWH' | 'WLH' | 'LHW' | 'HLW' | 'WHL' | 'HWL';
 };
 
 export type ValidationIssue = {
-  type: 'OUT_OF_BOUNDS' | 'COLLISION' | 'INVALID_CARGO' | 'UNSUPPORTED' | 'QUANTITY' | 'STACK_LIMIT' | 'TOP_LOAD' | 'PAYLOAD';
+  type: 'OUT_OF_BOUNDS' | 'COLLISION' | 'INVALID_CARGO' | 'UNSUPPORTED' | 'QUANTITY' | 'STACK_LIMIT' | 'TOP_LOAD' | 'PAYLOAD' | 'RULE';
   message: string;
   placementIndexes: number[];
 };

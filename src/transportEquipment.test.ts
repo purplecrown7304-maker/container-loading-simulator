@@ -40,7 +40,7 @@ describe('transport equipment catalog', () => {
   });
 
   it('matches a known preset from dashboard dimensions', () => {
-    const match = findMatchingEquipment(12.032, 2.35, 2.7, 28600);
+    const match = findMatchingEquipment(12.032, 2.352, 2.698, 26500);
     expect(match?.id).toBe('40-high-cube');
   });
 

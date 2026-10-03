@@ -1,6 +1,6 @@
 import { createExternalStore } from './store/externalStore';
 
-export type GuidedLoadingUnit = 'boxes' | 'pallets';
+export type GuidedLoadingUnit = 'boxes';
 
 export const GUIDED_LOADING_UNIT_KEY = 'container-loading:guided-loading-unit';
 export const GUIDED_LOADING_UNIT_EVENT = 'container-loading:guided-loading-unit-updated';
@@ -9,13 +9,12 @@ const store = createExternalStore<GuidedLoadingUnit | null>(null);
 let hydrated = false;
 
 export function normalizeGuidedLoadingUnit(value: unknown): GuidedLoadingUnit | null {
-  return value === 'boxes' || value === 'pallets' ? value : null;
+  return value === 'boxes' ? value : value === 'pallets' ? 'boxes' : null;
 }
 
 export function guidedLoadingUnitLabel(unit: GuidedLoadingUnit | null | undefined) {
-  if (unit === 'boxes') return '박스 직접 적재';
-  if (unit === 'pallets') return '파렛트 적재';
-  return '적재 유형 미선택';
+  if (unit === 'boxes') return 'load-sim 규칙 기반';
+  return '적재 유형 준비 중';
 }
 
 export function readGuidedLoadingUnit() {
