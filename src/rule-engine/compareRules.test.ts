@@ -25,7 +25,7 @@ describe('legacy vs approved load-sim rule bundle', () => {
 
   it('records the six-orientation carton difference', () => {
     const container: ContainerSpec = { length: .7, width: .45, height: .35, maxPayloadKg: 1000 };
-    const result = compareRuleEngines(container, [cargo({ length: .5, width: .3, height: .4 })]);
+    const result = compareRuleEngines(container, [cargo({ length: .5, width: .3, height: .4, loadSimType: 'carton' })]);
     expect(result.legacy.placements).toHaveLength(0);
     expect(result.next.placements).toHaveLength(1);
     expect(result.next.placements[0].loadSimOrientation).not.toBeUndefined();
