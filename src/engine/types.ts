@@ -66,6 +66,15 @@ export type ValidationIssue = {
   placementIndexes: number[];
 };
 
+export type OperationalRuleFinding = {
+  code: string;
+  severity: 'error' | 'warning';
+  message: string;
+  placementIndexes: number[];
+  value?: number;
+  limit?: number;
+};
+
 export type AutoCorrectionRecord = {
   kind: 'SHAPE' | 'LOW_ROW' | 'ZONE_HEIGHT';
   label: string;
@@ -83,6 +92,8 @@ export type LoadingResult = {
   loadedWeightKg: number;
   usedVolumeM3: number;
   validationIssues: ValidationIssue[];
+  /** 외부 load-sim 규칙 모듈을 현재 m/kg 모델에 맞춰 적용한 운영 검증 결과. */
+  operationalFindings?: OperationalRuleFinding[];
   /** 적재 완료 후 자동 형상 보정이 실제 수행된 경우의 이력. */
   autoCorrections?: AutoCorrectionRecord[];
 };
