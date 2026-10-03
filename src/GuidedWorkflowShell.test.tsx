@@ -127,7 +127,7 @@ it('keeps completed results and canvas available through result-modal close/reop
   latest.__containerLoadingLatestResult = { ...stored, result };
   await act(async () => {
     window.dispatchEvent(new CustomEvent('container-loading:result', { detail: latest.__containerLoadingLatestResult }));
-    window.dispatchEvent(new CustomEvent('container-loading:inertia-certification-result', { detail: { mode: 'boxes' } }));
+    window.dispatchEvent(new CustomEvent('container-loading:inertia-certification-result', { detail: { mode: 'boxes', status: 'passed' } }));
   });
   const canvas = document.querySelector('canvas');
   expect(action().textContent).toContain('결과 확인');
@@ -143,4 +143,22 @@ it('keeps completed results and canvas available through result-modal close/reop
   }
   expect(action().disabled).toBe(false);
   expect(action().textContent).toContain('작업지시서');
+});
+
+
+it('keeps STEP 06 locked when inertia certification completes with failed status', async () => {
+  await mount(); await prepareStrategy(); await click(action());
+  const stored = readStoredState()!;
+  const result: LoadingResult = {
+    placements: [{ cargoId: stored.cargo[0].id, x: 0, y: 0, z: 0, length: .2, width: .15, height: .1, weightKg: 1, rotated: false }],
+    remaining: [], validationIssues: [], loadedWeightKg: 1, usedVolumeM3: .003,
+  };
+  latest.__containerLoadingLatestResult = { ...stored, result };
+  await act(async () => {
+    window.dispatchEvent(new CustomEvent('container-loading:result', { detail: latest.__containerLoadingLatestResult }));
+    window.dispatchEvent(new CustomEvent('container-loading:inertia-certification-result', { detail: { mode: 'boxes', status: 'failed' } }));
+  });
+  expect(step(6).disabled).toBe(true);
+  expect(action().textContent).toContain('최종 적재 진행');
+  expect(action().textContent).not.toContain('결과 확인');
 });

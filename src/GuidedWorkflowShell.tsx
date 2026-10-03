@@ -718,8 +718,20 @@ export default function GuidedWorkflowShell() {
     };
     const onCertification = (event: Event) => {
       const certification = (event as CustomEvent<InertiaCertification | undefined>).detail;
-      if (certification) markReady();
-      else setFinalReady(false);
+      if (!certification) {
+        setFinalReady(false);
+        return;
+      }
+      // A completed certification object is not the same as a passed plan.
+      // Keep STEP 06 locked until the exact loading target passes all inertia checks.
+      if (certification.status === 'passed') {
+        markReady();
+        return;
+      }
+      setRunning(false);
+      setFinalReady(false);
+      setFurthest(previous => Math.min(previous, 5) as StepId);
+      setStep(previous => previous === 6 ? 5 : previous);
     };
 
     window.addEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, onInputInvalidated);
