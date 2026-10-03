@@ -272,7 +272,7 @@ function consolidateUntilStable(
  * A floor target is required so removing a stacked source never increases the load
  * carried by another pallet. Unloading mode only combines the same stop.
  */
-function consolidateFinalSparsePallets(
+export function consolidateFinalSparsePallets(
   input: PalletPackingResult,
   container: ContainerSpec,
   cargo: CargoItem[],
