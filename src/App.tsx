@@ -457,15 +457,13 @@ export default function App() {
 
         <section className="dashboard-card cargo-browser">
           <div className="card-heading-row"><h2>2. 적재할 화물</h2><span>{waitingCount} EA</span></div>
-          <div className="mode-tabs">
-            <button className={mode === 'boxes' ? 'active' : ''} onClick={() => switchMode('boxes')}>박스</button>
-            <button className={mode === 'pallets' ? 'active' : ''} onClick={() => switchMode('pallets')}>팔레트</button>
-            <button className={mode === 'mixed' ? 'active' : ''} onClick={() => switchMode('mixed')}>혼합</button>
+          <div className="mode-tabs load-sim-mode-note">
+            <button className="active" type="button" onClick={() => switchMode('boxes')}>load-sim 규칙 기반 단일 적재</button>
           </div>
           {cargo.length === 0 ? <div className="empty-cargo"><b>등록된 화물이 없습니다.</b><span>로그인 후 본인의 박스 목록에서 화물을 선택하거나 새 박스를 등록하세요.</span></div> : <div className="cargo-scroll">
             {cargo.map(item => <article className="cargo-list-item" key={item.id} style={{ borderLeft: `3px solid ${cargoColor(item.id, item.displayColor)}`, paddingLeft: 8 }}>
               <div className="cargo-icon" style={{ background: cargoTint(item.id, item.displayColor), color: cargoColor(item.id, item.displayColor), border: `1px solid ${cargoColor(item.id, item.displayColor)}55` }}>■</div>
-              <div><b>{item.id} {item.name}</b><span>{Math.round(item.length * 1000)} × {Math.round(item.width * 1000)} × {Math.round(item.height * 1000)} mm</span><small>{item.weightKg} kg · {item.maxTopLoadKg == null ? '상부허용 제한없음' : `상부허용 ${item.maxTopLoadKg} kg`}</small></div>
+              <div><b>{item.id} {item.name}</b><span>{loadTypeLabel(item.loadType)} · {Math.round(item.length * 1000)} × {Math.round(item.width * 1000)} × {Math.round(item.height * 1000)} mm</span><small>{item.weightKg} kg · {item.maxTopLoadKg == null ? '상부허용 제한없음' : `상부허용 ${item.maxTopLoadKg} kg`}</small></div>
               <strong>{item.quantity}</strong>
               <div className="cargo-inline-actions">
                 <button aria-label={`${item.id} 수량 1 감소`} onClick={() => changeQuantity(item.id, -1)}>−</button>
@@ -478,6 +476,9 @@ export default function App() {
           <details className="cargo-add-panel" open={Boolean(editingId)}><summary>＋ 새 화물 추가</summary><div className="cargo-form">
             <label>코드<input value={draft.id} onChange={e => updateDraft('id', e.target.value)} disabled={Boolean(editingId)} /></label>
             <label>이름<input value={draft.name} onChange={e => updateDraft('name', e.target.value)} /></label>
+            <label>화물 유형<select value={draft.loadType ?? 'carton'} onChange={e => updateDraft('loadType', e.target.value)}>
+              {LOAD_TYPE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select></label>
             <div className="form-grid">
               <label>길이(m)<input type="number" min="0.01" step="0.01" value={draft.length} onChange={e => updateDraft('length', e.target.value)} /></label>
               <label>폭(m)<input type="number" min="0.01" step="0.01" value={draft.width} onChange={e => updateDraft('width', e.target.value)} /></label>
@@ -486,9 +487,14 @@ export default function App() {
               <label>수량<input type="number" min="0" step="1" value={draft.quantity} onChange={e => updateDraft('quantity', e.target.value)} /></label>
               <label>최대 적층단<input type="number" min="1" step="1" value={draft.maxStackLayers ?? 1} onChange={e => updateDraft('maxStackLayers', e.target.value)} /></label>
               <label>상부 허용중량(kg)<input type="number" min="0" step="0.1" value={draft.maxTopLoadKg ?? ''} placeholder="제한 없음" onChange={e => updateDraft('maxTopLoadKg', e.target.value)} /></label>
+              <label>상부 허용면압(kg/m²)<input type="number" min="0" step="1" value={draft.maxTopPressureKgPerM2 ?? ''} placeholder="검사 안 함" onChange={e => updateDraft('maxTopPressureKgPerM2', e.target.value)} /></label>
+              <label>하역 순번<input type="number" min="1" step="1" value={draft.unloadPriority ?? ''} placeholder="없음" onChange={e => updateDraft('unloadPriority', e.target.value)} /></label>
+              <label>마찰계수<input type="number" min="0" max="1" step="0.05" value={draft.friction ?? ''} placeholder="기본 0.45" onChange={e => updateDraft('friction', e.target.value)} /></label>
               <label><input type="checkbox" checked={draft.allowRotation !== false} onChange={e => updateDraft('allowRotation', e.target.checked)} /> 회전 허용</label>
+              <label><input type="checkbox" checked={draft.thisSideUp === true} onChange={e => updateDraft('thisSideUp', e.target.checked)} /> 천지무용</label>
+              <label><input type="checkbox" checked={draft.floorOnly === true} onChange={e => updateDraft('floorOnly', e.target.checked)} /> 바닥 전용</label>
             </div>
-            <button onClick={saveCargo}>{editingId ? '수정 저장' : '박스 추가'}</button>
+            <button onClick={saveCargo}>{editingId ? '수정 저장' : '화물 추가'}</button>
           </div></details>
           {statusMessage && <p className={`status-message status-${statusMessage.tone}`} role={statusMessage.tone === 'error' ? 'alert' : 'status'} aria-live="polite">{statusMessage.text}</p>}
         </section>
@@ -496,12 +502,14 @@ export default function App() {
         <section className="dashboard-card loading-options">
           <h2>3. 적재 옵션</h2>
           <div className="fixed-option-list">
-            <span><b>적재 방식</b><em>물리 검증 자동 최적화</em></span>
-            <span><b>박스 회전</b><em>품목별 허용 설정 + 자동 방향 선택</em></span>
-            <span><b>혼합 적재</b><em>잔량에 대해 자동 허용</em></span>
-            <span><b>운송 검증</b><em>정적 · 출발 0.30g · 급제동 0.50g · 횡가속 0.35g</em></span>
+            <span><b>배치 엔진</b><em>업로드된 load-sim pack() 탐욕 탐색 · 기본 8회</em></span>
+            <span><b>지지 기준</b><em>최소 지지율 80% · 지지영역 내 무게중심</em></span>
+            <span><b>회전 규칙</b><em>일반 카톤 6방향 · 천지무용/비카톤 수평 2방향</em></span>
+            <span><b>적층 규칙</b><em>누적 상부하중 · 최대 단수 · 바닥 전용 · 면압 검사</em></span>
+            <span><b>무게중심</b><em>길이/폭 ±5% · 높이 50% 초과 경고</em></span>
+            <span><b>고정 규칙</b><em>도로 0.8g/0.5g/0.5g · 빈틈 150mm 경고</em></span>
           </div>
-          <small className="setting-note">변경 가능한 설정만 입력 컨트롤로 표시합니다. 고정 동작은 설명으로만 표시합니다.</small>
+          <small className="setting-note">기존 박스/파렛트/혼합 전용 규칙 대신 업로드 파일의 단일 규칙 세트를 사용합니다.</small>
         </section>
       </aside>
 
@@ -515,20 +523,14 @@ export default function App() {
             <Suspense fallback={<LoadingFallback />}>
               <BoxLoadingViewer container={container} result={displayResult}
                 geometry={equipment.geometry} vehicle={equipment.category === 'truck'}
-                cargo={isPreview ? workflowPreview?.cargo ?? cargo : cargo} mode={mode} isPreview={isPreview}
-                supports={currentPalletScene?.supports} onSupportSelect={currentPalletScene?.onSupportSelect}
-                onCargoSelect={currentPalletScene?.onCargoSelect}
-                title={isPreview ? (workflowPreview?.kind === 'products' ? '선택 제품 미리보기' : '포장·화물 미리보기') : currentPalletScene?.title ?? '박스 적재 결과'} />
-            </Suspense>
-            <Suspense fallback={null}>
-              {mode !== 'boxes' && <PalletModePanel container={container} cargo={cargo} runToken={palletRunToken} mode={mode} inputKey={inputKey} onSceneChange={setPalletScene} onRunningChange={setIsRunning} />}
+                cargo={isPreview ? workflowPreview?.cargo ?? cargo : cargo} mode="boxes" isPreview={isPreview}
+                title={isPreview ? (workflowPreview?.kind === 'products' ? '선택 제품 미리보기' : '포장·화물 미리보기') : 'load-sim 적재 결과'} />
             </Suspense>
           </div>
           {isPreview && <div className="workflow-preview-status" role="status" data-preview-kind={workflowPreview?.kind ?? 'cargo'}>{floorPreview.requested === 0 ? '적재공간을 확인하고 제품을 선택하세요' : `미리보기 · ${floorPreview.shown.toLocaleString()} / ${floorPreview.requested.toLocaleString()}개 표시 · 실제 크기의 바닥 배치이며 최종 적재·안전 검증 전입니다`}</div>}
-          <div className={`viewer-bottom-actions ${mode !== 'boxes' ? 'pallet-summary-active' : ''}`}>
+          <div className="viewer-bottom-actions">
             <button className="result-open-action" disabled={isPreview} onClick={showResults}>결과 보기</button>
-            <PalletFooterSummary active={mode !== 'boxes'} />
-            <span>{physicsScore !== null ? `Rapier ${physicsScore}점 · ${physicsStrategy ? strategyLabel(physicsStrategy) : ''}` : '자동 적재 실행 시 후보를 물리 검증해 최종안을 선택합니다.'}</span>
+            <span>{physicsScore !== null ? `Rapier ${physicsScore}점 · load-sim 규칙 검증 완료` : 'load-sim 규칙으로 배치한 뒤 Rapier 운송 검증을 수행합니다.'}</span>
           </div>
         </section>}
       </section>
