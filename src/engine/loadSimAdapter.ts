@@ -47,6 +47,7 @@ export function loadSimSpaceFromContainer(container: ContainerSpec): Space {
     const space = cloneSpace(preset);
     space.inner = { l: mm(container.length), w: mm(container.width), h: mm(container.height) };
     space.maxPayload = container.maxPayloadKg;
+    if (container.floorLineLoadKgPerM != null) space.floorLineLoad = container.floorLineLoadKgPerM;
     return space;
   }
 
@@ -74,7 +75,7 @@ export function loadSimSpaceFromContainer(container: ContainerSpec): Space {
     access: access.length ? access : ['rear'],
     maxPayload: container.maxPayloadKg,
     tare: truckPreset?.tare ?? 0,
-    floorLineLoad: preset?.floorLineLoad,
+    floorLineLoad: container.floorLineLoadKgPerM,
     axles: truckPreset?.axles ? { ...truckPreset.axles } : undefined,
   };
 }
