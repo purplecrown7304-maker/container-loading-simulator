@@ -32,12 +32,13 @@ export type PhysicsOptimizationProgress = {
   physicsProgress: number;
 };
 
-const STRATEGIES: LoadingStrategy[] = ['stability', 'capacity', 'unloading'];
 const MIN_TRANSPORT_PHYSICS_SCORE = 85;
 const clamp = (value: number) => Math.max(0, Math.min(100, value));
 
 export function resolveOptimizationStrategies(preferredStrategy?: LoadingStrategy): LoadingStrategy[] {
-  return preferredStrategy ? [preferredStrategy] : [...STRATEGIES];
+  // The uploaded load-sim packer is the single canonical solver. Keep one legacy
+  // strategy token only so existing progress/report APIs do not need a migration.
+  return [preferredStrategy ?? 'capacity'];
 }
 
 function totalUnstable(physics: PhysicsValidationSuite) {
