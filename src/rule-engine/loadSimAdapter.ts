@@ -69,7 +69,7 @@ export function containerToLoadSimSpace(container: ContainerSpec): Space {
   const doorHeight = container.doorHeight ?? equipment?.doorHeight;
   return {
     id: equipment?.id ?? 'custom',
-    kind: container.kind ?? equipment?.category ?? 'container',
+    kind: container.transportKind ?? equipment?.category ?? 'container',
     inner: { l: container.length * MM_PER_M, w: container.width * MM_PER_M, h: container.height * MM_PER_M },
     door: doorWidth && doorHeight ? { w: doorWidth * MM_PER_M, h: doorHeight * MM_PER_M } : undefined,
     access,
