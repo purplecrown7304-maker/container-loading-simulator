@@ -82,21 +82,28 @@ test('registered stacking updates without reload and bulk packaging advances bef
   expect(loaded.maxZ).toBeGreaterThan(0.265);
   expect(loaded.issues).toEqual([]);
   console.log('bulk stacking result', { count: loaded.count, remaining: loaded.left, maxZ: loaded.maxZ });
-  await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 120_000 });
-  await page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ }).click();
-  await expect(page.getByRole('heading', { name: '결과 확인' })).toBeVisible();
+  // Tall bulk loading is geometrically valid but does not pass the real inertia suite.
+  // It must remain blocked, while the existing manual warning work order stays available.
+  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestCertification?.status), { timeout: 120_000 }).toBe('failed');
+  await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestResult.result.placements.length)).toBe(loaded.count);
-  const reportButton = page.getByRole('button', { name: /통합 출하·적재 작업지시서 보기/ });
-  await reportButton.scrollIntoViewIfNeeded();
-  await expect(reportButton).toBeEnabled();
-  // The 1,562-box scene can delay input/report creation on software-rendered CI.
-  // Start the popup budget after preparing the button; still require the real report.
-  const [report] = await Promise.all([
-    page.waitForEvent('popup', { timeout: 60_000 }),
-    reportButton.click(),
-  ]);
+  await page.evaluate(() => {
+    const target = (window as any).__containerLoadingPhysicsTarget;
+    window.dispatchEvent(new CustomEvent('container-loading:request-direct-work-order', { detail: target }));
+  });
+  // Use the real UI to stop optional alternative search after a complete checked plan exists.
+  const checkedReport = page.locator('.final-cert-actions button.primary');
+  await expect(checkedReport).toBeVisible({ timeout: 90_000 });
+  const reportPromise = page.waitForEvent('popup', { timeout: 60_000 });
+  await checkedReport.click();
+  const report = await reportPromise;
+  // The global record can refer to an in-flight alternative until the checked plan is applied.
+  expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification.testedScenarios)).toBe(3);
+  expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification.status)).toBe('failed');
+  await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   await expect(report.getByRole('heading', { name: /통합 출하·적재 작업지시서/ })).toBeVisible();
   await expect(report.locator('.summary')).toContainText(`${loaded.count} EA`);
-  console.log('bulk work order opened with matching loaded quantity');
+  await expect(report.locator('.recommendations')).toContainText('위험 기준을 초과');
+  console.log('bulk warning work order opened with matching loaded quantity; failed inertia remains blocked');
   await page.screenshot({ path: test.info().outputPath('registered-stacking.png'), fullPage: true });
 });

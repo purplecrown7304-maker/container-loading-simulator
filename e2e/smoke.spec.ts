@@ -97,7 +97,8 @@ test('completed loading keeps result quantities visible after switching result t
   test.setTimeout(90_000);
   await page.goto('/');
   await advanceToStrategy(page, 'E2E-FINAL-RESULT');
-  await page.getByRole('radio', { name: /무게중심·안정성 우선형/ }).click();
+  // This success-path fixture must satisfy the existing lateral-CG gate.
+  await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
 
@@ -145,4 +146,17 @@ test('mobile guided dashboard remains usable without horizontal body overflow', 
   await expect(page.getByRole('button', { name: /다음: 제품 선택/ })).toBeInViewport();
   await page.locator('.equipment-selected-strip').scrollIntoViewIfNeeded();
   await expect(page.locator('.equipment-selected-strip')).toContainText('용적');
+});
+
+test('a lateral-CG error does not unlock the final result step', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await advanceToStrategy(page, 'E2E-BLOCKED-CG');
+  await page.getByRole('radio', { name: /무게중심·안정성 우선형/ }).click();
+  await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
+  await page.getByRole('button', { name: /최종 적재 진행/ }).click();
+
+  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.result.operationalFindings?.filter((f: any) => f.severity === 'error').map((f: any) => f.code) ?? []), { timeout: 60_000 }).toContain('CG_LATERAL');
+  await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
+  expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification?.status)).not.toBe('passed');
 });
