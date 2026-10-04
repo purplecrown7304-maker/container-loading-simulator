@@ -20,7 +20,7 @@ describe('pallet catalog', () => {
   it('the company default entry matches the engine default pallet', () => {
     const t11 = findPalletType('company-default')!;
     const spec = palletSpecForType(t11);
-    expect(spec).toEqual({ ...defaultPalletSpec, material: 'wood', length: t11.length, width: t11.width, height: t11.height, tareWeightKg: t11.tareWeightKg, maxLoadKg: t11.maxLoadKg });
+    expect(spec).toEqual({ ...defaultPalletSpec, material: 'wood', length: t11.length, width: t11.width, height: t11.height, tareWeightKg: t11.tareWeightKg, maxLoadKg: t11.maxLoadKg, maxStaticLoadKg: 0, maxStackLevels: 1 });
     expect(spec.maxLoadKg).toBe(defaultPalletSpec.maxLoadKg);
   });
 

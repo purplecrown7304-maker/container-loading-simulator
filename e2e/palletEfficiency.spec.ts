@@ -35,10 +35,11 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
   await page.getByRole('radio', { name: /파렛트 적재/ }).click();
-  await page.getByRole('radio', { name: /하역 순서 우선형/ }).click();
+  await page.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await page.getByText('품목별 착지 번호 · 같은 배송지는 같은 번호', {exact:true}).click();
   await page.getByRole('spinbutton', { name: /하역 순서/ }).fill('3');
   await expect(page.getByRole('spinbutton', { name: /하역 순서/ })).toHaveValue('3');
-  await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
+  await page.getByRole('button', { name: /다음 단계/ }).click();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('container-loading-simulator-v1')!).cargo[0].unloadPriority)).toBe(3);
 
   const summary = page.locator('.guided-job-summary');
@@ -48,7 +49,7 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   await expect(page.locator('.viewer-host .guided-loading-run-confirmation')).toHaveCount(0);
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 60_000 });
-  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.optimization?.strategy)).toBe('unloading');
+  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.optimization?.strategy)).toBe('capacity');
   await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-applied', 'true', { timeout: 100_000 });
   await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-supports', '1');
   await expect(summary.locator('dl > div').filter({ hasText: '사용 파렛트' }).locator('dd')).toHaveText(/(^| · )1개$/);

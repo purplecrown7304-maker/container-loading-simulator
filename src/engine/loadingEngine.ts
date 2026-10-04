@@ -10,6 +10,7 @@ import { readManualOverride } from './manualOverride';
 import { containerInputError, preflightCargoInput } from './inputPreflight';
 import { completeResidualPacking } from './residualPacking';
 import { settleSparseTopLayer } from './topLayerSettling';
+import { cargoWithUnloadingPolicy } from './unloadingPolicy';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -128,7 +129,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   const strategy = options.strategy ?? browserStrategy();
   const shouldPublish = options.publish !== false;
   const preflight = preflightCargoInput(cargo);
-  const normalizedCargo = preflight.cargo;
+  const normalizedCargo = cargoWithUnloadingPolicy(container, preflight.cargo);
   const invalidContainer = containerInputError(container);
 
   if (invalidContainer) {

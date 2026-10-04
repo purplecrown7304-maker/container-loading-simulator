@@ -2,6 +2,7 @@ import type { CargoItem, ContainerSpec, Placement } from './types';
 import { isInsideContainer, overlaps } from './constraints';
 import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules } from './stacking';
+import { acceptsUnloadCandidate } from './unloadingPolicy';
 
 const EPS = 1e-9;
 const TOUCH = 0.0015;
@@ -171,6 +172,7 @@ function physicallyValid(candidate: Candidate, state: State, context: Context) {
   if (block.item.floorOnly && candidate.z > EPS) return false;
   if (state.loadedWeightKg + block.weightKg > context.container.maxPayloadKg + EPS) return false;
   const box = occupied(candidate);
+  if (!acceptsUnloadCandidate(context.container, context.cargoById, state.placements, box)) return false;
   if (!isInsideContainer(context.container, box) || state.placements.some((p) => overlaps(box, p))) return false;
   const units = unitsOf(block, candidate.x, candidate.y, candidate.z);
 

@@ -68,18 +68,18 @@ if (!loadingUnitState.includes('normalizeGuidedLoadingUnit')) {
   fail('guidedLoadingUnitState.ts must normalize persisted loading-unit values before use.');
 }
 
-const loadingUnitEnhancer = readFileSync('src/GuidedLoadingUnitEnhancer.tsx', 'utf8');
-if (!loadingUnitEnhancer.includes('useGuidedWorkflowState')) {
-  fail('GuidedLoadingUnitEnhancer must consume the centralized guided workflow state.');
+const loadingUnitEnhancer = readFileSync('src/LoadingMethodStage.tsx', 'utf8');
+if (/MutationObserver|querySelector/.test(loadingUnitEnhancer)) {
+  fail('LoadingMethodStage must receive visibility from React props rather than discover DOM state.');
 }
 if (!loadingUnitEnhancer.includes('useGuidedLoadingUnit')) {
-  fail('GuidedLoadingUnitEnhancer must consume the centralized loading-unit state.');
+  fail('LoadingMethodStage must consume the centralized loading-unit state.');
 }
 if (/getBoundingClientRect|ResizeObserver|addEventListener\(['"]scroll/.test(loadingUnitEnhancer)) {
-  fail('GuidedLoadingUnitEnhancer must not continuously measure viewport geometry; keep the selector in normal document flow.');
+  fail('LoadingMethodStage must not continuously measure viewport geometry; keep the selector in normal document flow.');
 }
 if (/\.mode-tabs|clickUnderlyingMode/.test(loadingUnitEnhancer)) {
-  fail('GuidedLoadingUnitEnhancer must not proxy loading-unit selection through hidden .mode-tabs DOM clicks.');
+  fail('LoadingMethodStage must not proxy loading-unit selection through hidden .mode-tabs DOM clicks.');
 }
 
 const guidedShellSource = readFileSync('src/GuidedWorkflowShell.tsx', 'utf8');

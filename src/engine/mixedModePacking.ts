@@ -57,6 +57,8 @@ function builderContainer(container: ContainerSpec, cargo: CargoItem[], pallet: 
   const grossUpperBound = cargo.reduce((sum, item) => sum + item.weightKg * item.quantity, 0)
     + quantity * (pallet.tareWeightKg + pallet.cornerGuardWeightKg + pallet.wrappingWeightKg);
   return {
+    unloadingPolicy: container.unloadingPolicy,
+    palletDestination: container.palletDestination,
     length: Math.max(pallet.length, pallet.length * quantity),
     width: pallet.width,
     height: container.height,
@@ -216,14 +218,16 @@ export function packMixedMode(
   const threshold = Math.max(0, Math.min(1, options.minPalletFillRatio ?? 0.7));
   const candidateCap = Math.max(2, Math.floor(options.maxDemotionCandidates ?? 10));
   const buildSpec = { ...pallet, maxStackLevels: 1 };
-  const built = packOnPallets(builderContainer(container, active, buildSpec), active, buildSpec, strategy);
+  const palletCargo = active.filter(item => item.mixedLoadingMethod !== 'direct');
+  const explicitDirect = active.filter(item => item.mixedLoadingMethod === 'direct');
+  const built = packOnPallets(builderContainer(container, palletCargo, buildSpec), palletCargo, buildSpec, strategy);
   const cargoById = new Map(active.map((item) => [item.id, item]));
   const fillRows = built.pallets.map((load) => ({
     load,
     fillRate: palletFillRate(load),
   }));
   const eligible = fillRows
-    .filter((row) => row.fillRate + EPS < threshold)
+    .filter((row) => row.fillRate + EPS < threshold && row.load.cargoPlacements.every(p => cargoById.get(p.cargoId)?.mixedLoadingMethod !== 'pallet'))
     .sort((a, b) => a.fillRate - b.fillRate || b.load.palletIndex - a.load.palletIndex);
 
   let best: Candidate | null = null;
@@ -235,7 +239,11 @@ export function packMixedMode(
     const demoted = built.pallets.filter((load) => demotedSet.has(load.palletIndex));
     const unitItems = kept.map((load) => palletUnitItem(load, cargoById));
     const unitMap = new Map(unitItems.map((item, index) => [item.id, kept[index]]));
-    const looseCargo = directCargo(active, built.remaining, demoted);
+    const protectedRemaining = built.remaining.filter(row => cargoById.get(row.cargoId)?.mixedLoadingMethod === 'pallet');
+    const looseCargo = directCargo(active, [
+      ...built.remaining.filter(row => cargoById.get(row.cargoId)?.mixedLoadingMethod !== 'pallet'),
+      ...explicitDirect.map(item => ({ cargoId: item.id, quantity: item.quantity })),
+    ], demoted);
     const combined = [...unitItems, ...looseCargo];
 
     const packed = isARules(container) ? packWithARules(container, combined, strategy) : packByBlockSpaceBeamV2(container, combined, strategy);
@@ -262,7 +270,7 @@ export function packMixedMode(
     const palletGross = movedPallets.reduce((sum, load) => sum + load.totalWeightKg, 0);
     const directWeight = directPlacements.reduce((sum, p) => sum + p.weightKg, 0);
     const totalWeight = palletGross + directWeight;
-    const remaining = waitingRows(packed.remaining, unitMap);
+    const remaining = waitingRows([...packed.remaining, ...protectedRemaining], unitMap);
     const floorLoose = directPlacements.filter((p) => p.z <= 0.0015).length;
     const optimization = {
       strategy,
@@ -301,7 +309,7 @@ export function packMixedMode(
         palletFillRates: fillRows.map((row) => ({
           palletIndex: row.load.palletIndex,
           fillRate: row.fillRate,
-          eligibleForDirect: row.fillRate + EPS < threshold,
+          eligibleForDirect: eligible.includes(row),
         })),
       },
     };
@@ -347,7 +355,7 @@ export function packMixedMode(
       palletFillRates: fillRows.map((row) => ({
         palletIndex: row.load.palletIndex,
         fillRate: row.fillRate,
-        eligibleForDirect: row.fillRate + EPS < threshold,
+        eligibleForDirect: eligible.includes(row),
       })),
     },
   };

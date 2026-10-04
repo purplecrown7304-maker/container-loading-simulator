@@ -7,6 +7,7 @@ import { assessWeightBalance } from './engine/weightBalance';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { packOnPallets, type PalletSpec } from './engine/palletOptimization';
+import { packMixedMode } from './engine/mixedModePacking';
 import type { LoadingResult } from './engine/types';
 import { cargoColor } from './cargoColors';
 import { publishPalletSnapshot, type PalletSnapshot, usePalletSnapshot } from './palletSnapshotStore';
@@ -43,7 +44,7 @@ function toLoadingResult(detail: ResultsModalDetail, snapshot: PalletSnapshot | 
   return {
     placements: result.placements,
     remaining: result.remaining,
-    loadedWeightKg: result.totalPalletizedWeightKg,
+    loadedWeightKg: result.loadedCargoWeightKg + result.pallets.reduce((sum,p)=>sum+p.totalWeightKg-p.cargoWeightKg,0),
     usedVolumeM3: result.placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0),
     validationIssues: validatePlacements(detail.container, result.placements),
   };
@@ -97,7 +98,8 @@ export default function ResultsOverlay() {
   const updatePalletSpec = (field: keyof PalletSpec, rawValue: string) => {
     if (!detail || !palletSnapshot) return;
     const nextSpec = sanitizeResultsPalletSpec({ ...palletSnapshot.spec, [field]: Number(rawValue) });
-    const nextResult = packOnPallets(detail.container, detail.cargo.filter(item => item.quantity > 0), nextSpec, readLoadingStrategyPreference() ?? 'capacity');
+    const pack = 'mixed' in palletSnapshot.result ? packMixedMode : packOnPallets;
+    const nextResult = pack(detail.container, detail.cargo.filter(item => item.quantity > 0), nextSpec, readLoadingStrategyPreference() ?? 'capacity');
     const nextSnapshot: PalletSnapshot = { spec: nextSpec, result: nextResult };
     publishPalletSnapshot(nextSnapshot);
     window.dispatchEvent(new CustomEvent<PalletSpec>(PALLET_SPEC_FROM_RESULTS_EVENT, { detail: nextSpec }));
@@ -132,6 +134,8 @@ export default function ResultsOverlay() {
             <label>높이(m)<input type="number" step=".01" value={palletSnapshot.spec.height} onChange={event => updatePalletSpec('height', event.target.value)} /></label>
             <label>팔레트 중량(kg)<input type="number" min="0" value={palletSnapshot.spec.tareWeightKg} onChange={event => updatePalletSpec('tareWeightKg', event.target.value)} /></label>
             <label>최대 적재중량(kg)<input type="number" min="0" value={palletSnapshot.spec.maxLoadKg} onChange={event => updatePalletSpec('maxLoadKg', event.target.value)} /></label>
+            <label>정하중(kg · 0은 미확인)<input type="number" min="0" value={palletSnapshot.spec.maxStaticLoadKg ?? 0} onChange={event => updatePalletSpec('maxStaticLoadKg', event.target.value)} /></label>
+            <label>상부 팔레트 허용중량(kg)<input type="number" min="0" value={palletSnapshot.spec.maxSupportedTopWeightKg} onChange={event => updatePalletSpec('maxSupportedTopWeightKg', event.target.value)} /></label>
             <label>최대 적층단<input type="number" min="1" max="7" value={palletSnapshot.spec.maxStackLevels} onChange={event => updatePalletSpec('maxStackLevels', event.target.value)} /></label>
           </div>
           <div className="results-pallet-optimization-strip">

@@ -4,6 +4,7 @@ import { ALL_ORIENTATIONS } from './loadSimA/types';
 import { allowedOrientations, canPlace, orientedSize, validate, checkSupport, checkOverlap, checkStacking } from './loadSimA/validate';
 import { pack } from './loadSimA/pack';
 import { aConfig, placementOrientation } from './loadingRuleset';
+import { cargoWithUnloadingPolicy } from './unloadingPolicy';
 import { analyzeFloorLoad } from './floorLoad';
 
 export type SupportBody = { id: string; x: number; y: number; z: number; length: number; width: number; height: number; weightKg: number; unitHeightM?: number; unitCenterOfGravity?: {x:number;y:number;z:number} };
@@ -61,10 +62,23 @@ export function auditAIdentity(c: ContainerSpec, cargo: CargoItem[], ps: Placeme
     if (!allowedOrientations(a).includes(orientation) || [s.x / 1000 - p.length,s.y / 1000 - p.width,s.z / 1000 - p.height,p.weightKg-item.weightKg].some(d => Math.abs(d)>1e-6)) add('INVALID_CARGO', '원본 치수·회전·중량 불일치', [i]);
   });
   for (const [id, n] of counts) if (n > (byId.get(id)?.quantity ?? 0)) add('QUANTITY', '원본 수량 초과', ps.flatMap((p,i)=>p.cargoId===id?[i]:[]));
+  if (!cargo.some(item => item.maxStackLayers !== undefined || item.maxTopLoadKg !== undefined)) return issues;
   const tol = aConfig(c).heightTolerance / 1000;
-  const above = ps.map((p,i) => ps.flatMap((q,j) => j!==i && q.z>p.z && Math.abs(p.z+p.height-q.z)<=tol &&
-    Math.min(p.x+p.length,q.x+q.length)>Math.max(p.x,q.x) && Math.min(p.y+p.width,q.y+q.width)>Math.max(p.y,q.y) ? [j] : []));
-  const below = ps.map((_,i)=>above.flatMap((children,j)=>children.includes(i)?[j]:[]));
+  const above: number[][] = ps.map(() => []), below: number[][] = ps.map(() => []);
+  for (let i = 0; i < ps.length; i++) for (let j = 0; j < ps.length; j++) {
+    const p = ps[i], q = ps[j];
+    if (j !== i && q.z > p.z && Math.abs(p.z+p.height-q.z) <= tol &&
+      Math.min(p.x+p.length,q.x+q.length) > Math.max(p.x,q.x) && Math.min(p.y+p.width,q.y+q.width) > Math.max(p.y,q.y)) {
+      above[i].push(j); below[j].push(i);
+    }
+  }
+  issues.push(...auditStackGraph(byId, ps, above, below));
+  return issues;
+}
+
+function auditStackGraph(byId: Map<string, CargoItem>, ps: Placement[], above: number[][], below: number[][]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const add = (type: ValidationIssue['type'], message: string, placementIndexes: number[]) => issues.push({type,message,placementIndexes});
   const order = ps.map((_,i)=>i).sort((a,b)=>ps[a].z-ps[b].z), depth=ps.map(()=>1), height=ps.map(()=>1);
   for (const i of order) for(const j of below[i]) depth[i]=Math.max(depth[i],depth[j]+1);
   for (const i of [...order].reverse()) for(const j of above[i]) height[i]=Math.max(height[i],height[j]+1);
@@ -77,6 +91,52 @@ export function auditAIdentity(c: ContainerSpec, cargo: CargoItem[], ps: Placeme
     if(item.maxTopLoadKg!==undefined && load>item.maxTopLoadKg+1e-6) add('TOP_LOAD','기존 보수적 상부하중 한도 초과',[i]);
   });
   return issues;
+}
+
+/** Append-only retained constraints for a single A search pass. Final results still
+ * receive the complete identity audit. Candidate rejection never alters this state. */
+export function createRetainedPackingChecks(c: ContainerSpec, cargo: CargoItem[]) {
+  const byId = new Map(cargo.map(item => [item.id, item]));
+  const counts = new Map<string, number>(), ids = new Set<string>();
+  const ps: Placement[] = [];
+  let above: number[][] = [], below: number[][] = [];
+  let depth: number[] = [];
+  const tol = aConfig(c).heightTolerance / 1000;
+  const hasLimits = cargo.some(item => item.maxStackLayers !== undefined || item.maxTopLoadKg !== undefined);
+  const touches = (p: Placement, q: Placement) => q.z > p.z && Math.abs(p.z+p.height-q.z) <= tol &&
+    Math.min(p.x+p.length,q.x+q.length) > Math.max(p.x,q.x) && Math.min(p.y+p.width,q.y+q.width) > Math.max(p.y,q.y);
+  const extend = (p: Placement) => {
+    const a = above.slice(), b = below.slice(), k = ps.length;
+    a.push([]); b.push([]);
+    if (hasLimits) ps.forEach((q,i) => {
+      if (touches(q,p)) { a[i] = [...a[i],k]; b[k].push(i); }
+      if (touches(p,q)) { a[k].push(i); b[i] = [...b[i],k]; }
+    });
+    return {a,b};
+  };
+  return {
+    check(candidate: Placement): boolean {
+      if (auditAIdentity(c,cargo,[candidate]).length ||
+        (counts.get(candidate.cargoId) ?? 0) + 1 > (byId.get(candidate.cargoId)?.quantity ?? 0) ||
+        (candidate.unitId && ids.has(candidate.unitId))) return false;
+      if (!hasLimits) return true;
+      const {a,b} = extend(candidate);
+      const candidateDepth = 1 + b[ps.length].reduce((max,i) => Math.max(max,depth[i]),0);
+      const maxLayers = byId.get(candidate.cargoId)?.maxStackLayers;
+      if (maxLayers !== undefined && candidateDepth > maxLayers) return false;
+      return auditStackGraph(byId,[...ps,candidate],a,b).length === 0;
+    },
+    commit(candidate: Placement): void {
+      const {a,b} = extend(candidate);
+      above = a; below = b; ps.push(candidate);
+      depth = ps.map(() => 1);
+      for (const i of ps.map((_,i)=>i).sort((i,j)=>ps[i].z-ps[j].z)) {
+        for (const j of below[i]) depth[i] = Math.max(depth[i],depth[j]+1);
+      }
+      counts.set(candidate.cargoId,(counts.get(candidate.cargoId) ?? 0)+1);
+      if (candidate.unitId) ids.add(candidate.unitId);
+    },
+  };
 }
 const finding = (code:string,message:string,placementIndexes:number[]=[],severity:'error'|'warning'='error'):OperationalRuleFinding=>({code,message,placementIndexes,severity});
 
@@ -124,6 +184,7 @@ export function aPlanMetrics(c:ContainerSpec,cargo:CargoItem[],ps:Placement[],su
 }
 
 export function validateAPlan(c:ContainerSpec,cargo:CargoItem[],ps:Placement[],supports:SupportBody[]=[]):OperationalRuleFinding[]{
+  cargo=cargoWithUnloadingPolicy(c,cargo);
   const identity=auditAIdentity(c,cargo,ps);
   if(identity.some(x=>x.type==='INVALID_CARGO'||x.type==='QUANTITY')) return identity.map(x=>finding(x.type,x.message,x.placementIndexes));
   const {units,indices}=transportUnits(cargo,ps,supports), result=validate(units,toASpace(c),aConfig(c));
@@ -155,14 +216,31 @@ export function validateAPlan(c:ContainerSpec,cargo:CargoItem[],ps:Placement[],s
 }
 
 export function aCandidateAllowed(c:ContainerSpec,cargo:CargoItem[],ps:Placement[],candidate:Placement):boolean{
+  cargo=cargoWithUnloadingPolicy(c,cargo);
   const all=[...ps,candidate], ap=toAPlacements(cargo,all);
   return !auditAIdentity(c,cargo,all).length && !canPlace(ap.slice(0,-1),ap.at(-1)!,toASpace(c),aConfig(c)).length;
 }
 export function packWithARules(c:ContainerSpec,cargo:CargoItem[],strategy='capacity'):LoadingResult{
+  cargo=cargoWithUnloadingPolicy(c,cargo);
   const {items,originals}=expandCargo(cargo);
   const decode=(ps:APlacement[])=>ps.map(p=>fromAPlacement(p,originals.get(p.item.id)!));
+  // packOnce owns each placements array and only appends until the pass ends.
+  let pass: APlacement[] | undefined, checked = 0;
+  let retained = createRetainedPackingChecks(c,cargo);
   const result=pack(items,toASpace(c),{config:aConfig(c),
-    acceptCandidate:(ps,p)=>!auditAIdentity(c,cargo,decode([...ps,p])).length,
+    // A single SKU has identical dimensions, mass, demand and every constraint.
+    // Permuting instance IDs cannot improve the ranking key; the first pass wins
+    // every tie. Preserve that first pass and its IDs without replaying it 11 times.
+    sortStrategies:cargo.length===1?['weight']:undefined,
+    iterations:cargo.length===1?0:undefined,
+    precheckCandidate:(ps,p)=>{
+      if (pass !== ps) { pass = ps; checked = 0; retained = createRetainedPackingChecks(c,cargo); }
+      while (checked < ps.length) {
+        const placed = ps[checked++];
+        retained.commit(fromAPlacement(placed,originals.get(placed.item.id)!));
+      }
+      return retained.check(fromAPlacement(p,originals.get(p.item.id)!));
+    },
     candidateKey:r=>{
       const ps=decode(r.placements), errors=validateAPlan(c,cargo,ps).filter(v=>v.severity==='error').length;
       const loaded=r.placements.reduce((sum,p)=>sum+(originals.get(p.item.id)?.demandUnits??1),0);

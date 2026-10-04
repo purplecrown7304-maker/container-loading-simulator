@@ -7,6 +7,7 @@ import { isInsideContainer, overlaps } from './constraints';
 import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules } from './stacking';
 import { unloadingObstructions } from './operationalQuality';
+import { acceptsUnloadCandidate } from './unloadingPolicy';
 import type { LoadingStrategy } from './loadingEngine';
 import type { CargoItem, ContainerSpec, Placement } from './types';
 
@@ -65,6 +66,7 @@ export function completeResidualPacking(container: ContainerSpec, cargo: CargoIt
             support = true;
             if (isARules(container) ? !aCandidateAllowed(container,cargo,placements,p) : !canPlaceByStackingRules(item, p, placements, cargoById)) continue;
             stacking = true;
+            if (!acceptsUnloadCandidate(container, cargoById, placements, p)) continue;
             if (strategy === 'unloading' && unloadingObstructions(cargo, [...placements, p]) > blockers) continue;
             selected = p; break search;
           }

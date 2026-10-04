@@ -7,7 +7,7 @@ import { DEFAULT_CONFIG } from './presets';
 import {
   allowedOrientations,
   boxOf,
-  canPlace,
+  createPackingChecks,
   centerOfGravity,
   orientedSize,
   overlapXY,
@@ -18,9 +18,13 @@ import type { ValidationResult } from './validate';
 export type SortStrategy = 'weight' | 'volume' | 'footprint';
 
 export interface PackOptions {
+  /** Pure app constraints that can reject a candidate before load propagation. */
+  precheckCandidate?: (placements: Placement[], candidate: Placement) => boolean;
   /** App integration: retain constraints absent from A without changing its defaults. */
   acceptCandidate?: (placements: Placement[], candidate: Placement) => boolean;
   candidateKey?: (result: PackResult) => number[];
+  /** Callers may omit equivalent sort passes; default retains all three. */
+  sortStrategies?: SortStrategy[];
   config?: Partial<Config>;
   /** 정렬 순서를 무작위로 흔들어 추가로 시도하는 횟수. 기본 8 */
   iterations?: number;
@@ -110,10 +114,11 @@ interface Candidate {
 }
 
 /** 정해진 순서대로 한 번 적재한다 */
-export function packOnce(order: Item[], space: Space, cfg: Config, maxAttempts = 400, acceptCandidate?: PackOptions['acceptCandidate']): { placements: Placement[]; unplaced: Item[] } {
+export function packOnce(order: Item[], space: Space, cfg: Config, maxAttempts = 400, acceptCandidate?: PackOptions['acceptCandidate'], precheckCandidate?: PackOptions['precheckCandidate']): { placements: Placement[]; unplaced: Item[] } {
   const placements: Placement[] = [];
   const boxes: Box[] = [];
   const unplaced: Item[] = [];
+  const checks = createPackingChecks(space, cfg);
   const points = new Map<string, { x: number; y: number }>([['0,0', { x: 0, y: 0 }]]);
   const addPoint = (x: number, y: number): void => {
     points.set(`${x},${y}`, { x, y });
@@ -195,7 +200,9 @@ export function packOnce(order: Item[], space: Space, cfg: Config, maxAttempts =
     let done = false;
     for (const c of cands.slice(0, maxAttempts)) {
       const p: Placement = { item, pos: { x: c.x, y: c.y, z: c.z }, orientation: c.o };
-      if (canPlace(placements, p, space, cfg).length > 0 || (acceptCandidate && !acceptCandidate(placements, p))) continue;
+      if (precheckCandidate && !precheckCandidate(placements,p)) continue;
+      if (checks.check(p).length > 0 || (acceptCandidate && !acceptCandidate(placements, p))) continue;
+      checks.commit(p);
       placements.push(p);
       const b = boxOf(p);
       // 새 후보점: 화물의 도어 쪽 모서리와 우측 모서리, 그리고 각각을 벽이나 이웃 화물까지 당긴 점
@@ -264,19 +271,20 @@ export function pack(items: Item[], space: Space, options: PackOptions = {}): Pa
   const rand = lcg(options.seed ?? 1);
   const iterations = options.iterations ?? 8;
 
-  const orders: { name: string; order: Item[] }[] = (['weight', 'volume', 'footprint'] as SortStrategy[]).map((s) => ({
+  const strategies = options.sortStrategies?.length ? options.sortStrategies : ['weight', 'volume', 'footprint'] as SortStrategy[];
+  const orders: { name: string; order: Item[] }[] = strategies.map((s) => ({
     name: s,
     order: sortItems(items, s),
   }));
   for (let i = 0; i < iterations; i++) {
-    const base = orders[i % 3];
+    const base = orders[i % strategies.length];
     orders.push({ name: `${base.name}+shuffle${i + 1}`, order: perturb(base.order, rand) });
   }
 
   let best: PackResult | null = null;
   let bestKey: number[] = [];
   for (const { name, order } of orders) {
-    const { placements, unplaced } = packOnce(order, space, cfg, options.maxAttemptsPerItem, options.acceptCandidate);
+    const { placements, unplaced } = packOnce(order, space, cfg, options.maxAttemptsPerItem, options.acceptCandidate, options.precheckCandidate);
     const shiftX = options.centerCargo === false ? 0 : centerLongitudinally(placements, space, cfg);
     const shiftY = options.centerCargo === false ? 0 : centerLaterally(placements, space, cfg);
     const validation = validate(placements, space, cfg);

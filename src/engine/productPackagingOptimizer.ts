@@ -358,6 +358,7 @@ export function optimizeProductPackaging(
     quantity: item.boxesNeeded,
     maxStackLayers: item.maxStackLayers,
     maxTopLoadKg: item.maxTopLoadKg,
+    stackLimitOrigin: { kind: item.strengthStatus === 'design-target' ? 'unverified-carton' : 'box-catalog', maxStackLayers: item.maxStackLayers, maxTopLoadKg: item.maxTopLoadKg },
     allowRotation: true,
   } satisfies CargoItem));
 

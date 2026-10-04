@@ -19,9 +19,14 @@ for (const mode of ['boxes', 'pallets']) test(`an oversized ${mode} shipment fin
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
-  if (mode === 'pallets') await page.getByRole('radio', { name: /파렛트 적재/ }).click();
-  await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
-  await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
+  if (mode === 'pallets') {
+    await page.getByRole('radio', { name: /파렛트 적재/ }).click();
+    // No automatic recommendation is possible for oversized demand; an explicit
+    // choice still allows the user to compute and inspect all waiting reasons.
+    await page.getByRole('radio', { name: '사내 기본 T11 (허용 1,500kg)', exact:true }).click();
+  }
+  await page.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await page.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   const result = page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ });
   await expect(result).toBeEnabled({ timeout: 30_000 });

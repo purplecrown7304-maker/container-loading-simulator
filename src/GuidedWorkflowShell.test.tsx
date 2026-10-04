@@ -103,7 +103,8 @@ it('retains packaging confirmation and strategy across modal reopens, but resets
   for (const number of [1, 2, 3, 4]) { await open(number); await close(); }
   await open(4);
   expect(action().disabled).toBe(false);
-  expect(action().textContent).toContain('선택 완료');
+  expect(action().textContent).toContain('다음 단계');
+  expect(modal().querySelector('.guided-strategy-status')!.textContent).toBe('선택 완료');
   await click(action());
   expect(backdrop().hidden).toBe(true);
   expect(action().textContent).toContain('최종 적재 진행');
@@ -112,7 +113,8 @@ it('retains packaging confirmation and strategy across modal reopens, but resets
   await act(async () => { writeProductSelection({ 'RETAIN-1': 4 }); });
   await open(4);
   expect(action().disabled).toBe(true);
-  expect(action().textContent).toContain('제품 포장을 먼저 확정');
+  expect(action().textContent).toContain('다음 단계');
+  expect(modal().querySelector('.step04-block-reason')!.textContent).toContain('제품 포장을 확정');
   await open(3);
   expect(modal().querySelector('.guided-packaging-list')!.textContent).toContain('4 EA');
   await click(action());

@@ -1,6 +1,13 @@
 import type { RulesContext, LoadingRuleset } from './loadingRuleset';
 import type { Orientation, Dims } from './loadSimA/types';
 export type ContainerSpec = {
+  /** Independent from the optimization objective. Omitted preserves historical behavior. */
+  unloadingPolicy?: 'strict' | 'soft';
+  palletDestination?: {
+    transport: 'domestic' | 'export';
+    region: 'europe' | 'north-america' | 'asia' | 'other';
+    requiredSize: '' | '1100x1100' | '1200x1000' | '1200x800' | '1219x1016';
+  };
   rules?: RulesContext;
   length: number;
   width: number;
@@ -13,6 +20,8 @@ export type ContainerSpec = {
 };
 
 export type CargoItem = {
+  /** Explicit instruction for MIXED only; omitted keeps automatic tail conversion. */
+  mixedLoadingMethod?: 'pallet' | 'direct';
   allowedOrientations?: Orientation[];
   thisSideUp?: boolean;
   cgOffsetMm?: Dims;
@@ -29,6 +38,12 @@ export type CargoItem = {
   quantity: number;
   maxStackLayers?: number;
   maxTopLoadKg?: number;
+  /** Provenance only; changing either limit invalidates this recorded explanation. */
+  stackLimitOrigin?: {
+    kind: 'unverified-carton' | 'direct-product' | 'box-catalog';
+    maxStackLayers?: number;
+    maxTopLoadKg?: number;
+  };
   /** 사용자 목록/엑셀 등록 시 부여되는 화면 표시용 고유 색상. */
   displayColor?: string;
   /** 제품 포장 흐름에서 생성된 화물의 원 제품 코드. */

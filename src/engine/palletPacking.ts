@@ -15,6 +15,8 @@ export type PalletSpec = {
   maxLoadKg: number;
   maxStackLevels: number;
   maxSupportedTopWeightKg: number;
+  /** Total supported load on a pallet deck at rest; 0 means stacking data unavailable. */
+  maxStaticLoadKg?: number;
   useCornerGuards: boolean;
   cornerGuardWeightKg: number;
   cornerGuardExtraHeightM: number;
@@ -283,6 +285,7 @@ function topSupportingBoxes(load: PalletLoad) {
 }
 
 function canSupportUpper(lower: PalletLoad, upperWeightKg: number, cargoMap: Map<string, CargoItem>, pallet: PalletSpec) {
+  if (pallet.maxStaticLoadKg !== undefined && lower.cargoWeightKg + lower.packagingWeightKg + upperWeightKg > pallet.maxStaticLoadKg + EPS) return false;
   if (upperWeightKg > pallet.maxSupportedTopWeightKg + EPS) return false;
   const supporters = topSupportingBoxes(lower);
   if (!supporters.length) return false;

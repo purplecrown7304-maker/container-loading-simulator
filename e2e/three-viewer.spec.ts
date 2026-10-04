@@ -44,9 +44,9 @@ test('Three renders the real loading plan and preserves certification during vie
   await expect(page.locator('.viewer-card')).toBeVisible();
   const viewer = page.locator('.viewer-host .three-comparison-viewer');
   await advanceToStrategy(page, 'THREE-TEST');
-  await page.getByRole('radio', { name: /무게중심·안정성 우선형/ }).click();
+  await page.getByRole('radio', { name: /안정성 우선/ }).click();
   await page.screenshot({ path: test.info().outputPath(`studio-strategy-${test.info().project.name}.png`), fullPage: true });
-  await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
+  await page.getByRole('button', { name: /다음 단계/ }).click();
   await expect(viewer).toHaveAttribute('data-three-ready', 'true', { timeout: 100_000 });
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect(viewer.locator('.unity-summary')).toContainText('12 EA', { timeout: 60_000 });

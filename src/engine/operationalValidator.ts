@@ -1,5 +1,6 @@
 import { isARules } from './loadingRuleset';
 import { validateAPlan } from './loadSimAdapter';
+import { cargoWithUnloadingPolicy } from './unloadingPolicy';
 import { findMatchingEquipment } from '../transportEquipment';
 import type { CargoItem, ContainerSpec, OperationalRuleFinding, Placement } from './types';
 
@@ -431,7 +432,7 @@ export function validateOperationalLoading(
 ): OperationalRuleFinding[] {
   if (isARules(container)) return validateAPlan(container, cargo, placements, supports);
   if (!placements.length && !supports.length) return [];
-  const bodies = buildBodies(cargo, placements, supports);
+  const bodies = buildBodies(cargoWithUnloadingPolicy(container,cargo), placements, supports);
   const supporters = supportersOf(bodies);
   return [
     ...checkBounds(container, bodies),
@@ -439,7 +440,8 @@ export function validateOperationalLoading(
     ...checkDoor(container, bodies),
     ...checkSupport(bodies, supporters),
     ...checkStacking(bodies, supporters),
-    ...checkUnloadOrder(bodies),
+    ...checkUnloadOrder(bodies).map(issue => container.unloadingPolicy === 'soft'
+      ? { ...issue, severity: 'warning' as const, message: `${issue.message} 완화 모드: 현장 재취급이 필요합니다.` } : issue),
     ...checkWeightAndCog(container, bodies),
     ...checkSecuring(container, bodies, supporters),
     ...checkAfterStops(bodies),
