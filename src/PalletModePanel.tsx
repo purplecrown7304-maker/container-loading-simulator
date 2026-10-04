@@ -137,6 +137,19 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
     adoptedResult.current = null;
     let cancelled = false;
     let publishTimer: number | undefined;
+    if (container.rules && typeof Worker !== 'undefined') {
+      const worker = new Worker(new URL('./engine/palletRules.worker.ts', import.meta.url), {type:'module'});
+      worker.onmessage = (event: MessageEvent<{result?:OptimizedPalletPackingResult | MixedModePackingResult;error?:string}>) => {
+        worker.terminate();
+        if(cancelled)return;
+        onRunningChange(false);
+        if(event.data.result) setCalculated({key:inputKey,result:event.data.result});
+        else window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT,{detail:{mode:'pallets',error:event.data.error}}));
+      };
+      worker.onerror = () => { worker.terminate(); if(!cancelled){onRunningChange(false);window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT,{detail:{mode:'pallets',error:'A 규칙 계산 오류'}}));} };
+      worker.postMessage({container,cargo:cargo.filter(item=>item.quantity>0),spec:sanitizeSpec(spec),mode,strategy:readLoadingStrategyPreference()??'capacity'});
+      return () => {cancelled=true;worker.terminate();};
+    }
     const timer = window.setTimeout(() => {
       try {
         const packed = packForMode(container, cargo.filter(item => item.quantity > 0), sanitizeSpec(spec), mode);
@@ -249,8 +262,11 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       height: pallet.height,
       weightKg: Math.max(0.01, pallet.totalWeightKg - pallet.cargoWeightKg),
       dynamic: true,
+      unitCenterOfGravity: pallet.centerOfGravity,
+      unitHeightM: Math.max(pallet.height,...pallet.cargoPlacements.map(p=>p.z+p.height-pallet.z))+pallet.packagingExtraHeightM,
     }));
     const loadingResult: LoadingResult = {
+      ruleset:container.rules?.version,
       placements: result.placements,
       remaining: result.remaining,
       loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg,
@@ -265,14 +281,15 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
   const securingUsage = certification?.securing ?? null;
   const scene = useMemo(() => ({
     result: {
+      ruleset:container.rules?.version,
       placements: result.placements,
       remaining: result.remaining,
       loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg,
       usedVolumeM3: result.placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0),
       validationIssues: validatePlacements(container, result.placements),
-      operationalFindings: validateOperationalLoading(container, cargo, result.placements, result.pallets.map(p => ({ id: `PALLET-${p.palletIndex}`, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) }))),
+      operationalFindings: validateOperationalLoading(container, cargo, result.placements, result.pallets.map(p => ({ id: `PALLET-${p.palletIndex}`, unitCenterOfGravity:p.centerOfGravity, unitHeightM:Math.max(p.height,...p.cargoPlacements.map(b=>b.z+b.height-p.z))+p.packagingExtraHeightM, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) }))),
     },
-    supports: result.pallets.map(p => ({ modelKey, id: `PALLET-${p.palletIndex}`, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) })),
+    supports: result.pallets.map(p => ({ modelKey, id: `PALLET-${p.palletIndex}`, unitCenterOfGravity:p.centerOfGravity, unitHeightM:Math.max(p.height,...p.cargoPlacements.map(b=>b.z+b.height-p.z))+p.packagingExtraHeightM, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) })),
   }), [container, cargo, result, modelKey]);
 
   useEffect(() => {

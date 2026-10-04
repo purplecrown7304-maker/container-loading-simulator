@@ -1,3 +1,4 @@
+import { validateAPlan, aPlanMetrics } from './engine/loadSimAdapter';
 import { validatePlacements } from './engine/constraints';
 import { analyzeFloorLoad } from './engine/floorLoad';
 import { assessWeightBalance } from './engine/weightBalance';
@@ -33,6 +34,13 @@ export function runStaticInspection(target: PhysicsTarget, kind: Exclude<Inspect
   if (![c.length, c.width, c.height, c.maxPayloadKg].every(v => Number.isFinite(v) && v > 0)
     || placements.some(p => ![p.x, p.y, p.z, p.length, p.width, p.height, p.weightKg].every(Number.isFinite)
       || Math.min(p.length, p.width, p.height) <= 0 || p.weightKg < 0)) throw new Error('치수·좌표·중량 입력이 유효하지 않습니다. 입력을 확인하고 다시 적재하세요.');
+  if (c.rules) {
+    const findings=validateAPlan(c,target.cargo,target.result.placements,target.supports??[]);
+    const metrics=aPlanMetrics(c,target.cargo,target.result.placements,target.supports??[]);
+    const values=kind==='balance' && metrics.cg ? [`무게중심 X ${(metrics.cg.x/1000).toFixed(3)} · Y ${(metrics.cg.y/1000).toFixed(3)} · Z ${(metrics.cg.z/1000).toFixed(3)} m`] : kind==='load' ? [`적재 중량 ${metrics.totalWeight.toFixed(1)} / ${c.maxPayloadKg} kg`,`최대 선하중 ${metrics.maxLineLoad.toFixed(1)} kg/m`,`기존 면하중 ${analyzeFloorLoad(c,{placements}).maxKgPerM2.toFixed(1)} kg/m²`] : [];
+    const relevant=findings.filter(f=>kind==='geometry'?/BOUNDS|HEIGHT|OVERLAP|DOOR|ORIENTATION/.test(f.code):kind==='balance'?/CG_|GROSS/.test(f.code):/LOAD|PAYLOAD|AXLE|GROSS|FLOOR/.test(f.code));
+    return {summary: relevant.some(f=>f.severity==='error')?'A 규칙 점검: 위반 발견':'A 규칙 점검 완료',details:[...values,...(relevant.length?relevant.map(f=>f.message):['선택한 항목에서 위반이 발견되지 않았습니다.'])],caution:'A 대표값에 따른 계산입니다. 입력 없는 검사는 미실행이며 운송 안전 인증이 아닙니다.',attention:relevant.length>0};
+  }
   const total = placements.reduce((sum, p) => sum + p.weightKg, 0);
   if (kind === 'geometry') {
     const issues = validatePlacements(c, placements);

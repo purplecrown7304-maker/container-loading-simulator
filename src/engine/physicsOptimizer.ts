@@ -126,6 +126,9 @@ export async function optimizeLoadingWithPhysics(
     signal?.throwIfAborted();
     onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: strategies.length, physicsProgress: 0 });
     const result = await loadContainerAsync(container, activeCargo, strategy, signal);
+    if (container.rules && (result.validationIssues.length || result.operationalFindings?.some(f=>f.severity==='error'))) {
+      throw new Error('A 규칙 최종 검사 실패: ' + (result.operationalFindings??[]).filter(f=>f.severity==='error').map(f=>f.message).join('; '));
+    }
     const signature = placementSignature(result);
     let physics = physicsByLayout.get(signature);
 

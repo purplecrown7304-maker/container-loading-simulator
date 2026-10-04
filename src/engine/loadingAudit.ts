@@ -1,3 +1,5 @@
+import { isARules } from './loadingRuleset';
+import { validateAPlan } from './loadSimAdapter';
 import { validatePlacements } from './constraints';
 import { assessPlacementSupport } from './support';
 import type { CargoItem, ContainerSpec, Placement, ValidationIssue } from './types';
@@ -6,6 +8,7 @@ const EPS = 1e-6;
 /** Independent final audit. Shared descendants are counted once per supporting box,
  * matching the packer's conservative full transmitted-load policy. */
 export function auditLoading(container: ContainerSpec, cargo: CargoItem[], placements: Placement[]): ValidationIssue[] {
+  if (isARules(container)) return validateAPlan(container, cargo, placements).filter(f=>f.severity==='error').map(f=>({type:'INVALID_CARGO' as const,message:f.message,placementIndexes:f.placementIndexes}));
   const issues = validatePlacements(container, placements);
   const byId = new Map(cargo.map(item => [item.id, item]));
   const counts = new Map<string, number>();

@@ -1,3 +1,5 @@
+import { readLoadingRuleset, aEquipmentDefault } from './loadingRulesPreference';
+import { readTransportEquipmentSpecOverrides } from './transportEquipmentSpecOverrides';
 import { useSyncExternalStore } from 'react';
 
 export type TransportCategory = 'container' | 'truck';
@@ -106,7 +108,9 @@ export function subscribeTransportEquipment(listener: () => void) { listeners.ad
 export function useTransportEquipment() { return useSyncExternalStore(subscribeTransportEquipment, readTransportEquipment, readTransportEquipment); }
 
 export function selectTransportEquipment(value: TransportEquipment) {
-  selected = clone(value);
+  const base = TRANSPORT_EQUIPMENT.find(e=>e.id===value.id);
+  const isDefault = base && ['length','width','height','maxPayloadKg'].every(k=>value[k as 'length']===base[k as 'length']);
+  selected = clone(readLoadingRuleset()==='a-v1' && isDefault && !readTransportEquipmentSpecOverrides()[value.id] ? aEquipmentDefault(value) : value);
   loadedFromStorage = true;
   if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, JSON.stringify(selected));
   emit();

@@ -1,3 +1,5 @@
+import { isARules } from './loadingRuleset';
+import { packWithARules, validateAPlan, auditAIdentity } from './loadSimAdapter';
 import { fillUnloadingTrenches } from './trenchFilling';
 import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
 import { auditLoading } from './loadingAudit';
@@ -151,9 +153,32 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   if (preflight.rejected.length === 0 && shouldPublish && options.strategy === undefined) {
     const manual = readManualOverride(container, normalizedCargo);
     if (manual && auditLoading(container, normalizedCargo, manual.placements).length === 0) {
-      publishLoadingResult(container, normalizedCargo, manual);
-      return manual;
+      const checked = isARules(container) ? { ...manual, operationalFindings: validateOperationalLoading(container, normalizedCargo, manual.placements) } : manual;
+      publishLoadingResult(container, normalizedCargo, checked);
+      return checked;
     }
+  }
+
+  if (isARules(container)) {
+    const packed = packWithARules(container, normalizedCargo, strategy);
+    // Preserve existing sparse-tier/trench/centering policies; only adopt valid whole plans.
+    const completed = settleSparseTopLayer(container, normalizedCargo,
+      completeResidualPacking(container, normalizedCargo, packed, strategy), strategy);
+    const flattened = strategy === 'unloading' ? fillUnloadingTrenches(container, normalizedCargo, completed.placements) : completed.placements;
+    const centered = centerPlacementsOnContainer(container, flattened);
+    const candidate = strategy === 'unloading' ? orientForUnloading(container, normalizedCargo, centered) : centered;
+    const findings = validateAPlan(container, normalizedCargo, candidate);
+    if (!findings.some(f => f.severity === 'error') && candidate.length >= packed.placements.length) {
+      packed.placements = candidate;
+      packed.remaining = completed.remaining;
+      packed.operationalFindings = findings;
+      packed.validationIssues = auditAIdentity(container, normalizedCargo, candidate);
+      packed.loadedWeightKg = candidate.reduce((sum,p)=>sum+p.weightKg,0);
+      packed.usedVolumeM3 = candidate.reduce((sum,p)=>sum+p.length*p.width*p.height,0);
+    }
+    packed.remaining = [...preflight.rejected, ...packed.remaining];
+    if (shouldPublish) publishLoadingResult(container, normalizedCargo, packed);
+    return packed;
   }
 
   const packed = settleSparseTopLayer(container, normalizedCargo,

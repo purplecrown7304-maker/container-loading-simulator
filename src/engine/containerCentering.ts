@@ -1,3 +1,4 @@
+import { aConfig, isARules } from './loadingRuleset';
 import type { ContainerSpec, Placement } from './types';
 
 const EPS = 1e-9;
@@ -39,8 +40,8 @@ export function centerPlacementsOnContainer(
 
   const desiredDx = container.length / 2 - cog.x;
   const desiredDy = container.width / 2 - cog.y;
-  const dx = clamp(desiredDx, -minX, container.length - maxX);
-  const dy = clamp(desiredDy, -minY, container.width - maxY);
+  const dx = clamp(desiredDx, -minX, container.length - maxX - (isARules(container)?aConfig(container).margins.l/1000:0));
+  const dy = clamp(desiredDy, -minY, container.width - maxY - (isARules(container)?aConfig(container).margins.w/1000:0));
 
   if (Math.abs(dx) <= EPS && Math.abs(dy) <= EPS) {
     return placements.map((placement) => ({ ...placement }));
