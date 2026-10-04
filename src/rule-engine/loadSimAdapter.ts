@@ -62,20 +62,33 @@ export function expandCargoToLoadSim(cargo: CargoItem[]): { items: Item[]; conte
 
 export function containerToLoadSimSpace(container: ContainerSpec): Space {
   const equipment = findMatchingEquipment(container.length, container.width, container.height, container.maxPayloadKg);
-  const access: Space['access'] = equipment
+  const access: Space['access'] = container.access ?? (equipment
     ? ['rear', ...(equipment.sideLoading ? ['left', 'right'] as const : []), ...(equipment.topLoading ? ['top'] as const : [])]
-    : ['rear'];
+    : ['rear']);
+  const doorWidth = container.doorWidth ?? equipment?.doorWidth;
+  const doorHeight = container.doorHeight ?? equipment?.doorHeight;
   return {
     id: equipment?.id ?? 'custom',
-    kind: equipment?.category ?? 'container',
+    kind: container.kind ?? equipment?.category ?? 'container',
     inner: { l: container.length * MM_PER_M, w: container.width * MM_PER_M, h: container.height * MM_PER_M },
-    door: equipment?.doorWidth && equipment?.doorHeight
-      ? { w: equipment.doorWidth * MM_PER_M, h: equipment.doorHeight * MM_PER_M }
-      : undefined,
+    door: doorWidth && doorHeight ? { w: doorWidth * MM_PER_M, h: doorHeight * MM_PER_M } : undefined,
     access,
     maxPayload: container.maxPayloadKg,
-    tare: 0,
-    // floorLoadLimitKgPerM2 is intentionally NOT mapped: A expects kg/m line load.
+    tare: container.tareKg ?? 0,
+    floorLineLoad: container.floorLineLoadKgPerM,
+    heightLimit: container.heightLimitM == null ? undefined : container.heightLimitM * MM_PER_M,
+    axles: container.axles ? {
+      frontX: container.axles.frontX * MM_PER_M,
+      rearX: container.axles.rearX * MM_PER_M,
+      emptyFront: container.axles.emptyFront,
+      emptyRear: container.axles.emptyRear,
+      maxFront: container.axles.maxFront,
+      maxRear: container.axles.maxRear,
+      rearAxleCount: container.axles.rearAxleCount,
+      frontAxleCount: container.axles.frontAxleCount,
+      maxGross: container.axles.maxGross,
+    } : undefined,
+    // floorLoadLimitKgPerM2 is intentionally NOT mapped: A floorLineLoad is kg/m.
   };
 }
 
