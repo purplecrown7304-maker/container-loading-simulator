@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import FinalWorkflowRecoveryBridge from './FinalWorkflowRecoveryBridge';
 import { loadContainer, publishLoadingResult } from './engine/loadingEngine';
-import { FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
+import { FINAL_LOADING_WORKFLOW_CANCEL_EVENT, FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
 import { clearPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { clearLoadSimAcceptance, isLoadSimAcceptedTarget, readLoadSimAcceptance } from './rule-engine/acceptance';
 import { clearLatestInertiaCertification, readLatestInertiaCertification } from './inertiaCertification';
@@ -14,7 +14,7 @@ const cargo = [{ id: 'A', name: 'A', length: .5, width: .5, height: .5, weightKg
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); clearPhysicsTarget(); clearLoadSimAcceptance(); clearLatestInertiaCertification(); });
 
-it.each([false, true])('recovers only an unchanged final A result (invalidated=%s)', async invalidated => {
+it.each([undefined, WORKFLOW_INPUT_INVALIDATED_EVENT, FINAL_LOADING_WORKFLOW_CANCEL_EVENT])('recovers only an unchanged final A result (interruption=%s)', async interruption => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.useFakeTimers();
   clearPhysicsTarget(); clearLoadSimAcceptance(); clearLatestInertiaCertification();
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
@@ -24,11 +24,11 @@ it.each([false, true])('recovers only an unchanged final A result (invalidated=%
     await act(async () => {
       window.dispatchEvent(new CustomEvent(FINAL_LOADING_WORKFLOW_START_EVENT));
       publishLoadingResult(container, cargo, target.result);
-      if (invalidated) window.dispatchEvent(new CustomEvent(WORKFLOW_INPUT_INVALIDATED_EVENT));
+      if (interruption) window.dispatchEvent(new CustomEvent(interruption));
       await vi.advanceTimersByTimeAsync(700);
     });
-    expect(isLoadSimAcceptedTarget(target)).toBe(!invalidated);
-    expect(readLoadSimAcceptance()?.status).toBe(invalidated ? undefined : 'accepted');
+    expect(isLoadSimAcceptedTarget(target)).toBe(!interruption);
+    expect(readLoadSimAcceptance()?.status).toBe(interruption ? undefined : 'accepted');
     expect(readLatestInertiaCertification()).toBeUndefined();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });

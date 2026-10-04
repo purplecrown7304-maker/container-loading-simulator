@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { NO_LOAD_RESULT_EVENT, cancelPendingCertification } from './autoCertification';
-import { FINAL_LOADING_WORKFLOW_ERROR_EVENT } from './finalWorkflowEvents';
+import { FINAL_LOADING_WORKFLOW_CANCEL_EVENT, FINAL_LOADING_WORKFLOW_ERROR_EVENT, FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
 import { CONTAINERS } from './load-sim';
 import { cargoColor, cargoTint, randomUniqueCargoColor } from './cargoColors';
 import { analyzeConstraints } from './engine/constraintAnalysis';
@@ -133,6 +133,9 @@ export default function App() {
     clearLatestInertiaCertification();
     clearPhysicsTarget();
     if (typeof window !== 'undefined') (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = undefined;
+    // Even a same-input reload/equipment apply cancels the current controller.
+    // It may not change inputKey, so all observers need the explicit lifecycle end.
+    window.dispatchEvent(new CustomEvent(FINAL_LOADING_WORKFLOW_CANCEL_EVENT));
   };
   const switchMode = (next: LoadingMode) => {
     if (next === mode) return;
@@ -320,6 +323,7 @@ export default function App() {
     if (guidedWorkflowActive && !preferredStrategy) return announce('warning', '적재 방식을 먼저 선택해 주세요.');
     if (mode === 'pallets' || mode === 'mixed') {
       invalidatePhysics();
+      window.dispatchEvent(new CustomEvent(FINAL_LOADING_WORKFLOW_START_EVENT));
       setIsRunning(true);
       setOptimizationMessage('팔레트 배치 후보 계산 중…');
       setPalletRunToken(token => token + 1);
@@ -331,6 +335,7 @@ export default function App() {
     clearLoadSimAcceptance();
     cancelPendingCertification();
     clearLatestInertiaCertification();
+    window.dispatchEvent(new CustomEvent(FINAL_LOADING_WORKFLOW_START_EVENT));
     setIsRunning(true);
     const runInputKey = inputKey;
     const controller = loadingRun.current.start();
@@ -378,6 +383,11 @@ export default function App() {
     }
   };
 
+  const cancelLoading = () => {
+    if (!isRunning || mode !== 'boxes') return;
+    invalidatePhysics();
+    announce('info', 'A 적재 계산을 취소했습니다. 미완성 결과는 적용하지 않았습니다.');
+  };
   const showResults = () => {
     if (isPreview) { announce('info', '미리보기 단계입니다. 최종 적재를 실행한 뒤 결과를 확인하세요.'); return; }
     openResultsModal({ container, cargo: mode === 'boxes' ? preflightCargoInput(cargo).cargo : cargo, result: displayResult });
@@ -417,6 +427,7 @@ export default function App() {
       const action = (event as CustomEvent<AppActionDetail>).detail?.action;
       if (!action) return;
       if (action === 'run-loading') { void runLoading(); return; }
+      if (action === 'cancel-loading') { cancelLoading(); return; }
       if (action === 'show-results') { showResults(); return; }
       if (action === 'load-local') { loadLocal(); return; }
       if (action === 'save-local') { saveLocal(); return; }
@@ -583,7 +594,7 @@ export default function App() {
 
         <section className="dashboard-card quick-card"><h2>6. 빠른 작업</h2>
           <button className="primary-action" onClick={() => void runLoading()} disabled={isRunning}>{isRunning ? 'A 계산 중…' : 'A 자동 적재'}</button>
-          {isRunning && mode === 'boxes' && <button type="button" onClick={() => { invalidatePhysics(); announce('info', 'A 적재 계산을 취소했습니다. 미완성 결과는 적용하지 않았습니다.'); }}>A 계산 취소</button>}
+          {isRunning && mode === 'boxes' && <button type="button" onClick={cancelLoading}>A 계산 취소</button>}
           <button className="result-open-action" onClick={showResults} disabled={isRunning || isPreview}>결과 보기</button>
           <div className="quick-row"><button onClick={printReport}>작업 지시서</button><button onClick={saveLocal}>저장</button></div>
           <button className="danger ghost" onClick={resetAll}>전체 초기화</button>

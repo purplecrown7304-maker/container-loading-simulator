@@ -10,8 +10,9 @@ import { LOADING_RESULT_EVENT, type LoadingStrategy } from './engine/loadingEngi
 import { publishGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingUnitState';
 import { publishGuidedWorkflowState } from './guidedWorkflowState';
 import { LOAD_SIM_ACCEPTANCE_EVENT, isLoadSimAcceptedTarget, type LoadSimAcceptance } from './rule-engine/acceptance';
+import { exactInputSignature } from './rule-engine/inputIdentity';
 import { readPhysicsTarget } from './physicsTarget';
-import { FINAL_LOADING_WORKFLOW_ERROR_EVENT } from './finalWorkflowEvents';
+import { FINAL_LOADING_WORKFLOW_CANCEL_EVENT, FINAL_LOADING_WORKFLOW_ERROR_EVENT, FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
 import { usePalletSnapshot } from './palletSnapshotStore';
 import { OPEN_RESULTS_MODAL_EVENT } from './resultsModalEvents';
 import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState } from './storage';
@@ -449,7 +450,7 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
   </details>;
 }
 
-function BottomBar({ step, selectionCount, packagedReady, packagingConfirmed, strategy, running, finalReady, canReport, onAdvance, onApplyPackaging }: {
+function BottomBar({ step, selectionCount, packagedReady, packagingConfirmed, strategy, running, finalReady, canReport, canCancel, onAdvance, onApplyPackaging }: {
   step: StepId;
   selectionCount: number;
   packagedReady: boolean;
@@ -458,6 +459,7 @@ function BottomBar({ step, selectionCount, packagedReady, packagingConfirmed, st
   running: boolean;
   finalReady: boolean;
   canReport: boolean;
+  canCancel: boolean;
   onAdvance: (step: StepId) => void;
   onApplyPackaging: () => void;
 }) {
@@ -486,7 +488,7 @@ function BottomBar({ step, selectionCount, packagedReady, packagingConfirmed, st
     if (finalReady) { label = '결과 확인'; action = () => onAdvance(6); }
     else { label = running ? '최종 적재 검사 중…' : '최종 적재 진행'; disabled = running || !strategy || !packagingConfirmed; action = () => dispatchAppAction('run-loading'); }
   } else if (step === 6) { label = canReport ? '통합 출하·적재 작업지시서 보기' : '미적재 사유 확인 · 조건을 변경해 다시 계산하세요'; disabled = !finalReady || !canReport; action = () => dispatchAppAction('print-report'); }
-  return <div ref={barRef} className="guided-bottom-bar"><div className="studio-footer-left"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><span className="studio-footer-step">STEP {String(step).padStart(2, '0')} <i>/</i> 06</span></div><div className="studio-footer-actions">{step > 1 && <button type="button" className="studio-back" onClick={() => onAdvance((step - 1) as StepId)}>이전 단계</button>}<button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 6 ? '  ›' : ''}</button></div></div>;
+  return <div ref={barRef} className="guided-bottom-bar"><div className="studio-footer-left"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>↻ 전체 초기화</button><span className="studio-footer-step">STEP {String(step).padStart(2, '0')} <i>/</i> 06</span></div><div className="studio-footer-actions">{step > 1 && <button type="button" className="studio-back" onClick={() => onAdvance((step - 1) as StepId)}>이전 단계</button>}{step === 5 && running && canCancel && <button type="button" className="guided-secondary-button" onClick={() => dispatchAppAction('cancel-loading')}>A 계산 취소</button>}<button type="button" className="guided-primary-cta" disabled={disabled} onClick={action}>{label}{!running && step !== 6 ? '  ›' : ''}</button></div></div>;
 }
 
 export default function GuidedWorkflowShell() {
@@ -534,7 +536,14 @@ export default function GuidedWorkflowShell() {
     setFinalReady(false);
     advance(4);
   };
-  const packagingKey = JSON.stringify({ container: live.container, cargo: packaging.cargo });
+  // Confirmation belongs to the shipment/packaging plan. Equipment hydration can
+  // enrich the same space with loading-only metadata without changing that plan.
+  // App separately invalidates A acceptance for every actual loading-input change.
+  const packagingKey = exactInputSignature({
+    space: [live.container.length, live.container.width, live.container.height, live.container.maxPayloadKg],
+    products: packaging.products,
+    cargo: packaging.cargo,
+  });
   useEffect(() => {
     setPackagingConfirmed(false);
     setStrategy(null);
@@ -680,7 +689,7 @@ export default function GuidedWorkflowShell() {
       setLive(readLive());
     };
     const onAppAction = (event: Event) => {
-      if ((event as CustomEvent<AppActionDetail>).detail?.action === 'run-loading') { setModalOpen(false); markRunning(); }
+      if ((event as CustomEvent<AppActionDetail>).detail?.action === 'run-loading') setModalOpen(false);
     };
     const onNoLoad = (event: Event) => {
       const detail = (event as CustomEvent<LiveDetail>).detail;
@@ -694,13 +703,15 @@ export default function GuidedWorkflowShell() {
       setRunning(false); setFinalReady(false); setNoLoadComplete(false); completedEmpty.current = null;
       setFurthest(previous => Math.min(previous, 5) as StepId);
     };
-    const onAcceptance = () => {
+    const onAcceptance = (event: Event) => {
       if (completedEmpty.current && emptyInputsUnchanged()) return;
       if (isLoadSimAcceptedTarget(readPhysicsTarget())) {
         markReady();
         return;
       }
-      setRunning(false);
+      // Clearing an old proof is also part of starting a new calculation. Only
+      // a completed acceptance decision, cancellation or input edit ends a run.
+      if ((event as CustomEvent<LoadSimAcceptance | undefined>).detail) setRunning(false);
       setFinalReady(false);
       setFurthest(previous => Math.min(previous, 5) as StepId);
       setStep(previous => previous === 6 ? 5 : previous);
@@ -712,6 +723,8 @@ export default function GuidedWorkflowShell() {
     window.addEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, onInputInvalidated);
     window.addEventListener(NO_LOAD_RESULT_EVENT, onNoLoad);
     window.addEventListener(APP_ACTION_EVENT, onAppAction);
+    window.addEventListener(FINAL_LOADING_WORKFLOW_START_EVENT, markRunning);
+    window.addEventListener(FINAL_LOADING_WORKFLOW_CANCEL_EVENT, onInputInvalidated);
     window.addEventListener(FINAL_LOADING_WORKFLOW_ERROR_EVENT, onLoadingError);
     window.addEventListener(LOAD_SIM_ACCEPTANCE_EVENT, onAcceptance);
     window.addEventListener(OPEN_RESULTS_MODAL_EVENT, onResultsOpened);
@@ -719,6 +732,8 @@ export default function GuidedWorkflowShell() {
       window.removeEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, onInputInvalidated);
       window.removeEventListener(NO_LOAD_RESULT_EVENT, onNoLoad);
       window.removeEventListener(APP_ACTION_EVENT, onAppAction);
+      window.removeEventListener(FINAL_LOADING_WORKFLOW_START_EVENT, markRunning);
+      window.removeEventListener(FINAL_LOADING_WORKFLOW_CANCEL_EVENT, onInputInvalidated);
       window.removeEventListener(FINAL_LOADING_WORKFLOW_ERROR_EVENT, onLoadingError);
       window.removeEventListener(LOAD_SIM_ACCEPTANCE_EVENT, onAcceptance);
       window.removeEventListener(OPEN_RESULTS_MODAL_EVENT, onResultsOpened);
@@ -728,7 +743,7 @@ export default function GuidedWorkflowShell() {
   const selectionCount = Object.keys(selection).length;
   const rail = hosts.left ? createPortal(<StepRail step={step} furthest={furthest} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onStep={openWorkspace}/>, hosts.left) : null;
   const summary = hosts.right ? createPortal(<JobSummary step={step} live={live} mode={mode} finalReady={finalReady} running={running} selection={selection} strategy={strategy}/>, hosts.right) : null;
-  const footer = <BottomBar packagingConfirmed={packagingConfirmed} canReport={!noLoadComplete} step={step} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>;
+  const footer = <BottomBar packagingConfirmed={packagingConfirmed} canReport={!noLoadComplete} canCancel={mode === 'boxes'} step={step} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>;
   return <>{rail}{summary}{typeof document !== 'undefined' ? createPortal(<>
     <div hidden={modalOpen}>{footer}</div>
     <WorkspaceModal open={modalOpen} title={steps[step - 1].label} onClose={() => setModalOpen(false)} footer={footer}>

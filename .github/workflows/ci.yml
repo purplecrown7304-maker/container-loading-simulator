@@ -61,6 +61,17 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Upload browser failure context
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: browser-failure-context-${{ github.run_attempt }}
+          path: |
+            test-results/**/error-context.md
+            test-results/.last-run.json
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload production build
         uses: actions/upload-artifact@v6
         with:

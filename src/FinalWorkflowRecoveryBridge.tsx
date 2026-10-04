@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { NO_LOAD_RESULT_EVENT } from './autoCertification';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
-import { FINAL_LOADING_WORKFLOW_ERROR_EVENT, FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
+import { FINAL_LOADING_WORKFLOW_CANCEL_EVENT, FINAL_LOADING_WORKFLOW_ERROR_EVENT, FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
 import { getGuidedWorkflowSnapshot } from './guidedWorkflowState';
 import { createPhysicsTargetSignature } from './inertiaCertification';
 import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
@@ -55,6 +55,7 @@ export default function FinalWorkflowRecoveryBridge() {
       if (!active.current) window.dispatchEvent(new CustomEvent(APP_ACTION_EVENT, { detail: { action: 'run-loading' } }));
     };
     window.addEventListener(FINAL_LOADING_WORKFLOW_START_EVENT, onStart);
+    window.addEventListener(FINAL_LOADING_WORKFLOW_CANCEL_EVENT, onInputChanged);
     window.addEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, onInputChanged);
     window.addEventListener(FINAL_LOADING_WORKFLOW_ERROR_EVENT, onInputChanged);
     window.addEventListener(LOADING_RESULT_EVENT, onLoadingResult);
@@ -64,6 +65,7 @@ export default function FinalWorkflowRecoveryBridge() {
     return () => {
       runId.current += 1; active.current = false;
       window.removeEventListener(FINAL_LOADING_WORKFLOW_START_EVENT, onStart);
+      window.removeEventListener(FINAL_LOADING_WORKFLOW_CANCEL_EVENT, onInputChanged);
       window.removeEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, onInputChanged);
       window.removeEventListener(FINAL_LOADING_WORKFLOW_ERROR_EVENT, onInputChanged);
       window.removeEventListener(LOADING_RESULT_EVENT, onLoadingResult);

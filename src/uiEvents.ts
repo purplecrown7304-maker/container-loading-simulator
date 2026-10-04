@@ -7,6 +7,7 @@ export const EXCEL_IMPORT_EVENT = 'container-loading:excel-import';
 
 export type AppAction =
   | 'run-loading'
+  | 'cancel-loading'
   | 'load-local'
   | 'save-local'
   | 'print-report'

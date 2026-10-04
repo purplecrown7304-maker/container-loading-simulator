@@ -69,6 +69,9 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await workerStarted;
   console.log('bulk packing worker started');
   await expect(page.locator('.guided-primary-cta:visible')).toContainText('검사 중');
+  const cancel = page.locator('.guided-bottom-bar:visible').getByRole('button', { name: 'A 계산 취소', exact: true });
+  await expect(cancel).toBeEnabled();
+  await expect(cancel).toBeInViewport();
   // UI actions remain usable while the real packing worker is calculating.
   await page.getByRole('button', { name: /메뉴$/ }).click({ timeout: 5000 });
   await expect(page.getByRole('navigation', { name: '적재 작업 전체 메뉴' })).toBeVisible();

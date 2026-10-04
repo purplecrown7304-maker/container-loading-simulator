@@ -9,7 +9,7 @@ import {
 } from './autoCertification';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
-import { FINAL_LOADING_WORKFLOW_ERROR_EVENT, FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
+import { FINAL_LOADING_WORKFLOW_CANCEL_EVENT, FINAL_LOADING_WORKFLOW_ERROR_EVENT, FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
 import {
   INERTIA_CERTIFICATION_EVENT,
   createPhysicsTargetSignature,
@@ -17,6 +17,7 @@ import {
 } from './inertiaCertification';
 import { PHYSICS_TARGET_EVENT, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { LOAD_SIM_ACCEPTANCE_EVENT, createLoadSimTargetSignature, isLoadSimAcceptedTarget, readLoadSimAcceptance } from './rule-engine/acceptance';
+import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
 
 type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type Tone = 'pass' | 'warning' | 'danger' | 'pending' | 'running';
@@ -48,7 +49,11 @@ export default function InspectionStatusPanel() {
       if (detail) setTarget({ mode: 'boxes', ...detail });
       setRevision(value => value + 1);
     };
-    const onAcceptance = () => { setRunning(false); setLoadingError(''); refresh(); };
+    const onAcceptance = (event: Event) => {
+      if ((event as CustomEvent).detail) setRunning(false);
+      setLoadingError(''); refresh();
+    };
+    const onCancelled = () => { setRunning(false); setLoadingError(''); refresh(); };
     const onLoadingError = (event: Event) => {
       const error = (event as CustomEvent<{ error?: unknown }>).detail?.error;
       setLoadingError(error instanceof Error ? error.message : typeof error === 'string' ? error : '적재 계산 실행 실패');
@@ -67,6 +72,8 @@ export default function InspectionStatusPanel() {
       refresh();
     };
     window.addEventListener(FINAL_LOADING_WORKFLOW_START_EVENT, onStart);
+    window.addEventListener(FINAL_LOADING_WORKFLOW_CANCEL_EVENT, onCancelled);
+    window.addEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, onCancelled);
     window.addEventListener(FINAL_LOADING_WORKFLOW_ERROR_EVENT, onLoadingError);
     window.addEventListener(LOADING_RESULT_EVENT, onResult);
     window.addEventListener(LOAD_SIM_ACCEPTANCE_EVENT, onAcceptance);
@@ -77,6 +84,8 @@ export default function InspectionStatusPanel() {
     window.addEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onError);
     return () => {
       window.removeEventListener(FINAL_LOADING_WORKFLOW_START_EVENT, onStart);
+      window.removeEventListener(FINAL_LOADING_WORKFLOW_CANCEL_EVENT, onCancelled);
+      window.removeEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, onCancelled);
       window.removeEventListener(FINAL_LOADING_WORKFLOW_ERROR_EVENT, onLoadingError);
       window.removeEventListener(LOADING_RESULT_EVENT, onResult);
       window.removeEventListener(LOAD_SIM_ACCEPTANCE_EVENT, onAcceptance);
