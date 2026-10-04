@@ -1,3 +1,5 @@
+import { isARules } from './loadingRuleset';
+import { validateAPlan } from './loadSimAdapter';
 import { findMatchingEquipment } from '../transportEquipment';
 import type { CargoItem, ContainerSpec, OperationalRuleFinding, Placement } from './types';
 
@@ -427,6 +429,7 @@ export function validateOperationalLoading(
   placements: Placement[],
   supports: OperationalSupport[] = [],
 ): OperationalRuleFinding[] {
+  if (isARules(container)) return validateAPlan(container, cargo, placements, supports);
   if (!placements.length && !supports.length) return [];
   const bodies = buildBodies(cargo, placements, supports);
   const supporters = supportersOf(bodies);

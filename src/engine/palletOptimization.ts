@@ -1,3 +1,6 @@
+import { aConfig, isARules } from './loadingRuleset';
+import { validateAPlan } from './loadSimAdapter';
+import { centerPalletPlan } from './palletCentering';
 import {
   absorbSparsePallets,
   applyTopLayerFillPolicy,
@@ -610,6 +613,7 @@ export function packOnPallets(
   pallet: PalletSpec = defaultPalletSpec,
   strategy: LoadingStrategy = 'capacity',
 ): OptimizedPalletPackingResult {
+  const originalContainer=container;
   const preflight = preflightCargoInput(cargo);
   const normalizedCargo = preflight.cargo;
   const configurationError = containerInputError(container) ?? palletInputError(pallet);
@@ -620,6 +624,11 @@ export function packOnPallets(
     ]);
   }
 
+  if(isARules(container)) {
+    const cfg=aConfig(container);
+    // Vehicle clearances restrict the planning envelope, not the pallet's internal footprint.
+    container={...container,length:container.length-cfg.margins.l/1000,width:container.width-cfg.margins.w/1000,height:container.height-(cfg.margins.h+cfg.forkliftClearance)/1000,rules:undefined};
+  }
   const configuredMax = Math.max(1, Math.floor(pallet.maxStackLevels || 1));
   const physicalMax = Math.max(1, Math.floor((container.height + EPS) / Math.max(pallet.height, EPS)));
   const maxTarget = Math.min(configuredMax, physicalMax);
@@ -649,7 +658,16 @@ export function packOnPallets(
     const finalConsolidated = consolidateFinalSparsePallets(topLayered, container, normalizedCargo, pallet, strategy);
     candidates.push({ result: finalConsolidated.result, target: pallet.maxStackLevels, passes: absorbed.passes + finalConsolidated.passes });
   }
+  const errors=new WeakMap<PalletPackingResult,number>();
+  const hardErrors=(result:PalletPackingResult)=>{
+    if(!isARules(originalContainer))return 0;
+    const cached=errors.get(result);if(cached!==undefined)return cached;
+    const p=centerPalletPlan(result,originalContainer);
+    const n=validateAPlan(originalContainer,normalizedCargo,p.placements,p.pallets.map(s=>({id:String(s.palletIndex),x:s.x,y:s.y,z:s.z,length:s.length,width:s.width,height:s.height,weightKg:s.totalWeightKg-s.cargoWeightKg,unitCenterOfGravity:s.centerOfGravity,unitHeightM:Math.max(s.height,...s.cargoPlacements.map(b=>b.z+b.height-s.z))+s.packagingExtraHeightM}))).filter(f=>f.severity==='error').length;
+    errors.set(result,n);return n;
+  };
   const preference = (a: PalletPackingResult, b: PalletPackingResult) => {
+    const errorDiff=hardErrors(a)-hardErrors(b);if(errorDiff)return errorDiff<0;
     if (a.placements.length !== b.placements.length) return a.placements.length > b.placements.length;
     if (strategy === 'unloading') {
       const blockedA = unloadingObstructions(normalizedCargo, a.placements), blockedB = unloadingObstructions(normalizedCargo, b.placements);

@@ -1,3 +1,4 @@
+import { useLoadingRuleset, aEquipmentDefault } from './loadingRulesPreference';
 import { useEffect, useMemo, useState } from 'react';
 import EquipmentCard3D from './EquipmentCard3D';
 import EditableEquipmentCard from './EditableEquipmentCard';
@@ -93,6 +94,7 @@ function specMatchesEquipment(spec: EditableSpec, equipment: TransportEquipment)
 function syncSelectionFromDashboard(category: TransportCategory) {
   const values = readDashboardSpec();
   if (!values) return;
+  if (specMatchesEquipment(values, readTransportEquipment())) return;
   const match = findMatchingEquipment(values.length, values.width, values.height, values.maxPayloadKg);
   if (match && Math.abs(match.floorLoadLimitKgPerM2 - values.floorLoadLimitKgPerM2) < 1) selectTransportEquipment(match);
   else selectTransportEquipment(createCustomEquipment(category, values));
@@ -130,7 +132,8 @@ export default function TransportEquipmentSelector() {
   const [category, setCategory] = useState<TransportCategory>(selected.category);
   const [custom, setCustom] = useState<EditableSpec>(() => editable(selected));
   const [message, setMessage] = useState('');
-  const list = useMemo(() => category === 'container' ? CONTAINER_EQUIPMENT : TRUCK_EQUIPMENT, [category]);
+  const ruleset=useLoadingRuleset();
+  const list = useMemo(() => (category === 'container' ? CONTAINER_EQUIPMENT : TRUCK_EQUIPMENT).map(e=>ruleset==='a-v1'?aEquipmentDefault(e):e), [category,ruleset]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

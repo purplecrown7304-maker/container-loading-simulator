@@ -159,6 +159,7 @@ export function createPhysicsTargetSignature(target: PhysicsTarget) {
     .map(item => [item.cargoId, item.quantity, item.reason]);
   return JSON.stringify({
     physicsModel: 'restraint-v5-unit-load',
+    rulesMetadata: target.container.rules ? { cargo: target.cargo, ruleset: target.result.ruleset, orientation: target.result.placements.map(p=>[p.unitId,p.orientation]) } : undefined,
     bandingLayout: target.mode === 'pallets' ? 'grid-v1' : undefined,
     mode: target.mode,
     container: target.container,

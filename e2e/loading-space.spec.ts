@@ -39,7 +39,8 @@ test('Three model failure offers retry while the fixed-height product workflow r
   await expect(page.locator('.viewer-host iframe')).toHaveCount(0);
   await expect(page.locator('.workspace-modal iframe')).toHaveCount(0);
   await advanceToStrategy(page, 'SPACE-CHECK');
-  await page.getByRole('radio', { name: /무게중심·안정성 우선형/ }).click();
+  // This success-path fixture must satisfy the existing lateral-CG gate.
+  await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
   await expect(page.locator('.three-comparison-error').getByRole('button', { name: '다시 시도', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /기존 3D/ })).toHaveCount(0);

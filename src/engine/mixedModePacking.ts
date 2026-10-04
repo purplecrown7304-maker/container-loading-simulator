@@ -1,3 +1,5 @@
+import { isARules } from './loadingRuleset';
+import { packWithARules } from './loadSimAdapter';
 import { packByBlockSpaceBeamV2 } from './blockSpaceBeamPackerV2';
 import { defaultPalletSpec, packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './palletOptimization';
 import type { LoadingStrategy } from './loadingEngine';
@@ -107,6 +109,7 @@ function palletUnitItem(load: PalletLoad, cargoById: Map<string, CargoItem>): Ca
     width: load.width,
     height: palletUnitHeight(load),
     weightKg: load.totalWeightKg,
+    cgOffsetMm: { l: (load.centerOfGravity.x-load.x-load.length/2)*1000, w: (load.centerOfGravity.y-load.y-load.width/2)*1000, h: (load.centerOfGravity.z-load.z-palletUnitHeight(load)/2)*1000 },
     quantity: 1,
     maxStackLayers: 1,
     maxTopLoadKg: 0,
@@ -175,6 +178,7 @@ function waitingRows(
 }
 
 type Candidate = {
+  hardErrors: number;
   result: MixedModePackingResult;
   loadedCount: number;
   palletCount: number;
@@ -184,6 +188,7 @@ type Candidate = {
 
 function better(a: Candidate, b: Candidate | null) {
   if (!b) return true;
+  if (a.hardErrors !== b.hardErrors) return a.hardErrors < b.hardErrors;
   if (a.loadedCount !== b.loadedCount) return a.loadedCount > b.loadedCount;
   if (a.palletCount !== b.palletCount) return a.palletCount < b.palletCount;
   if (a.floorLoose !== b.floorLoose) return a.floorLoose < b.floorLoose;
@@ -233,7 +238,7 @@ export function packMixedMode(
     const looseCargo = directCargo(active, built.remaining, demoted);
     const combined = [...unitItems, ...looseCargo];
 
-    const packed = packByBlockSpaceBeamV2(container, combined, strategy);
+    const packed = isARules(container) ? packWithARules(container, combined, strategy) : packByBlockSpaceBeamV2(container, combined, strategy);
     const unitPlacement = new Map(
       packed.placements
         .filter((p) => p.cargoId.startsWith(PALLET_UNIT_PREFIX))
@@ -302,6 +307,7 @@ export function packMixedMode(
     };
 
     const candidate: Candidate = {
+      hardErrors: isARules(container) && 'operationalFindings' in packed ? ((packed.operationalFindings as import('./types').OperationalRuleFinding[] | undefined)??[]).filter(f=>f.severity==='error').length : 0,
       result,
       loadedCount: placements.length,
       palletCount: movedPallets.length,
