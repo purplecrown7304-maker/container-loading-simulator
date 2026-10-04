@@ -4,7 +4,7 @@ export type ContainerSpec = {
   height: number;
   maxPayloadKg: number;
   /** A 규칙 연결용 선택 필드. 기존 저장 데이터에는 없어도 된다. */
-  kind?: 'container' | 'truck';
+  transportKind?: 'container' | 'truck';
   doorWidth?: number;
   doorHeight?: number;
   access?: Array<'rear' | 'left' | 'right' | 'top'>;
