@@ -30,30 +30,20 @@ function matchingInput(panel: Element | null, labelText: string) {
   return null;
 }
 
-function mainContainerPanel() {
-  for (const panel of Array.from(document.querySelectorAll('.dashboard-left .dashboard-card'))) {
-    const heading = panel.querySelector('h2')?.textContent ?? '';
-    if (heading.includes('컨테이너 정보')) return panel;
-  }
-  return null;
-}
-
 function inputsFor(labelText: string) {
   const inputs: HTMLInputElement[] = [];
-  const main = matchingInput(mainContainerPanel(), labelText);
-  if (main) inputs.push(main);
-
   const planner = document.getElementById('product-packaging-planner');
   const enterprisePanel = planner?.querySelector('.enterprise-settings-grid .packaging-panel') ?? null;
   const enterprise = matchingInput(enterprisePanel, labelText);
-  if (enterprise && enterprise !== main) inputs.push(enterprise);
+  if (enterprise) inputs.push(enterprise);
   return inputs;
 }
 
 /**
- * Transport equipment is the master geometry. Keep both the main loading App and the
- * enterprise packaging planner synchronized with the selected equipment, including
- * floor load. App also subscribes directly to the selected equipment; changing equipment
+ * Transport equipment is the master geometry. Keep the enterprise packaging planner
+ * synchronized, including its legacy floor-area input. App subscribes directly to
+ * atomic equipment source changes; do not mutate its individual DOM inputs here.
+ * For the App, changing equipment
  * invalidates the previous layout and never starts an unrequested loading calculation.
  */
 export default function EnterpriseTransportEquipmentAdapter() {

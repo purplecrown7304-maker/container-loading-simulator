@@ -145,4 +145,12 @@ test('mobile guided dashboard remains usable without horizontal body overflow', 
   await expect(page.getByRole('button', { name: /다음: 제품 선택/ })).toBeInViewport();
   await page.locator('.equipment-selected-strip').scrollIntoViewIfNeeded();
   await expect(page.locator('.equipment-selected-strip')).toContainText('용적');
+  await page.getByRole('button', { name: '설정 닫기', exact: true }).click();
+  // Reduced rail space must scroll internally, without clipping later stages.
+  const lastStep = page.locator('.guided-step-list button').last();
+  await lastStep.scrollIntoViewIfNeeded();
+  await expect(lastStep).toBeInViewport();
+  const scrolledRail = await page.locator('.guided-step-rail').boundingBox();
+  const scrolledLeft = await page.locator('.dashboard-left').boundingBox();
+  expect(scrolledRail!.y + scrolledRail!.height).toBeLessThanOrEqual(scrolledLeft!.y + scrolledLeft!.height);
 });

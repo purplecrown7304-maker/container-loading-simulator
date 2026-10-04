@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import EquipmentCard3D from './EquipmentCard3D';
 import EditableEquipmentCard from './EditableEquipmentCard';
-import { STORAGE_UPDATED_EVENT } from './storage';
+import { APPLY_TRANSPORT_EQUIPMENT_EVENT, type ApplyTransportEquipmentDetail } from './transportEquipmentContainer';
 import {
   CONTAINER_EQUIPMENT,
   OPEN_TRANSPORT_SELECTOR_EVENT,
   TRUCK_EQUIPMENT,
   createCustomEquipment,
-  findMatchingEquipment,
-  getTransportEquipment,
-  hasStoredTransportEquipment,
   readTransportEquipment,
   selectTransportEquipment,
   type EquipmentGeometry,
@@ -44,6 +41,9 @@ function nativeValueSetter(input: HTMLInputElement, value: number) {
 }
 
 function findDashboardInput(labelText: string) {
+  const key = (Object.keys(FIELD_LABELS) as Array<keyof typeof FIELD_LABELS>).find(key => FIELD_LABELS[key] === labelText);
+  const keyed = document.querySelector(`[data-container-spec] input[data-container-field="${key}"]`);
+  if (keyed instanceof HTMLInputElement) return keyed;
   const labels = Array.from(document.querySelectorAll('.dashboard-left .dashboard-card:first-child label'));
   for (const label of labels) {
     const normalized = (label.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -61,41 +61,43 @@ function readDashboardSpec(): EditableSpec | null {
     width: read('width'),
     height: read('height'),
     maxPayloadKg: read('maxPayloadKg'),
-    floorLoadLimitKgPerM2: read('floorLoadLimitKgPerM2'),
+    // A's kg/m field is not a replacement for this optional legacy kg/m² input.
+    floorLoadLimitKgPerM2: findDashboardInput(FIELD_LABELS.floorLoadLimitKgPerM2)
+      ? read('floorLoadLimitKgPerM2') : readTransportEquipment().floorLoadLimitKgPerM2,
   };
   return Object.values(result).every(value => Number.isFinite(value) && value > 0) ? result : null;
 }
 
 export function applyToDashboard(spec: TransportEquipment) {
-  const values: EditableSpec = {
-    length: spec.length,
-    width: spec.width,
-    height: spec.height,
-    maxPayloadKg: spec.maxPayloadKg,
-    floorLoadLimitKgPerM2: spec.floorLoadLimitKgPerM2,
-  };
-  let applied = 0;
-  (Object.keys(values) as Array<keyof EditableSpec>).forEach(key => {
-    const input = findDashboardInput(FIELD_LABELS[key]);
-    if (input && nativeValueSetter(input, values[key])) applied += 1;
-  });
-  return applied === Object.keys(values).length;
+  const detail: ApplyTransportEquipmentDetail = { equipment: spec, applied: false };
+  window.dispatchEvent(new CustomEvent(APPLY_TRANSPORT_EQUIPMENT_EVENT, { detail }));
+  if (detail.applied) return true;
+
+  // Compatibility for older embedded dashboards: preflight all required fields
+  // before editing, and never mistake newly added A inputs for positional fields.
+  const required = ['length', 'width', 'height', 'maxPayloadKg'] as const;
+  const inputs = required.map(key => findDashboardInput(FIELD_LABELS[key]));
+  if (inputs.some(input => !input)) return false;
+  const applied = inputs.every((input, index) => nativeValueSetter(input!, spec[required[index]]));
+  const legacyFloor = findDashboardInput(FIELD_LABELS.floorLoadLimitKgPerM2);
+  if (legacyFloor) nativeValueSetter(legacyFloor, spec.floorLoadLimitKgPerM2);
+  return applied;
 }
 
 function specMatchesEquipment(spec: EditableSpec, equipment: TransportEquipment) {
-  return Math.abs(spec.length - equipment.length) < 0.001
-    && Math.abs(spec.width - equipment.width) < 0.001
-    && Math.abs(spec.height - equipment.height) < 0.001
-    && Math.abs(spec.maxPayloadKg - equipment.maxPayloadKg) < 1
-    && Math.abs(spec.floorLoadLimitKgPerM2 - equipment.floorLoadLimitKgPerM2) < 1;
+  return spec.length === equipment.length
+    && spec.width === equipment.width
+    && spec.height === equipment.height
+    && spec.maxPayloadKg === equipment.maxPayloadKg
+    && spec.floorLoadLimitKgPerM2 === equipment.floorLoadLimitKgPerM2;
 }
 
 function syncSelectionFromDashboard(category: TransportCategory) {
   const values = readDashboardSpec();
   if (!values) return;
-  const match = findMatchingEquipment(values.length, values.width, values.height, values.maxPayloadKg);
-  if (match && Math.abs(match.floorLoadLimitKgPerM2 - values.floorLoadLimitKgPerM2) < 1) selectTransportEquipment(match);
-  else selectTransportEquipment(createCustomEquipment(category, values));
+  // Background/observer synchronization may not approximate explicit input to a catalog preset.
+  if (specMatchesEquipment(values, readTransportEquipment())) return;
+  selectTransportEquipment(createCustomEquipment(category, values));
 }
 
 export function EquipmentIcon({ geometry, truck }: { geometry: EquipmentGeometry; truck: boolean }) {
@@ -133,32 +135,6 @@ export default function TransportEquipmentSelector() {
   const list = useMemo(() => category === 'container' ? CONTAINER_EQUIPMENT : TRUCK_EQUIPMENT, [category]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const dashboard = readDashboardSpec();
-      if (!dashboard) return;
-      if (hasStoredTransportEquipment()) {
-        const persisted = readTransportEquipment();
-        if (!specMatchesEquipment(dashboard, persisted)) applyToDashboard(persisted);
-        return;
-      }
-      const known = findMatchingEquipment(dashboard.length, dashboard.width, dashboard.height, dashboard.maxPayloadKg);
-      if (known && Math.abs(known.floorLoadLimitKgPerM2 - dashboard.floorLoadLimitKgPerM2) < 1) {
-        selectTransportEquipment(known);
-        return;
-      }
-      const legacy40hc = Math.abs(dashboard.length - 12.03) < 0.02 && Math.abs(dashboard.width - 2.35) < 0.02 && Math.abs(dashboard.height - 2.69) < 0.03 && Math.abs(dashboard.maxPayloadKg - 26500) < 50;
-      const standard40hc = getTransportEquipment('40-high-cube');
-      if (legacy40hc && standard40hc) {
-        applyToDashboard(standard40hc);
-        selectTransportEquipment(standard40hc);
-        return;
-      }
-      selectTransportEquipment(createCustomEquipment('container', dashboard));
-    }, 80);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
     const onOpen = (event: Event) => {
       const detail = (event as CustomEvent<{ category?: TransportCategory }>).detail;
       const nextCategory = detail?.category ?? readTransportEquipment().category;
@@ -174,16 +150,13 @@ export default function TransportEquipmentSelector() {
   useEffect(() => {
     const onDashboardChange = (event: Event) => {
       const target = event.target;
-      if (!(target instanceof HTMLInputElement)) return;
-      if (!target.closest('.dashboard-left .dashboard-card:first-child')) return;
+      if (!event.isTrusted || !(target instanceof HTMLInputElement)) return;
+      if (!(Object.values(FIELD_LABELS).some(label => findDashboardInput(label) === target))) return;
       window.setTimeout(() => syncSelectionFromDashboard(readTransportEquipment().category), 0);
     };
-    const onStoredState = () => window.setTimeout(() => syncSelectionFromDashboard(readTransportEquipment().category), 30);
     document.addEventListener('change', onDashboardChange, true);
-    window.addEventListener(STORAGE_UPDATED_EVENT, onStoredState);
     return () => {
       document.removeEventListener('change', onDashboardChange, true);
-      window.removeEventListener(STORAGE_UPDATED_EVENT, onStoredState);
     };
   }, []);
 

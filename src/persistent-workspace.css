@@ -6,7 +6,9 @@ html[data-guided-workflow="true"] :is(.dashboard-left,.dashboard-right) { positi
 html[data-guided-workflow="true"] .dashboard-left { left: 14px; width: 180px; }
 html[data-guided-workflow="true"] .dashboard-right { right: 14px; width: 230px; }
 html[data-guided-workflow="true"] :is(.guided-step-rail,.guided-job-summary) { pointer-events: auto; background: #ffffffed; border: 1px solid var(--studio-line); border-radius: 12px; box-shadow: 0 6px 20px #11182718; }
-html[data-guided-workflow="true"] .guided-step-rail { padding: 6px; }
+/* Scroll the rail itself when toolbar wrapping reduces the available canvas
+   height. Its visible bounds must stay inside the floating left wrapper. */
+html[data-guided-workflow="true"] .guided-step-rail { padding: 6px; max-height: inherit; overflow-y: auto; overscroll-behavior: contain; }
 html[data-guided-workflow="true"] .guided-step-list { min-width: 0 !important; width: 100%; display: grid !important; grid-template-columns: minmax(0,1fr) !important; gap: 3px; }
 html[data-guided-workflow="true"] .guided-step-list button { width: 100%; min-width: 0; min-height: 42px; padding: 6px 8px; border: 0; background: transparent; }
 html[data-guided-workflow="true"] .guided-step-copy { min-width: 0; }

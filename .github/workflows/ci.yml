@@ -45,7 +45,21 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Browser smoke tests
-        run: npm run test:e2e
+        # Stop a failing run early enough to retain its diagnostics. A successful
+        # run still executes the complete desktop/mobile suite without skips.
+        timeout-minutes: 28
+        run: npm run test:e2e -- --max-failures=3
+
+      - name: Upload browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: browser-diagnostics-${{ github.run_attempt }}
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload production build
         uses: actions/upload-artifact@v6

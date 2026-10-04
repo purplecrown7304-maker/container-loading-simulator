@@ -1,4 +1,5 @@
 import LoadingViewer, { type LoadingViewerProps } from './LoadingViewer';
+import { NO_LOAD_RESULT_EVENT } from './autoCertification';
 import { palletModelKey } from './palletModel';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -251,7 +252,13 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       dynamic: true,
     }));
     const loadingResult = palletResultToLoadingResult(result, sanitizeSpec(spec));
-    publishLoadSimAcceptance({ mode: 'pallets', container, cargo, result: loadingResult, supports });
+    const target = { mode: 'pallets' as const, container, cargo, result: loadingResult, supports };
+    publishLoadSimAcceptance(target);
+    // Empty A results remain rejected, but their waiting reasons complete the
+    // workflow. Never announce completion if a newer input refused this target.
+    if (readPhysicsTarget() === target && !loadingResult.placements.length && loadingResult.remaining.some(row => row.quantity > 0)) {
+      window.dispatchEvent(new CustomEvent(NO_LOAD_RESULT_EVENT, { detail: target }));
+    }
   }, [container, cargo, result, modelKey]);
 
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);

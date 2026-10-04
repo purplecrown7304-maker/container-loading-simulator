@@ -25,13 +25,7 @@ type PendingExplicitChange =
   | null;
 
 function sameEquipment(a: TransportEquipment, b: TransportEquipment) {
-  return a.id === b.id
-    && a.category === b.category
-    && Math.abs(a.length - b.length) < 0.0001
-    && Math.abs(a.width - b.width) < 0.0001
-    && Math.abs(a.height - b.height) < 0.0001
-    && Math.abs(a.maxPayloadKg - b.maxPayloadKg) < 0.1
-    && Math.abs(a.floorLoadLimitKgPerM2 - b.floorLoadLimitKgPerM2) < 0.1;
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function findDashboardInput(labelText: string) {
@@ -68,22 +62,6 @@ function restoreDashboardEquipment(equipment: TransportEquipment) {
   });
 }
 
-function closestKnownEquipment(candidate: TransportEquipment) {
-  const known = TRANSPORT_EQUIPMENT.filter(item => !item.id.startsWith('custom-') && item.category === candidate.category);
-  if (!known.length) return null;
-
-  const score = (item: TransportEquipment) => {
-    const length = Math.abs(item.length - candidate.length) / Math.max(0.1, item.length);
-    const width = Math.abs(item.width - candidate.width) / Math.max(0.1, item.width);
-    const height = Math.abs(item.height - candidate.height) / Math.max(0.1, item.height);
-    const payload = Math.abs(item.maxPayloadKg - candidate.maxPayloadKg) / Math.max(1000, item.maxPayloadKg);
-    const floor = Math.abs(item.floorLoadLimitKgPerM2 - candidate.floorLoadLimitKgPerM2) / Math.max(500, item.floorLoadLimitKgPerM2);
-    return length * 4 + width * 4 + height * 4 + payload + floor;
-  };
-
-  return [...known].sort((a, b) => score(a) - score(b))[0] ?? null;
-}
-
 function equipmentFromCard(target: Element) {
   const icon = target.closest('.equipment-icon-option[data-equipment-id]');
   if (icon) return TRANSPORT_EQUIPMENT.find(item => item.id === icon.getAttribute('data-equipment-id')) ?? null;
@@ -118,23 +96,7 @@ export default function TransportEquipmentSafetyGuard() {
   const restoring = useRef(false);
 
   useEffect(() => {
-    // 과거 자동 동기화 버그로 Custom Container/Truck가 저장된 경우 복구한다.
-    // Custom은 사용자가 직접 '사용자 규격 적용'을 눌렀다는 표식이 있을 때만 유지한다.
-    const initial = readTransportEquipment();
-    const explicitlyCustom = window.localStorage.getItem(EXPLICIT_CUSTOM_STORAGE_KEY) === '1';
-    if (initial.id.startsWith('custom-') && !explicitlyCustom) {
-      const recovered = closestKnownEquipment(initial);
-      if (recovered) {
-        acceptedEquipment.current = { ...recovered };
-        restoring.current = true;
-        window.setTimeout(() => {
-          restoreDashboardEquipment(recovered);
-          selectTransportEquipment(recovered);
-          queueMicrotask(() => { restoring.current = false; });
-        }, 0);
-      }
-    }
-
+    // Persisted explicit equipment is a source, never approximate it to the nearest preset.
     const markExplicitChange = (event: Event) => {
       if (!event.isTrusted) return;
       const target = event.target;

@@ -2,36 +2,22 @@ import { useEffect } from 'react';
 import { recordDiagnosticTrace } from './runtimeDiagnostics';
 import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
 import { readTransportEquipment } from './transportEquipment';
+import { containerWithEquipment, equipmentGeometryMatches } from './transportEquipmentContainer';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 
 type GuardActionDetail = AppActionDetail & { equipmentConsistencyReplay?: boolean };
 
-function differs(a: number | undefined, b: number | undefined, tolerance: number) {
-  if (a == null || b == null) return a !== b;
-  return Math.abs(a - b) > tolerance;
-}
-
 export function stateDiffersFromSelectedEquipment(state: StoredState) {
   const equipment = readTransportEquipment();
-  return differs(state.container.length, equipment.length, 0.001)
-    || differs(state.container.width, equipment.width, 0.001)
-    || differs(state.container.height, equipment.height, 0.001)
-    || differs(state.container.maxPayloadKg, equipment.maxPayloadKg, 1)
-    || differs(state.container.floorLoadLimitKgPerM2, equipment.floorLoadLimitKgPerM2, 1);
+  return !equipmentGeometryMatches(state.container, equipment)
+    || (state.container.floorLoadLimitKgPerM2 != null && state.container.floorLoadLimitKgPerM2 !== equipment.floorLoadLimitKgPerM2);
 }
 
 export function stateWithSelectedEquipment(state: StoredState): StoredState {
   const equipment = readTransportEquipment();
   return {
     ...state,
-    container: {
-      ...state.container,
-      length: equipment.length,
-      width: equipment.width,
-      height: equipment.height,
-      maxPayloadKg: equipment.maxPayloadKg,
-      floorLoadLimitKgPerM2: equipment.floorLoadLimitKgPerM2,
-    },
+    container: containerWithEquipment(state.container, equipment, equipmentGeometryMatches(state.container, equipment)),
   };
 }
 

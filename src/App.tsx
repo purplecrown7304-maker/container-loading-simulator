@@ -30,6 +30,7 @@ import { normalizeCargo, readStoredState, STORAGE_KEY, STORAGE_UPDATED_EVENT, wr
 import WorkspaceTools from './WorkspaceTools';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 import { useTransportEquipment } from './transportEquipment';
+import { APPLY_TRANSPORT_EQUIPMENT_EVENT, containerWithEquipment, equipmentGeometryMatches, type ApplyTransportEquipmentDetail } from './transportEquipmentContainer';
 
 const BoxLoadingViewer = lazy(() => import('./BoxLoadingViewer'));
 const PalletModePanel = lazy(() => import('./PalletModePanel'));
@@ -97,6 +98,8 @@ export default function App() {
   const guidedWorkflowState = useGuidedWorkflowState();
   const guidedLoadingUnit = useGuidedLoadingUnit();
   const equipment = useTransportEquipment();
+  const equipmentKey = JSON.stringify(equipment);
+  const previousEquipmentKey = useRef<string | null>(null);
 
   const currentPalletScene = mode !== 'boxes' && palletScene?.inputKey === inputKey ? palletScene : null;
   const isPreview = mode === 'boxes' ? result.placements.length === 0 && result.remaining.length === 0 : !currentPalletScene;
@@ -148,13 +151,31 @@ export default function App() {
   };
 
   useEffect(() => {
-    const next = { ...container, length: equipment.length, width: equipment.width, height: equipment.height,
-      maxPayloadKg: equipment.maxPayloadKg, floorLoadLimitKgPerM2: equipment.floorLoadLimitKgPerM2 };
-    // The shared canvas follows real equipment changes; equal input is not an edit.
+    const unchanged = previousEquipmentKey.current === equipmentKey;
+    const initial = previousEquipmentKey.current === null;
+    previousEquipmentKey.current = equipmentKey;
+    if (unchanged) return;
+    const sameGeometry = equipmentGeometryMatches(container, equipment);
+    if (initial && sameGeometry) return;
+    const preservePhysical = sameGeometry && (initial || equipment.id.startsWith('custom-'));
+    const next = containerWithEquipment(container, equipment, preservePhysical);
     if (JSON.stringify(next) === JSON.stringify(container)) return;
     invalidatePhysics();
     setContainer(next);
-  }, [equipment.id, equipment.length, equipment.width, equipment.height, equipment.maxPayloadKg, equipment.floorLoadLimitKgPerM2]);
+  }, [equipmentKey]);
+
+  useEffect(() => {
+    const onApplyEquipment = (event: Event) => {
+      const detail = (event as CustomEvent<ApplyTransportEquipmentDetail>).detail;
+      if (!detail?.equipment) return;
+      // One atomic source change, independent of the count/order of dashboard inputs.
+      invalidatePhysics();
+      setContainer(current => containerWithEquipment(current, detail.equipment));
+      detail.applied = true;
+    };
+    window.addEventListener(APPLY_TRANSPORT_EQUIPMENT_EVENT, onApplyEquipment);
+    return () => window.removeEventListener(APPLY_TRANSPORT_EQUIPMENT_EVENT, onApplyEquipment);
+  }, []);
 
   useEffect(() => {
     if (!guidedWorkflowState.active || !guidedLoadingUnit || guidedLoadingUnit === mode) return;
@@ -437,7 +458,7 @@ export default function App() {
 
     <section className="dashboard-grid">
       <aside className="dashboard-left">
-        <section className="dashboard-card">
+        <section className="dashboard-card" data-container-spec>
           <h2>1. 컨테이너 정보</h2>
           <div className="static-setting"><span>컨테이너 규격</span><b>40FT High Cube</b><small>현재 단일 규격 · 상세 규격은 아래에서 직접 수정</small></div>
           <div className="spec-list">
@@ -449,14 +470,14 @@ export default function App() {
             <span>A 바닥 선하중 <b>{container.floorLineLoadKgPerM == null ? '미입력 · 검사 생략' : `${container.floorLineLoadKgPerM.toLocaleString()} kg/m`}</b></span><small>A 대표 기본값은 실제 장비 제원·규정 검증을 대신하지 않습니다</small>
           </div>
           <details><summary>상세 규격 / 직접 수정</summary><div className="form-grid compact-form">
-            <label>길이(m)<input type="number" min="0.01" step="0.01" value={container.length} onChange={e => updateContainer('length', e.target.value)} /></label>
-            <label>폭(m)<input type="number" min="0.01" step="0.01" value={container.width} onChange={e => updateContainer('width', e.target.value)} /></label>
-            <label>높이(m)<input type="number" min="0.01" step="0.01" value={container.height} onChange={e => updateContainer('height', e.target.value)} /></label>
-            <label>최대중량<input type="number" min="1" value={container.maxPayloadKg} onChange={e => updateContainer('maxPayloadKg', e.target.value)} /></label>
-            <label>A 바닥 선하중(kg/m)<input type="number" min="1" placeholder="미입력 시 검사 생략" value={container.floorLineLoadKgPerM ?? ''} onChange={e => updateContainer('floorLineLoadKgPerM', e.target.value)} /></label>
-            <label>장비 자중(kg)<input type="number" min="0" placeholder="미입력" value={container.tareKg ?? ''} onChange={e => updateContainer('tareKg', e.target.value)} /></label>
-            <label>도어 폭(m)<input type="number" min=".01" step=".001" placeholder="미입력" value={container.doorWidth ?? ''} onChange={e => updateContainer('doorWidth', e.target.value)} /></label>
-            <label>도어 높이(m)<input type="number" min=".01" step=".001" placeholder="미입력" value={container.doorHeight ?? ''} onChange={e => updateContainer('doorHeight', e.target.value)} /></label>
+            <label>길이(m)<input type="number" min="0.01" step="0.01" data-container-field="length" value={container.length} onChange={e => updateContainer('length', e.target.value)} /></label>
+            <label>폭(m)<input type="number" min="0.01" step="0.01" data-container-field="width" value={container.width} onChange={e => updateContainer('width', e.target.value)} /></label>
+            <label>높이(m)<input type="number" min="0.01" step="0.01" data-container-field="height" value={container.height} onChange={e => updateContainer('height', e.target.value)} /></label>
+            <label>최대중량<input type="number" min="1" data-container-field="maxPayloadKg" value={container.maxPayloadKg} onChange={e => updateContainer('maxPayloadKg', e.target.value)} /></label>
+            <label>A 바닥 선하중(kg/m)<input type="number" min="1" placeholder="미입력 시 검사 생략" data-container-field="floorLineLoadKgPerM" value={container.floorLineLoadKgPerM ?? ''} onChange={e => updateContainer('floorLineLoadKgPerM', e.target.value)} /></label>
+            <label>장비 자중(kg)<input type="number" min="0" placeholder="미입력" data-container-field="tareKg" value={container.tareKg ?? ''} onChange={e => updateContainer('tareKg', e.target.value)} /></label>
+            <label>도어 폭(m)<input type="number" min=".01" step=".001" placeholder="미입력" data-container-field="doorWidth" value={container.doorWidth ?? ''} onChange={e => updateContainer('doorWidth', e.target.value)} /></label>
+            <label>도어 높이(m)<input type="number" min=".01" step=".001" placeholder="미입력" data-container-field="doorHeight" value={container.doorHeight ?? ''} onChange={e => updateContainer('doorHeight', e.target.value)} /></label>
           </div></details>
         </section>
 

@@ -1,4 +1,7 @@
 import { useSyncExternalStore } from 'react';
+import { CONTAINERS } from './load-sim/presets';
+import type { ContainerSpec } from './engine/types';
+import { STORAGE_KEY as APP_STORAGE_KEY } from './storage';
 
 export type TransportCategory = 'container' | 'truck';
 export type EquipmentGeometry =
@@ -29,6 +32,11 @@ export type TransportEquipment = {
   floorLoadLimitKgPerM2: number;
   doorWidth?: number;
   doorHeight?: number;
+  access?: ContainerSpec['access'];
+  tareKg?: number;
+  floorLineLoadKgPerM?: number;
+  heightLimitM?: number;
+  axles?: ContainerSpec['axles'];
   volumeM3?: number;
   sideLoading?: boolean;
   topLoading?: boolean;
@@ -75,8 +83,21 @@ export const TRANSPORT_EQUIPMENT_EVENT = 'container-loading:transport-equipment-
 export const OPEN_TRANSPORT_SELECTOR_EVENT = 'container-loading:open-transport-selector';
 const STORAGE_KEY = 'container-loading:transport-equipment-v1';
 
-let selected: TransportEquipment = TRANSPORT_EQUIPMENT.find(item => item.id === '40-high-cube')!;
+// The cold-start source is A's supplied representative default. Catalog cards remain
+// unchanged and become authoritative only when the user explicitly selects one.
+const defaultSpace = CONTAINERS['40HC'];
+export const DEFAULT_TRANSPORT_EQUIPMENT: TransportEquipment = {
+  ...TRANSPORT_EQUIPMENT.find(item => item.id === '40-high-cube')!,
+  length: defaultSpace.inner.l / 1000, width: defaultSpace.inner.w / 1000, height: defaultSpace.inner.h / 1000,
+  maxPayloadKg: defaultSpace.maxPayload, doorWidth: defaultSpace.door!.w / 1000, doorHeight: defaultSpace.door!.h / 1000,
+  tareKg: defaultSpace.tare, floorLineLoadKgPerM: defaultSpace.floorLineLoad,
+  volumeM3: defaultSpace.inner.l * defaultSpace.inner.w * defaultSpace.inner.h / 1e9,
+  sourceLabel: 'A 제공 대표 기본값 · 바닥 면하중 1,500kg/m²는 기존 표시 참고값(적재 규칙 아님)',
+};
+let selected: TransportEquipment = DEFAULT_TRANSPORT_EQUIPMENT;
 let loadedFromStorage = false;
+let storedSnapshot: string | null | undefined;
+let legacyAppSnapshot: string | null | undefined;
 const listeners = new Set<() => void>();
 
 function clone(value: TransportEquipment): TransportEquipment { return { ...value }; }
@@ -85,7 +106,19 @@ function loadStored() {
   if (typeof window === 'undefined') return;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
+    const appRaw = raw ? null : window.localStorage.getItem(APP_STORAGE_KEY);
+    if (raw === storedSnapshot && appRaw === legacyAppSnapshot) return;
+    storedSnapshot = raw;
+    legacyAppSnapshot = appRaw;
+    loadedFromStorage = false;
+    selected = DEFAULT_TRANSPORT_EQUIPMENT;
+    if (!raw) {
+      const container = appRaw ? (JSON.parse(appRaw) as { container?: ContainerSpec }).container : undefined;
+      if (container && [container.length, container.width, container.height, container.maxPayloadKg].every(Number.isFinite)) {
+        selected = equipmentFromStoredContainer(container);
+      }
+      return;
+    }
     const parsed = JSON.parse(raw) as TransportEquipment;
     if (parsed && typeof parsed.id === 'string' && Number.isFinite(parsed.length) && Number.isFinite(parsed.width) && Number.isFinite(parsed.height) && Number.isFinite(parsed.maxPayloadKg)) {
       selected = parsed;
@@ -100,15 +133,25 @@ function emit() {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent<TransportEquipment>(TRANSPORT_EQUIPMENT_EVENT, { detail: clone(selected) }));
 }
 
-export function readTransportEquipment() { return selected; }
-export function hasStoredTransportEquipment() { return loadedFromStorage; }
+export function readTransportEquipment() {
+  // Persistence bootstrap can hydrate storage after module import. Cache its raw
+  // snapshot so useSyncExternalStore receives a stable identity and no render-time emission.
+  loadStored();
+  return selected;
+}
+export function hasStoredTransportEquipment() { loadStored(); return loadedFromStorage; }
 export function subscribeTransportEquipment(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener); }
 export function useTransportEquipment() { return useSyncExternalStore(subscribeTransportEquipment, readTransportEquipment, readTransportEquipment); }
 
 export function selectTransportEquipment(value: TransportEquipment) {
   selected = clone(value);
   loadedFromStorage = true;
-  if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, JSON.stringify(selected));
+  if (typeof window !== 'undefined') {
+    const raw = JSON.stringify(selected);
+    window.localStorage.setItem(STORAGE_KEY, raw);
+    storedSnapshot = raw;
+    legacyAppSnapshot = null;
+  }
   emit();
 }
 
@@ -131,5 +174,21 @@ export function createCustomEquipment(category: TransportCategory, values: Pick<
     geometry: 'custom',
     ...values,
     sourceLabel: '사용자 입력값',
+  };
+}
+
+/** Restore old/imported input without selecting an approximate representative preset. */
+export function equipmentFromStoredContainer(container: ContainerSpec): TransportEquipment {
+  return {
+    ...createCustomEquipment(container.transportKind ?? 'container', {
+      length: container.length, width: container.width, height: container.height, maxPayloadKg: container.maxPayloadKg,
+      // Legacy display only. The absent input remains absent in the App's stored source.
+      floorLoadLimitKgPerM2: container.floorLoadLimitKgPerM2 ?? 1500,
+    }),
+    doorWidth: container.doorWidth, doorHeight: container.doorHeight, access: container.access,
+    tareKg: container.tareKg, floorLineLoadKgPerM: container.floorLineLoadKgPerM,
+    heightLimitM: container.heightLimitM, axles: container.axles ? { ...container.axles } : undefined,
+    sourceLabel: container.floorLoadLimitKgPerM2 == null
+      ? '사용자 저장 입력값 · 바닥 면하중 미입력(1,500kg/m²는 기존 표시 참고값)' : '사용자 저장 입력값',
   };
 }
