@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { compareRuleEngines } from './compareRules';
 import { auditLoading } from '../engine/loadingAudit';
 import { validatePlacementsWithLoadSim } from './loadSimEngine';
+import { containerToLoadSimSpace } from './loadSimAdapter';
 import type { CargoItem, ContainerSpec } from '../engine/types';
 
 const cargo = (patch: Partial<CargoItem> = {}): CargoItem => ({
@@ -75,5 +76,33 @@ describe('rule-level validation differences', () => {
     ]);
     expect((result.legacy.operationalFindings ?? []).some(v => v.code === 'MIXED_TEMP_ZONE')).toBe(false);
     expect((result.next.operationalFindings ?? []).some(v => v.code === 'MIXED_TEMP_ZONE')).toBe(true);
+  });
+});
+
+
+describe('adapter unit boundaries', () => {
+  it('never copies legacy kg/m² floor load into A kg/m line load', () => {
+    const converted = containerToLoadSimSpace({
+      length: 5.9, width: 2.35, height: 2.39, maxPayloadKg: 28000,
+      floorLoadLimitKgPerM2: 1500,
+    });
+    expect(converted.floorLineLoad).toBeUndefined();
+  });
+
+  it('converts explicit line load and axle positions from m to A mm', () => {
+    const converted = containerToLoadSimSpace({
+      length: 6.2, width: 2.35, height: 2.4, maxPayloadKg: 5000,
+      kind: 'truck', access: ['left','right','rear'], tareKg: 6000,
+      floorLineLoadKgPerM: 3200,
+      axles: {
+        frontX: -1.3, rearX: 3.9, emptyFront: 3200, emptyRear: 2800,
+        maxFront: 5000, maxRear: 10000, rearAxleCount: 1, maxGross: 11500,
+      },
+    });
+    expect(converted.kind).toBe('truck');
+    expect(converted.floorLineLoad).toBe(3200);
+    expect(converted.axles?.frontX).toBe(-1300);
+    expect(converted.axles?.rearX).toBe(3900);
+    expect(converted.tare).toBe(6000);
   });
 });
