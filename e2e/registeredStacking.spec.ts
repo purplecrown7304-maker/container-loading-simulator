@@ -30,7 +30,7 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await page.getByRole('button', { name: '선택한 장비 변경', exact: true }).click();
   await page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' }).locator('[data-equipment-id="20-standard"]').click();
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
-  await page.getByPlaceholder('제품명 또는 제품코드 검색').fill('STACK-');
+  await page.getByRole('textbox', { name: '제품 검색', exact: true }).fill('STACK-');
   const quantities = [1000, 2000, 3000, 4000, 50000, 50000];
   for (let i = 0; i < quantities.length; i++) await page.locator('.guided-product-table article').filter({ hasText: `STACK-${i + 1}` }).locator('input[type="number"]').fill(String(quantities[i]));
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();

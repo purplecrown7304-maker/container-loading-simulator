@@ -29,7 +29,7 @@ test('company product registration feeds the guided product selection stage', as
   await registerDirectProduct(page, 'E2E-SELECT');
 
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
-  await page.getByPlaceholder('제품명 또는 제품코드 검색').fill('E2E-SELECT');
+  await page.getByRole('textbox', { name: '제품 검색', exact: true }).fill('E2E-SELECT');
   const row = page.locator('.guided-product-table article').filter({ hasText: 'E2E-SELECT' });
   await expect(row).toBeVisible();
   await row.locator('input[type="number"]').fill('12');
@@ -41,7 +41,7 @@ test('direct-load product produces a ready packaging plan and can advance to str
   await page.goto('/');
   await registerDirectProduct(page, 'E2E-PACK');
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
-  await page.getByPlaceholder('제품명 또는 제품코드 검색').fill('E2E-PACK');
+  await page.getByRole('textbox', { name: '제품 검색', exact: true }).fill('E2E-PACK');
   await page.locator('.guided-product-table article').filter({ hasText: 'E2E-PACK' }).locator('input[type="number"]').fill('4');
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
 

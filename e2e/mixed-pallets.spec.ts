@@ -14,7 +14,7 @@ test('low-CBM mixed pallets stay on the floor through real workflow certificatio
     window.dispatchEvent(new Event('container-loading:enterprise-packaging-planner-updated'));
   });
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
-  await page.getByPlaceholder('제품명 또는 제품코드 검색').fill('MIX-');
+  await page.getByRole('textbox', { name: '제품 검색', exact: true }).fill('MIX-');
   for (const id of ['A','B','C']) await page.locator('.guided-product-table article').filter({ hasText: `MIX-${id}` }).locator('input[type="number"]').fill('2');
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();

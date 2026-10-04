@@ -199,11 +199,14 @@ test('one real canvas survives equipment, product, packaging, loading-unit, resu
   expect(await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget))).toBe(completedTarget);
   expect(await page.locator('.guided-result-grid.enhanced').textContent()).toBe(completedResult);
   await background.selectOption('forest');
-  for (let cycle = 0; cycle < 3; cycle++) {
-    await openWorkspace(page, 6);
+  for (const step of [1, 2, 3, 4, 5, 6]) {
+    await openWorkspace(page, step);
     await page.keyboard.press('Escape');
     await assertCanvas();
     await expect(viewer).toHaveAttribute('data-three-camera-pose', camera!);
+    await expect(viewer).toHaveAttribute('data-three-plan-revision', revision!);
+    expect(await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget))).toBe(completedTarget);
+    expect(await page.locator('.guided-result-grid.enhanced').textContent()).toBe(completedResult);
   }
   await page.screenshot({ path: test.info().outputPath('persistent-canvas-final.png'), fullPage: true });
 });

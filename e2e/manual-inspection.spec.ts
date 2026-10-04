@@ -34,7 +34,7 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   await product.getByLabel('중량 kg').fill('2'); await product.getByLabel('박스 적재').selectOption('no');
   await product.getByRole('button', { name: '제품 등록' }).click(); await product.locator('header button').click();
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
-  await page.getByPlaceholder('제품명 또는 제품코드 검색').fill('INSPECTION');
+  await page.getByRole('textbox', { name: '제품 검색', exact: true }).fill('INSPECTION');
   await page.locator('.guided-product-table article').filter({ hasText: 'INSPECTION' }).locator('input[type=number]').fill('3');
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();

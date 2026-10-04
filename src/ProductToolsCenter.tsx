@@ -23,6 +23,7 @@ import { registerRecommendedPersonalBox } from './personalBoxCatalog';
 import { useTransportEquipment } from './transportEquipment';
 import { formatBoxSize, packagingCandidates } from './productWorkflow';
 import { OPEN_PRODUCT_TOOL_EVENT, type ProductToolView } from './productToolEvents';
+import { useProductToolsDialog } from './useProductToolsDialog';
 import './product-tools-center.css';
 
 type ProductDraft = {
@@ -71,7 +72,10 @@ export default function ProductToolsCenter() {
   const equipment = useTransportEquipment();
   const container = useMemo(() => containerFromEquipment(equipment), [equipment]);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [view, setView] = useState<ProductToolView | null>(null);
+  const [view, setView] = useState<ProductToolView>('products');
+  const [open, setOpen] = useState(false);
+  const [visited, setVisited] = useState(false);
+  const dialogRef = useProductToolsDialog(open, () => setOpen(false));
   const [revision, setRevision] = useState(0);
   const [draft, setDraft] = useState<ProductDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -79,10 +83,28 @@ export default function ProductToolsCenter() {
   const [message, setMessage] = useState('');
   const [familyPlan, setFamilyPlan] = useState<CommonCartonFamilyPlan | null>(null);
   const [additional, setAdditional] = useState<SuggestedBox[]>([]);
+  const savedDraft = useRef(JSON.stringify(emptyDraft));
+  const dirty = JSON.stringify(draft) !== savedDraft.current;
+
+  useEffect(() => {
+    if (!dirty) return;
+    const protectDraft = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', protectDraft);
+    return () => window.removeEventListener('beforeunload', protectDraft);
+  }, [dirty]);
+
+  const mayReplaceDraft = () => !dirty || window.confirm('저장하지 않은 제품 입력을 버릴까요? 창을 닫으면 입력은 그대로 보관됩니다.');
+  const resetDraft = () => {
+    savedDraft.current = JSON.stringify(emptyDraft);
+    setDraft(emptyDraft);
+    setEditingId(null);
+  };
 
   useEffect(() => {
     const open = (event: Event) => {
       setView((event as CustomEvent<ProductToolView>).detail);
+      setOpen(true);
+      setVisited(true);
       setMessage('');
       setFamilyPlan(null);
       setAdditional([]);
@@ -136,14 +158,14 @@ export default function ProductToolsCenter() {
     delete nextProduct.maxUnitsPerBox;
     const next = editingId ? products.map(product => product.id === editingId ? nextProduct : product) : [...products, nextProduct];
     saveState(next);
-    setDraft(emptyDraft);
-    setEditingId(null);
+    resetDraft();
     setMessage(`${id} 제품 정보를 저장했습니다.`);
   };
 
   const editProduct = (product: CompanyProductItem) => {
+    if (!mayReplaceDraft()) return;
     setEditingId(product.id);
-    setDraft({
+    const nextDraft: ProductDraft = {
       id: product.id,
       name: product.name,
       lengthMm: mm(product.length),
@@ -151,13 +173,15 @@ export default function ProductToolsCenter() {
       heightMm: mm(product.height),
       weightKg: product.weightKg,
       requiresBoxPackaging: requiresBoxPackaging(product),
-    });
+    };
+    savedDraft.current = JSON.stringify(nextDraft);
+    setDraft(nextDraft);
   };
 
   const removeProduct = (product: CompanyProductItem) => {
     if (!window.confirm(`${product.id} ${product.name} 제품을 삭제할까요?`)) return;
     saveState(products.filter(item => item.id !== product.id));
-    if (editingId === product.id) { setEditingId(null); setDraft(emptyDraft); }
+    if (editingId === product.id) resetDraft();
     setMessage(`${product.id} 제품을 삭제했습니다.`);
   };
 
@@ -280,12 +304,13 @@ export default function ProductToolsCenter() {
     );
   };
 
-  if (!view) return null;
+  if (!visited) return null;
   const universal = familyPlan?.family.selectedBoxes.filter(item => item.assignedProducts.length >= 2) ?? [];
 
-  return <div className="product-tools-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setView(null); }}>
-    <section className="product-tools-dialog" role="dialog" aria-modal="true" aria-label={view === 'products' ? '회사 제품 관리' : '범용 및 추가 박스 추천'}>
-      <header><div><span>COMPANY DATA</span><h2>{view === 'products' ? '회사 제품 관리' : '범용 · 추가 박스 스펙 추천'}</h2><p>{view === 'products' ? '제품 마스터를 관리합니다. 실제 출하 수량은 메인 2단계 제품 선택에서 입력합니다.' : '등록 제품 전체와 현재 회사 박스를 함께 분석해 공용화 규격과 추가 보유할 박스 스펙을 제안합니다. 추천만으로 개인 박스 목록에는 추가되지 않습니다.'}</p></div><button type="button" onClick={() => setView(null)}>×</button></header>
+  return <div className="product-tools-backdrop" hidden={!open} inert={!open} role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) { event.preventDefault(); setOpen(false); } }}>
+    <section ref={dialogRef} className="product-tools-dialog" role="dialog" aria-modal="true" tabIndex={-1} aria-label={view === 'products' ? '회사 제품 관리' : '범용 및 추가 박스 추천'}>
+      <header><div><span>COMPANY DATA</span><h2>{view === 'products' ? '회사 제품 관리' : '범용 · 추가 박스 스펙 추천'}</h2><p>{view === 'products' ? '제품 마스터를 관리합니다. 실제 출하 수량은 메인 2단계 제품 선택에서 입력합니다.' : '등록 제품 전체와 현재 회사 박스를 함께 분석해 공용화 규격과 추가 보유할 박스 스펙을 제안합니다. 추천만으로 개인 박스 목록에는 추가되지 않습니다.'}</p></div><button type="button" aria-label="제품 도구 닫기" onClick={() => setOpen(false)}>×</button></header>
+      {dirty && view === 'products' && <p className="product-draft-notice" role="status">저장 전 제품 입력이 있습니다. 창을 닫아도 입력은 유지됩니다.</p>}
 
       {view === 'products' ? <div className="product-tools-body">
         <input ref={inputRef} hidden type="file" accept=".xlsx,.xls" onChange={event => void importWorkbook(event.target.files?.[0])}/>
@@ -298,7 +323,7 @@ export default function ProductToolsCenter() {
           <label>높이 mm<input type="number" min="1" value={draft.heightMm} onChange={event => setDraft(value => ({ ...value, heightMm: Number(event.target.value) }))}/></label>
           <label>중량 kg<input type="number" min=".001" step=".1" value={draft.weightKg} onChange={event => setDraft(value => ({ ...value, weightKg: Number(event.target.value) }))}/></label>
           <label>박스 적재<select value={draft.requiresBoxPackaging ? 'yes' : 'no'} onChange={event => setDraft(value => ({ ...value, requiresBoxPackaging: event.target.value === 'yes' }))}><option value="yes">필요</option><option value="no">불필요 · 직접 적재</option></select></label>
-          <div className="product-master-form-buttons"><button className="primary" onClick={saveProduct}>{editingId ? '제품 수정 저장' : '제품 등록'}</button>{editingId && <button onClick={() => { setEditingId(null); setDraft(emptyDraft); }}>취소</button>}</div>
+          <div className="product-master-form-buttons"><button className="primary" onClick={saveProduct}>{editingId ? '제품 수정 저장' : '제품 등록'}</button>{editingId && <button onClick={() => { if (mayReplaceDraft()) resetDraft(); }}>취소</button>}</div>
         </div>
         <div className="product-master-search"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="제품명 또는 제품코드 검색"/></div>
         <div className="product-master-list">

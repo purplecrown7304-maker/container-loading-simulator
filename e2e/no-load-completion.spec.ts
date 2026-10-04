@@ -14,7 +14,7 @@ for (const mode of ['boxes', 'pallets']) test(`an oversized ${mode} shipment fin
     window.dispatchEvent(new Event('container-loading:enterprise-packaging-planner-updated'));
   });
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
-  await page.getByPlaceholder('제품명 또는 제품코드 검색').fill('OVERSIZE-E2E');
+  await page.getByRole('textbox', { name: '제품 검색', exact: true }).fill('OVERSIZE-E2E');
   await page.locator('.guided-product-table article').filter({ hasText: 'OVERSIZE-E2E' }).locator('input[type="number"]').fill('1');
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();

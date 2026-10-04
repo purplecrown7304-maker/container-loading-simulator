@@ -22,7 +22,7 @@ async function registerDirectProduct(page: import('@playwright/test').Page, id: 
 async function advanceToStrategy(page: import('@playwright/test').Page, id: string) {
   await registerDirectProduct(page, id);
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
-  await page.getByPlaceholder('제품명 또는 제품코드 검색').fill(id);
+  await page.getByRole('textbox', { name: '제품 검색', exact: true }).fill(id);
   await page.locator('.guided-product-table article').filter({ hasText: id }).locator('input[type="number"]').fill('3');
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
