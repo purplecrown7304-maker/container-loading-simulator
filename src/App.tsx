@@ -334,8 +334,18 @@ export default function App() {
       const published = optimized.result;
       publishLoadingResult(container, activeCargo, published);
       setResult(published);
-      requestExactCertification({ mode: 'boxes', container, cargo: activeCargo, result: published });
       setPhysicsScore(optimized.physics.score);
+      if (published.ruleEngine === 'load-sim' && published.validationIssues.length > 0) {
+        setOptimizationProgress(100);
+        setOptimizationEtaSeconds(0);
+        announce('error', `새 적재 규칙 위반 ${published.validationIssues.length}건 · 물리/관성 검증을 시작하지 않았습니다. 결과에서 위반 내용을 확인하세요.`);
+        window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, {
+          detail: { mode: 'boxes', error: 'LOAD_SIM_STATIC_RULE_FAILURE', result: published },
+        }));
+        setOptimizationMessage('');
+        return;
+      }
+      requestExactCertification({ mode: 'boxes', container, cargo: activeCargo, result: published });
       setPhysicsStrategy(optimized.strategy);
       setOptimizationProgress(100);
       setOptimizationEtaSeconds(0);
