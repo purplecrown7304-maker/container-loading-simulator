@@ -1,3 +1,5 @@
+import LoadingRulesSelector from './LoadingRulesSelector';
+import { useLoadingRuleset, equipmentRules, RULESET_EVENT } from './loadingRulesPreference';
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT, cancelPendingCertification, requestExactCertification, requestNextPalletCertification } from './autoCertification';
 import { cargoColor, cargoTint, randomUniqueCargoColor } from './cargoColors';
@@ -57,9 +59,13 @@ function LoadingFallback() {
 }
 
 export default function App() {
+  const equipment = useTransportEquipment();
+  const ruleset = useLoadingRuleset();
   const stored = useMemo(() => readStoredState(), []);
   const startingCargo = useMemo(() => normalizeCargo(stored?.cargo ?? []), [stored]);
-  const [container, setContainer] = useState<ContainerSpec>(stored?.container ?? defaultContainer);
+  const [containerInput, setContainer] = useState<ContainerSpec>(stored?.container ?? defaultContainer);
+  // Saved/packaging inputs may predate rules metadata. The active mode owns the computation context.
+  const container = useMemo<ContainerSpec>(()=>({...containerInput,rules:ruleset==='a-v1'?equipmentRules(equipment):undefined}),[containerInput,ruleset,equipment]);
   const [cargo, setCargo] = useState<CargoItem[]>(startingCargo);
   const [draft, setDraft] = useState<CargoDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -93,7 +99,7 @@ export default function App() {
   const floorPreview = useMemo(() => createWorkflowFloorPreview(container, workflowPreview?.cargo ?? cargo), [container, workflowPreview, cargo]);
   const guidedWorkflowState = useGuidedWorkflowState();
   const guidedLoadingUnit = useGuidedLoadingUnit();
-  const equipment = useTransportEquipment();
+
 
   const currentPalletScene = mode !== 'boxes' && palletScene?.inputKey === inputKey ? palletScene : null;
   const isPreview = mode === 'boxes' ? result.placements.length === 0 && result.remaining.length === 0 : !currentPalletScene;
@@ -144,13 +150,21 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!container.rules || !guidedWorkflowState.active || guidedWorkflowState.step === 5 || !isRunning) return;
+    invalidatePhysics();
+    setPalletRunToken(0);
+    setResult(pendingLoadingResult(container, cargo));
+    setPalletScene(null);
+  }, [guidedWorkflowState.active, guidedWorkflowState.step, isRunning]);
+
+  useEffect(() => {
     const next = { ...container, length: equipment.length, width: equipment.width, height: equipment.height,
-      maxPayloadKg: equipment.maxPayloadKg, floorLoadLimitKgPerM2: equipment.floorLoadLimitKgPerM2 };
+      maxPayloadKg: equipment.maxPayloadKg, floorLoadLimitKgPerM2: equipment.floorLoadLimitKgPerM2, rules: ruleset === 'a-v1' ? equipmentRules(equipment) : undefined };
     // The shared canvas follows real equipment changes; equal input is not an edit.
     if (JSON.stringify(next) === JSON.stringify(container)) return;
     invalidatePhysics();
     setContainer(next);
-  }, [equipment.id, equipment.length, equipment.width, equipment.height, equipment.maxPayloadKg, equipment.floorLoadLimitKgPerM2]);
+  }, [equipment.id, equipment.length, equipment.width, equipment.height, equipment.maxPayloadKg, equipment.floorLoadLimitKgPerM2, equipment.doorWidth, equipment.doorHeight, equipment.sideLoading, equipment.topLoading, ruleset]);
 
   useEffect(() => {
     if (!guidedWorkflowState.active || !guidedLoadingUnit || guidedLoadingUnit === mode) return;
@@ -188,10 +202,12 @@ export default function App() {
       const next = readGuidedLoadingUnit();
       if (next && next !== mode) invalidatePhysics();
     };
+    window.addEventListener(RULESET_EVENT, invalidatePhysics);
     window.addEventListener(GUIDED_LOADING_UNIT_EVENT, onLoadingUnit);
     window.addEventListener(LOADING_STRATEGY_PREFERENCE_EVENT, onStrategy);
     window.addEventListener(WORKFLOW_PREVIEW_EVENT, onPreview);
     return () => {
+      window.removeEventListener(RULESET_EVENT, invalidatePhysics);
       window.removeEventListener(GUIDED_LOADING_UNIT_EVENT, onLoadingUnit);
       window.removeEventListener(LOADING_STRATEGY_PREFERENCE_EVENT, onStrategy);
       window.removeEventListener(WORKFLOW_PREVIEW_EVENT, onPreview);
@@ -430,6 +446,7 @@ export default function App() {
         <button className="secondary" onClick={printReport}>작업지시서</button>
       </div>
     </header>
+    <LoadingRulesSelector />
 
     {!stored && cargo.length === 0 && <section className="onboarding-banner" aria-label="처음 사용 안내">
       <div><b>처음 사용하시나요?</b><span>① 컨테이너 규격 확인 → ② 로그인 후 개인 박스 등록/선택 → ③ 물리 최적 자동 적재</span></div>
@@ -511,7 +528,7 @@ export default function App() {
       <section className="dashboard-center">
         {renderViewer && <section className="dashboard-card viewer-card">
           <div className="viewer-host">
-            {isRunning && <div className="calculation-overlay" role="status" aria-live="polite">
+            {isRunning && <div className={`calculation-overlay${container.rules ? ' a-rules-calculating' : ''}`} role="status" aria-live="polite">
               <div className="calculation-progress-ring" style={{ background: `conic-gradient(#2563eb ${optimizationProgress}%, #dbe3ee 0)` }}><span>{mode === 'boxes' ? `${Math.round(optimizationProgress)}%` : '…'}</span></div>
               <div className="calculation-progress-copy"><b>{mode === 'boxes' ? '물리 기반 최적 적재 계산 중' : '팔레트 배치 계산 중'}</b><span>{optimizationMessage || '후보 적재안을 만들고 있습니다.'}</span><small>{mode === 'boxes' ? progressLabel : '배치 완료 후 물리 안전 검증을 진행합니다'}</small></div>
             </div>}

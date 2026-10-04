@@ -1,3 +1,4 @@
+import { RULESET_EVENT } from './loadingRulesPreference';
 import { useEffect, useRef, useState } from 'react';
 import {
   OPEN_TRANSPORT_SELECTOR_EVENT,
@@ -135,6 +136,8 @@ export default function TransportEquipmentSafetyGuard() {
       }
     }
 
+    const onRulesChange = () => { pendingExplicit.current = {kind:'known',equipment:readTransportEquipment(),until:performance.now()+2000}; };
+    window.addEventListener(RULESET_EVENT,onRulesChange);
     const markExplicitChange = (event: Event) => {
       if (!event.isTrusted) return;
       const target = event.target;
@@ -215,6 +218,7 @@ export default function TransportEquipmentSafetyGuard() {
     document.addEventListener('change', markExplicitChange, true);
     window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, onEquipmentChanged);
     return () => {
+      window.removeEventListener(RULESET_EVENT,onRulesChange);
       document.removeEventListener('click', markExplicitChange, true);
       document.removeEventListener('change', markExplicitChange, true);
       window.removeEventListener(TRANSPORT_EQUIPMENT_EVENT, onEquipmentChanged);

@@ -1,0 +1,703 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`legacy versus A: identical cargo differential contract > door-height 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 0,
+    "remaining": 1,
+    "valid": true,
+    "warnings": [],
+  },
+  "legacy": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 1,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+      "TIPPING_RISK",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > exact-height 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 0,
+    "remaining": 1,
+    "valid": true,
+    "warnings": [],
+  },
+  "legacy": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 1,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+      "TIPPING_RISK",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > exact-width 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 0,
+    "remaining": 1,
+    "valid": true,
+    "warnings": [],
+  },
+  "legacy": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 1,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > floor-only 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 6,
+    "remaining": 10,
+    "valid": true,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "elevated": 8,
+    "errors": [],
+    "placed": 16,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > line-load 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 0,
+    "remaining": 1,
+    "valid": true,
+    "warnings": [],
+  },
+  "legacy": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 1,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > missing-truck-axles 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 1,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "LATERAL_GAP",
+      "NOT_CHECKED_AXLES",
+      "NOT_CHECKED_GROSS",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 1,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > ordinary 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "elevated": 2,
+    "errors": [],
+    "placed": 4,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 4,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > packing/mixed 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "errors": [],
+    "pallets": 1,
+    "placed": 16,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+      "TIPPING_RISK",
+    ],
+  },
+  "legacy": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "errors": [],
+    "pallets": 1,
+    "placed": 16,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "REAR_GAP",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > packing/pallet 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "errors": [],
+    "pallets": 1,
+    "placed": 16,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+      "TIPPING_RISK",
+    ],
+  },
+  "legacy": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "errors": [],
+    "pallets": 1,
+    "placed": 16,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "REAR_GAP",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > packing/pallet-door 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "errors": [
+      "DOOR_NOT_PASSABLE",
+    ],
+    "pallets": 1,
+    "placed": 16,
+    "remaining": 0,
+    "valid": false,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+      "TIPPING_RISK",
+    ],
+  },
+  "legacy": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "errors": [],
+    "pallets": 1,
+    "placed": 16,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "REAR_GAP",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > payload 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 2,
+    "remaining": 2,
+    "valid": true,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 2,
+    "remaining": 2,
+    "valid": true,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > rotation-forbidden 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 0,
+    "remaining": 1,
+    "valid": true,
+    "warnings": [],
+  },
+  "legacy": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 0,
+    "remaining": 1,
+    "valid": true,
+    "warnings": [],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > segregation 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": false,
+    "audit": [
+      "INVALID_CARGO",
+    ],
+    "elevated": 0,
+    "errors": [
+      "INCOMPATIBLE_CARGO",
+    ],
+    "placed": 2,
+    "remaining": 0,
+    "valid": false,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 2,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > single-tier 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 6,
+    "remaining": 10,
+    "valid": true,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 12,
+    "remaining": 4,
+    "valid": true,
+    "warnings": [
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > six-orientations 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 1,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+      "TIPPING_RISK",
+    ],
+  },
+  "legacy": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 0,
+    "remaining": 1,
+    "valid": true,
+    "warnings": [],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > temperature 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": false,
+    "audit": [
+      "INVALID_CARGO",
+    ],
+    "elevated": 0,
+    "errors": [
+      "MIXED_TEMP_ZONE",
+    ],
+    "placed": 2,
+    "remaining": 0,
+    "valid": false,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "allRequestedAccepted": true,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 2,
+    "remaining": 0,
+    "valid": true,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > validation/centered 1`] = `
+{
+  "a": {
+    "audit": [],
+    "errors": [],
+    "valid": true,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "audit": [],
+    "errors": [],
+    "valid": true,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > validation/off-center 1`] = `
+{
+  "a": {
+    "audit": [
+      "INVALID_CARGO",
+    ],
+    "errors": [
+      "CG_LATERAL",
+      "CG_LONGITUDINAL",
+    ],
+    "valid": false,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "audit": [],
+    "errors": [
+      "CG_LATERAL",
+      "CG_LONGITUDINAL",
+    ],
+    "valid": false,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > validation/overlap-0.2mm 1`] = `
+{
+  "a": {
+    "audit": [],
+    "errors": [],
+    "valid": true,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "audit": [
+      "COLLISION",
+    ],
+    "errors": [
+      "OVERLAP",
+    ],
+    "valid": false,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > validation/support-70pct 1`] = `
+{
+  "a": {
+    "audit": [
+      "INVALID_CARGO",
+    ],
+    "errors": [
+      "INSUFFICIENT_SUPPORT",
+    ],
+    "valid": false,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "audit": [],
+    "errors": [
+      "INSUFFICIENT_SUPPORT",
+    ],
+    "valid": false,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > validation/top-load-protected 1`] = `
+{
+  "a": {
+    "audit": [
+      "INVALID_CARGO",
+    ],
+    "errors": [
+      "TOP_LOAD",
+      "TOP_LOAD_EXCEEDED",
+    ],
+    "valid": false,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "audit": [
+      "TOP_LOAD",
+    ],
+    "errors": [
+      "TOP_LOAD_EXCEEDED",
+    ],
+    "valid": false,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > validation/vertical-gap-3mm 1`] = `
+{
+  "a": {
+    "audit": [],
+    "errors": [],
+    "valid": true,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "audit": [
+      "UNSUPPORTED",
+    ],
+    "errors": [],
+    "valid": false,
+    "warnings": [
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;
+
+exports[`legacy versus A: identical cargo differential contract > zero-top-load 1`] = `
+{
+  "a": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 6,
+    "remaining": 10,
+    "valid": true,
+    "warnings": [
+      "LATERAL_GAP",
+      "REAR_GAP",
+      "SECURING_FORCE",
+    ],
+  },
+  "legacy": {
+    "allRequestedAccepted": false,
+    "audit": [],
+    "elevated": 0,
+    "errors": [],
+    "placed": 12,
+    "remaining": 4,
+    "valid": true,
+    "warnings": [
+      "SECURING_FORCE",
+    ],
+  },
+}
+`;

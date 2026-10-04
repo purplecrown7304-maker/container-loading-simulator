@@ -1,3 +1,5 @@
+import { isARules, placementOrientation, rotateHorizontal } from './loadingRuleset';
+import { aCandidateAllowed } from './loadSimAdapter';
 import { isInsideContainer, overlaps } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
 import { hasAdequateSupport } from './support';
@@ -169,13 +171,14 @@ export function fillUnloadingTrenches(container: ContainerSpec, cargo: CargoItem
           length: pit.length,
           width: pit.width,
           rotated: sameFootprint ? donor.rotated : !donor.rotated,
+          orientation: isARules(container) ? (sameFootprint ? placementOrientation(donor) : rotateHorizontal(placementOrientation(donor))) : donor.orientation,
         };
         const others = placements.filter(p => p !== donor);
         if (!isInsideContainer(container, candidate) || others.some(p => overlaps(candidate, p))) continue;
         if (blocksUnloading(candidate, others, stopOf)) continue;
         if (!hasAdequateSupport(candidate, others, undefined, 0.999)) continue;
         if (alignedColumnOverloaded(candidate, others, byId)) continue;
-        if (!canPlaceByStackingRules(item, candidate, others, byId)) continue;
+        if (isARules(container) ? !aCandidateAllowed(container,cargo,others,candidate) : !canPlaceByStackingRules(item, candidate, others, byId)) continue;
         placements = [...others, candidate];
         moved = true;
         break;

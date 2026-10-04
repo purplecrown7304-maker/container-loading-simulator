@@ -1,4 +1,7 @@
+import type { RulesContext, LoadingRuleset } from './loadingRuleset';
+import type { Orientation, Dims } from './loadSimA/types';
 export type ContainerSpec = {
+  rules?: RulesContext;
   length: number;
   width: number;
   height: number;
@@ -10,6 +13,13 @@ export type ContainerSpec = {
 };
 
 export type CargoItem = {
+  allowedOrientations?: Orientation[];
+  thisSideUp?: boolean;
+  cgOffsetMm?: Dims;
+  friction?: number;
+  maxTopPressureKgPerM2?: number;
+  segregationClass?: string;
+  tempZone?: string;
   id: string;
   name: string;
   length: number;
@@ -48,6 +58,8 @@ export type CargoItem = {
 };
 
 export type Placement = {
+  unitId?: string;
+  orientation?: Orientation;
   cargoId: string;
   x: number;
   y: number;
@@ -87,6 +99,7 @@ export type AutoCorrectionRecord = {
 };
 
 export type LoadingResult = {
+  ruleset?: LoadingRuleset;
   placements: Placement[];
   remaining: Array<{ cargoId: string; quantity: number; reason: string }>;
   loadedWeightKg: number;

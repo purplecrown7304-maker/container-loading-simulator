@@ -1,3 +1,4 @@
+import { useLoadingRuleset, aEquipmentDefault } from './loadingRulesPreference';
 import StudioIcon, { stepIcons } from './StudioIcon';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -129,7 +130,8 @@ function EquipmentSelectionStage() {
   const [category, setCategory] = useState<TransportCategory>(equipment.category);
   useEffect(() => setCategory(equipment.category), [equipment.category]);
   const [error, setError] = useState('');
-  const items = category === 'container' ? CONTAINER_EQUIPMENT : TRUCK_EQUIPMENT;
+  const ruleset=useLoadingRuleset();
+  const items = (category === 'container' ? CONTAINER_EQUIPMENT : TRUCK_EQUIPMENT).map(e=>ruleset==='a-v1'?aEquipmentDefault(e):e);
   const choose = (item: typeof equipment) => {
     if (item.id.startsWith('custom-')) { openEquipment(category); return; }
     if (!applyToDashboard(item)) { setError('장비 규격을 적용하지 못했습니다. 다시 선택해 주세요.'); return; }

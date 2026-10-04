@@ -71,8 +71,8 @@ export function assessWeightBalance(container: ContainerSpec, result: LoadingRes
 
   const messages: string[] = [];
   messages.push(lateralDeviationPct <= 10 ? '좌우 무게중심이 중앙에 가깝습니다.' : `좌우 무게중심 편차가 ${lateralDeviationPct.toFixed(1)}%입니다.`);
-  messages.push(longitudinalDeviationPct <= 15 ? '앞뒤 무게분포가 비교적 균형적입니다.' : `앞뒤 무게중심 편차가 ${longitudinalDeviationPct.toFixed(1)}%입니다.`);
-  messages.push(verticalCenterPct <= 40 ? '무게중심 높이가 낮아 안정적인 편입니다.' : `무게중심 높이가 컨테이너 높이의 ${verticalCenterPct.toFixed(1)}%로 높습니다.`);
+  messages.push(longitudinalDeviationPct <= (container.rules ? 10 : 15) ? '앞뒤 무게분포가 비교적 균형적입니다.' : `앞뒤 무게중심 편차가 ${longitudinalDeviationPct.toFixed(1)}%입니다.`);
+  messages.push(verticalCenterPct <= (container.rules ? 50 : 40) ? '무게중심 높이가 낮아 안정적인 편입니다.' : `무게중심 높이가 컨테이너 높이의 ${verticalCenterPct.toFixed(1)}%로 높습니다.`);
   messages.push(maxLongitudinalHalfRatio <= 0.6
     ? '컨테이너 길이 절반 어느 쪽도 총중량의 60%를 넘지 않아 종방향 분포가 양호합니다.'
     : `컨테이너 길이 절반 한쪽에 총중량의 ${(maxLongitudinalHalfRatio * 100).toFixed(1)}%가 몰려 있습니다.`);

@@ -1,3 +1,5 @@
+import { isARules, aConfig } from './loadingRuleset';
+import { validateAPlan } from './loadSimAdapter';
 import { isInsideContainer, overlaps, validatePlacements } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
 import { analyzeFloorLoad } from './floorLoad';
@@ -108,15 +110,17 @@ export function assessGroupMove(
     if (!item) { reasons.push(`품목 정보가 없습니다: ${candidate.cargoId}`); continue; }
     if (!isInsideContainer(container, candidate)) reasons.push(`${candidate.cargoId}: 컨테이너 경계를 벗어납니다.`);
     const others = finalPlacements.filter((_, i) => i !== index);
-    if (others.some(other => overlaps(candidate, other))) reasons.push(`${candidate.cargoId}: 이동 후 다른 화물과 충돌합니다.`);
+    if (others.some(other => overlaps(candidate, other,isARules(container)?aConfig(container).epsilon/1000:undefined))) reasons.push(`${candidate.cargoId}: 이동 후 다른 화물과 충돌합니다.`);
     if (!fullySupported(candidate, others)) reasons.push(`${candidate.cargoId}: 이동 후 바닥면 전체가 지지되지 않습니다.`);
-    if (!canPlaceByStackingRules(item, candidate, others, cargoById)) reasons.push(`${candidate.cargoId}: 적층단 또는 상부 허용중량 조건을 만족하지 않습니다.`);
+    if (!isARules(container) && !canPlaceByStackingRules(item, candidate, others, cargoById)) reasons.push(`${candidate.cargoId}: 적층단 또는 상부 허용중량 조건을 만족하지 않습니다.`);
   }
 
   const validationIssues = validatePlacements(container, finalPlacements);
   if (validationIssues.length) reasons.push('최종 배치 검증에서 충돌 또는 경계 문제가 발견됐습니다.');
 
-  const result: LoadingResult = { ...source, placements: finalPlacements, validationIssues };
+  const operationalFindings = isARules(container) ? validateAPlan(container,cargo,finalPlacements) : source.operationalFindings;
+  if(isARules(container)) reasons.push(...(operationalFindings??[]).filter(f=>f.severity==='error').map(f=>f.message));
+  const result: LoadingResult = { ...source, placements: finalPlacements, validationIssues, operationalFindings };
   const beforeQuality = assessWeightBalance(container, source);
   const afterQuality = assessWeightBalance(container, result);
   const beforeFloor = analyzeFloorLoad(container, source, 12, 4);

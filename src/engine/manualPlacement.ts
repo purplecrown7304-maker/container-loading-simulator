@@ -1,3 +1,5 @@
+import { isARules, placementOrientation, rotateHorizontal, aConfig } from './loadingRuleset';
+import { validateAPlan, aCandidateAllowed } from './loadSimAdapter';
 import { isInsideContainer, overlaps, validatePlacements } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
 import { analyzeFloorLoad } from './floorLoad';
@@ -64,20 +66,23 @@ export function assessManualMove(
     length: rotate ? original.width : original.length,
     width: rotate ? original.length : original.width,
     rotated: rotate ? !original.rotated : original.rotated,
+    orientation: isARules(container) ? (rotate ? rotateHorizontal(placementOrientation(original)) : placementOrientation(original)) : original.orientation,
   };
   const reasons: string[] = [];
   if (supportsOtherPlacement(placementIndex, source.placements)) reasons.push('이 박스는 위 화물을 지지하고 있어 먼저 이동할 수 없습니다.');
   if (!isInsideContainer(container,candidate)) reasons.push('컨테이너 벽·바닥·천장 경계를 벗어납니다.');
-  if (others.some(p => overlaps(candidate,p))) reasons.push('다른 화물과 충돌합니다.');
+  if (others.some(p => overlaps(candidate,p,isARules(container)?aConfig(container).epsilon/1000:undefined))) reasons.push('다른 화물과 충돌합니다.');
   if (!fullySupported(candidate,others)) reasons.push('바닥 또는 하부 박스가 전체 바닥면을 지지하지 못합니다.');
   const cargoById = new Map(cargo.map(c => [c.id,c]));
-  if (!canPlaceByStackingRules(item,candidate,others,cargoById)) reasons.push('최대 적층단 또는 상부 허용중량 조건을 만족하지 않습니다.');
+  if (isARules(container) ? !aCandidateAllowed(container,cargo,others,candidate) : !canPlaceByStackingRules(item,candidate,others,cargoById)) reasons.push('최대 적층단 또는 상부 허용중량 조건을 만족하지 않습니다.');
 
   const placements = [...others];
   placements.splice(Math.min(placementIndex, placements.length),0,candidate);
   const validationIssues = validatePlacements(container,placements);
   if (validationIssues.length) reasons.push('최종 충돌/경계 검증에서 문제가 발견됐습니다.');
-  const result: LoadingResult = { ...source, placements, validationIssues };
+  const operationalFindings = isARules(container) ? validateAPlan(container,cargo,placements) : source.operationalFindings;
+  if(isARules(container)) reasons.push(...(operationalFindings??[]).filter(f=>f.severity==='error').map(f=>f.message));
+  const result: LoadingResult = { ...source, placements, validationIssues, operationalFindings };
   const beforeQuality = assessWeightBalance(container,source);
   const afterQuality = assessWeightBalance(container,result);
   const beforeFloor = analyzeFloorLoad(container,source,12,4);

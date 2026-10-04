@@ -1,3 +1,5 @@
+import type { PalletPackingResult } from './palletPacking';
+import { aConfig, isARules } from './loadingRuleset';
 import type { OptimizedPalletPackingResult, PalletLoad } from './palletOptimization';
 import type { ContainerSpec } from './types';
 
@@ -107,8 +109,8 @@ function centerPalletGroupOnContainer(pallets: PalletLoad[], container: Containe
 
   const desiredDx = container.length / 2 - cogX;
   const desiredDy = container.width / 2 - cogY;
-  const dx = clamp(desiredDx, -minX, container.length - maxX);
-  const dy = clamp(desiredDy, -minY, container.width - maxY);
+  const dx = clamp(desiredDx, -minX, container.length - maxX - (isARules(container)?aConfig(container).margins.l/1000:0));
+  const dy = clamp(desiredDy, -minY, container.width - maxY - (isARules(container)?aConfig(container).margins.w/1000:0));
 
   return pallets.map((pallet) => translateLoad(pallet, dx, dy));
 }
@@ -149,6 +151,11 @@ export function centerPalletCargo(
     nextOverride = null;
     return override;
   }
+  return centerPalletPlan(result,container);
+}
+
+/** Pure centering for candidate validation; never consumes the UI restore override. */
+export function centerPalletPlan<T extends PalletPackingResult>(result:T,container:ContainerSpec):T {
   const cargoCentered = result.pallets.map(centerLoadCargo);
   const pallets = centerPalletGroupOnContainer(cargoCentered, container);
   return {
