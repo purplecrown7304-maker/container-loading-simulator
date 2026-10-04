@@ -44,6 +44,31 @@ function totalUnstable(physics: PhysicsValidationSuite) {
   return physics.unstableCount + physics.supportUnstableCount;
 }
 
+function staticRuleFailurePhysics(result: LoadingResult): PhysicsValidationSuite {
+  const count = Math.max(1, result.validationIssues.length);
+  return {
+    engine: 'Rapier 3D',
+    score: 0,
+    stableCount: 0,
+    warningCount: 0,
+    unstableCount: count,
+    supportStableCount: 0,
+    supportWarningCount: 0,
+    supportUnstableCount: 0,
+    worstScenario: 'settle',
+    maxHorizontalShiftM: 0,
+    maxVerticalShiftM: 0,
+    maxTiltDeg: 0,
+    maxLinearSpeedMps: 0,
+    maxAngularSpeedRadps: 0,
+    settled: false,
+    placements: [],
+    supports: [],
+    scenarios: [],
+    summary: '정적 load-sim 규칙 오류가 있어 Rapier 물리검증을 실행하지 않았습니다.',
+  };
+}
+
 function placementSignature(result: LoadingResult) {
   return result.placements
     .map(p => [p.cargoId, p.x, p.y, p.z, p.length, p.width, p.height, p.weightKg, p.rotated === true ? 1 : 0].join(':'))
@@ -129,7 +154,10 @@ export async function optimizeLoadingWithPhysics(
     const signature = placementSignature(result);
     let physics = physicsByLayout.get(signature);
 
-    if (physics) {
+    if (result.ruleEngine === 'load-sim' && result.validationIssues.length > 0) {
+      physics = staticRuleFailurePhysics(result);
+      onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: strategies.length, physicsProgress: 1 });
+    } else if (physics) {
       onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: strategies.length, physicsProgress: 1 });
     } else {
       physics = await runPhysicsValidationSuite(
