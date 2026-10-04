@@ -18,13 +18,14 @@ import { containerInputError, preflightCargoInput, type RejectedCargoRow } from 
 import type { CargoItem, ContainerSpec, Placement } from './types';
 import type { LoadingStrategy } from './loadingEngine';
 import { operationalQuality, unloadingObstructions } from './operationalQuality';
+import { palletBuildStrategy, cargoWithUnloadingPolicy } from './unloadingPolicy';
+import { palletDestinationFit } from './palletDestination';
 
 export { defaultPalletSpec };
 export type { PalletLoad, PalletPackingResult, PalletSpec };
 
 const EPS = 1e-9;
 const LOW_UTILIZATION_THRESHOLD = 0.5;
-const STABLE_UNIT_LOAD_HEIGHT_RATIO = 1.15;
 const CONSOLIDATION_HEIGHT_TOLERANCE_M = 0.05;
 
 export type PalletOptimizationMeta = {
@@ -50,6 +51,7 @@ function palletInputError(pallet: PalletSpec) {
   if (!positive(pallet.maxLoadKg)) return '팔레트 최대 적재중량은 0보다 큰 유한한 값이어야 함';
   if (!Number.isInteger(pallet.maxStackLevels) || pallet.maxStackLevels < 1) return '팔레트 최대 적층단은 1 이상의 정수여야 함';
   if (!nonNegative(pallet.maxSupportedTopWeightKg)) return '팔레트 상부 허용중량은 0 이상의 유한한 값이어야 함';
+  if (pallet.maxStaticLoadKg !== undefined && !nonNegative(pallet.maxStaticLoadKg)) return '팔레트 정하중은 0 이상의 유한한 값이어야 함';
   if (!nonNegative(pallet.cornerGuardWeightKg) || !nonNegative(pallet.cornerGuardExtraHeightM)) return '각대 중량·추가 높이는 0 이상의 유한한 값이어야 함';
   if (!nonNegative(pallet.wrappingWeightKg) || !nonNegative(pallet.wrappingExtraHeightM)) return '랩핑 중량·추가 높이는 0 이상의 유한한 값이어야 함';
   if (pallet.minTopLayerFillRatio !== undefined && (!Number.isFinite(pallet.minTopLayerFillRatio) || pallet.minTopLayerFillRatio < 0 || pallet.minTopLayerFillRatio > 1)) return '최상단 최소충전율은 0~1 사이의 유한한 값이어야 함';
@@ -139,11 +141,9 @@ function packagingReserve(pallet: PalletSpec) {
 function cargoForStackTarget(container: ContainerSpec, cargo: CargoItem[], pallet: PalletSpec, targetLevels: number) {
   const reserve = packagingReserve(pallet);
   const physicalCargoHeight = Math.max(0, container.height - pallet.height - reserve);
-  // Low height is a preference, not a declared carton constraint. When minimizing
-  // materials, use the permitted height before creating extra pallet bases.
-  const preferredCargoHeight = pallet.minimizePackaging
-    ? physicalCargoHeight
-    : Math.min(physicalCargoHeight, Math.min(pallet.length, pallet.width) * STABLE_UNIT_LOAD_HEIGHT_RATIO);
+  // Always include the full legal-height candidate. Packaging material choices
+  // must not force extra pallet bases by silently capping carton tiers.
+  const preferredCargoHeight = physicalCargoHeight;
   const perPalletHeight = targetLevels <= 1
     ? physicalCargoHeight
     : Math.max(0, container.height / targetLevels - pallet.height - reserve);
@@ -389,8 +389,6 @@ export function consolidateFinalSparsePallets(
   const stopOfLoad = (load: PalletLoad) => cargoMap.get(load.cargoPlacements[0]?.cargoId)?.unloadPriority ?? 0;
   const isTop = (load: PalletLoad, all: PalletLoad[]) =>
     !all.some(other => other !== load && other.stackColumn === load.stackColumn && other.stackLevel > load.stackLevel);
-  const shortSide = Math.min(pallet.length, pallet.width);
-  const handlingLimit = shortSide * (pallet.minimizePackaging ? 2 : STABLE_UNIT_LOAD_HEIGHT_RATIO);
   const minimumTopFill = pallet.minTopLayerFillRatio ?? 0.5;
 
   let pallets = input.pallets.map(cloneLoad);
@@ -420,8 +418,6 @@ export function consolidateFinalSparsePallets(
         if (!deckPlacements || deckPlacements.length !== expected) continue;
         const merged = buildPalletLoadFromDeckPlacements(1, deckPlacements, pallet);
         if (pallet.height + loadCargoHeight(merged) + merged.packagingExtraHeightM > container.height + EPS) continue;
-        const allowedCargoHeight = Math.max(loadCargoHeight(source), loadCargoHeight(target), handlingLimit);
-        if (loadCargoHeight(merged) > allowedCargoHeight + CONSOLIDATION_HEIGHT_TOLERANCE_M) continue;
         const mergedTopFill = palletTopLayerFill(merged);
         // Absorbing a final tail into a regular pallet must not recreate the sparse
         // top tier that rule #97 intentionally split off. Two existing mixed tails
@@ -453,9 +449,8 @@ export function consolidateFinalSparsePallets(
 /**
  * Field practice for every strategy: cartons from a nearly empty pallet go onto the
  * spare top layers of other pallets instead of shipping as their own pallet. The
- * unit-load height may grow up to the tallest load already accepted in this result,
- * or the ordinary handling limit (2x the short pallet side; 1.15x when packaging is
- * not minimized), whichever is larger. Hard limits are enforced in the base packer.
+ * unit-load height may grow within the available equipment height. Preferred low
+ * height cannot require an extra pallet. Hard limits are enforced in the base packer.
  */
 function absorbIntoSpareTopLayers(
   input: PalletPackingResult,
@@ -465,9 +460,7 @@ function absorbIntoSpareTopLayers(
   strategy: LoadingStrategy,
 ) {
   if (input.pallets.length < 2) return { result: input, passes: 0 };
-  const shortSide = Math.min(pallet.length, pallet.width);
-  const handlingLimit = shortSide * (pallet.minimizePackaging ? 2 : STABLE_UNIT_LOAD_HEIGHT_RATIO);
-  const maxCargoHeight = Math.max(maxUnitLoadHeight(input), handlingLimit);
+  const maxCargoHeight = Math.max(0, container.height - pallet.height - packagingReserve(pallet));
   const absorbed = absorbSparsePallets(input.pallets, cargo, pallet, container, strategy, maxCargoHeight);
   if (!absorbed.removed) return { result: input, passes: 0 };
   return { result: rebuildMetrics(input, absorbed.pallets, absorbed.removed, container), passes: absorbed.removed };
@@ -614,9 +607,11 @@ export function packOnPallets(
   strategy: LoadingStrategy = 'capacity',
 ): OptimizedPalletPackingResult {
   const originalContainer=container;
+  const buildStrategy = palletBuildStrategy(container, strategy);
   const preflight = preflightCargoInput(cargo);
-  const normalizedCargo = preflight.cargo;
-  const configurationError = containerInputError(container) ?? palletInputError(pallet);
+  const normalizedCargo = cargoWithUnloadingPolicy(container, preflight.cargo);
+  const configurationError = containerInputError(container) ?? palletInputError(pallet)
+    ?? (palletDestinationFit(container, pallet).status === 'incompatible' ? 'PALLET_LIMIT: 수령처 지정 팔레트 규격과 일치하지 않음' : null);
   if (configurationError) {
     return emptyOptimizedResult([
       ...preflight.rejected,
@@ -636,26 +631,27 @@ export function packOnPallets(
 
   for (let target = 1; target <= maxTarget; target += 1) {
     const candidateCargo = cargoForStackTarget(container, normalizedCargo, pallet, target);
-    const packed = packOnPalletsBase(container, candidateCargo, { ...pallet, maxStackLevels: target }, strategy);
-    const consolidated = strategy === 'unloading' ? { result: packed, passes: 0 } : consolidateUntilStable(packed, container, candidateCargo, pallet);
+    const packed = packOnPalletsBase(container, candidateCargo, { ...pallet, maxStackLevels: target }, buildStrategy);
+    const consolidated = buildStrategy === 'unloading' ? { result: packed, passes: 0 } : consolidateUntilStable(packed, container, candidateCargo, pallet);
     // Declared carton limits (not the per-target planning cap) govern the absorb pass.
-    const absorbed = absorbIntoSpareTopLayers(consolidated.result, container, normalizedCargo, pallet, strategy);
-    const topLayered = applyTopLayerFillPolicy(absorbed.result, normalizedCargo, { ...pallet, maxStackLevels: target }, container, strategy);
-    const finalConsolidated = consolidateFinalSparsePallets(topLayered, container, normalizedCargo, { ...pallet, maxStackLevels: target }, strategy);
+    const absorbed = absorbIntoSpareTopLayers(consolidated.result, container, normalizedCargo, pallet, buildStrategy);
+    const topLayered = applyTopLayerFillPolicy(absorbed.result, normalizedCargo, { ...pallet, maxStackLevels: target }, container, buildStrategy);
+    const finalConsolidated = consolidateFinalSparsePallets(topLayered, container, normalizedCargo, { ...pallet, maxStackLevels: target }, buildStrategy);
     candidates.push({ result: finalConsolidated.result, target, passes: consolidated.passes + absorbed.passes + finalConsolidated.passes });
   }
 
-  // Compare low unit loads before minimizing the number of pallet bases.
+  // Keep lower alternatives for equal pallet counts, or when hard checks reject
+  // a taller plan. Height preference must not consume extra pallet bases.
   // Every profile only tightens declared limits; the original remains a candidate.
   const excessiveHeight = candidates.some(candidate => maxUnitLoadHeight(candidate.result) > Math.min(pallet.length, pallet.width) * 2);
   const heightProfiles = strategy === 'stability' ? [.6, .9, 1.2, 1.5] : excessiveHeight ? [1.2, 1.5] : [];
   for (const ratio of heightProfiles) {
     const height = Math.min(pallet.length, pallet.width) * ratio;
     const lowCargo = normalizedCargo.map(item => ({ ...item, maxStackLayers: Math.min(item.maxStackLayers ?? Infinity, Math.max(1, Math.floor((height + EPS) / item.height))) }));
-    const packed = packOnPalletsBase(container, lowCargo, pallet, strategy);
-    const absorbed = absorbIntoSpareTopLayers(packed, container, normalizedCargo, pallet, strategy);
-    const topLayered = applyTopLayerFillPolicy(absorbed.result, normalizedCargo, pallet, container, strategy);
-    const finalConsolidated = consolidateFinalSparsePallets(topLayered, container, normalizedCargo, pallet, strategy);
+    const packed = packOnPalletsBase(container, lowCargo, pallet, buildStrategy);
+    const absorbed = absorbIntoSpareTopLayers(packed, container, normalizedCargo, pallet, buildStrategy);
+    const topLayered = applyTopLayerFillPolicy(absorbed.result, normalizedCargo, pallet, container, buildStrategy);
+    const finalConsolidated = consolidateFinalSparsePallets(topLayered, container, normalizedCargo, pallet, buildStrategy);
     candidates.push({ result: finalConsolidated.result, target: pallet.maxStackLevels, passes: absorbed.passes + finalConsolidated.passes });
   }
   const errors=new WeakMap<PalletPackingResult,number>();
@@ -669,16 +665,16 @@ export function packOnPallets(
   const preference = (a: PalletPackingResult, b: PalletPackingResult) => {
     const errorDiff=hardErrors(a)-hardErrors(b);if(errorDiff)return errorDiff<0;
     if (a.placements.length !== b.placements.length) return a.placements.length > b.placements.length;
-    if (strategy === 'unloading') {
+    if (buildStrategy === 'unloading') {
       const blockedA = unloadingObstructions(normalizedCargo, a.placements), blockedB = unloadingObstructions(normalizedCargo, b.placements);
       if (blockedA !== blockedB) return blockedA < blockedB;
     }
-    const tallA = Math.max(0, maxUnitLoadHeight(a) / Math.min(pallet.length, pallet.width) - 2);
-    const tallB = Math.max(0, maxUnitLoadHeight(b) / Math.min(pallet.length, pallet.width) - 2);
-    if (Math.abs(tallA - tallB) > EPS) return tallA < tallB;
     // Pallet loading follows field practice for every strategy: consolidate the
     // shipment first. Center of gravity is the last preference (대표 지시 2026-09-29).
     if (a.palletCount !== b.palletCount) return a.palletCount < b.palletCount;
+    const tallA = Math.max(0, maxUnitLoadHeight(a) / Math.min(pallet.length, pallet.width) - 2);
+    const tallB = Math.max(0, maxUnitLoadHeight(b) / Math.min(pallet.length, pallet.width) - 2);
+    if (Math.abs(tallA - tallB) > EPS) return tallA < tallB;
     if (strategy !== 'stability') {
       // Do not consume more floor positions merely to lower an already supported load.
       const floorDiff = floorPositionCount(a) - floorPositionCount(b);
@@ -714,7 +710,7 @@ export function packOnPallets(
   const redistributed = strategy === 'stability'
     ? redistributeForLowUtilization(selected.result, container, pallet)
     : { result: selected.result, redistributed: false };
-  if (strategy === 'unloading') {
+  if (buildStrategy === 'unloading') {
     const groups = new Map<number, PalletLoad[]>();
     for (const load of redistributed.result.pallets) groups.set(load.stackColumn, [...(groups.get(load.stackColumn) ?? []), load]);
     const columns = [...groups.values()];

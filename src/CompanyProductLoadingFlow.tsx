@@ -127,6 +127,7 @@ function cargoFromProducts(products: CompanyProductItem[], assignments: ProductP
         quantity: product.quantity,
         maxStackLayers: 1,
         maxTopLoadKg: 0,
+        stackLimitOrigin: { kind: 'direct-product', maxStackLayers: 1, maxTopLoadKg: 0 },
         allowRotation: product.allowRotation !== false,
         displayColor,
       });
@@ -145,6 +146,7 @@ function cargoFromProducts(products: CompanyProductItem[], assignments: ProductP
       quantity: item.boxesNeeded,
       maxStackLayers: item.maxStackLayers,
       maxTopLoadKg: item.maxTopLoadKg,
+      stackLimitOrigin: { kind: item.strengthStatus === 'design-target' ? 'unverified-carton' : 'box-catalog', maxStackLayers: item.maxStackLayers, maxTopLoadKg: item.maxTopLoadKg },
       allowRotation: true,
       displayColor,
     });

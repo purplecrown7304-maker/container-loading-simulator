@@ -2,6 +2,7 @@ import { PALLET_CATALOG } from './palletCatalog';
 import { evaluatePalletType, pickRecommendation, type PalletRecommendation, type PalletTypeEvaluation } from './palletRecommendation';
 import type { LoadingStrategy } from './loadingEngine';
 import type { CargoItem, ContainerSpec } from './types';
+import type { PalletSpec } from './palletOptimization';
 
 /** Evaluate every catalog pallet off the UI thread, reporting each type as it finishes. */
 export function recommendPalletsAsync(
@@ -10,11 +11,13 @@ export function recommendPalletsAsync(
   strategy: LoadingStrategy,
   onEvaluation?: (evaluation: PalletTypeEvaluation) => void,
   signal?: AbortSignal,
+  mode: 'pallets' | 'mixed' = 'pallets',
+  specs: Record<string,PalletSpec> = {},
 ): Promise<PalletRecommendation> {
   if (signal?.aborted) return Promise.reject(new DOMException('취소됨', 'AbortError'));
   if (typeof Worker === 'undefined') {
     const evaluations = PALLET_CATALOG.map(type => {
-      const evaluation = evaluatePalletType(container, cargo, type, strategy);
+      const evaluation = evaluatePalletType(container, cargo, type, strategy, undefined, mode, specs[type.id]);
       onEvaluation?.(evaluation);
       return evaluation;
     });
@@ -37,7 +40,7 @@ export function recommendPalletsAsync(
     };
     worker.onerror = () => { clean(); reject(new Error('파렛트 추천 계산 모듈을 실행하지 못했습니다.')); };
     signal?.addEventListener('abort', abort, { once: true });
-    try { worker.postMessage({ container, cargo, strategy }); }
+    try { worker.postMessage({ container, cargo, strategy, mode, specs }); }
     catch (error) { clean(); reject(error); }
   });
 }

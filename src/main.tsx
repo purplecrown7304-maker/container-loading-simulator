@@ -25,7 +25,6 @@ import RemainingLengthIndicator from './RemainingLengthIndicator';
 import OperationalRightSummary from './OperationalRightSummary';
 import DashboardCommandDock from './DashboardCommandDock';
 import GuidedWorkflowShell from './GuidedWorkflowShell';
-import GuidedLoadingUnitEnhancer from './GuidedLoadingUnitEnhancer';
 import GuidedResultTabsEnhancer from './GuidedResultTabsEnhancer';
 import DiagnosticExportResultButton from './DiagnosticExportResultButton';
 import TransportEquipmentSelector from './TransportEquipmentSelector';
@@ -143,7 +142,6 @@ function renderApplication() {
         <DashboardCommandDock />
         <TransportEquipmentDashboardSummary />
         <GuidedWorkflowShell />
-        <GuidedLoadingUnitEnhancer />
         <SavedWorkQuickList />
         <EquipmentVisualAdminEditor />
         <GuidedResultTabsEnhancer />

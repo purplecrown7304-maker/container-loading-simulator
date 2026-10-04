@@ -42,9 +42,12 @@ export function choosePalletType(selected: string) {
 }
 
 export function startPalletRecommendation(signature: string) {
-  store.setSnapshot(current => current.signature === signature && current.status !== 'error'
-    ? current
-    : { ...current, signature, evaluations: [], recommendedId: null, status: 'running' });
+  store.setSnapshot(current => ({ ...current, signature, evaluations: [], recommendedId: null, status: 'running' }));
+}
+
+export function cancelPalletRecommendation(signature: string) {
+  store.setSnapshot(current => current.signature !== signature || current.status !== 'running' ? current
+    : { ...current, signature: null, evaluations: [], recommendedId: null, status: 'idle' });
 }
 
 export function recordPalletEvaluation(signature: string, evaluation: PalletTypeEvaluation) {

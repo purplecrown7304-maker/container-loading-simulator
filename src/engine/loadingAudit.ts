@@ -2,6 +2,7 @@ import { isARules } from './loadingRuleset';
 import { validateAPlan } from './loadSimAdapter';
 import { validatePlacements } from './constraints';
 import { assessPlacementSupport } from './support';
+import { acceptsUnloadCandidate } from './unloadingPolicy';
 import type { CargoItem, ContainerSpec, Placement, ValidationIssue } from './types';
 
 const EPS = 1e-6;
@@ -17,6 +18,7 @@ export function auditLoading(container: ContainerSpec, cargo: CargoItem[], place
   const add = (type: ValidationIssue['type'], message: string, indexes: number[]) => issues.push({ type, message, placementIndexes: indexes });
   placements.forEach((p, i) => {
     const item = byId.get(p.cargoId);
+    if (!acceptsUnloadCandidate(container, byId, placements, p)) add('INVALID_CARGO', 'BLOCKS_UNLOAD_PATH: 먼저 내릴 화물의 반출 경로가 차단됩니다.', [i]);
     counts.set(p.cargoId, (counts.get(p.cargoId) ?? 0) + 1);
     if (![p.x, p.y, p.z, p.length, p.width, p.height, p.weightKg].every(Number.isFinite) || Math.min(p.length, p.width, p.height) <= 0 || p.weightKg < 0) {
       add('INVALID_CARGO', '화물 치수·좌표·중량이 유효하지 않습니다.', [i]);

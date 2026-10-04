@@ -69,3 +69,51 @@
 @media(prefers-reduced-motion:reduce){
   .guided-loading-unit-grid button{transition:none;transform:none!important}
 }
+
+/* STEP 04: the outer modal never scrolls sideways; the comparison table owns it. */
+.step04-redesign{min-width:0;gap:16px;background:#f3f5f8}
+.step04-redesign>.guided-panel-title,.step04-redesign>.step04-context,.step04-redesign>.step04-section{order:initial}
+.step04-context,.step04-section{min-width:0;border:1px solid #d9dee6;border-radius:8px;background:#fff;padding:16px}
+.step04-context{display:flex;flex-wrap:wrap;align-items:end;gap:16px 24px}
+.step04-context>div,.step04-context label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:#526079}
+.step04-context b{font-size:14px;color:#263247}
+.step04-context>small{flex:1 1 200px;color:#526079;line-height:1.6}
+.step04-redesign select,.step04-redesign input{min-height:44px;max-width:100%;border:1px solid #c3cad5;border-radius:6px;background:white;padding:8px 10px;color:#1a2230;font:inherit}
+.step04-section{display:flex;flex-direction:column;gap:14px}
+.step04-section h2{margin:0;font-size:16px;color:#243044}
+.step04-section p{margin:0;font-size:13px;line-height:1.6;color:#617086}
+.step04-section-heading{display:flex;flex-wrap:wrap;align-items:start;justify-content:space-between;gap:12px}
+.step04-section-heading>div{flex:1 1 260px}
+.step04-section-heading button,.step04-redesign .guided-strategy-status button{min-height:44px;padding:8px 12px;border:1px solid #a4bce4;border-radius:6px;background:white;color:#245bbb;font:inherit;cursor:pointer}
+.step04-redesign button:disabled{opacity:.55;cursor:not-allowed}
+.step04-redesign .guided-loading-unit-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.step04-redesign .guided-strategy-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.step04-redesign .guided-strategy-card strong{margin:0 0 6px}
+.step04-redesign .guided-strategy-status{max-width:420px;border-radius:6px;white-space:normal;font-weight:600;line-height:1.6}
+.step04-redesign .guided-strategy-status button{display:block;margin-top:4px}
+.step04-sku-choices{border-top:1px solid #e6eaf0;padding-top:12px}
+.step04-sku-choices summary{cursor:pointer;min-height:36px;font-weight:600}
+.step04-sku-choices label{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:6px 0;font-size:13px}
+.step04-sku-choices label>span{min-width:0;overflow-wrap:anywhere}
+.step04-sku-choices input{width:80px}
+.step04-sku-choices select{flex:0 0 170px}
+.step04-forecast{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid #d9e2f1;margin:12px 0 0;padding-top:10px;gap:8px;font-size:12px}
+.step04-forecast dt{color:#617086;font-size:11px}.step04-forecast dd{margin:4px 0 0;font-weight:700}
+.step04-checks{display:flex;flex-wrap:wrap;gap:8px}.step04-checks span{border:1px solid #cbd4e1;border-radius:999px;padding:6px 12px;font-size:12px}
+.step04-block-reason{max-width:420px;font-size:12px;color:#965606;line-height:1.5}
+.step04-redesign .guided-pallet-type-picker{min-width:0;background:#fff;padding:12px}
+.step04-redesign .guided-pallet-type-table{min-width:1120px}
+.step04-redesign .guided-pallet-type-table th,.step04-redesign .guided-pallet-type-table td{padding:8px 10px}
+.step04-redesign .guided-pallet-type-table td.name>button,.step04-redesign .guided-pallet-type-heading>button{min-height:44px}
+.guided-pallet-stack-note summary{cursor:pointer;font-weight:700}
+.guided-pallet-stack-note p{font-size:12px;line-height:1.6;margin:8px 0}
+.guided-pallet-stack-note ul{list-style:none;padding:0;margin:0;display:grid;gap:10px}
+.guided-pallet-stack-note li{display:flex;flex-direction:column;gap:3px;overflow-wrap:anywhere}
+@media(max-width:760px){
+  .step04-redesign .guided-loading-unit-grid,.step04-redesign .guided-strategy-grid{grid-template-columns:1fr}
+  .step04-context,.step04-section{padding:12px}
+  .step04-context>div,.step04-context label{width:100%}
+  .step04-redesign .guided-strategy-status{max-width:100%}
+  .step04-block-reason{flex-basis:100%;max-width:none}
+  .step04-sku-choices label{flex-wrap:wrap}.step04-sku-choices select{flex:1 1 150px}
+}

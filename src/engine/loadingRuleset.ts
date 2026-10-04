@@ -18,6 +18,7 @@ export type RulesContext = {
 };
 export const isARules = (container: ContainerSpec) => container.rules?.version === 'a-v1';
 export const aConfig = (container: ContainerSpec): Config => ({ ...DEFAULT_CONFIG, ...container.rules?.config,
+  ...(container.unloadingPolicy ? { strictUnloadOrder: container.unloadingPolicy === 'strict' } : {}),
   margins: { ...DEFAULT_CONFIG.margins, ...container.rules?.config?.margins } });
 export const placementOrientation = (p: { orientation?: Orientation; rotated?: boolean }): Orientation => p.orientation ?? (p.rotated ? 'WLH' : 'LWH');
 export function rotateHorizontal(o: Orientation): Orientation { return (o[1] + o[0] + o[2]) as Orientation; }

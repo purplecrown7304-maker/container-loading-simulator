@@ -2,6 +2,7 @@ import type { CargoItem, ContainerSpec, Placement } from './types';
 import { isInsideContainer, overlaps } from './constraints';
 import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules } from './stacking';
+import { acceptsUnloadCandidate } from './unloadingPolicy';
 
 const EPS = 1e-9;
 const TOUCH = 0.0015;
@@ -134,7 +135,7 @@ function blockOptionsForDepth(
   const blocks: Block[] = [];
   const latestStop = Math.max(0, ...context.cargo.filter(item => (remaining.get(item.id) ?? 0) > 0).map(item => item.unloadPriority ?? 0));
   for (const item of context.cargo) {
-    if (context.strategy === 'unloading' && latestStop > 0 && (item.unloadPriority ?? 0) < latestStop) continue;
+    if ((context.container.unloadingPolicy === 'strict' || context.strategy === 'unloading') && latestStop > 0 && (item.unloadPriority ?? 0) < latestStop) continue;
     const left = remaining.get(item.id) ?? 0;
     if (left <= 0) continue;
     for (const o of orientations(item)) {
@@ -392,6 +393,7 @@ function topFill(state: State, context: Context) {
           if (current.placements.some((p) => overlaps(candidate, p))) continue;
           if (!hasAdequateSupport(candidate, current.placements, undefined, 0.999)) continue;
           if (!canPlaceByStackingRules(item, candidate, current.placements, context.cargoById)) continue;
+          if (!acceptsUnloadCandidate(context.container, context.cargoById, current.placements, candidate)) continue;
           const weightRank = item.weightKg / Math.max(EPS, context.maxUnitWeightKg);
           const zNorm = (candidate.z + candidate.height / 2) / Math.max(EPS, context.container.height);
           const score = -zNorm * 90 - weightRank * zNorm * 80 + (support.cargoId === item.id ? 35 : 0);

@@ -21,8 +21,8 @@ test('A pallet rules retain real pallet construction, canvas and physics', async
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
   await page.getByRole('radio', { name: /파렛트 적재/ }).click();
-  await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
-  await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
+  await page.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await page.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   const snapshot = () => page.evaluate(() => {
     const result = (window as any).__containerLoadingPalletSnapshot?.result;

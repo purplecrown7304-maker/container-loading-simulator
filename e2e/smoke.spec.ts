@@ -51,10 +51,10 @@ test('guided flow reaches the React-owned automatic-loading viewer after strateg
   await page.goto('/');
   await advanceToStrategy(page, 'E2E-VIEWER');
 
-  const strategy = page.getByRole('radio', { name: /무게중심·안정성 우선형/ });
+  const strategy = page.getByRole('radio', { name: /안정성 우선/ });
   await strategy.click();
   await expect(strategy).toHaveAttribute('aria-checked', 'true');
-  await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
+  await page.getByRole('button', { name: /다음 단계/ }).click();
   await expect(page.locator('.viewer-card')).toBeVisible();
   await expect(page.getByRole('button', { name: /최종 적재 진행/ })).toBeEnabled();
 });
@@ -98,8 +98,8 @@ test('completed loading keeps result quantities visible after switching result t
   await page.goto('/');
   await advanceToStrategy(page, 'E2E-FINAL-RESULT');
   // This success-path fixture must satisfy the existing lateral-CG gate.
-  await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
-  await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
+  await page.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await page.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
 
   const showResults = page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ });
@@ -152,8 +152,8 @@ test('a lateral-CG error does not unlock the final result step', async ({ page }
   test.setTimeout(90_000);
   await page.goto('/');
   await advanceToStrategy(page, 'E2E-BLOCKED-CG');
-  await page.getByRole('radio', { name: /무게중심·안정성 우선형/ }).click();
-  await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
+  await page.getByRole('radio', { name: /안정성 우선/ }).click();
+  await page.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
 
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.result.operationalFindings?.filter((f: any) => f.severity === 'error').map((f: any) => f.code) ?? []), { timeout: 60_000 }).toContain('CG_LATERAL');

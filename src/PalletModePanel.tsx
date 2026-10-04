@@ -6,12 +6,12 @@ import { cargoColor } from './cargoColors';
 import { centerPalletCargo, consumeNextPalletCenteredResultOverride } from './engine/palletCentering';
 import { validatePlacements } from './engine/constraints';
 import { validateOperationalLoading } from './engine/operationalValidator';
-import { defaultPalletSpec, packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
+import { packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
 import { packMixedMode, type MixedModePackingResult } from './engine/mixedModePacking';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import { INERTIA_CERTIFICATION_EVENT, createPhysicsTargetSignature, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
 import { clearPhysicsTarget, publishPhysicsTarget, readPhysicsTarget } from './physicsTarget';
-import { palletSpecForType } from './engine/palletCatalog';
+import { palletJobSpec, recordPalletJobSpec } from './palletJobSpecs';
 import { resolvePalletType, subscribePalletTypeSelection } from './palletTypeSelection';
 import { clearPalletSnapshot, publishPalletSnapshot, readPalletSnapshot } from './palletSnapshotStore';
 import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT } from './autoCertification';
@@ -116,7 +116,7 @@ function PalletContents({ pallet, cargo, onClose, modelKey }: { pallet: PalletLo
 }
 
 export default function PalletModePanel({ container, cargo, runToken, mode = 'pallets', inputKey, onSceneChange, onRunningChange }: Props) {
-  const [spec, setSpec] = useState<PalletSpec>(() => palletSpecForType(resolvePalletType(), defaultPalletSpec));
+  const [spec, setSpec] = useState<PalletSpec>(() => palletJobSpec(resolvePalletType()));
   const [calculated, setCalculated] = useState<{ key: string; result: OptimizedPalletPackingResult | MixedModePackingResult } | null>(null);
   const result = (calculated?.key === inputKey ? calculated.result : EMPTY_RESULT) as OptimizedPalletPackingResult | MixedModePackingResult;
   const [specRunToken, setSpecRunToken] = useState(0);
@@ -137,7 +137,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
     adoptedResult.current = null;
     let cancelled = false;
     let publishTimer: number | undefined;
-    if (container.rules && typeof Worker !== 'undefined') {
+    if (typeof Worker !== 'undefined') {
       const worker = new Worker(new URL('./engine/palletRules.worker.ts', import.meta.url), {type:'module'});
       worker.onmessage = (event: MessageEvent<{result?:OptimizedPalletPackingResult | MixedModePackingResult;error?:string}>) => {
         worker.terminate();
@@ -182,6 +182,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       const requested = (event as CustomEvent<PalletSpec>).detail;
       if (!requested) return;
       const safe = sanitizeSpec(requested);
+      recordPalletJobSpec(resolvePalletType().id, safe);
       const snapshot = readPalletSnapshot();
       const target = readPhysicsTarget();
       const certified = readLatestInertiaCertification();
@@ -212,9 +213,6 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
     return () => window.removeEventListener(PALLET_SPEC_FROM_RESULTS_EVENT, onSpecFromResults);
   }, [container, cargo, mode, inputKey, onRunningChange]);
 
-  const specRef = useRef(spec);
-  specRef.current = spec;
-
   // Follow the pallet product chosen (or recommended) in the loading-method step.
   useEffect(() => {
     let currentId = resolvePalletType().id;
@@ -222,7 +220,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       const type = resolvePalletType();
       if (type.id === currentId) return;
       currentId = type.id;
-      const next = sanitizeSpec(palletSpecForType(type, specRef.current));
+      const next = sanitizeSpec(palletJobSpec(type));
       setSpec(next);
       setCalculated(null);
       clearPalletSnapshot();

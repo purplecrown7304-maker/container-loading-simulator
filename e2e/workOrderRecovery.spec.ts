@@ -58,8 +58,8 @@ test('stalled optional re-layout completes and a blocked warning report opens wi
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
-  await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
-  await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
+  await page.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await page.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   // Use the real loading workflow to record its physics prerequisite before exercising the report optimizer.
   await expect.poll(() => page.evaluate(() => Boolean((window as any).__containerLoadingFinalPhysicsSignature && (window as any).__containerLoadingFinalPhysicsResult && !(window as any).__containerLoadingFinalPhysicsRunning)), { timeout: 60_000 }).toBe(true);

@@ -226,7 +226,7 @@ function addCandidate(
   label: string,
 ) {
   if (!sameLoadedCargo(current.result, result)) return;
-  if (result.optimization.strategy === 'unloading'
+  if ((result.optimization.strategy === 'unloading' || current.container.unloadingPolicy === 'strict')
     && unloadingObstructions(current.cargo, result.placements) > unloadingObstructions(current.cargo, current.result.placements)) return;
   const target = toTarget(current.container, current.cargo, result);
   if (target.result.validationIssues.length) return;
@@ -256,6 +256,10 @@ export function buildPalletAdaptiveCandidates(
   limit = Number.POSITIVE_INFINITY,
 ): PalletAdaptiveCandidate[] {
   if (current.mode !== 'pallets') return [];
+  // This search rebuilds every carton as pallet cargo. Applying it to MIXED would
+  // silently overwrite the user's direct/pallet assignments and lose loose metadata.
+  // Keep the mixed plan and its normal securing/physics checks intact.
+  if ('mixed' in snapshot.result) return [];
   const seen = new Set<string>([createPhysicsTargetSignature(current)]);
   const list: PalletAdaptiveCandidate[] = [];
   const configuredMax = Math.max(1, Math.floor(snapshot.spec.maxStackLevels || 1));
@@ -284,7 +288,7 @@ export function buildPalletAdaptiveCandidates(
     const packed = restoreRotationFlags(centerPalletCargo(packOnPallets(current.container, cargo, spec, snapshot.result.optimization.strategy), current.container), variant.forcedRotatedIds);
     const baseLabel = `${variant.label} · 높이 ${Math.round(heightRatio * 100)}% · ${maxStackLevels}단 제한`;
     addCandidate(list, seen, current, spec, packed, `팔레트 위 재배치 · ${baseLabel}`);
-    if (snapshot.result.optimization.strategy !== 'unloading') {
+    if (snapshot.result.optimization.strategy !== 'unloading' && current.container.unloadingPolicy !== 'strict') {
       addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, false), `안쪽 밀착 2열 · ${baseLabel}`);
       addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, true), `문쪽 밀착 2열 · ${baseLabel}`);
     }

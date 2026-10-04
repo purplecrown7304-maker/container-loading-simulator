@@ -4,6 +4,7 @@ import { ALL_ORIENTATIONS } from './loadSimA/types';
 import { allowedOrientations, canPlace, orientedSize, validate, checkSupport, checkOverlap, checkStacking } from './loadSimA/validate';
 import { pack } from './loadSimA/pack';
 import { aConfig, placementOrientation } from './loadingRuleset';
+import { cargoWithUnloadingPolicy } from './unloadingPolicy';
 import { analyzeFloorLoad } from './floorLoad';
 
 export type SupportBody = { id: string; x: number; y: number; z: number; length: number; width: number; height: number; weightKg: number; unitHeightM?: number; unitCenterOfGravity?: {x:number;y:number;z:number} };
@@ -183,6 +184,7 @@ export function aPlanMetrics(c:ContainerSpec,cargo:CargoItem[],ps:Placement[],su
 }
 
 export function validateAPlan(c:ContainerSpec,cargo:CargoItem[],ps:Placement[],supports:SupportBody[]=[]):OperationalRuleFinding[]{
+  cargo=cargoWithUnloadingPolicy(c,cargo);
   const identity=auditAIdentity(c,cargo,ps);
   if(identity.some(x=>x.type==='INVALID_CARGO'||x.type==='QUANTITY')) return identity.map(x=>finding(x.type,x.message,x.placementIndexes));
   const {units,indices}=transportUnits(cargo,ps,supports), result=validate(units,toASpace(c),aConfig(c));
@@ -214,10 +216,12 @@ export function validateAPlan(c:ContainerSpec,cargo:CargoItem[],ps:Placement[],s
 }
 
 export function aCandidateAllowed(c:ContainerSpec,cargo:CargoItem[],ps:Placement[],candidate:Placement):boolean{
+  cargo=cargoWithUnloadingPolicy(c,cargo);
   const all=[...ps,candidate], ap=toAPlacements(cargo,all);
   return !auditAIdentity(c,cargo,all).length && !canPlace(ap.slice(0,-1),ap.at(-1)!,toASpace(c),aConfig(c)).length;
 }
 export function packWithARules(c:ContainerSpec,cargo:CargoItem[],strategy='capacity'):LoadingResult{
+  cargo=cargoWithUnloadingPolicy(c,cargo);
   const {items,originals}=expandCargo(cargo);
   const decode=(ps:APlacement[])=>ps.map(p=>fromAPlacement(p,originals.get(p.item.id)!));
   // packOnce owns each placements array and only appends until the pass ends.

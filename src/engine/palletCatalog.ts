@@ -7,7 +7,7 @@ export type PalletForkEntry = 2 | 4;
  * One pallet product the loader can choose. Load values are representative published
  * figures for the class, not a certificate: the operator confirms the maker's sheet.
  * `maxLoadKg` is the dynamic (forklift/handling) capacity the loading engine enforces;
- * `staticLoadKg` is shown for reference only.
+ * `staticLoadKg` limits the total supported deck load when stacking pallet units.
  */
 export type PalletType = {
   id: string;
@@ -100,6 +100,8 @@ export function palletSpecForType(type: PalletType, base: PalletSpec = defaultPa
     height: type.height,
     tareWeightKg: type.tareWeightKg,
     maxLoadKg: type.maxLoadKg,
+    maxStaticLoadKg: type.staticLoadKg ?? 0,
+    maxStackLevels: type.staticLoadKg === null ? 1 : base.maxStackLevels,
   };
 }
 
