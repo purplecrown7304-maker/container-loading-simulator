@@ -153,11 +153,15 @@ export function checkDoor(ps: Placement[], space: Space, cfg: Config): Violation
 /** only를 주면 그 인덱스의 화물이 포함된 쌍만 검사한다 */
 export function checkOverlap(ps: Placement[], cfg: Config, only?: number): Violation[] {
   const out: Violation[] = [];
+  if (only !== undefined && (!Number.isInteger(only) || only < 0 || only >= ps.length)) return out;
   const boxes = ps.map(boxOf);
   const e = cfg.epsilon;
   for (let i = 0; i < ps.length; i++) {
-    for (let j = i + 1; j < ps.length; j++) {
-      if (only !== undefined && i !== only && j !== only) continue;
+    // With a candidate index, visit only its pairs, in the original order.
+    const start = only === undefined || i === only ? i + 1 : only;
+    const end = only === undefined || i === only ? ps.length : only + 1;
+    if (start <= i) continue;
+    for (let j = start; j < end; j++) {
       const a = boxes[i];
       const b = boxes[j];
       if (
@@ -270,9 +274,9 @@ export interface LoadResult {
 }
 
 /** 위에서 아래로 하중을 접촉 면적 비율로 나눠 전달한다 */
-export function propagateLoads(ps: Placement[], cfg: Config): LoadResult {
+export function propagateLoads(ps: Placement[], cfg: Config, preparedSupporters?: ReturnType<typeof supportersOf>): LoadResult {
   const boxes = ps.map(boxOf);
-  const sup = supportersOf(ps, cfg);
+  const sup = preparedSupporters ?? supportersOf(ps, cfg);
   const n = ps.length;
   const carried = new Array<number>(n).fill(0);
   const floorLoad = new Array<number>(n).fill(0);
@@ -296,12 +300,12 @@ export function propagateLoads(ps: Placement[], cfg: Config): LoadResult {
   return { carried, floorLoad, tier };
 }
 
-export function checkStacking(ps: Placement[], cfg: Config, loads?: LoadResult): Violation[] {
+export function checkStacking(ps: Placement[], cfg: Config, loads?: LoadResult, preparedSupporters?: ReturnType<typeof supportersOf>): Violation[] {
   const out: Violation[] = [];
   const boxes = ps.map(boxOf);
   const { carried, tier } = loads ?? propagateLoads(ps, cfg);
   // 면압 검사가 필요한 화물이 있을 때만 접촉 관계를 다시 구한다
-  const sup = ps.some((p) => p.item.maxTopPressure !== undefined) ? supportersOf(ps, cfg) : [];
+  const sup = ps.some((p) => p.item.maxTopPressure !== undefined) ? preparedSupporters ?? supportersOf(ps, cfg) : [];
 
   ps.forEach((p, i) => {
     const it = p.item;
@@ -869,6 +873,45 @@ export function validate(ps: Placement[], space: Space, config: Partial<Config> 
  */
 export function canPlace(existing: Placement[], candidate: Placement, space: Space, config: Partial<Config> = {}): Violation[] {
   const cfg: Config = { ...DEFAULT_CONFIG, ...config };
+  return checkCandidate(existing, candidate, space, cfg);
+}
+
+/** One packing pass owns this append-only geometry. Rejected candidates never commit.
+ * Load propagation still runs in its original order, preserving rounding and limits.
+ * Do not reuse this object after moving, rotating or editing a committed placement.
+ */
+export function createPackingChecks(space: Space, cfg: Config) {
+  const existing: Placement[] = [];
+  const boxes: Box[] = [];
+  let supporters: ReturnType<typeof supportersOf> = [];
+  const extend = (candidate: Placement) => {
+    const b = boxOf(candidate), k = existing.length;
+    const next = supporters.slice();
+    const under: { index: number; area: number }[] = [];
+    boxes.forEach((other, i) => {
+      const area = overlapXY(b, other);
+      if (area <= 0) return;
+      if (b.z0 > cfg.heightTolerance && Math.abs(other.z1 - b.z0) <= cfg.heightTolerance) under.push({index:i,area});
+      // Retain even unusual thin-item/tolerance contacts in the original graph.
+      if (other.z0 > cfg.heightTolerance && Math.abs(b.z1 - other.z0) <= cfg.heightTolerance) next[i] = [...next[i], {index:k,area}];
+    });
+    next.push(under);
+    return next;
+  };
+  return {
+    check(candidate: Placement): Violation[] {
+      return checkCandidate(existing, candidate, space, cfg, () => extend(candidate));
+    },
+    commit(candidate: Placement): void {
+      supporters = extend(candidate);
+      existing.push(candidate);
+      boxes.push(boxOf(candidate));
+    },
+  };
+}
+
+function checkCandidate(existing: Placement[], candidate: Placement, space: Space, cfg: Config,
+  prepareSupporters?: () => ReturnType<typeof supportersOf>): Violation[] {
   const all = [...existing, candidate];
   const k = all.length - 1;
   // 값싼 검사에서 걸리면 하중 전파까지 가지 않는다
@@ -881,6 +924,7 @@ export function canPlace(existing: Placement[], candidate: Placement, space: Spa
     ...checkUnloadOrder(all, space, cfg, k),
   ].filter((v) => v.severity === 'error');
   if (quick.length > 0) return quick;
-  const loads = propagateLoads(all, cfg);
-  return [...checkStacking(all, cfg, loads), ...checkWeight(all, space, cfg, loads)].filter((v) => v.severity === 'error');
+  const supporters = prepareSupporters?.();
+  const loads = propagateLoads(all, cfg, supporters);
+  return [...checkStacking(all, cfg, loads, supporters), ...checkWeight(all, space, cfg, loads)].filter((v) => v.severity === 'error');
 }
