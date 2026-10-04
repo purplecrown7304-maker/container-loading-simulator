@@ -46,7 +46,8 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await modal.getByRole('button', { name: '저장', exact: true }).click();
   await modal.getByRole('button', { name: '닫기', exact: true }).click();
   await openWorkspace(page, 3);
-  // 265 mm cartons fit at most nine layers inside this 20 FT container.
+  // The upright 265 mm packaging preview fits nine layers; the actual A run
+  // restores the personal ten-layer declaration and may tip eligible cartons.
   await expect(page.getByText('자동 적재 최대 9단', { exact: false })).toHaveCount(6);
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click({ timeout: 10_000 });
   await expect(page.getByRole('heading', { name: '적재 방식 선택' })).toBeVisible({ timeout: 5000 });
@@ -77,14 +78,18 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await expect(page.getByRole('navigation', { name: '적재 작업 전체 메뉴' })).toBeVisible();
   await page.getByRole('button', { name: /메뉴$/ }).click();
   console.log('bulk packing UI remains responsive');
-  await expect.poll(async () => page.evaluate(() => (window as any).__containerLoadingLatestResult?.result.placements.length ?? 0), { timeout: 180_000 }).toBe(639);
+  // The preparation preview caps upright cartons at nine layers. At execution,
+  // the confirmed-box bridge restores the user's explicit ten-layer declaration;
+  // A's allowed tipped orientations then produce 710, not the nine-layer benchmark's 639.
+  await expect.poll(async () => page.evaluate(() => (window as any).__containerLoadingLatestResult?.result.placements.length ?? 0), { timeout: 180_000 }).toBe(710);
   const loaded = await page.evaluate(() => {
     const { result, cargo } = (window as any).__containerLoadingLatestResult;
     return { count: result.placements.length, left: result.remaining.reduce((sum: number, item: any) => sum + item.quantity, 0), maxZ: Math.max(...result.placements.map((item: any) => item.z)), issues: result.validationIssues, findings: result.operationalFindings, remaining: result.remaining, cargo, placements: result.placements };
   });
   expect(loaded.count + loaded.left).toBe(1562);
-  expect(loaded.count).toBe(639);
-  expect(loaded.left).toBe(923);
+  expect(loaded.cargo.every((item: any) => item.maxStackLayers === 10 && item.maxTopLoadKg === 100 && item.boxId === 'REC-235X130X265')).toBe(true);
+  expect(loaded.count).toBe(710);
+  expect(loaded.left).toBe(852);
   for (const item of loaded.cargo) {
     const placed = loaded.placements.filter((p: any) => p.cargoId === item.id).length;
     const waiting = loaded.remaining.filter((r: any) => r.cargoId === item.id).reduce((sum: number, r: any) => sum + r.quantity, 0);
@@ -108,7 +113,7 @@ test('registered stacking updates without reload and bulk packaging advances bef
   const reportButton = page.getByRole('button', { name: /통합 출하·적재 작업지시서 보기/ });
   await reportButton.scrollIntoViewIfNeeded();
   await expect(reportButton).toBeEnabled();
-  // The 639 loaded cartons can delay report creation on software-rendered CI.
+  // The 710 loaded cartons can delay report creation on software-rendered CI.
   // Start the popup budget after preparing the button; still require the real report.
   const [report] = await Promise.all([
     page.waitForEvent('popup', { timeout: 60_000 }),
