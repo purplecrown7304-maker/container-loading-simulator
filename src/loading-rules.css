@@ -6,4 +6,8 @@
 .app-shell > .loading-rules-selector label{margin:0;display:block;width:auto}
 .app-shell > .loading-rules-selector select{width:180px;flex:0 0 180px}
 .calculation-overlay.a-rules-calculating{pointer-events:none}
+/* Reserve the selector's actual wrapped height inside the fixed viewport. */
+html[data-guided-workflow="true"] .mockup-dashboard{display:flex!important;flex-direction:column!important}
+html[data-guided-workflow="true"] .mockup-dashboard>.loading-rules-selector{flex:none}
+html[data-guided-workflow="true"] .mockup-dashboard>.dashboard-grid{flex:1;min-height:0!important;height:auto!important}
 @media(max-width:600px){.loading-rules-selector{padding:8px 12px}.loading-rules-selector span{flex-basis:100%}}
