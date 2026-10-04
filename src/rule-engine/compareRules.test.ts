@@ -92,7 +92,7 @@ describe('adapter unit boundaries', () => {
   it('converts explicit line load and axle positions from m to A mm', () => {
     const converted = containerToLoadSimSpace({
       length: 6.2, width: 2.35, height: 2.4, maxPayloadKg: 5000,
-      kind: 'truck', access: ['left','right','rear'], tareKg: 6000,
+      transportKind: 'truck', access: ['left','right','rear'], tareKg: 6000,
       floorLineLoadKgPerM: 3200,
       axles: {
         frontX: -1.3, rearX: 3.9, emptyFront: 3200, emptyRear: 2800,
