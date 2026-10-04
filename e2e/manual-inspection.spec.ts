@@ -39,7 +39,7 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
-  await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
+  await page.getByRole('radio', { name: /1번 파일 적재 방식/ }).click();
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   const viewer = page.locator('.viewer-card .three-comparison-viewer');

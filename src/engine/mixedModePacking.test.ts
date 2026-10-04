@@ -1,73 +1,59 @@
 import { describe, expect, it } from 'vitest';
 import { packMixedMode } from './mixedModePacking';
-import { packOnPallets, type PalletSpec } from './palletOptimization';
-import type { CargoItem, ContainerSpec } from './types';
+import { defaultPalletSpec, preparePalletsForLoading } from './palletOptimization';
+import { loadContainerWithLoadSim, validateExistingWithLoadSim } from '../rule-engine/loadSimEngine';
+import type { CargoItem } from './types';
 
-const container: ContainerSpec = {
-  length: 4.8,
-  width: 2.4,
-  height: 2.4,
-  maxPayloadKg: 10000,
-};
+const container = { length: 6, width: 2.4, height: 2.5, maxPayloadKg: 5000 };
+const pallet = { ...defaultPalletSpec, maxStackLevels: 1 };
+const cargo: CargoItem[] = [
+  { id: 'PALLETIZABLE', name: 'small', length: .5, width: .5, height: .3, weightKg: 10, quantity: 5, maxStackLayers: 1 },
+  { id: 'LOOSE', name: 'long', length: 1.4, width: .3, height: .3, weightKg: 10, quantity: 2, maxStackLayers: 1, allowRotation: false },
+];
 
-const pallet: PalletSpec = {
-  length: 1.2,
-  width: 1.2,
-  height: 0.15,
-  tareWeightKg: 25,
-  maxLoadKg: 1000,
-  maxStackLevels: 1,
-  maxSupportedTopWeightKg: 1000,
-  useCornerGuards: false,
-  cornerGuardWeightKg: 0,
-  cornerGuardExtraHeightM: 0,
-  useWrapping: false,
-  wrappingWeightKg: 0,
-  wrappingExtraHeightM: 0,
-  minimizePackaging: true,
-};
-
-function cargo(quantity: number): CargoItem[] {
-  return [{
-    id: 'A',
-    name: 'A',
-    length: 0.6,
-    width: 0.6,
-    height: 0.5,
-    weightKg: 20,
-    quantity,
-    maxStackLayers: 1,
-    maxTopLoadKg: 0,
-    allowRotation: true,
-  }];
-}
-
-describe('MIXED pallet + direct-box planner', () => {
-  it('demotes a sparse tail pallet to loose boxes without losing loaded quantity', () => {
-    const input = cargo(6);
-    const palletOnly = packOnPallets(container, input, pallet, 'capacity');
-    const mixed = packMixedMode(container, input, pallet, 'capacity', { minPalletFillRatio: 0.7 });
-
-    expect(palletOnly.placements.length).toBe(6);
-    expect(palletOnly.palletCount).toBe(2);
-    expect(mixed.placements.length).toBe(6);
-    expect(mixed.palletCount).toBeLessThan(palletOnly.palletCount);
-    expect(mixed.mixed.directBoxCount).toBeGreaterThan(0);
-    expect(mixed.remaining.reduce((sum, row) => sum + row.quantity, 0)).toBe(0);
+describe('A-only mixed pallet + loose container loading', () => {
+  it('combines finished pallets and genuine loose remainders in one A call', () => {
+    const prepared = preparePalletsForLoading(container, cargo, pallet);
+    const result = packMixedMode(container, cargo, pallet);
+    const input = result.ruleEngineInput!;
+    expect(input.placements).toEqual(loadContainerWithLoadSim(container, input.cargo).placements);
+    expect(validateExistingWithLoadSim(container, input.cargo, input.placements).validation.ok).toBe(true);
+    expect(input.cargo.filter(item => item.unitKind === 'pallet')).toHaveLength(prepared.palletCount);
+    expect(input.cargo.filter(item => item.unitKind !== 'pallet')).toMatchObject([{ id: 'LOOSE', quantity: 2 }]);
+    expect(result.mixed.directBoxCount).toBe(2);
+    expect(result.mixed.palletBoxCount).toBe(5);
+    expect(result.mixed.totalLoadedWeightKg).toBe(result.totalPalletizedWeightKg + 20);
+    expect(result.placements.reduce((sum, p) => sum + p.weightKg, 0)).toBe(70);
+    for (const item of cargo) expect(result.placements.filter(p => p.cargoId === item.id).length + result.remaining.filter(p => p.cargoId === item.id).reduce((sum, p) => sum + p.quantity, 0)).toBe(item.quantity);
   });
 
-  it('keeps loaded quantity ahead of pallet-count reduction', () => {
-    const tight: ContainerSpec = { length: 1.2, width: 1.2, height: 2.4, maxPayloadKg: 10000 };
-    const input = cargo(4);
-    const mixed = packMixedMode(tight, input, pallet, 'capacity', { minPalletFillRatio: 0.99 });
-
-    expect(mixed.placements.length).toBe(4);
-    expect(mixed.remaining.reduce((sum, row) => sum + row.quantity, 0)).toBe(0);
+  it('never demotes a sparse pallet through the removed 70% heuristic', () => {
+    const normal = packMixedMode(container, cargo, pallet);
+    const oldOptions = packMixedMode(container, cargo, pallet, 'capacity', { minPalletFillRatio: 1, maxDemotionCandidates: 20 });
+    expect(oldOptions).toEqual(normal);
+    expect(normal.mixed.demotedPalletCount).toBe(0);
+    expect(normal.mixed.candidateCount).toBe(1);
+    expect(normal.mixed.palletFillRates.every(row => !row.eligibleForDirect)).toBe(true);
   });
 
-  it('is deterministic for identical inputs', () => {
-    const first = packMixedMode(container, cargo(6), pallet, 'stability', { minPalletFillRatio: 0.7 });
-    const second = packMixedMode(container, cargo(6), pallet, 'stability', { minPalletFillRatio: 0.7 });
-    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+  it('keeps whole rejected pallets waiting and preserves each requested quantity', () => {
+    const result = packMixedMode({ ...container, maxPayloadKg: 30 }, cargo, pallet);
+    expect(result.mixed.totalLoadedWeightKg).toBeLessThanOrEqual(30);
+    for (const item of cargo) expect(result.placements.filter(p => p.cargoId === item.id).length + result.remaining.filter(p => p.cargoId === item.id).reduce((sum, p) => sum + p.quantity, 0)).toBe(item.quantity);
+    expect(packMixedMode({ ...container, maxPayloadKg: 30 }, cargo, pallet)).toEqual(result);
   });
+  it('does not resurrect rejected duplicate-SKU input as loose cargo', () => {
+    const conflict = [{ ...cargo[0], id: 'BAD', quantity: 2 }, { ...cargo[0], id: 'BAD', length: .8, quantity: 3 }];
+    const result = packMixedMode(container, conflict, pallet);
+    expect(result.placements).toEqual([]);
+    expect(result.ruleEngineInput?.cargo).toEqual([]);
+    expect(result.remaining).toMatchObject([{ cargoId: 'BAD', quantity: 5 }]);
+  });
+
+  it('does not treat invalid pallet configuration as a loose-cargo fallback', () => {
+    const result = packMixedMode(container, cargo, { ...pallet, width: 0 });
+    expect(result.placements).toEqual([]);
+    expect(result.remaining.reduce((sum, p) => sum + p.quantity, 0)).toBe(7);
+  });
+
 });

@@ -51,7 +51,7 @@ test('guided flow reaches the React-owned automatic-loading viewer after strateg
   await page.goto('/');
   await advanceToStrategy(page, 'E2E-VIEWER');
 
-  const strategy = page.getByRole('radio', { name: /무게중심·안정성 우선형/ });
+  const strategy = page.getByRole('radio', { name: /1번 파일 적재 방식/ });
   await strategy.click();
   await expect(strategy).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
@@ -97,7 +97,7 @@ test('completed loading keeps result quantities visible after switching result t
   test.setTimeout(90_000);
   await page.goto('/');
   await advanceToStrategy(page, 'E2E-FINAL-RESULT');
-  await page.getByRole('radio', { name: /무게중심·안정성 우선형/ }).click();
+  await page.getByRole('radio', { name: /1번 파일 적재 방식/ }).click();
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
 

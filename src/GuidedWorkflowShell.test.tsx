@@ -7,6 +7,9 @@ import { writeProductSelection } from './productWorkflow';
 import { publishWorkflowPreview, readWorkflowPreview } from './workflowPreview';
 import { publishGuidedLoadingUnit } from './guidedLoadingUnitState';
 import type { ContainerSpec, LoadingResult } from './engine/types';
+import { loadContainer } from './engine/loadingEngine';
+import { clearLoadSimAcceptance, publishLoadSimAcceptance } from './rule-engine/acceptance';
+import { clearPhysicsTarget } from './physicsTarget';
 
 // Keep the actual shell, stage components, product/packaging stores and modal lifecycle.
 // No renderer or packing/physics worker is needed to exercise DOM/confirmation ownership.
@@ -36,6 +39,7 @@ async function settle() { await act(async () => { await new Promise(resolve => s
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   localStorage.clear(); sessionStorage.clear(); delete latest.__containerLoadingLatestResult;
+  clearLoadSimAcceptance(); clearPhysicsTarget();
   publishGuidedLoadingUnit(null); publishWorkflowPreview(null); commits = 0;
   localStorage.setItem('container-loading-product-packaging-v1:guest', JSON.stringify({ container,
     products: [{ id: 'RETAIN-1', name: 'Retained direct product', length: .2, width: .15, height: .1, weightKg: 1, quantity: 3, requiresBoxPackaging: false }], boxes: [], settings: { allowCustom: false },
@@ -48,6 +52,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove(); document.body.replaceChildren(); delete latest.__containerLoadingLatestResult;
+  clearLoadSimAcceptance(); clearPhysicsTarget();
   publishWorkflowPreview(null); localStorage.clear(); sessionStorage.clear(); vi.unstubAllGlobals();
 });
 
@@ -62,7 +67,9 @@ async function prepareStrategy() {
   expect(action().disabled).toBe(false);
   await click(action());
   expect(modal().getAttribute('aria-label')).toBe('적재 방식 선택 설정');
-  const capacity = Array.from(modal().querySelectorAll<HTMLButtonElement>('[role="radio"]')).find(button => button.textContent!.includes('공간효율'))!;
+  const capacity = Array.from(modal().querySelectorAll<HTMLButtonElement>('[role="radio"]')).find(button => button.textContent!.includes('1번 파일 적재 방식'))!;
+  expect(modal().querySelectorAll('[role="radio"]')).toHaveLength(1);
+  expect(modal().textContent).not.toContain('무게중심·안정성 우선형');
   await click(capacity);
   expect(capacity.getAttribute('aria-checked')).toBe('true');
   expect(action().disabled).toBe(false);
@@ -123,11 +130,12 @@ it('retains packaging confirmation and strategy across modal reopens, but resets
 it('keeps completed results and canvas available through result-modal close/reopen without republishing a plan', async () => {
   await mount(); await prepareStrategy(); await click(action());
   const stored = readStoredState()!;
-  const result: LoadingResult = { placements: Array.from({ length: 3 }, (_, index) => ({ cargoId: stored.cargo[0].id, x: index * .2, y: 0, z: 0, length: .2, width: .15, height: .1, weightKg: 1, rotated: false })), remaining: [], validationIssues: [], loadedWeightKg: 3, usedVolumeM3: .009 };
+  const result = loadContainer(stored.container, stored.cargo, { publish: false });
+  expect(result.placements).toHaveLength(3);
   latest.__containerLoadingLatestResult = { ...stored, result };
   await act(async () => {
     window.dispatchEvent(new CustomEvent('container-loading:result', { detail: latest.__containerLoadingLatestResult }));
-    window.dispatchEvent(new CustomEvent('container-loading:inertia-certification-result', { detail: { mode: 'boxes', status: 'passed' } }));
+    publishLoadSimAcceptance({ mode: 'boxes', ...stored, result });
   });
   const canvas = document.querySelector('canvas');
   expect(action().textContent).toContain('결과 확인');
@@ -146,7 +154,7 @@ it('keeps completed results and canvas available through result-modal close/reop
 });
 
 
-it('keeps STEP 06 locked when inertia certification completes with failed status', async () => {
+it('keeps STEP 06 locked when optional inertia completes without A acceptance', async () => {
   await mount(); await prepareStrategy(); await click(action());
   const stored = readStoredState()!;
   const result: LoadingResult = {
@@ -161,4 +169,39 @@ it('keeps STEP 06 locked when inertia certification completes with failed status
   expect(step(6).disabled).toBe(true);
   expect(action().textContent).toContain('최종 적재 진행');
   expect(action().textContent).not.toContain('결과 확인');
+});
+
+
+it('does not relock an A-accepted result when optional inertia fails or clears', async () => {
+  await mount(); await prepareStrategy(); await click(action());
+  const stored = readStoredState()!;
+  const result = loadContainer(stored.container, stored.cargo, { publish: false });
+  latest.__containerLoadingLatestResult = { ...stored, result };
+  await act(async () => {
+    window.dispatchEvent(new CustomEvent('container-loading:result', { detail: latest.__containerLoadingLatestResult }));
+    publishLoadSimAcceptance({ mode: 'boxes', ...stored, result });
+    window.dispatchEvent(new CustomEvent('container-loading:inertia-certification-result', { detail: { mode: 'boxes', status: 'failed' } }));
+    window.dispatchEvent(new CustomEvent('container-loading:inertia-certification-result', { detail: undefined }));
+  });
+  expect(step(6).disabled).toBe(false);
+  expect(action().textContent).toContain('결과 확인');
+  await act(async () => clearLoadSimAcceptance());
+  expect(step(6).disabled).toBe(true);
+});
+
+it('keeps a completed empty result available for reasons only after acceptance clears', async () => {
+  await mount(); await prepareStrategy(); await click(action());
+  const stored = readStoredState()!;
+  const result: LoadingResult = { placements: [], remaining: [{ cargoId: stored.cargo[0].id, quantity: 3, reason: 'A 규칙 안에서 적재 불가' }], validationIssues: [], loadedWeightKg: 0, usedVolumeM3: 0, ruleEngine: 'load-sim' };
+  latest.__containerLoadingLatestResult = { ...stored, result };
+  await act(async () => {
+    window.dispatchEvent(new CustomEvent('container-loading:result', { detail: latest.__containerLoadingLatestResult }));
+    window.dispatchEvent(new CustomEvent('test:no-load', { detail: { mode: 'boxes', ...stored, result } }));
+    clearLoadSimAcceptance();
+  });
+  expect(step(6).disabled).toBe(false);
+  expect(action().textContent).toContain('결과 확인');
+  await click(action());
+  expect(action().disabled).toBe(true);
+  expect(action().textContent).toContain('미적재 사유 확인');
 });

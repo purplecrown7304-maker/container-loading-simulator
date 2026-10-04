@@ -1,21 +1,24 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildLoadingReportHtml, openLoadingReport } from './report';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { buildSecuringUsage, clearLatestInertiaCertification, createPhysicsTargetSignature, type InertiaCertification } from './inertiaCertification';
 import { clearPhysicsTarget, publishPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { REQUEST_DIRECT_WORK_ORDER_EVENT } from './directWorkOrderEvents';
+import { clearLoadSimAcceptance, publishLoadSimAcceptance } from './rule-engine/acceptance';
 
-afterEach(() => { vi.restoreAllMocks(); clearLatestInertiaCertification(); clearPhysicsTarget(); });
+afterEach(() => { vi.restoreAllMocks(); clearLatestInertiaCertification(); clearPhysicsTarget(); clearLoadSimAcceptance(); });
 
 const container: ContainerSpec = { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 };
 const cargo: CargoItem[] = [{ id: 'BOX-A', name: '<b>BOX A</b>', length: 0.6, width: 0.4, height: 0.35, weightKg: 18, quantity: 2, maxStackLayers: 7, maxTopLoadKg: 100 }];
 const result: LoadingResult = {
-  placements: [{ cargoId: 'BOX-A', x: 0, y: 0, z: 0, length: 0.6, width: 0.4, height: 0.35, weightKg: 18 }],
+  ruleEngine: 'load-sim',
+  placements: [{ cargoId: 'BOX-A', x: 5.715, y: .975, z: 0, length: 0.6, width: 0.4, height: 0.35, weightKg: 18 }],
   remaining: [{ cargoId: 'BOX-A', quantity: 1, reason: '<script>alert(1)</script>' }],
   loadedWeightKg: 18,
   usedVolumeM3: 0.084,
   validationIssues: [],
 };
+beforeEach(() => { expect(publishLoadSimAcceptance({ mode: 'boxes', container, cargo, result }).status).toBe('accepted'); });
 
 describe('loading work order', () => {
   it('opens a completed danger report without recursively requesting optimization', () => {

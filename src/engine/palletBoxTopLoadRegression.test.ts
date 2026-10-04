@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultPalletSpec, packOnPallets } from './palletPacking';
+import { defaultPalletSpec, preparePalletLoads as packOnPallets } from './palletPacking';
 import type { CargoItem, ContainerSpec } from './types';
 
 const container: ContainerSpec = {

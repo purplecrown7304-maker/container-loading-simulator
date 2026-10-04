@@ -1,21 +1,10 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { physicsTargetFromPalletSnapshot } from './certifiedExport';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
-import { hasCurrentPhysicsVerification } from './exportVerification';
-import {
-  buildSecuringUsage,
-  createPhysicsTargetSignature,
-  readLatestInertiaCertification,
-  type InertiaCertification,
-} from './inertiaCertification';
 import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
-import { assessWorkOrderCertification } from './inertiaWorkOrderPolicy';
-import { buildPalletLoadingReportHtml, type PalletWorkSnapshot } from './palletWorkerReportV2';
-import { readPhysicsTarget } from './physicsTarget';
-import { buildLoadingReportHtml } from './report';
+import { openPalletLoadingReport, type PalletWorkSnapshot } from './palletWorkerReportV2';
+import { openLoadingReport } from './report';
 import { openWorkspace } from './uiEvents';
-import { boxWorkOrderHardBlockers, palletWorkOrderHardBlockers } from './workOrderAccessPolicy';
 
 const OPEN_PHYSICS_VALIDATION_EVENT = 'container-loading:open-physics-validation';
 
@@ -83,115 +72,13 @@ function currentMode(): 'boxes' | 'pallets' {
   return (active?.textContent ?? '').includes('팔레트') ? 'pallets' : 'boxes';
 }
 
-function openPopupHtml(html: string) {
-  const popup = window.open('', '_blank');
-  if (!popup) {
-    window.alert('브라우저 팝업이 차단되어 작업지시서를 열지 못했습니다. 팝업을 허용한 뒤 다시 실행하세요.');
-    return;
-  }
-  try { popup.opener = null; } catch { /* opener 변경 제한 브라우저 */ }
-  popup.document.open();
-  popup.document.write(html);
-  popup.document.close();
-}
-
-function advisoryBanner(html: string, text: string) {
-  const safe = text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-  return html.replace(
-    '<body>',
-    `<body><div class="report-advisory">검토용 작업지시서 · ${safe}</div>`,
-  );
-}
-
-function confirmAdvisory(reason: string) {
-  return window.confirm(`현재 적재안은 작업지시서 생성에 필요한 물리 배치 조건은 충족합니다.\n\n${reason}\n\n검증 경고를 포함한 '검토용 작업지시서'를 생성할까요?`);
-}
-
-function boxAdvisoryReason() {
-  if (hasCurrentPhysicsVerification()) return '';
-  const target = readPhysicsTarget();
-  const certification = readLatestInertiaCertification();
-  const matches = Boolean(target && certification && certification.targetSignature === createPhysicsTargetSignature(target) && certification.mode === 'boxes');
-  if (!matches || !certification) return '관성 3종 검증이 미완료이거나 현재 적재안과 일치하지 않습니다. 출고 전 현장 확인이 필요합니다.';
-  const level = assessWorkOrderCertification(certification);
-  if (level === 'danger') return '관성 시뮬레이션에서 위험 기준을 초과했습니다. 문서는 검토용으로만 사용하고 재배치·고정 보강 후 출고 여부를 결정하세요.';
-  if (level === 'caution') return '관성 내부 PASS 기준을 일부 초과했습니다. 작업지시서의 보완 권장사항과 현장 고정을 확인하세요.';
-  return '관성 검증이 완전히 끝나지 않았습니다. 출고 전 현장 확인이 필요합니다.';
-}
-
 function openBoxWorkOrder(detail: LoadingDetail) {
-  const blockers = boxWorkOrderHardBlockers(detail.container, detail.result);
-  if (blockers.length) {
-    window.alert(`작업지시서 생성 차단 · 실제 적재가 불가능한 항목이 있습니다.\n\n${blockers.map((item, index) => `${index + 1}. ${item}`).join('\n')}`);
-    return;
-  }
-
-  const reason = boxAdvisoryReason();
-  if (reason && !confirmAdvisory(reason)) return;
-  const html = buildLoadingReportHtml(detail.container, detail.cargo, detail.result);
-  openPopupHtml(reason ? advisoryBanner(html, reason) : html);
-}
-
-function advisoryPalletCertification(
-  container: ContainerSpec,
-  cargo: CargoItem[],
-  snapshot: PalletWorkSnapshot,
-): InertiaCertification {
-  const target = physicsTargetFromPalletSnapshot(container, cargo, snapshot);
-  const signature = createPhysicsTargetSignature(target);
-  const latest = readLatestInertiaCertification();
-  if (latest?.mode === 'pallets' && latest.targetSignature === signature) return latest;
-
-  const securing = buildSecuringUsage(target, 1);
-  return {
-    status: 'failed',
-    mode: 'pallets',
-    targetSignature: signature,
-    testedAt: new Date().toISOString(),
-    securing,
-    testedScenarios: 0,
-    passedScenarios: 0,
-    failedScenarios: ['acceleration', 'braking', 'cornering'],
-    maxHorizontalShiftM: 0,
-    maxTiltDeg: 0,
-    maxCargoRelativeSlipM: 0,
-    maxSupportShiftM: 0,
-    results: {},
-    payloadWithinLimit: target.result.loadedWeightKg + securing.estimatedAddedWeightKg <= container.maxPayloadKg + 1e-9,
-    attempts: [],
-  };
+  openLoadingReport(detail.container, detail.cargo, detail.result);
 }
 
 function openPalletWorkOrder(detail: LoadingDetail, snapshot: PalletWorkSnapshot | undefined) {
-  if (!snapshot) {
-    window.alert('팔레트 작업지시서를 만들 적재 결과가 없습니다. 팔레트 자동 적재를 먼저 실행하세요.');
-    return;
-  }
-
-  const blockers = palletWorkOrderHardBlockers(detail.container, snapshot);
-  if (blockers.length) {
-    window.alert(`작업지시서 생성 차단 · 실제 팔레트 적재가 불가능한 항목이 있습니다.\n\n${blockers.map((item, index) => `${index + 1}. ${item}`).join('\n')}`);
-    return;
-  }
-
-  const certification = advisoryPalletCertification(detail.container, detail.cargo, snapshot);
-  if (!certification.payloadWithinLimit) {
-    window.alert('작업지시서 생성 차단 · 기본 고정 보조자재 중량까지 포함하면 컨테이너 최대 적재중량을 초과합니다.');
-    return;
-  }
-
-  const level = assessWorkOrderCertification(certification);
-  const reason = level === 'pass'
-    ? ''
-    : level === 'caution'
-      ? '관성 내부 PASS 기준을 일부 초과했습니다. 작업지시서의 고정 보완사항을 현장에서 확인하세요.'
-      : level === 'danger'
-        ? '관성 시뮬레이션에서 위험 기준을 초과했습니다. 문서는 검토용으로만 사용하고 팔레트 재배치·밴딩·랩핑·고정 보강 후 출고 여부를 결정하세요.'
-        : '관성 3종 검증이 미완료이거나 현재 팔레트 적재안과 일치하지 않습니다. 출고 전 현장 확인이 필요합니다.';
-  if (reason && !confirmAdvisory(reason)) return;
-
-  const html = buildPalletLoadingReportHtml(detail.container, detail.cargo, snapshot, certification);
-  openPopupHtml(reason ? advisoryBanner(html, reason) : html);
+  if (!snapshot) { window.alert('현재 팔레트 적재 결과가 없습니다.'); return; }
+  openPalletLoadingReport(detail.container, detail.cargo);
 }
 
 export default function DashboardCommandDock() {

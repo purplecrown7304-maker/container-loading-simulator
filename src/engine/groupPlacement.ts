@@ -1,10 +1,9 @@
-import { isInsideContainer, overlaps, validatePlacements } from './constraints';
-import { canPlaceByStackingRules } from './stacking';
 import { analyzeFloorLoad } from './floorLoad';
 import { assessWeightBalance } from './weightBalance';
 import { buildPlacementAddresses } from './locationGrid';
 import { snapManualCoordinate } from './manualPlacement';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
+import { canPlaceWithLoadSim, validateExistingWithLoadSim } from '../rule-engine/loadSimEngine';
 
 const EPS = 0.001;
 
@@ -32,15 +31,6 @@ function directlySupports(lower: Placement, upper: Placement): boolean {
   return Math.abs(lower.z + lower.height - upper.z) <= EPS && overlapArea(lower, upper) > EPS;
 }
 
-function fullySupported(candidate: Placement, placements: Placement[]): boolean {
-  if (candidate.z <= EPS) return true;
-  let area = 0;
-  for (const p of placements) {
-    if (Math.abs(p.z + p.height - candidate.z) > EPS) continue;
-    area += overlapArea(candidate, p);
-  }
-  return area + EPS >= candidate.length * candidate.width;
-}
 
 export function selectPlacementGroup(
   source: LoadingResult,
@@ -81,7 +71,6 @@ export function assessGroupMove(
   const uniqueIndices = [...new Set(indices)].filter(index => source.placements[index]);
   const reasons: string[] = [];
   if (uniqueIndices.length === 0) reasons.push('이동할 박스가 선택되지 않았습니다.');
-  if (groupSupportsOutside(uniqueIndices, source.placements)) reasons.push('선택 블록이 선택되지 않은 상부 화물을 지지하고 있습니다.');
 
   const snappedDelta = {
     x: snapSigned(delta.x),
@@ -106,17 +95,22 @@ export function assessGroupMove(
     const candidate = finalPlacements[index];
     const item = cargoById.get(candidate.cargoId);
     if (!item) { reasons.push(`품목 정보가 없습니다: ${candidate.cargoId}`); continue; }
-    if (!isInsideContainer(container, candidate)) reasons.push(`${candidate.cargoId}: 컨테이너 경계를 벗어납니다.`);
     const others = finalPlacements.filter((_, i) => i !== index);
-    if (others.some(other => overlaps(candidate, other))) reasons.push(`${candidate.cargoId}: 이동 후 다른 화물과 충돌합니다.`);
-    if (!fullySupported(candidate, others)) reasons.push(`${candidate.cargoId}: 이동 후 바닥면 전체가 지지되지 않습니다.`);
-    if (!canPlaceByStackingRules(item, candidate, others, cargoById)) reasons.push(`${candidate.cargoId}: 적층단 또는 상부 허용중량 조건을 만족하지 않습니다.`);
+    reasons.push(...canPlaceWithLoadSim(container, cargo, others, candidate)
+      .filter(v => v.severity === 'error').map(v => `${candidate.cargoId}: ${v.message}`));
   }
 
-  const validationIssues = validatePlacements(container, finalPlacements);
-  if (validationIssues.length) reasons.push('최종 배치 검증에서 충돌 또는 경계 문제가 발견됐습니다.');
+  const nextValidation = validateExistingWithLoadSim(container, cargo, finalPlacements);
+  const validationIssues = nextValidation.validationIssues;
+  if (validationIssues.length) reasons.push('최종 배치 검증에서 충돌·경계·적재규칙 문제가 발견됐습니다.');
 
-  const result: LoadingResult = { ...source, placements: finalPlacements, validationIssues };
+  const result: LoadingResult = {
+    ...source,
+    placements: finalPlacements,
+    validationIssues,
+    operationalFindings: nextValidation?.operationalFindings ?? source.operationalFindings,
+    ruleEngine: 'load-sim',
+  };
   const beforeQuality = assessWeightBalance(container, source);
   const afterQuality = assessWeightBalance(container, result);
   const beforeFloor = analyzeFloorLoad(container, source, 12, 4);

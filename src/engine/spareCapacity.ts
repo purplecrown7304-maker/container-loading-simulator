@@ -29,7 +29,7 @@ function itemVolume(item: CargoItem) {
 
 /**
  * 현재 적재 결과를 보존한 채 특정 품목을 추가로 몇 개 더 배치할 수 있는지 탐색한다.
- * 기존 혼합 적재 탐색과 동일한 충돌/지지/적층/상부하중 규칙을 사용한다.
+ * A 방향/canPlace 후보검사와 최종 validate를 모두 통과한 추가 위치만 반환한다.
  */
 export function estimateAdditionalCargo(
   container: ContainerSpec,

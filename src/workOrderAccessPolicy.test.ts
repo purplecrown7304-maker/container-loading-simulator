@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { OptimizedPalletPackingResult, PalletSpec } from './engine/palletOptimization';
+import { packOnPallets, type PalletSpec } from './engine/palletOptimization';
 import type { ContainerSpec, LoadingResult, Placement } from './engine/types';
 import { boxWorkOrderHardBlockers, palletWorkOrderHardBlockers } from './workOrderAccessPolicy';
 
@@ -34,60 +34,23 @@ const palletSpec: PalletSpec = {
   minimizePackaging: true,
 };
 
-function palletResult(overrides: Partial<OptimizedPalletPackingResult> = {}): OptimizedPalletPackingResult {
-  return {
-    pallets: [{
-      palletIndex: 1,
-      x: 1,
-      y: 0.4,
-      z: 0,
-      stackLevel: 1,
-      stackColumn: 1,
-      length: 1.1,
-      width: 1.1,
-      height: 0.15,
-      cargoPlacements: [placement],
-      cargoWeightKg: 100,
-      packagingWeightKg: 0,
-      packagingExtraHeightM: 0,
-      cornerGuardsUsed: false,
-      wrappingUsed: false,
-      totalWeightKg: 125,
-      centerOfGravity: { x: 1.55, y: 0.95, z: 0.5 },
-    }],
-    placements: [placement],
-    remaining: [],
-    palletCount: 1,
-    loadedCargoWeightKg: 100,
-    totalPackagingWeightKg: 0,
-    avoidedPackagingWeightKg: 0,
-    packagedPalletCount: 0,
-    totalPalletizedWeightKg: 125,
-    consolidatedPallets: 0,
-    lateralImbalanceKg: 0,
-    stackedPallets: 0,
-    maxUsedStackLevel: 1,
-    optimization: { selectedStackTarget: 1, candidateCount: 1, floorPositions: 1, redistributedForLowUtilization: false, consolidationPasses: 0 },
-    ...overrides,
-  };
-}
-
-describe('work order access hard blockers', () => {
-  it('allows a physically valid box plan without requiring inertia certification', () => {
-    expect(boxWorkOrderHardBlockers(container, boxResult())).toEqual([]);
+describe('A-only work order access', () => {
+  it('requires reloading an old untagged plan through A', () => {
+    expect(boxWorkOrderHardBlockers(container, boxResult())).toContain('A 적재 방식으로 다시 계산해야 합니다.');
   });
 
-  it('blocks box output only for physical impossibility such as collision/bounds/payload', () => {
-    expect(boxWorkOrderHardBlockers(container, boxResult({ loadedWeightKg: 12000 }))).not.toEqual([]);
-    expect(boxWorkOrderHardBlockers(container, boxResult({ validationIssues: [{ type: 'OUT_OF_BOUNDS', message: '경계 침범', placementIndexes: [0] }] }))).toContain('경계 침범');
+  it('preserves A hard errors and ignores optional warning severity', () => {
+    expect(boxWorkOrderHardBlockers(container, boxResult({ ruleEngine: 'load-sim', operationalFindings: [{ code: 'GAP', severity: 'warning', message: 'Gap', placementIndexes: [] }] }))).toEqual([]);
+    expect(boxWorkOrderHardBlockers(container, boxResult({ ruleEngine: 'load-sim', operationalFindings: [{ code: 'OVERLAP', severity: 'error', message: 'A overlap', placementIndexes: [0] }] }))).toContain('A overlap');
   });
 
-  it('allows a physically valid pallet plan without requiring inertia certification', () => {
-    expect(palletWorkOrderHardBlockers(container, { spec: palletSpec, result: palletResult() })).toEqual([]);
-  });
-
-  it('blocks pallet output for payload or pallet structural limits', () => {
-    expect(palletWorkOrderHardBlockers(container, { spec: palletSpec, result: palletResult({ totalPalletizedWeightKg: 12000 }) })).not.toEqual([]);
-    expect(palletWorkOrderHardBlockers(container, { spec: palletSpec, result: palletResult({ maxUsedStackLevel: 3 }) })).not.toEqual([]);
+  it('uses canonical A pallet rules rather than a second legacy stack-level veto', () => {
+    const cargo = [{ id: 'A', name: 'A', length: .5, width: .4, height: .3, weightKg: 10, quantity: 2 }];
+    const result = packOnPallets(container, cargo, palletSpec);
+    expect(result.ruleEngineInput?.provenance).toBeDefined();
+    result.maxUsedStackLevel = 99; // Retired summary metadata cannot override the actual A rigid geometry.
+    expect(palletWorkOrderHardBlockers(container, { spec: palletSpec, result })).toEqual([]);
+    result.ruleEngineInput!.placements[0].x = 10;
+    expect(palletWorkOrderHardBlockers(container, { spec: palletSpec, result }).length).toBeGreaterThan(0);
   });
 });

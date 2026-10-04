@@ -4,7 +4,7 @@ import { loadContainer, restoreLoadingResult } from './loadingEngine';
 import { clearManualOverride, writeManualOverride } from './manualOverride';
 
 const container = { length: 1, width: 1, height: 1, maxPayloadKg: 100 };
-const cargo = [{ id: 'ASYNC', name: '박스', length: 0.5, width: 0.5, height: 0.2, quantity: 12, weightKg: 1, maxStackLayers: 3, maxTopLoadKg: 2 }];
+const cargo = [{ id: 'ASYNC', name: '박스', length: 0.2, width: 0.2, height: 0.2, quantity: 4, weightKg: 1, maxStackLayers: 3, maxTopLoadKg: 2 }];
 
 afterEach(() => { vi.unstubAllGlobals(); clearManualOverride(); });
 

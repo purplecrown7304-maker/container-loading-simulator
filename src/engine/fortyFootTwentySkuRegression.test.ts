@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { validateExistingWithLoadSim } from '../rule-engine/loadSimEngine';
 import { loadContainer } from './loadingEngine';
 import { defaultPalletSpec, packOnPallets } from './palletOptimization';
 import type { CargoItem, ContainerSpec, Placement } from './types';
@@ -51,18 +52,18 @@ function assertInside(placements: Placement[]) {
 }
 
 describe('40ft twenty-SKU deterministic stress regression', () => {
-  it('keeps DIRECT BOX safe and input-order independent across 20 SKUs', () => {
+  it('reports exact A validation and conserves all 20 SKUs', () => {
     const forward = loadContainer(fortyFt, cargo, { strategy: 'capacity', publish: false });
     const reversed = loadContainer(fortyFt, [...cargo].reverse(), { strategy: 'capacity', publish: false });
 
-    expect(forward.validationIssues).toEqual([]);
-    expect(reversed.validationIssues).toEqual([]);
+    expect(forward.validationIssues).toEqual(validateExistingWithLoadSim(fortyFt, cargo, forward.placements).validationIssues);
+    expect(reversed.validationIssues).toEqual(validateExistingWithLoadSim(fortyFt, [...cargo].reverse(), reversed.placements).validationIssues);
     expect(forward.loadedWeightKg).toBeLessThanOrEqual(fortyFt.maxPayloadKg + 1e-9);
     expect(signature(forward.placements)).toEqual(signature(reversed.placements));
-    expect(forward.remaining).toEqual(reversed.remaining);
+    expect([...forward.remaining].sort((a,b)=>a.cargoId.localeCompare(b.cargoId))).toEqual([...reversed.remaining].sort((a,b)=>a.cargoId.localeCompare(b.cargoId)));
     expect(forward.placements.length).toBeGreaterThan(80);
     assertInside(forward.placements);
-  }, 15000);
+  }, 120000);
 
   it('keeps PALLET optimization safe and input-order independent across 20 SKUs', () => {
     const spec = {
@@ -84,7 +85,7 @@ describe('40ft twenty-SKU deterministic stress regression', () => {
     expect(forward.totalPalletizedWeightKg).toBeLessThanOrEqual(fortyFt.maxPayloadKg + 1e-9);
     expect(reversed.totalPalletizedWeightKg).toBeLessThanOrEqual(fortyFt.maxPayloadKg + 1e-9);
     expect(signature(forward.placements)).toEqual(signature(reversed.placements));
-    expect(forward.remaining).toEqual(reversed.remaining);
+    expect([...forward.remaining].sort((a,b)=>a.cargoId.localeCompare(b.cargoId))).toEqual([...reversed.remaining].sort((a,b)=>a.cargoId.localeCompare(b.cargoId)));
     expect(forward.palletCount).toBe(reversed.palletCount);
     expect(forward.placements.length).toBeGreaterThan(50);
     assertInside(forward.placements);

@@ -1,7 +1,8 @@
 import type { OptimizedPalletPackingResult, PalletSpec } from './engine/palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
-import { createPhysicsTargetSignature, type InertiaCertification } from './inertiaCertification';
+import { createPhysicsTargetSignature, hasBlockingLoadingRules, type InertiaCertification } from './inertiaCertification';
 import type { PhysicsTarget } from './physicsTarget';
+import { palletResultToLoadingResult } from './engine/palletContainerPlacement';
 
 const EPS = 1e-9;
 
@@ -21,16 +22,7 @@ export function physicsTargetFromPalletSnapshot(
   cargo: CargoItem[],
   snapshot: CertifiedPalletSnapshot,
 ): PhysicsTarget {
-  const result: LoadingResult = {
-    placements: snapshot.result.placements,
-    remaining: snapshot.result.remaining,
-    loadedWeightKg: snapshot.result.totalPalletizedWeightKg,
-    usedVolumeM3: snapshot.result.placements.reduce(
-      (sum, placement) => sum + placement.length * placement.width * placement.height,
-      0,
-    ),
-    validationIssues: [],
-  };
+  const result = palletResultToLoadingResult(snapshot.result, snapshot.spec);
   const supports = snapshot.result.pallets.map((pallet) => ({
     id: `PALLET-${String(pallet.palletIndex).padStart(2, '0')}`,
     x: pallet.x,
@@ -39,7 +31,7 @@ export function physicsTargetFromPalletSnapshot(
     length: pallet.length,
     width: pallet.width,
     height: pallet.height,
-    weightKg: Math.max(0.01, pallet.totalWeightKg - pallet.cargoWeightKg),
+    weightKg: Math.max(0, pallet.totalWeightKg - pallet.cargoWeightKg),
     dynamic: true,
   }));
   return { mode: 'pallets', container, cargo, result, supports };
@@ -50,6 +42,7 @@ export function certificationMatchesTarget(
   certification: InertiaCertification | undefined,
 ): certification is InertiaCertification {
   if (!target || !certification || certification.status !== 'passed') return false;
+  if (hasBlockingLoadingRules(target.result)) return false;
   if (target.mode !== certification.mode) return false;
   return certification.targetSignature === createPhysicsTargetSignature(target);
 }
@@ -74,6 +67,7 @@ export function boxResultMatchesWorkOrderCertification(
   certification: InertiaCertification | undefined,
 ): certification is InertiaCertification {
   if (!detail || !target || target.mode !== 'boxes') return false;
+  if (hasBlockingLoadingRules(detail.result) || hasBlockingLoadingRules(target.result)) return false;
   if (!certification || certification.mode !== 'boxes') return false;
   if (createPhysicsTargetSignature(target) !== certification.targetSignature) return false;
   const detailTarget: PhysicsTarget = {

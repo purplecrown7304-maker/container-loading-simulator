@@ -14,6 +14,7 @@ import { openPalletLoadingReport as openPalletLoadingReportV2 } from './palletWo
  */
 export function openPalletLoadingReport(container: ContainerSpec, cargo: CargoItem[]): boolean {
   const target = restorePalletPhysicsTarget(container, cargo);
+  if (target?.result.ruleEngine === 'load-sim') return openPalletLoadingReportV2(container, cargo);
   const certification = readLatestInertiaCertification();
   const matches = Boolean(
     target

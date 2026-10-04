@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultPalletSpec, packOnPallets } from './palletPacking';
+import { defaultPalletSpec, preparePalletLoads as packOnPallets } from './palletPacking';
 import type { CargoItem, ContainerSpec } from './types';
 
 const container: ContainerSpec = {
@@ -23,79 +23,8 @@ const box = (overrides: Partial<CargoItem> = {}): CargoItem => ({
   ...overrides,
 });
 
-describe('packOnPallets', () => {
-  it('includes load transmitted through lower carton layers before stacking another pallet', () => {
-    const space = { length: 1, width: 1, height: 2.1, maxPayloadKg: 1000 };
-    const spec = { ...defaultPalletSpec, length: 1, width: 1, maxLoadKg: 60, maxStackLevels: 2 };
-    const cargo = box({ length: 1, width: 1, height: .4, weightKg: 30, quantity: 4, maxTopLoadKg: 100 });
-    // Two cartons on the lower pallet: 30 kg already bears on the bottom carton.
-    // Another 85 kg pallet would raise this to 115 kg despite its top carton passing.
-    const unsafe = packOnPallets(space, [cargo], spec);
-    expect(unsafe.placements).toHaveLength(2);
-    expect(unsafe.maxUsedStackLevel).toBe(1);
-    const strong = packOnPallets(space, [{ ...cargo, maxTopLoadKg: 200 }], spec);
-    expect(strong.placements).toHaveLength(4);
-    expect(strong.maxUsedStackLevel).toBe(2);
-  });
-
-  it('keeps palletized weight within the container payload', () => {
-    const result = packOnPallets(
-      { ...container, maxPayloadKg: 300 },
-      [box({ quantity: 20, weightKg: 50 })],
-      { ...defaultPalletSpec, tareWeightKg: 25, maxLoadKg: 1000 },
-    );
-    expect(result.totalPalletizedWeightKg).toBeLessThanOrEqual(300 + 1e-9);
-  });
-
-  it('reserves enabled packaging weight before accepting cargo', () => {
-    const result = packOnPallets(
-      { length: 1.1, width: 1.1, height: 1.2, maxPayloadKg: 100 },
-      [box({ length: 1.1, width: 1.1, height: 0.4, quantity: 1, weightKg: 70, maxStackLayers: 1, allowRotation: false })],
-      {
-        ...defaultPalletSpec,
-        length: 1.1,
-        width: 1.1,
-        height: 0.15,
-        tareWeightKg: 25,
-        maxStackLevels: 2,
-        useCornerGuards: true,
-        cornerGuardWeightKg: 10,
-        useWrapping: false,
-        minimizePackaging: true,
-      },
-    );
-    expect(result.placements).toHaveLength(0);
-    expect(result.remaining[0]?.quantity).toBe(1);
-    expect(result.totalPalletizedWeightKg).toBeLessThanOrEqual(100 + 1e-9);
-  });
-
-  it('prioritizes heavier cargo before lighter input rows when payload is tight', () => {
-    const result = packOnPallets(
-      { length: 2.2, width: 1.1, height: 1.2, maxPayloadKg: 100 },
-      [
-        box({ id: 'LIGHT', name: 'LIGHT', length: 1.1, width: 1.1, height: 0.4, quantity: 1, weightKg: 10, maxStackLayers: 1, allowRotation: false }),
-        box({ id: 'HEAVY', name: 'HEAVY', length: 1.1, width: 1.1, height: 0.4, quantity: 1, weightKg: 70, maxStackLayers: 1, allowRotation: false }),
-      ],
-      { ...defaultPalletSpec, length: 1.1, width: 1.1, height: 0.15, tareWeightKg: 25, maxStackLevels: 1 },
-    );
-    expect(result.placements.map((placement) => placement.cargoId)).toEqual(['HEAVY']);
-    expect(result.remaining.find((item) => item.cargoId === 'LIGHT')?.quantity).toBe(1);
-  });
-
-  it('prioritizes the heavier total pallet group even when its unit boxes are lighter', () => {
-    const result = packOnPallets(
-      { length: 2, width: 1, height: 1.2, maxPayloadKg: 100 },
-      [
-        box({ id: 'HEAVY_UNIT', name: 'HEAVY UNIT', length: 1, width: 1, height: 0.4, quantity: 1, weightKg: 50, maxStackLayers: 1, allowRotation: false }),
-        box({ id: 'HEAVIER_GROUP', name: 'HEAVIER GROUP', length: 0.5, width: 1, height: 0.4, quantity: 2, weightKg: 30, maxStackLayers: 1, allowRotation: false }),
-      ],
-      { ...defaultPalletSpec, length: 1, width: 1, height: 0.15, tareWeightKg: 25, maxStackLevels: 1 },
-    );
-    expect(result.placements).toHaveLength(2);
-    expect(result.placements.every((placement) => placement.cargoId === 'HEAVIER_GROUP')).toBe(true);
-    expect(result.remaining.find((item) => item.cargoId === 'HEAVY_UNIT')?.quantity).toBe(1);
-  });
-
+// Container arrangement regressions now live in palletContainerPlacement.test.ts.
+describe('independent pallet preparation', () => {
   it('does not create extra pallets merely to keep SKUs pure', () => {
     const result = packOnPallets(
       { length: 2.2, width: 1.1, height: 1.2, maxPayloadKg: 5000 },
@@ -155,7 +84,6 @@ describe('packOnPallets', () => {
     expect((minY + maxY) / 2).toBeCloseTo(pallet.y + pallet.width / 2, 6);
   });
 
-
   it('packs mixed SKUs into full flat layers before building a narrow upper horn', () => {
     const items = [
       box({ id: 'A', name: 'A', length: 0.5, width: 0.5, height: 0.4, quantity: 3, weightKg: 20, maxStackLayers: 2, allowRotation: false }),
@@ -208,15 +136,6 @@ describe('packOnPallets', () => {
     expect(top).toBeLessThanOrEqual(0.95 + 1e-6);
   });
 
-  it('never uses more than the configured pallet stack levels', () => {
-    const result = packOnPallets(
-      container,
-      [box({ quantity: 36 })],
-      { ...defaultPalletSpec, maxStackLevels: 2, maxSupportedTopWeightKg: 2000 },
-    );
-    expect(result.maxUsedStackLevel).toBeLessThanOrEqual(2);
-  });
-
   it('can rotate boxes on a pallet when rotation increases capacity', () => {
     const result = packOnPallets(
       container,
@@ -235,16 +154,6 @@ describe('packOnPallets', () => {
     expect(result.placements.every((p) => !p.rotated)).toBe(true);
   });
 
-  it('uses all exact-fit decimal pallet slots', () => {
-    const result = packOnPallets(
-      { length: 1.2, width: 0.9, height: 0.75, maxPayloadKg: 5000 },
-      [box({ length: 0.4, width: 0.3, height: 0.3, quantity: 18, maxStackLayers: 2, allowRotation: false })],
-      { ...defaultPalletSpec, length: 1.2, width: 0.9, height: 0.15, maxStackLevels: 1 },
-    );
-    expect(result.placements).toHaveLength(18);
-    expect(result.remaining).toHaveLength(0);
-  });
-
   it('does not place a large box on a tiny supporting box', () => {
     const result = packOnPallets(
       { length: 2.2, width: 1.1, height: 2.0, maxPayloadKg: 5000 },
@@ -261,28 +170,5 @@ describe('packOnPallets', () => {
     const small = result.placements.find((placement) => placement.cargoId === 'SMALL');
     expect(large?.z).toBeCloseTo(0.15, 5);
     expect((small?.z ?? 0)).toBeGreaterThan(large?.z ?? 0);
-  });
-
-  it('does not block pallet stacking only because maxTopLoadKg is unspecified', () => {
-    const result = packOnPallets(
-      { length: 1.1, width: 1.1, height: 2.6, maxPayloadKg: 5000 },
-      [box({ length: 0.55, width: 0.55, height: 0.45, quantity: 16, weightKg: 10, maxStackLayers: 2, maxTopLoadKg: undefined, allowRotation: false })],
-      { ...defaultPalletSpec, length: 1.1, width: 1.1, height: 0.15, maxLoadKg: 100, maxStackLevels: 2, maxSupportedTopWeightKg: 1000 },
-    );
-    expect(result.palletCount).toBeGreaterThan(1);
-    expect(result.maxUsedStackLevel).toBe(2);
-    expect(result.stackedPallets).toBeGreaterThan(0);
-  });
-
-  it('still blocks pallet stacking when a configured top-load limit is too low', () => {
-    const result = packOnPallets(
-      { length: 1.1, width: 1.1, height: 2.6, maxPayloadKg: 5000 },
-      [box({ length: 0.55, width: 0.55, height: 0.45, quantity: 16, weightKg: 10, maxStackLayers: 2, maxTopLoadKg: 1, allowRotation: false })],
-      { ...defaultPalletSpec, length: 1.1, width: 1.1, height: 0.15, maxLoadKg: 100, maxStackLevels: 2, maxSupportedTopWeightKg: 1000 },
-    );
-    expect(result.palletCount).toBe(1);
-    expect(result.maxUsedStackLevel).toBe(1);
-    expect(result.stackedPallets).toBe(0);
-    expect(result.remaining.reduce((sum, item) => sum + item.quantity, 0)).toBeGreaterThan(0);
   });
 });

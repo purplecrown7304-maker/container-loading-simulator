@@ -1,9 +1,11 @@
 import {
   INERTIA_CERTIFICATION_EVENT,
+  hasBlockingLoadingRules,
   readLatestInertiaCertification,
   type InertiaCertification,
 } from './inertiaCertification';
 import { createExternalStore } from './store/externalStore';
+import { readPhysicsTarget, subscribePhysicsTarget, usePhysicsTarget } from './physicsTarget';
 
 const store = createExternalStore<InertiaCertification | undefined>(undefined);
 let legacyEventBound = false;
@@ -21,15 +23,22 @@ ensureLegacyEventAdapter();
 
 export function readCertificationState() {
   ensureLegacyEventAdapter();
+  const target = readPhysicsTarget();
+  if (target && hasBlockingLoadingRules(target.result)) return undefined;
   return store.getSnapshot() ?? readLatestInertiaCertification();
 }
 
 export function subscribeCertification(listener: () => void) {
   ensureLegacyEventAdapter();
-  return store.subscribe(listener);
+  const unsubscribeCertification = store.subscribe(listener);
+  const unsubscribeTarget = subscribePhysicsTarget(listener);
+  return () => { unsubscribeCertification(); unsubscribeTarget(); };
 }
 
 export function useCertification() {
   ensureLegacyEventAdapter();
-  return store.useSnapshot() ?? readLatestInertiaCertification();
+  const certification = store.useSnapshot();
+  const target = usePhysicsTarget();
+  if (target && hasBlockingLoadingRules(target.result)) return undefined;
+  return certification ?? readLatestInertiaCertification();
 }

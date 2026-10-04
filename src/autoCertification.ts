@@ -1,7 +1,6 @@
 import { requestDirectWorkOrder } from './directWorkOrderEvents';
 import { runPhysicsValidationSuite, type PhysicsScenario, type PhysicsValidationSuite } from './engine/physicsValidation';
-import { operationalErrors } from './engine/operationalValidator';
-import { createPhysicsTargetSignature, requestCertifiedResults } from './inertiaCertification';
+import { clearLatestInertiaCertification, createPhysicsTargetSignature, hasBlockingLoadingRules, LOADING_RULE_CERTIFICATION_BLOCKED, requestCertifiedResults } from './inertiaCertification';
 import { publishPhysicsTarget, readPhysicsTarget, subscribePhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
 export const FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT = 'container-loading:final-physics-validation-progress';
@@ -55,6 +54,8 @@ function clearFinalPhysicsRecord() {
 
 export function readFinalPhysicsValidation() {
   if (typeof window === 'undefined') return undefined;
+  const target = readPhysicsTarget();
+  if (target && hasBlockingLoadingRules(target.result)) return undefined;
   const physicsWindow = window as FinalPhysicsWindow;
   if (!physicsWindow.__containerLoadingFinalPhysicsSignature || !physicsWindow.__containerLoadingFinalPhysicsResult) return undefined;
   return {
@@ -65,6 +66,16 @@ export function readFinalPhysicsValidation() {
 
 async function validateThenCertify(target: PhysicsTarget) {
   if (typeof window === 'undefined') return;
+  if (hasBlockingLoadingRules(target.result)) {
+    ++validationRunId;
+    (window as FinalPhysicsWindow).__containerLoadingFinalPhysicsRunning = false;
+    clearFinalPhysicsRecord();
+    clearLatestInertiaCertification();
+    window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, {
+      detail: { mode: target.mode, signature: createPhysicsTargetSignature(target), error: LOADING_RULE_CERTIFICATION_BLOCKED },
+    }));
+    return;
+  }
   if (!target.result.placements.length && !(target.supports?.length)) {
     if (target.result.remaining.some(item => item.quantity > 0)) {
       ++validationRunId;
@@ -78,7 +89,7 @@ async function validateThenCertify(target: PhysicsTarget) {
   const runId = ++validationRunId;
   const signature = createPhysicsTargetSignature(target);
   const physicsWindow = window as FinalPhysicsWindow;
-  const hardFindings = operationalErrors(target.result.operationalFindings ?? []);
+  const hardFindings = (target.result.operationalFindings ?? []).filter(finding => finding.severity === 'error');
   if (hardFindings.length) {
     physicsWindow.__containerLoadingFinalPhysicsRunning = false;
     clearFinalPhysicsRecord();
@@ -125,6 +136,10 @@ async function validateThenCertify(target: PhysicsTarget) {
     window.dispatchEvent(new CustomEvent(PHYSICS_VALIDATION_RESULT_EVENT, {
       detail: { mode: target.mode, result: physics, finalValidation: true, signature },
     }));
+
+    // A already owns loading acceptance. Optional physics never starts another
+    // optimizer or replaces the accepted A layout with a legacy candidate.
+    if (target.result.ruleEngine === 'load-sim') return;
 
     // 박스 모드는 사용자가 '작업지시서 발급'을 눌렀을 때와 같은 검증 엔진을 자동 호출한다.
     // 보고서는 열지 않고, 관성 3종 + 누락 시나리오 보완 + 제한된 안전 후보 비교까지만 끝낸다.

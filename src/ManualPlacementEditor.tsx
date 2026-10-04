@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { assessManualMove, supportsOtherPlacement } from './engine/manualPlacement';
+import { assessManualMove } from './engine/manualPlacement';
 import { assessGroupMove, selectPlacementGroup, type GroupSelectionMode } from './engine/groupPlacement';
 import { clearManualOverride, writeManualOverride } from './engine/manualOverride';
 import { findBestSmartSnap, type SmartSnapReason } from './engine/smartSnap';
@@ -89,7 +89,7 @@ export default function ManualPlacementEditor() {
   },[detail]);
 
   const selected = selectedIndex === null ? undefined : detail?.result.placements[selectedIndex];
-  const locked = selectedIndex !== null && detail ? supportsOtherPlacement(selectedIndex,detail.result.placements) : false;
+  const locked = false; // A final validation decides whether supports remain valid.
   const assessment = useMemo(() => {
     if (groupMode || !detail || selectedIndex === null || !selected) return null;
     try { return assessManualMove(detail.container,detail.cargo,detail.result,selectedIndex,position,rotate); }
@@ -124,7 +124,7 @@ export default function ManualPlacementEditor() {
       if (!drag || !detail) return;
       setGroupMode(null); setGroupDelta(zeroDelta);
       const current = detail.result.placements[drag.index];
-      if (!current || supportsOtherPlacement(drag.index,detail.result.placements)) {
+      if (!current) {
         setMessage('지지 중인 하부 박스라 드래그 이동할 수 없습니다.');
         return;
       }

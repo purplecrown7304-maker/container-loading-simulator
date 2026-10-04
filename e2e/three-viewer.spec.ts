@@ -33,7 +33,7 @@ async function advanceToStrategy(page: import('@playwright/test').Page, id: stri
 
 
 test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
-test('Three renders the real loading plan and preserves certification during view changes', async ({ page }) => {
+test('Three renders the real loading plan and preserves A static acceptance during view changes', async ({ page }) => {
   test.setTimeout(150_000);
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -44,7 +44,7 @@ test('Three renders the real loading plan and preserves certification during vie
   await expect(page.locator('.viewer-card')).toBeVisible();
   const viewer = page.locator('.viewer-host .three-comparison-viewer');
   await advanceToStrategy(page, 'THREE-TEST');
-  await page.getByRole('radio', { name: /무게중심·안정성 우선형/ }).click();
+  await page.getByRole('radio', { name: /1번 파일 적재 방식/ }).click();
   await page.screenshot({ path: test.info().outputPath(`studio-strategy-${test.info().project.name}.png`), fullPage: true });
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
   await expect(viewer).toHaveAttribute('data-three-ready', 'true', { timeout: 100_000 });

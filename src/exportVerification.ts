@@ -1,6 +1,6 @@
 import { createPhysicsTargetSignature, readLatestInertiaCertification } from './inertiaCertification';
-import { assessWorkOrderCertification, canCreateWorkOrder } from './inertiaWorkOrderPolicy';
 import { readPhysicsTarget } from './physicsTarget';
+import { isLoadSimAcceptedTarget } from './rule-engine/acceptance';
 
 export function hasCurrentInertiaVerification(): boolean {
   if (typeof window === 'undefined') return false;
@@ -8,29 +8,20 @@ export function hasCurrentInertiaVerification(): boolean {
   const certification = readLatestInertiaCertification();
   if (!target || !certification) return false;
   if (certification.targetSignature !== createPhysicsTargetSignature(target)) return false;
-  return canCreateWorkOrder(certification);
+  return certification.testedScenarios === 3
+    && ['acceleration', 'braking', 'cornering'].every(scenario => Boolean(certification.results?.[scenario as keyof typeof certification.results]));
 }
 
 /**
- * The exact current target must complete all three inertia scenarios. Strict PASS
- * and CAUTION (below DANGER thresholds) are accepted for an operational work
- * order; DANGER or incomplete testing remains fail-closed.
+ * Optional dynamic-inspection completion only. This never grants loading/output
+ * acceptance, which belongs to the independent A-rule proof.
  */
 export function hasCurrentPhysicsVerification(): boolean {
   return hasCurrentInertiaVerification();
 }
 
 export function confirmUnverifiedExport(kind: string): boolean {
-  if (hasCurrentInertiaVerification()) return true;
-  if (typeof window !== 'undefined') {
-    const target = readPhysicsTarget();
-    const certification = readLatestInertiaCertification();
-    const matches = Boolean(target && certification && certification.targetSignature === createPhysicsTargetSignature(target));
-    const level = matches && certification ? assessWorkOrderCertification(certification) : 'incomplete';
-    const reason = level === 'danger'
-      ? '관성 테스트에서 위험 기준을 초과했습니다. 재배치 또는 보강 후 다시 검사하세요.'
-      : '현재 적재안의 출발·급정거·급회전 3종 검사가 완료되지 않았거나 최신 적재안과 일치하지 않습니다.';
-    window.alert(`${kind} 출력은 현재 차단되어 있습니다.\n\n${reason}`);
-  }
+  if (isLoadSimAcceptedTarget(readPhysicsTarget())) return true;
+  if (typeof window !== 'undefined') window.alert(`${kind} 출력은 현재 A 적재 규칙의 최종 검사를 통과한 배치에서만 가능합니다. 최신 적재 결과를 확인하세요.`);
   return false;
 }

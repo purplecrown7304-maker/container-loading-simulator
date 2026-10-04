@@ -2,23 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { compareLoadingStrategies, type StrategyComparison } from './engine/strategyComparison';
 import { planMultipleContainers } from './engine/multiContainerPlanner';
-import { LOADING_RESULT_EVENT, LOADING_STRATEGY_STORAGE_KEY, type LoadingStrategy } from './engine/loadingEngine';
+import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
-import { readStoredState, writeStoredState } from './storage';
+import { writeStoredState } from './storage';
 
 type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type LoadingWindow = Window & { __containerLoadingLatestResult?: LoadingDetail };
 
-const strategyOrder: LoadingStrategy[] = ['capacity', 'stability', 'unloading'];
-
 export default function StrategyComparisonPanel() {
   const [target, setTarget] = useState<Element | null>(null);
   const [detail, setDetail] = useState<LoadingDetail | null>(() => typeof window === 'undefined' ? null : ((window as LoadingWindow).__containerLoadingLatestResult ?? null));
-  const [active, setActive] = useState<LoadingStrategy>(() => {
-    if (typeof window === 'undefined') return 'capacity';
-    const value = localStorage.getItem(LOADING_STRATEGY_STORAGE_KEY);
-    return value === 'stability' || value === 'unloading' ? value : 'capacity';
-  });
   const [editingPriorities, setEditingPriorities] = useState(false);
   const [showFleetPlan, setShowFleetPlan] = useState(false);
 
@@ -38,17 +31,8 @@ export default function StrategyComparisonPanel() {
     return () => window.removeEventListener(LOADING_RESULT_EVENT, onResult);
   }, []);
 
-  const comparisons = useMemo(() => detail ? compareLoadingStrategies(detail.container, detail.cargo) : [], [detail]);
-  const best = useMemo(() => [...comparisons].sort((a, b) => b.overallScore - a.overallScore)[0]?.strategy, [comparisons]);
-  const fleetPlan = useMemo(() => detail ? planMultipleContainers(detail.container, detail.cargo, active, 20) : null, [detail, active]);
-
-  const applyStrategy = (strategy: LoadingStrategy) => {
-    localStorage.setItem(LOADING_STRATEGY_STORAGE_KEY, strategy);
-    setActive(strategy);
-    const state = readStoredState();
-    const source = state ?? (detail ? { container: detail.container, cargo: detail.cargo } : null);
-    if (source) writeStoredState(source, true);
-  };
+  const comparisons = useMemo(() => detail ? compareLoadingStrategies(detail.container, detail.cargo, detail.result) : [], [detail]);
+  const fleetPlan = useMemo(() => detail && showFleetPlan ? planMultipleContainers(detail.container, detail.cargo, undefined, 20) : null, [detail, showFleetPlan]);
 
   const updatePriority = (cargoId: string, value: number) => {
     if (!detail) return;
@@ -61,10 +45,10 @@ export default function StrategyComparisonPanel() {
   if (!target || !detail) return null;
 
   return createPortal(<section className="dashboard-card strategy-panel">
-    <div className="card-heading-row"><h2>10. 적재 전략 비교</h2><span>{best ? `추천 ${strategyOrder.indexOf(best) + 1}안` : ''}</span></div>
-    <p className="strategy-help">같은 화물을 3가지 목표로 다시 계산합니다. 추천 점수는 모든 안에 동일한 평가식을 적용한 의사결정 보조값입니다.</p>
+    <div className="card-heading-row"><h2>10. 적재 방식과 대수 계획</h2><span>1번 파일 방식</span></div>
+    <p className="strategy-help">현재 배치와 필요한 컨테이너 대수를 확인합니다. 모든 컨테이너에 같은 1번 파일 적재 방식을 적용합니다.</p>
     <div className="strategy-grid">
-      {comparisons.map((item) => <StrategyCard key={item.strategy} item={item} active={active === item.strategy} best={best === item.strategy} onApply={() => applyStrategy(item.strategy)} />)}
+      {comparisons.map((item) => <StrategyCard key={item.strategy} item={item} />)}
     </div>
     <button className="strategy-priority-toggle" onClick={() => setEditingPriorities(v => !v)}>{editingPriorities ? '하역 순서 닫기' : '하역 순서 설정'}</button>
     {editingPriorities && <div className="unload-priority-editor">
@@ -80,9 +64,9 @@ export default function StrategyComparisonPanel() {
   </section>, target);
 }
 
-function StrategyCard({ item, active, best, onApply }: { item: StrategyComparison; active: boolean; best: boolean; onApply: () => void }) {
-  return <article className={`strategy-card ${active ? 'active' : ''}`}>
-    <div className="strategy-card-head"><div><b>{item.label}</b>{best && <em>추천</em>}</div><strong>{item.overallScore.toFixed(0)}점</strong></div>
+function StrategyCard({ item }: { item: StrategyComparison }) {
+  return <article className="strategy-card active">
+    <div className="strategy-card-head"><div><b>{item.label}</b><em>현재 적용</em></div></div>
     <p>{item.description}</p>
     <div className="strategy-metrics">
       <span>부피 적재율 <b>{item.fillRatePct.toFixed(1)}%</b></span>
@@ -91,8 +75,7 @@ function StrategyCard({ item, active, best, onApply }: { item: StrategyCompariso
       <span>균형 <b>{item.balanceScore.toFixed(0)}</b></span>
       <span>최대 바닥하중 <b>{item.maxFloorLoadKgPerM2.toFixed(0)} kg/m²</b></span>
       <span>미적재 <b>{item.remainingCount} EA</b></span>
-      {item.strategy === 'unloading' && <span>하역 편의 <b>{item.unloadingConfigured ? item.unloadingScore.toFixed(0) : '순서 미설정'}</b></span>}
+      <span>하역 편의 <b>{item.unloadingConfigured ? item.unloadingScore.toFixed(0) : '순서 미설정'}</b></span>
     </div>
-    <button className={active ? 'strategy-applied' : ''} onClick={onApply}>{active ? '현재 적용 중' : '이 전략 적용'}</button>
   </article>;
 }

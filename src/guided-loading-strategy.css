@@ -23,13 +23,13 @@
 
 .guided-strategy-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
 .guided-strategy-card {
   position: relative;
-  min-height: 200px;
+  min-height: 140px;
   padding: 22px 18px 18px;
   border: 1px solid #dfe3ea;
   border-radius: 14px;

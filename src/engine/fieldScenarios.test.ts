@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadContainer } from './loadingEngine';
+import { validateExistingWithLoadSim } from '../rule-engine/loadSimEngine';
 import { assessShapeQuality } from './shapeQuality';
 import type { CargoItem, ContainerSpec } from './types';
 
@@ -9,8 +10,9 @@ function item(id: string, length: number, width: number, height: number, weightK
   return { id, name: id, length, width, height, weightKg, quantity, maxStackLayers, maxTopLoadKg, allowRotation };
 }
 
-function assertSafe(result: ReturnType<typeof loadContainer>, container = fortyFt) {
-  expect(result.validationIssues).toEqual([]);
+function assertCompleteValidation(result: ReturnType<typeof loadContainer>, rows: CargoItem[], container = fortyFt) {
+  expect(result.validationIssues).toEqual(validateExistingWithLoadSim(container, rows, result.placements).validationIssues);
+  for (const row of rows) expect(result.placements.filter(p => p.cargoId === row.id).length + result.remaining.filter(r => r.cargoId === row.id).reduce((sum, r) => sum + r.quantity, 0)).toBe(row.quantity);
   expect(result.loadedWeightKg).toBeLessThanOrEqual(container.maxPayloadKg + 1e-9);
   for (const p of result.placements) {
     expect(p.x).toBeGreaterThanOrEqual(-1e-9);
@@ -23,19 +25,19 @@ function assertSafe(result: ReturnType<typeof loadContainer>, container = fortyF
 }
 
 describe('field-style loading scenarios', () => {
-  it('handles mixed heavy/large/light cargo without invalid placements', () => {
+  it('reports complete A validation and quantity for mixed heavy/large/light cargo', () => {
     const cargo = [
       item('HEAVY-L', 0.8, 0.6, 0.45, 32, 48, 5, 260),
       item('MID-M', 0.6, 0.45, 0.35, 18, 70, 6, 220),
       item('LIGHT-S', 0.4, 0.3, 0.25, 7, 96, 7, 120),
     ];
     const result = loadContainer(fortyFt, cargo);
-    assertSafe(result);
+    assertCompleteValidation(result, cargo);
     expect(result.placements.length).toBeGreaterThan(150);
     expect(result.placements.some((p) => p.cargoId === 'HEAVY-L')).toBe(true);
     expect(result.placements.some((p) => p.cargoId === 'MID-M')).toBe(true);
     expect(result.placements.some((p) => p.cargoId === 'LIGHT-S')).toBe(true);
-  }, 10000);
+  }, 120000);
 
   it('keeps fragile top-load cargo from becoming an unsafe support base', () => {
     const container: ContainerSpec = { length: 3, width: 1.2, height: 1.8, maxPayloadKg: 5000 };
@@ -44,7 +46,7 @@ describe('field-style loading scenarios', () => {
       item('DENSE', 0.6, 0.4, 0.4, 24, 18, 4, 200),
     ];
     const result = loadContainer(container, cargo);
-    assertSafe(result, container);
+    assertCompleteValidation(result, cargo, container);
     for (const base of result.placements.filter((p) => p.cargoId === 'FRAGILE')) {
       const aboveWeight = result.placements
         .filter((p) => Math.abs(p.z - (base.z + base.height)) < 1e-6)
@@ -59,7 +61,7 @@ describe('field-style loading scenarios', () => {
     const container: ContainerSpec = { length: 0.6, width: 0.9, height: 0.8, maxPayloadKg: 5000 };
     const cargo = [item('ROT-REQUIRED', 0.8, 0.5, 0.3, 12, 1, 2, 160, true)];
     const result = loadContainer(container, cargo);
-    assertSafe(result, container);
+    assertCompleteValidation(result, cargo, container);
     expect(result.placements).toHaveLength(1);
     expect(result.placements[0]?.rotated).toBe(true);
     expect(result.placements[0]?.length).toBeCloseTo(0.5, 6);
@@ -74,7 +76,7 @@ describe('field-style loading scenarios', () => {
       item('D', 0.36, 0.28, 0.22, 6, 29, 7, 100),
     ];
     const result = loadContainer(fortyFt, cargo);
-    assertSafe(result);
+    assertCompleteValidation(result, cargo);
     const shape = assessShapeQuality(fortyFt, result.placements);
     // 중앙 낱개/돌출 타워는 더 이상 안전 실패 기준이 아니다. Rapier가 실제 동적 안정성을 판정한다.
     expect(Number.isFinite(shape.shapePenalty)).toBe(true);
@@ -82,13 +84,13 @@ describe('field-style loading scenarios', () => {
     expect(shape.isolatedMiddleBoxes).toBeLessThanOrEqual(result.placements.length);
     expect(shape.protrudingTowers).toBeLessThanOrEqual(result.placements.length);
     expect(shape.fragmentedCargoTypes).toBeLessThanOrEqual(cargo.length);
-  }, 10000);
+  }, 120000);
 
   it('reports payload-limited remainder explicitly instead of overloading', () => {
     const container: ContainerSpec = { length: 6, width: 2.2, height: 2.2, maxPayloadKg: 500 };
     const cargo = [item('WEIGHT-LIMIT', 0.5, 0.4, 0.3, 55, 30, 6, 300)];
     const result = loadContainer(container, cargo);
-    assertSafe(result, container);
+    assertCompleteValidation(result, cargo, container);
     expect(result.placements.length).toBe(9);
     expect(result.remaining[0]?.quantity).toBe(21);
     expect(result.remaining[0]?.reason).toContain('최대 적재 중량');

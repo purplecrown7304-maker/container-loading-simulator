@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { planMultipleContainers } from './multiContainerPlanner';
 import type { CargoItem, ContainerSpec } from './types';
 
-const container: ContainerSpec = { length: 1, width: 1, height: 1, maxPayloadKg: 1000 };
+const container: ContainerSpec = { length: 1.03, width: 1.02, height: 1.03, maxPayloadKg: 1000 };
 const cargo: CargoItem[] = [{ id: 'A', name: 'A', length: 0.5, width: 0.5, height: 0.5, weightKg: 10, quantity: 12, maxStackLayers: 2, maxTopLoadKg: 100 }];
 
 describe('multi-container planner', () => {
@@ -14,6 +14,11 @@ describe('multi-container planner', () => {
     expect(plan.complete).toBe(true);
     expect(plan.containers[0].loadedCount).toBe(8);
     expect(plan.containers[1].loadedCount).toBe(4);
+  });
+
+  it('does not change plans for retired objective tokens', () => {
+    expect(planMultipleContainers(container, cargo, 'stability', 5)).toEqual(planMultipleContainers(container, cargo, 'capacity', 5));
+    expect(planMultipleContainers(container, cargo, 'unloading', 5)).toEqual(planMultipleContainers(container, cargo, 'capacity', 5));
   });
 
   it('stops safely when remaining cargo cannot fit at all', () => {

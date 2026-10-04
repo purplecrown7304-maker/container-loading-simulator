@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { expectGlobalBackgroundControl, expectThreeOnly } from './helpers/viewer';
-test('low-CBM mixed pallets stay on the floor through real workflow certification', async ({ page, context, baseURL }) => {
+test('low-CBM mixed pallets stay on the floor through A static validation', async ({ page, context, baseURL }) => {
   test.setTimeout(180000);
   await context.route('**/*', route => new URL(route.request().url()).origin === new URL(baseURL!).origin ? route.continue() : route.abort());
   await page.goto('/');
@@ -20,7 +20,7 @@ test('low-CBM mixed pallets stay on the floor through real workflow certificatio
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
   await page.getByRole('radio', { name: /파렛트 적재/ }).click();
-  await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
+  await page.getByRole('radio', { name: /1번 파일 적재 방식/ }).click();
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   const snapshot = () => page.evaluate(() => {

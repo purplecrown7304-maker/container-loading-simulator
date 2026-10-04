@@ -164,7 +164,7 @@ describe('optimizeEnterprisePackaging', () => {
   });
 
   it('estimates multiple containers by repeatedly consuming loaded quantities', () => {
-    const tiny: ContainerSpec = { length: 1, width: 1, height: 1, maxPayloadKg: 1000 };
+    const tiny: ContainerSpec = { length: 1.04, width: 1.04, height: 1.04, maxPayloadKg: 1000 };
     const cargo: CargoItem[] = [{ id: 'X', name: 'X', length: 1, width: 1, height: 1, weightKg: 10, quantity: 3, maxStackLayers: 1, allowRotation: false }];
     const estimate = estimateShipmentContainers(tiny, cargo, 10);
     expect(estimate.containersRequired).toBe(3);

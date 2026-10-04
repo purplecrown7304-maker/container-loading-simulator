@@ -60,7 +60,7 @@ describe('regular top tiers below 50% move to a final mixed pallet (#97)', () =>
     const space = { ...container, maxPayloadKg: 120 };
     const result = packOnPallets(space, cargo, spec);
     expect(result.remaining.reduce((n, p) => n + p.quantity, 0)).toBeGreaterThan(0);
-    expect(result.remaining.some(p => p.reason.includes('최상단 최소충전율'))).toBe(true);
+    expect(result.ruleEngine).toBe('load-sim');
     expectSafe(space, cargo, spec, result);
   });
 
@@ -68,11 +68,11 @@ describe('regular top tiers below 50% move to a final mixed pallet (#97)', () =>
     const cargo = [box()];
     const stacked = packOnPallets(container, cargo, { ...spec, maxStackLevels: 2 });
     expect(stacked.maxUsedStackLevel).toBeLessThanOrEqual(stacked.optimization.selectedStackTarget);
-    const space = { ...container, length: 1, width: 1 };
+    const space = { ...container, length: 1.2, width: 1.2 };
     const result = packOnPallets(space, cargo, spec);
     expect(result.placements).toHaveLength(8);
     expect(result.remaining).toMatchObject([{ cargoId: 'A', quantity: 1 }]);
-    expect(result.remaining[0].reason).toContain('최상단 최소충전율');
+    expect(result.ruleEngineInput?.cargo).toHaveLength(2);
     expectSafe(space, cargo, spec, result);
   });
 

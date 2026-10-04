@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT, cancelPendingCertification, requestExactCertification, requestNextPalletCertification } from './autoCertification';
+import { NO_LOAD_RESULT_EVENT, cancelPendingCertification } from './autoCertification';
+import { FINAL_LOADING_WORKFLOW_ERROR_EVENT } from './finalWorkflowEvents';
+import { CONTAINERS } from './load-sim';
 import { cargoColor, cargoTint, randomUniqueCargoColor } from './cargoColors';
 import { analyzeConstraints } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
@@ -7,7 +9,8 @@ import { buildPlacementAddresses } from './engine/locationGrid';
 import { containerInputError, preflightCargoInput } from './engine/inputPreflight';
 import { pendingLoadingResult, publishLoadingResult, restoreLoadingResult, type LoadingStrategy } from './engine/loadingEngine';
 import { readManualOverride } from './engine/manualOverride';
-import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
+import { loadContainerAsync } from './engine/asyncLoading';
+import { clearLoadSimAcceptance, publishLoadSimAcceptance } from './rule-engine/acceptance';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
 import { GUIDED_LOADING_UNIT_EVENT, readGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingUnitState';
@@ -31,13 +34,13 @@ import { useTransportEquipment } from './transportEquipment';
 const BoxLoadingViewer = lazy(() => import('./BoxLoadingViewer'));
 const PalletModePanel = lazy(() => import('./PalletModePanel'));
 
+// A's supplied representative default. Existing user-selected/stored equipment stays authoritative.
+const defaultSpace = CONTAINERS['40HC'];
 const defaultContainer: ContainerSpec = {
-  length: 12.03,
-  width: 2.35,
-  height: 2.69,
-  maxPayloadKg: 26500,
-  floorLoadLimitKgPerM2: 1500,
-  floorLoadWarningMultiplier: 3,
+  length: defaultSpace.inner.l / 1000, width: defaultSpace.inner.w / 1000, height: defaultSpace.inner.h / 1000,
+  maxPayloadKg: defaultSpace.maxPayload, tareKg: defaultSpace.tare,
+  floorLineLoadKgPerM: defaultSpace.floorLineLoad,
+  doorWidth: defaultSpace.door!.w / 1000, doorHeight: defaultSpace.door!.h / 1000,
 };
 
 type CargoDraft = Omit<CargoItem, 'id'> & { id: string };
@@ -50,7 +53,7 @@ const emptyDraft: CargoDraft = {
   id: '', name: '', length: 0.5, width: 0.4, height: 0.3,
   weightKg: 10, quantity: 1, maxStackLayers: 7, maxTopLoadKg: 100, allowRotation: true,
 };
-const strategyLabel = (strategy: LoadingStrategy) => strategy === 'stability' ? '안정성 우선' : strategy === 'capacity' ? '적재율 우선' : '하역 우선';
+const strategyLabel = (_strategy: LoadingStrategy) => 'A pack';
 
 function LoadingFallback() {
   return <section className="viewer"><div className="viewer-direction"><b>3D 모듈 불러오는 중</b><span>잠시 후 표시됩니다.</span></div></section>;
@@ -116,6 +119,7 @@ export default function App() {
   const invalidatePhysics = () => {
     loadingRun.current.cancel();
     cancelPendingCertification();
+    clearLoadSimAcceptance();
     setIsRunning(false);
     setPhysicsScore(null);
     setPhysicsStrategy(null);
@@ -228,7 +232,8 @@ export default function App() {
 
   const updateContainer = (field: keyof ContainerSpec, value: string) => {
     invalidatePhysics();
-    setContainer(current => ({ ...current, [field]: Number(value) }));
+    const optional = ['floorLineLoadKgPerM', 'tareKg', 'doorWidth', 'doorHeight', 'heightLimitM'].includes(field);
+    setContainer(current => ({ ...current, [field]: optional && value.trim() === '' ? undefined : Number(value) }));
   };
   const updateDraft = (field: keyof CargoDraft, value: string | boolean) => {
     if (field === 'maxTopLoadKg' && typeof value === 'string' && value.trim() === '') {
@@ -296,13 +301,15 @@ export default function App() {
       invalidatePhysics();
       setIsRunning(true);
       setOptimizationMessage('팔레트 배치 후보 계산 중…');
-      requestNextPalletCertification();
       setPalletRunToken(token => token + 1);
       announce('info', mode === 'mixed'
-        ? '혼합 최적화 중 · 가득 찬 팔레트는 유지하고 저효율 잔량 팔레트는 직접 박스로 전환해 같은 EMS에서 함께 배치합니다.'
-        : '팔레트 최적 적재 계산 후 관성 3종을 자동 검증합니다. PASS한 적재안만 최종 결과로 엽니다.');
+        ? '팔레트 준비 후 A pack으로 박스와 팔레트 강체를 함께 배치합니다.'
+        : '팔레트 준비 후 A 적재·정적 규칙 검증을 실행합니다. 물리·관성 검사는 별도입니다.');
       return;
     }
+    clearLoadSimAcceptance();
+    cancelPendingCertification();
+    clearLatestInertiaCertification();
     setIsRunning(true);
     const runInputKey = inputKey;
     const controller = loadingRun.current.start();
@@ -313,41 +320,34 @@ export default function App() {
     setOptimizationProgress(0);
     setOptimizationEtaSeconds(null);
     optimizationStartedAt.current = performance.now();
-    announce('info', preferredStrategy ? `${strategyLabel(preferredStrategy)} 전략으로 물리 기반 적재 계산 중…` : '물리 기반 최적 적재 계산 중…');
+    announce('info', 'A pack 적재 계산 및 정적 규칙 검증 중…');
     try {
-      const optimized = await optimizeLoadingWithPhysics(container, activeCargo, progress => {
-        if (!ownsRun()) return;
-        const candidateCount = Math.max(1, progress.candidateCount);
-        const candidateIndex = Math.max(1, progress.candidateIndex);
-        const physicsProgress = Math.max(0, Math.min(1, progress.physicsProgress));
-        const overallProgress = Math.max(0, Math.min(99, ((candidateIndex - 1 + physicsProgress) / candidateCount) * 100));
-        setOptimizationProgress(overallProgress);
-        setOptimizationMessage(`후보 ${candidateIndex}/${candidateCount} · ${strategyLabel(progress.strategy)} · 물리검증 ${Math.round(physicsProgress * 100)}%`);
-        const startedAt = optimizationStartedAt.current;
-        if (startedAt !== null && overallProgress >= 3) {
-          const elapsedSeconds = Math.max(0.1, (performance.now() - startedAt) / 1000);
-          const remainingSeconds = Math.max(0, Math.round(elapsedSeconds * (100 - overallProgress) / overallProgress));
-          setOptimizationEtaSeconds(Math.min(3599, remainingSeconds));
-        }
-      }, preferredStrategy ?? undefined, controller.signal);
+      const published = await loadContainerAsync(container, activeCargo, preferredStrategy ?? 'capacity', controller.signal);
       if (!ownsRun()) return;
-      const published = optimized.result;
       publishLoadingResult(container, activeCargo, published);
       setResult(published);
-      requestExactCertification({ mode: 'boxes', container, cargo: activeCargo, result: published });
-      setPhysicsScore(optimized.physics.score);
-      setPhysicsStrategy(optimized.strategy);
+      const target = { mode: 'boxes' as const, container, cargo: activeCargo, result: published };
+      const accepted = publishLoadSimAcceptance(target);
+      if (!published.placements.length && published.remaining.some(row => row.quantity > 0)) {
+        window.dispatchEvent(new CustomEvent(NO_LOAD_RESULT_EVENT, { detail: target }));
+      }
       setOptimizationProgress(100);
       setOptimizationEtaSeconds(0);
-      (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = optimized.physics;
-      window.dispatchEvent(new CustomEvent('container-loading:physics-validation-result', { detail: { mode: 'boxes', result: optimized.physics } }));
-      announce(published.placements.length ? 'success' : 'warning', published.placements.length ? `자동 적재 계산 완료 · ${published.placements.length}EA · 관성 3종 최종검증 진행 중` : '계산 완료 · 적재 가능한 화물이 없습니다. 결과에서 미적재 사유를 확인하세요.');
+      setPhysicsScore(null);
+      setPhysicsStrategy(null);
+      if (accepted.status === 'rejected') {
+        announce('error', `A 정적 규칙 위반 ${accepted.validationIssues.length}건 · 위반 내용을 확인하세요. 실제 운송·물리 안전 인증이 아닙니다.`);
+      } else {
+        announce(published.placements.length ? 'success' : 'warning', published.placements.length
+          ? `A 적재 완료 · ${published.placements.length}EA · 정적 규칙 검증 통과. 물리·관성 검사는 별도입니다.`
+          : '계산 완료 · 적재 가능한 화물이 없습니다. 미적재 사유를 확인하세요.');
+      }
       setOptimizationMessage('');
     } catch (error) {
       if (!ownsRun()) return;
-      console.error('Physics optimization failed', error);
+      console.error('A loading failed', error);
       announce('error', '자동 적재 계산을 완료하지 못했습니다. 최종 적재 진행을 다시 눌러 주세요.');
-      window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, { detail: { mode: 'boxes', error: String(error) } }));
+      window.dispatchEvent(new CustomEvent(FINAL_LOADING_WORKFLOW_ERROR_EVENT, { detail: { mode: 'boxes', error: String(error) } }));
       setOptimizationMessage('');
     } finally {
       if (loadingRun.current.finish(controller)) {
@@ -359,12 +359,12 @@ export default function App() {
 
   const showResults = () => {
     if (isPreview) { announce('info', '미리보기 단계입니다. 최종 적재를 실행한 뒤 결과를 확인하세요.'); return; }
-    openResultsModal({ container, cargo, result });
+    openResultsModal({ container, cargo: mode === 'boxes' ? preflightCargoInput(cargo).cargo : cargo, result: displayResult });
   };
   const printReport = () => {
-    const opened = mode === 'pallets'
+    const opened = mode !== 'boxes'
       ? openPalletLoadingReport(container, cargo)
-      : openLoadingReport(container, cargo, result);
+      : openLoadingReport(container, preflightCargoInput(cargo).cargo, result);
     if (!opened) announce('error', '팝업이 차단되어 작업지시서를 열지 못했습니다.');
   };
   const saveLocal = () => { writeStoredState({ container, cargo }); announce('success', '현재 작업을 저장했습니다.'); };
@@ -432,7 +432,7 @@ export default function App() {
     </header>
 
     {!stored && cargo.length === 0 && <section className="onboarding-banner" aria-label="처음 사용 안내">
-      <div><b>처음 사용하시나요?</b><span>① 컨테이너 규격 확인 → ② 로그인 후 개인 박스 등록/선택 → ③ 물리 최적 자동 적재</span></div>
+      <div><b>처음 사용하시나요?</b><span>① 컨테이너 규격 확인 → ② 로그인 후 개인 박스 등록/선택 → ③ A 규칙 자동 적재</span></div>
     </section>}
 
     <section className="dashboard-grid">
@@ -446,15 +446,17 @@ export default function App() {
             <span>내부 높이 <b>{(container.height * 1000).toLocaleString()} mm</b></span>
             <span>적재 용적 <b>{totalVolume.toFixed(1)} m³</b></span>
             <span>최대 적재중량 <b>{container.maxPayloadKg.toLocaleString()} kg</b></span>
-            <span>바닥 경고기준 <b>{(container.floorLoadLimitKgPerM2 ?? 1500).toLocaleString()} kg/m²</b></span>
+            <span>A 바닥 선하중 <b>{container.floorLineLoadKgPerM == null ? '미입력 · 검사 생략' : `${container.floorLineLoadKgPerM.toLocaleString()} kg/m`}</b></span><small>A 대표 기본값은 실제 장비 제원·규정 검증을 대신하지 않습니다</small>
           </div>
           <details><summary>상세 규격 / 직접 수정</summary><div className="form-grid compact-form">
             <label>길이(m)<input type="number" min="0.01" step="0.01" value={container.length} onChange={e => updateContainer('length', e.target.value)} /></label>
             <label>폭(m)<input type="number" min="0.01" step="0.01" value={container.width} onChange={e => updateContainer('width', e.target.value)} /></label>
             <label>높이(m)<input type="number" min="0.01" step="0.01" value={container.height} onChange={e => updateContainer('height', e.target.value)} /></label>
             <label>최대중량<input type="number" min="1" value={container.maxPayloadKg} onChange={e => updateContainer('maxPayloadKg', e.target.value)} /></label>
-            <label>바닥 허용하중(kg/m²)<input type="number" min="1" value={container.floorLoadLimitKgPerM2 ?? 1500} onChange={e => updateContainer('floorLoadLimitKgPerM2', e.target.value)} /></label>
-            <label>국부하중 경고배수<input type="number" min="0.1" step=".1" value={container.floorLoadWarningMultiplier ?? 3} onChange={e => updateContainer('floorLoadWarningMultiplier', e.target.value)} /></label>
+            <label>A 바닥 선하중(kg/m)<input type="number" min="1" placeholder="미입력 시 검사 생략" value={container.floorLineLoadKgPerM ?? ''} onChange={e => updateContainer('floorLineLoadKgPerM', e.target.value)} /></label>
+            <label>장비 자중(kg)<input type="number" min="0" placeholder="미입력" value={container.tareKg ?? ''} onChange={e => updateContainer('tareKg', e.target.value)} /></label>
+            <label>도어 폭(m)<input type="number" min=".01" step=".001" placeholder="미입력" value={container.doorWidth ?? ''} onChange={e => updateContainer('doorWidth', e.target.value)} /></label>
+            <label>도어 높이(m)<input type="number" min=".01" step=".001" placeholder="미입력" value={container.doorHeight ?? ''} onChange={e => updateContainer('doorHeight', e.target.value)} /></label>
           </div></details>
         </section>
 
@@ -487,9 +489,10 @@ export default function App() {
               <label>높이(m)<input type="number" min="0.01" step="0.01" value={draft.height} onChange={e => updateDraft('height', e.target.value)} /></label>
               <label>중량(kg)<input type="number" min="0.01" step="0.01" value={draft.weightKg} onChange={e => updateDraft('weightKg', e.target.value)} /></label>
               <label>수량<input type="number" min="0" step="1" value={draft.quantity} onChange={e => updateDraft('quantity', e.target.value)} /></label>
-              <label>최대 적층단<input type="number" min="1" step="1" value={draft.maxStackLayers ?? 1} onChange={e => updateDraft('maxStackLayers', e.target.value)} /></label>
+              <label>A 최대 배치 단수<input type="number" min="1" step="1" value={draft.maxStackLayers ?? 1} onChange={e => updateDraft('maxStackLayers', e.target.value)} /></label>
               <label>상부 허용중량(kg)<input type="number" min="0" step="0.1" value={draft.maxTopLoadKg ?? ''} placeholder="제한 없음" onChange={e => updateDraft('maxTopLoadKg', e.target.value)} /></label>
-              <label><input type="checkbox" checked={draft.allowRotation !== false} onChange={e => updateDraft('allowRotation', e.target.checked)} /> 회전 허용</label>
+              <label><input type="checkbox" checked={draft.allowRotation !== false} onChange={e => updateDraft('allowRotation', e.target.checked)} /> A 허용 방향 회전</label>
+              <label><input type="checkbox" checked={draft.thisSideUp === true} onChange={e => updateDraft('thisSideUp', e.target.checked)} /> 천지무용(세워 적재)</label>
             </div>
             <button onClick={saveCargo}>{editingId ? '수정 저장' : '박스 추가'}</button>
           </div></details>
@@ -499,10 +502,10 @@ export default function App() {
         <section className="dashboard-card loading-options">
           <h2>3. 적재 옵션</h2>
           <div className="fixed-option-list">
-            <span><b>적재 방식</b><em>물리 검증 자동 최적화</em></span>
+            <span><b>적재 방식</b><em>A pack 단일 적재 방식</em></span>
             <span><b>박스 회전</b><em>품목별 허용 설정 + 자동 방향 선택</em></span>
             <span><b>혼합 적재</b><em>잔량에 대해 자동 허용</em></span>
-            <span><b>운송 검증</b><em>정적 · 출발 0.30g · 급제동 0.50g · 횡가속 0.35g</em></span>
+            <span><b>적재 판정</b><em>A 정적 규칙 · 물리/관성은 별도 선택 검사</em></span>
           </div>
           <small className="setting-note">변경 가능한 설정만 입력 컨트롤로 표시합니다. 고정 동작은 설명으로만 표시합니다.</small>
         </section>
@@ -513,7 +516,7 @@ export default function App() {
           <div className="viewer-host">
             {isRunning && <div className="calculation-overlay" role="status" aria-live="polite">
               <div className="calculation-progress-ring" style={{ background: `conic-gradient(#2563eb ${optimizationProgress}%, #dbe3ee 0)` }}><span>{mode === 'boxes' ? `${Math.round(optimizationProgress)}%` : '…'}</span></div>
-              <div className="calculation-progress-copy"><b>{mode === 'boxes' ? '물리 기반 최적 적재 계산 중' : '팔레트 배치 계산 중'}</b><span>{optimizationMessage || '후보 적재안을 만들고 있습니다.'}</span><small>{mode === 'boxes' ? progressLabel : '배치 완료 후 물리 안전 검증을 진행합니다'}</small></div>
+              <div className="calculation-progress-copy"><b>{mode === 'boxes' ? 'A 적재 계산 중' : '팔레트 배치 계산 중'}</b><span>{optimizationMessage || '후보 적재안을 만들고 있습니다.'}</span><small>{mode === 'boxes' ? progressLabel : 'A 최종 정적 규칙을 검증합니다'}</small></div>
             </div>}
             <Suspense fallback={<LoadingFallback />}>
               <BoxLoadingViewer container={container} result={displayResult}
@@ -531,7 +534,7 @@ export default function App() {
           <div className={`viewer-bottom-actions ${mode !== 'boxes' ? 'pallet-summary-active' : ''}`}>
             <button className="result-open-action" disabled={isPreview} onClick={showResults}>결과 보기</button>
             <PalletFooterSummary active={mode !== 'boxes'} />
-            <span>{physicsScore !== null ? `Rapier ${physicsScore}점 · ${physicsStrategy ? strategyLabel(physicsStrategy) : ''}` : '자동 적재 실행 시 후보를 물리 검증해 최종안을 선택합니다.'}</span>
+            <span>{physicsScore !== null ? `Rapier ${physicsScore}점 · ${physicsStrategy ? strategyLabel(physicsStrategy) : ''}` : 'A 정적 규칙으로 배치합니다. Rapier·관성 검사는 선택 검사이며 실제 운송 안전 인증이 아닙니다.'}</span>
           </div>
         </section>}
       </section>
@@ -558,7 +561,8 @@ export default function App() {
         </div></section>
 
         <section className="dashboard-card quick-card"><h2>6. 빠른 작업</h2>
-          <button className="primary-action" onClick={() => void runLoading()} disabled={isRunning}>{isRunning ? '물리 검증 중…' : '물리 최적 자동 적재'}</button>
+          <button className="primary-action" onClick={() => void runLoading()} disabled={isRunning}>{isRunning ? 'A 계산 중…' : 'A 자동 적재'}</button>
+          {isRunning && mode === 'boxes' && <button type="button" onClick={() => { invalidatePhysics(); announce('info', 'A 적재 계산을 취소했습니다. 미완성 결과는 적용하지 않았습니다.'); }}>A 계산 취소</button>}
           <button className="result-open-action" onClick={showResults} disabled={isRunning || isPreview}>결과 보기</button>
           <div className="quick-row"><button onClick={printReport}>작업 지시서</button><button onClick={saveLocal}>저장</button></div>
           <button className="danger ghost" onClick={resetAll}>전체 초기화</button>

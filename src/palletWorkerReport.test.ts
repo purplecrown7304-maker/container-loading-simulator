@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { defaultPalletSpec, packOnPallets } from './engine/palletOptimization';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CargoItem, ContainerSpec } from './engine/types';
-import type { InertiaCertification } from './inertiaCertification';
+import { createPhysicsTargetSignature, type InertiaCertification } from './inertiaCertification';
 import { buildPalletLoadingReportHtml, type PalletWorkSnapshot } from './palletWorkerReport';
+import { physicsTargetFromPalletSnapshot } from './certifiedExport';
+import { clearLoadSimAcceptance, publishLoadSimAcceptance } from './rule-engine/acceptance';
+import { clearPhysicsTarget } from './physicsTarget';
+import { createPalletRuleEngineProvenance } from './rule-engine/palletProvenance';
 
 const container: ContainerSpec = { length: 4.4, width: 2.2, height: 2.6, maxPayloadKg: 5000 };
 const cargo: CargoItem[] = [{ id: 'A', name: '<b>제품 A</b>', length: 0.5, width: 0.5, height: 0.4, weightKg: 10, quantity: 4 }];
@@ -73,7 +78,62 @@ const certification: InertiaCertification = {
   ],
 };
 
+// The rendered children retain their prepared positions inside A's rigid pallet units.
+snapshot.result.ruleEngine = 'load-sim';
+snapshot.result.validationIssues = [];
+for (const p of snapshot.result.placements) { p.x += 1.65; p.y += .55; }
+for (const pallet of snapshot.result.pallets) {
+  pallet.x += 1.65; pallet.y += .55;
+  for (const p of pallet.cargoPlacements) { p.x += 1.65; p.y += .55; }
+}
+snapshot.result.ruleEngineInput = {
+  cargo: snapshot.result.pallets.map(pallet => ({ id: `R${pallet.palletIndex}`, name: 'Rigid pallet', length: 1.1, width: 1.1, height: .55, weightKg: 45, quantity: 1, loadSimType: 'pallet' })),
+  placements: snapshot.result.pallets.map(pallet => ({ cargoId: `R${pallet.palletIndex}`, x: pallet.x, y: pallet.y, z: pallet.z, length: 1.1, width: 1.1, height: .55, weightKg: 45 })),
+  palletUnits: snapshot.result.pallets.map((pallet, i) => ({ cargoId: `R${pallet.palletIndex}`, sourcePalletIndex: pallet.palletIndex, displayPlacementIndexes: [i * 2, i * 2 + 1] })),
+};
+snapshot.result.ruleEngineInput.provenance = createPalletRuleEngineProvenance(cargo, snapshot.result.placements, snapshot.result.ruleEngineInput, snapshot.result.pallets, snapshot.spec);
+beforeEach(() => { const target = physicsTargetFromPalletSnapshot(container, cargo, snapshot); expect(publishLoadSimAcceptance(target).status).toBe('accepted'); certification.targetSignature = createPhysicsTargetSignature(target); });
+afterEach(() => { clearLoadSimAcceptance(); clearPhysicsTarget(); });
+
 describe('pallet worker report', () => {
+  it('rejects changed deck geometry even if the separately rendered cargo array is unchanged', () => {
+    const tampered = structuredClone(snapshot);
+    tampered.result.pallets[0].x = 100;
+    const target = physicsTargetFromPalletSnapshot(container, cargo, tampered);
+    expect(publishLoadSimAcceptance(target).status).toBe('rejected');
+    expect(() => buildPalletLoadingReportHtml(container, cargo, tampered)).toThrow();
+  });
+
+  it('blocks the reviewer exact fresh 65kg/1-pallet to 1kg/99-pallet report repro', () => {
+    const space = { length: 6, width: 2.4, height: 2.5, maxPayloadKg: 1000 };
+    const rows = [{ ...cargo[0], maxStackLayers: 1 }];
+    const generated = { spec: defaultPalletSpec, result: packOnPallets(space, rows, defaultPalletSpec) };
+    expect(generated.result.totalPalletizedWeightKg).toBe(65);
+    expect(generated.result.palletCount).toBe(1);
+    expect(publishLoadSimAcceptance(physicsTargetFromPalletSnapshot(space, rows, generated)).status).toBe('accepted');
+    generated.result.totalPalletizedWeightKg = 1;
+    generated.result.palletCount = 99;
+    expect(publishLoadSimAcceptance(physicsTargetFromPalletSnapshot(space, rows, generated)).status).toBe('rejected');
+    expect(() => buildPalletLoadingReportHtml(space, rows, generated)).toThrow('A_STATIC_ACCEPTANCE_REQUIRED');
+  });
+
+  it('rejects the accepted-snapshot 1kg/99EA summary tamper', () => {
+    const tampered = structuredClone(snapshot);
+    tampered.result.totalPalletizedWeightKg = 1;
+    tampered.result.palletCount = 99;
+    const target = physicsTargetFromPalletSnapshot(container, cargo, tampered);
+    expect(publishLoadSimAcceptance(target).status).toBe('rejected');
+    expect(() => buildPalletLoadingReportHtml(container, cargo, tampered)).toThrow('A_STATIC_ACCEPTANCE_REQUIRED');
+  });
+
+  it.each(['tareWeightKg', 'height', 'wrappingWeightKg', 'cornerGuardWeightKg'] as const)('rejects changed preparation/material spec %s', field => {
+    const tampered = structuredClone(snapshot);
+    tampered.spec[field] += 1;
+    const target = physicsTargetFromPalletSnapshot(container, cargo, tampered);
+    expect(publishLoadSimAcceptance(target).status).toBe('rejected');
+    expect(() => buildPalletLoadingReportHtml(container, cargo, tampered)).toThrow('A_STATIC_ACCEPTANCE_REQUIRED');
+  });
+
   it('shows four straps as a two-by-two grid and prints matching work instructions', () => {
     const html = buildPalletLoadingReportHtml(container, cargo, snapshot, {
       ...certification, securing: { ...certification.securing, level: 3, bandingStraps: 8 },

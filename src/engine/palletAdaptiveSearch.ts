@@ -1,8 +1,7 @@
-import { centerPalletCargo, setNextPalletCenteredResultOverride } from './palletCentering';
-import { validatePlacements } from './constraints';
-import { packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './palletOptimization';
-import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
-import { unloadingObstructions } from './operationalQuality';
+import { publishLoadSimAcceptance } from '../rule-engine/acceptance';
+import { setNextPalletCenteredResultOverride } from './palletCentering';
+import { type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './palletOptimization';
+import type { ContainerSpec } from './types';
 import {
   INERTIA_CERTIFICATION_EVENT,
   INERTIA_PASS_PALLET_CARGO_SLIP_M,
@@ -34,69 +33,9 @@ type PalletWindow = Window & {
   __containerLoadingLatestCertification?: InertiaCertification;
 };
 
-type OrientationVariant = {
-  label: string;
-  cargo: CargoItem[];
-  forcedRotatedIds: Set<string>;
-};
-
-type PalletSearchCombination = {
-  variant: OrientationVariant;
-  heightRatio: number;
-  maxStackLevels: number;
-};
-
 export function readPalletSnapshot(): PalletSnapshot | undefined {
   if (typeof window === 'undefined') return undefined;
   return (window as PalletWindow).__containerLoadingPalletSnapshot;
-}
-
-function loadedCounts(result: LoadingResult | OptimizedPalletPackingResult) {
-  const counts = new Map<string, number>();
-  result.placements.forEach(item => counts.set(item.cargoId, (counts.get(item.cargoId) ?? 0) + 1));
-  return counts;
-}
-
-function sameLoadedCargo(a: LoadingResult | OptimizedPalletPackingResult, b: LoadingResult | OptimizedPalletPackingResult) {
-  const A = loadedCounts(a);
-  const B = loadedCounts(b);
-  if (A.size !== B.size) return false;
-  for (const [id, count] of A) if (B.get(id) !== count) return false;
-  return true;
-}
-
-function toTarget(container: ContainerSpec, cargo: CargoItem[], result: OptimizedPalletPackingResult): PhysicsTarget {
-  const loadingResult: LoadingResult = {
-    placements: result.placements,
-    remaining: result.remaining,
-    loadedWeightKg: result.totalPalletizedWeightKg,
-    usedVolumeM3: result.placements.reduce((sum, item) => sum + item.length * item.width * item.height, 0),
-    validationIssues: validatePlacements(container, result.placements),
-  };
-  const supports = result.pallets.map(pallet => ({
-    id: `PALLET-${String(pallet.palletIndex).padStart(2, '0')}`,
-    x: pallet.x,
-    y: pallet.y,
-    z: pallet.z,
-    length: pallet.length,
-    width: pallet.width,
-    height: pallet.height,
-    weightKg: Math.max(0.01, pallet.totalWeightKg - pallet.cargoWeightKg),
-    dynamic: true,
-  }));
-  return { mode: 'pallets', container, cargo, result: loadingResult, supports };
-}
-
-function moveLoad(load: PalletLoad, x: number, y: number): PalletLoad {
-  const dx = x - load.x;
-  const dy = y - load.y;
-  return {
-    ...load,
-    x,
-    y,
-    cargoPlacements: load.cargoPlacements.map(item => ({ ...item, x: item.x + dx, y: item.y + dy })),
-    centerOfGravity: { ...load.centerOfGravity, x: load.centerOfGravity.x + dx, y: load.centerOfGravity.y + dy },
-  };
 }
 
 export function calculateAdaptiveLateralImbalanceKg(
@@ -114,188 +53,13 @@ export function calculateAdaptiveLateralImbalanceKg(
   return Math.abs(left - right);
 }
 
-function compactResult(input: OptimizedPalletPackingResult, container: ContainerSpec, spec: PalletSpec, fromDoor: boolean) {
-  const grouped = new Map<number, PalletLoad[]>();
-  input.pallets.forEach(pallet => {
-    const list = grouped.get(pallet.stackColumn) ?? [];
-    list.push({ ...pallet, cargoPlacements: pallet.cargoPlacements.map(item => ({ ...item })), centerOfGravity: { ...pallet.centerOfGravity } });
-    grouped.set(pallet.stackColumn, list);
-  });
-  const columns = [...grouped.values()]
-    .map(loads => ({ loads: loads.sort((a, b) => a.stackLevel - b.stackLevel), weight: loads.reduce((sum, item) => sum + item.totalWeightKg, 0) }))
-    .sort((a, b) => b.weight - a.weight);
-  const rowCapacity = Math.max(1, Math.floor((container.width + EPS) / spec.width));
-  const lanes = Math.min(rowCapacity, Math.max(1, columns.length));
-  const yOffset = Math.max(0, (container.width - lanes * spec.width) / 2);
-  const maxBands = Math.max(1, Math.floor((container.length + EPS) / spec.length));
-  if (columns.length > maxBands * lanes) return input;
-  const moved: PalletLoad[] = [];
-
-  columns.forEach((column, index) => {
-    const band = Math.floor(index / lanes);
-    const rawLane = index % lanes;
-    const lane = band % 2 === 0 ? rawLane : lanes - 1 - rawLane;
-    const x = fromDoor
-      ? Math.max(0, container.length - (band + 1) * spec.length)
-      : band * spec.length;
-    const y = yOffset + lane * spec.width;
-    const stackColumn = index + 1;
-    column.loads.forEach(load => moved.push({ ...moveLoad(load, x, y), stackColumn }));
-  });
-
-  moved.sort((a, b) => a.stackColumn - b.stackColumn || a.stackLevel - b.stackLevel);
-  return {
-    ...input,
-    pallets: moved,
-    placements: moved.flatMap(item => item.cargoPlacements),
-    lateralImbalanceKg: calculateAdaptiveLateralImbalanceKg(moved, container),
-    optimization: {
-      ...input.optimization,
-      floorPositions: columns.length,
-      redistributedForLowUtilization: true,
-    },
-  } satisfies OptimizedPalletPackingResult;
-}
-
-function maxUnitHeight(result: OptimizedPalletPackingResult) {
-  return result.pallets.reduce((max, pallet) => {
-    const top = pallet.cargoPlacements.reduce((value, item) => Math.max(value, item.z + item.height), pallet.z + pallet.height);
-    return Math.max(max, Math.max(0, top - pallet.z - pallet.height));
-  }, 0);
-}
-
-function staticPenalty(result: OptimizedPalletPackingResult) {
-  if (result.optimization.strategy && result.optimization.strategy !== 'stability') {
-    return result.palletCount * 100 + new Set(result.pallets.map(load => load.stackColumn)).size;
-  }
-  return result.stackedPallets * 24
-    + Math.max(0, result.maxUsedStackLevel - 1) * 10
-    + maxUnitHeight(result) * 4
-    + result.lateralImbalanceKg / 1200
-    + result.palletCount * 0.02;
-}
-
-function cappedCargo(cargo: CargoItem[], spec: PalletSpec, heightRatio: number) {
-  const preferredHeight = Math.max(0.1, Math.min(spec.length, spec.width) * heightRatio);
-  return cargo.map(item => {
-    const physicalLayers = Math.max(1, Math.floor((preferredHeight + EPS) / item.height));
-    const configured = item.maxStackLayers ?? Number.POSITIVE_INFINITY;
-    return { ...item, maxStackLayers: Math.max(1, Math.min(configured, physicalLayers)) };
-  });
-}
-
-function orientationVariants(cargo: CargoItem[]): OrientationVariant[] {
-  const rotatable = cargo.filter(item => item.allowRotation !== false && Math.abs(item.length - item.width) > EPS);
-  const rotatableIds = new Set(rotatable.map(item => item.id));
-  const alternatingIds = new Set(rotatable.filter((_, index) => index % 2 === 1).map(item => item.id));
-  const buildFixed = (forced: Set<string>) => cargo.map(item => {
-    const shouldRotate = forced.has(item.id);
-    if (!rotatableIds.has(item.id)) return { ...item, allowRotation: false };
-    return shouldRotate
-      ? { ...item, length: item.width, width: item.length, allowRotation: false }
-      : { ...item, allowRotation: false };
-  });
-
-  return [
-    { label: '자동 방향', cargo: cargo.map(item => ({ ...item })), forcedRotatedIds: new Set<string>() },
-    { label: '정방향 고정', cargo: buildFixed(new Set<string>()), forcedRotatedIds: new Set<string>() },
-    { label: '90도 회전 고정', cargo: buildFixed(rotatableIds), forcedRotatedIds: rotatableIds },
-    { label: 'SKU 교차 방향', cargo: buildFixed(alternatingIds), forcedRotatedIds: alternatingIds },
-  ];
-}
-
-function markRotation(placement: Placement, forcedRotatedIds: Set<string>): Placement {
-  return forcedRotatedIds.has(placement.cargoId) ? { ...placement, rotated: true } : placement;
-}
-
-function restoreRotationFlags(result: OptimizedPalletPackingResult, forcedRotatedIds: Set<string>) {
-  if (!forcedRotatedIds.size) return result;
-  const pallets = result.pallets.map(pallet => ({
-    ...pallet,
-    cargoPlacements: pallet.cargoPlacements.map(item => markRotation(item, forcedRotatedIds)),
-  }));
-  return { ...result, pallets, placements: pallets.flatMap(pallet => pallet.cargoPlacements) };
-}
-
-function addCandidate(
-  list: PalletAdaptiveCandidate[],
-  seen: Set<string>,
-  current: PhysicsTarget,
-  spec: PalletSpec,
-  result: OptimizedPalletPackingResult,
-  label: string,
-) {
-  if (!sameLoadedCargo(current.result, result)) return;
-  if (result.optimization.strategy === 'unloading'
-    && unloadingObstructions(current.cargo, result.placements) > unloadingObstructions(current.cargo, current.result.placements)) return;
-  const target = toTarget(current.container, current.cargo, result);
-  if (target.result.validationIssues.length) return;
-  const signature = createPhysicsTargetSignature(target);
-  if (seen.has(signature)) return;
-  seen.add(signature);
-  list.push({ label, spec, result, target, staticPenalty: staticPenalty(result) });
-}
-
-function sampleCombinations(combinations: PalletSearchCombination[], budget: number) {
-  if (budget >= combinations.length) return combinations;
-  if (budget <= 1) return combinations.slice(0, 1);
-  const chosen: PalletSearchCombination[] = [];
-  const seen = new Set<number>();
-  for (let i = 0; i < budget; i += 1) {
-    const index = Math.round(i * (combinations.length - 1) / (budget - 1));
-    if (seen.has(index)) continue;
-    seen.add(index);
-    chosen.push(combinations[index]);
-  }
-  return chosen;
-}
-
+/** A is the only container planner. Legacy recentering/height/rotation retry candidates were removed. */
 export function buildPalletAdaptiveCandidates(
-  current: PhysicsTarget,
-  snapshot: PalletSnapshot,
-  limit = Number.POSITIVE_INFINITY,
+  _current: PhysicsTarget,
+  _snapshot: PalletSnapshot,
+  _limit = Number.POSITIVE_INFINITY,
 ): PalletAdaptiveCandidate[] {
-  if (current.mode !== 'pallets') return [];
-  const seen = new Set<string>([createPhysicsTargetSignature(current)]);
-  const list: PalletAdaptiveCandidate[] = [];
-  const configuredMax = Math.max(1, Math.floor(snapshot.spec.maxStackLevels || 1));
-  const physicalMax = Math.max(1, Math.floor((current.container.height + EPS) / Math.max(snapshot.spec.height, EPS)));
-  const maxLevels = Math.min(configuredMax, physicalMax);
-  const levelOptions = Array.from({ length: maxLevels }, (_, index) => index + 1);
-  const fullHeightRatio = (current.container.height - snapshot.spec.height) / Math.min(snapshot.spec.length, snapshot.spec.width);
-  const heightRatios = snapshot.spec.minimizePackaging
-    ? [...new Set([Math.max(1.15, fullHeightRatio), 1.15, 1.05, 0.96, 0.84, 0.72, 0.6])]
-    : [0.6, 0.72, 0.84, 0.96, 1.05, 1.15];
-  const combinations: PalletSearchCombination[] = [];
-
-  for (const variant of orientationVariants(current.cargo)) {
-    for (const heightRatio of heightRatios) {
-      for (const maxStackLevels of levelOptions) combinations.push({ variant, heightRatio, maxStackLevels });
-    }
-  }
-
-  const combinationBudget = Number.isFinite(limit)
-    ? Math.min(combinations.length, Math.max(4, Math.ceil(Math.max(1, limit) * 1.5)))
-    : combinations.length;
-
-  for (const { variant, heightRatio, maxStackLevels } of sampleCombinations(combinations, combinationBudget)) {
-    const spec = { ...snapshot.spec, maxStackLevels };
-    const cargo = cappedCargo(variant.cargo, spec, heightRatio);
-    const packed = restoreRotationFlags(centerPalletCargo(packOnPallets(current.container, cargo, spec, snapshot.result.optimization.strategy), current.container), variant.forcedRotatedIds);
-    const baseLabel = `${variant.label} · 높이 ${Math.round(heightRatio * 100)}% · ${maxStackLevels}단 제한`;
-    addCandidate(list, seen, current, spec, packed, `팔레트 위 재배치 · ${baseLabel}`);
-    if (snapshot.result.optimization.strategy !== 'unloading') {
-      addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, false), `안쪽 밀착 2열 · ${baseLabel}`);
-      addCandidate(list, seen, current, spec, compactResult(packed, current.container, spec, true), `문쪽 밀착 2열 · ${baseLabel}`);
-    }
-  }
-
-  // Try compact material-efficient candidates first; each still has to pass
-  // the same physical and inertia certification before it can be accepted.
-  const sorted = list.sort((a, b) =>
-    (snapshot.spec.minimizePackaging ? a.result.palletCount - b.result.palletCount : 0)
-    || a.staticPenalty - b.staticPenalty || a.label.localeCompare(b.label));
-  return Number.isFinite(limit) ? sorted.slice(0, Math.max(1, Math.floor(limit))) : sorted;
+  return [];
 }
 
 export function baselinePalletCandidate(current: PhysicsTarget, snapshot: PalletSnapshot): PalletAdaptiveCandidate {
@@ -304,7 +68,7 @@ export function baselinePalletCandidate(current: PhysicsTarget, snapshot: Pallet
     spec: snapshot.spec,
     result: snapshot.result,
     target: current,
-    staticPenalty: staticPenalty(snapshot.result),
+    staticPenalty: 0,
   };
 }
 
@@ -335,7 +99,8 @@ export function applyPalletAdaptiveCandidate(candidate: PalletAdaptiveCandidate,
   const state = window as PalletWindow;
   state.__containerLoadingPalletSnapshot = snapshot;
   window.dispatchEvent(new CustomEvent<PalletSnapshot>(PALLET_SNAPSHOT_UPDATED_EVENT, { detail: snapshot }));
-  publishPhysicsTarget(candidate.target);
+  if (candidate.target.result.ruleEngine === 'load-sim') publishLoadSimAcceptance(candidate.target);
+  else publishPhysicsTarget(candidate.target);
   publishCertification(certification);
   setNextPalletCenteredResultOverride(candidate.result);
   window.dispatchEvent(new CustomEvent<PalletSpec>(PALLET_SPEC_FROM_RESULTS_EVENT, { detail: candidate.spec }));

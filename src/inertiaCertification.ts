@@ -86,6 +86,11 @@ export type CertificationProgress = {
 
 export const REQUEST_CERTIFIED_RESULTS_EVENT = 'container-loading:request-certified-results';
 export const INERTIA_CERTIFICATION_EVENT = 'container-loading:inertia-certification-result';
+export const LOADING_RULE_CERTIFICATION_BLOCKED = 'LOADING_RULE_ERROR: 운영 규칙 검증 실패 · 적재 규칙 오류가 있는 배치는 최종 결과로 사용할 수 없습니다.';
+
+export function hasBlockingLoadingRules(result: LoadingResult): boolean {
+  return result.validationIssues.length > 0 || (result.operationalFindings ?? []).some(finding => finding.severity === 'error');
+}
 
 export const INERTIA_PASS_SHIFT_M = 0.012;
 export const INERTIA_PASS_TILT_DEG = 1.8;
@@ -153,6 +158,21 @@ export function createPhysicsTargetSignature(target: PhysicsTarget) {
       item.maxTopLoadKg ?? null,
       item.allowRotation !== false,
       item.unloadPriority ?? null,
+      item.allowedOrientations ?? null,
+      item.loadSimType ?? null,
+      item.thisSideUp ?? null,
+      item.maxTopPressureKgPerM2 ?? null,
+      item.canBePlacedOnTop ?? null,
+      item.groupId ?? null,
+      item.segregationClass ?? null,
+      item.tempZone ?? null,
+      item.cgOffsetM ? [item.cgOffsetM.l, item.cgOffsetM.w, item.cgOffsetM.h] : null,
+      item.friction ?? null,
+      item.forklift ?? null,
+      item.floorOnly ?? null,
+      item.unitKind ?? null,
+      item.demandUnits ?? null,
+      item.sourcePalletIndex ?? null,
     ]);
   const remaining = [...target.result.remaining]
     .sort((a, b) => a.cargoId.localeCompare(b.cargoId) || a.quantity - b.quantity || a.reason.localeCompare(b.reason))
@@ -163,7 +183,9 @@ export function createPhysicsTargetSignature(target: PhysicsTarget) {
     mode: target.mode,
     container: target.container,
     cargo,
-    placements: target.result.placements.map(item => [item.cargoId, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg, item.rotated === true]),
+    ruleEngine: target.result.ruleEngine ?? 'legacy',
+    ruleEngineInput: target.result.ruleEngineInput ?? null,
+    placements: target.result.placements.map(item => [item.cargoId, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg, item.rotated === true, item.loadSimOrientation ?? null]),
     remaining,
     supports: (target.supports ?? []).map(item => [item.id, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg, item.dynamic !== false]),
     materialUnitWeights: readSecuringMaterialSettings(),
@@ -172,6 +194,8 @@ export function createPhysicsTargetSignature(target: PhysicsTarget) {
 
 export function readLatestInertiaCertification() {
   if (typeof window === 'undefined') return undefined;
+  const target = readPhysicsTarget();
+  if (target && hasBlockingLoadingRules(target.result)) return undefined;
   return (window as CertificationWindow).__containerLoadingLatestCertification;
 }
 
@@ -182,6 +206,15 @@ export function clearLatestInertiaCertification() {
 }
 
 export function requestCertifiedResults(detail: CertificationRequestDetail) {
+  if (typeof window === 'undefined') return;
+  const target = readPhysicsTarget();
+  if (hasBlockingLoadingRules(detail.result) || (target && hasBlockingLoadingRules(target.result))) {
+    clearLatestInertiaCertification();
+    window.dispatchEvent(new CustomEvent('container-loading:final-physics-validation-error', {
+      detail: { mode: target?.mode ?? 'boxes', error: LOADING_RULE_CERTIFICATION_BLOCKED },
+    }));
+    return;
+  }
   window.dispatchEvent(new CustomEvent<CertificationRequestDetail>(REQUEST_CERTIFIED_RESULTS_EVENT, { detail }));
 }
 
@@ -328,6 +361,10 @@ export async function runInertiaCertification(
   onScenarioResult?: (result: InertiaAnimationResult, level: SecuringLevel) => void,
   shouldCancel?: () => boolean,
 ): Promise<InertiaCertification> {
+  if (hasBlockingLoadingRules(target.result)) {
+    clearLatestInertiaCertification();
+    throw new Error(LOADING_RULE_CERTIFICATION_BLOCKED);
+  }
   let finalResults: Partial<Record<InertiaScenario, InertiaAnimationResult>> = {};
   const minimumLevel = minimumSecuringLevelForMode(target.mode);
   let finalLevel: SecuringLevel = minimumLevel;
@@ -401,6 +438,10 @@ export async function runInertiaCertification(
   }
 
   if (shouldCancel?.()) throw new Error('INERTIA_CERTIFICATION_CANCELLED');
+  if (hasBlockingLoadingRules(target.result)) {
+    clearLatestInertiaCertification();
+    throw new Error(LOADING_RULE_CERTIFICATION_BLOCKED);
+  }
   const usage = buildSecuringUsage(target, finalLevel);
   const failedScenarios = SCENARIOS.filter(scenario => {
     const result = finalResults[scenario];

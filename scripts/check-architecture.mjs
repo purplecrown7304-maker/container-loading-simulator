@@ -101,8 +101,11 @@ if (!guidedShellSource.includes('useGuidedLoadingUnit') || !guidedShellSource.in
 if (/currentMode\s*\(|clickMode\s*\(|\.mode-tabs|inspection-status-table|workOrderRow/.test(guidedShellSource)) {
   fail('GuidedWorkflowShell restored DOM-derived mode or inspection status scraping; use domain stores/events instead.');
 }
-if (!guidedShellSource.includes('INERTIA_CERTIFICATION_EVENT') || !guidedShellSource.includes('FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT')) {
-  fail('GuidedWorkflowShell must use explicit validation/certification events for step-5 running/ready state.');
+if (!guidedShellSource.includes('LOAD_SIM_ACCEPTANCE_EVENT') || !guidedShellSource.includes('isLoadSimAcceptedTarget')) {
+  fail('GuidedWorkflowShell must use exact A static acceptance events for step-5 ready state.');
+}
+if (guidedShellSource.includes('INERTIA_CERTIFICATION_EVENT') || guidedShellSource.includes('FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT')) {
+  fail('Optional Rapier/inertia events must not determine the guided A loading result gate.');
 }
 
 const guidedResultEnhancer = readFileSync('src/GuidedResultTabsEnhancer.tsx', 'utf8');
@@ -125,8 +128,8 @@ if (!palletWorkerReport.includes('restorePalletPhysicsTarget')) {
   fail('palletWorkerReport.ts must restore a pallet target before result/report certification checks.');
 }
 const resultsModalEvents = readFileSync('src/resultsModalEvents.ts', 'utf8');
-if (!resultsModalEvents.includes('restorePalletPhysicsTarget')) {
-  fail('resultsModalEvents.ts must restore a cleared pallet target before opening guided pallet results.');
+if (!resultsModalEvents.includes('publishLoadSimAcceptance') || !resultsModalEvents.includes('ruleEngineInput')) {
+  fail('resultsModalEvents.ts must revalidate canonical A input when rebuilding a cleared result target.');
 }
 
 const tokenizedCss = [

@@ -17,7 +17,7 @@ const box = (overrides: Partial<CargoItem> = {}): CargoItem => ({
 
 describe('pallet physical container capacity regression', () => {
   it('returns cargo to remaining instead of leaving overlapping pallets at the origin', () => {
-    const container: ContainerSpec = { length: 1.1, width: 1.1, height: 1.2, maxPayloadKg: 5000 };
+    const container: ContainerSpec = { length: 1.3, width: 1.3, height: 1.2, maxPayloadKg: 5000 };
     const result = packOnPallets(
       container,
       [box()],

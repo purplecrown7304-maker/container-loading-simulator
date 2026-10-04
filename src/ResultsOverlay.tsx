@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import CertificationResultSummary from './CertificationResultSummary';
 import { analyzeConstraints } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
-import { validatePlacements } from './engine/constraints';
+import { palletResultToLoadingResult } from './engine/palletContainerPlacement';
 import { assessWeightBalance } from './engine/weightBalance';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
@@ -39,14 +39,7 @@ export function sanitizeResultsPalletSpec(spec: PalletSpec): PalletSpec {
 
 function toLoadingResult(detail: ResultsModalDetail, snapshot: PalletSnapshot | null): LoadingResult {
   if (!snapshot) return detail.result;
-  const result = snapshot.result;
-  return {
-    placements: result.placements,
-    remaining: result.remaining,
-    loadedWeightKg: result.totalPalletizedWeightKg,
-    usedVolumeM3: result.placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0),
-    validationIssues: validatePlacements(detail.container, result.placements),
-  };
+  return palletResultToLoadingResult(snapshot.result, snapshot.spec);
 }
 
 export default function ResultsOverlay() {

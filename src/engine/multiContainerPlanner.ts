@@ -27,7 +27,7 @@ function positiveCargo(cargo: CargoItem[]) {
 export function planMultipleContainers(
   container: ContainerSpec,
   cargo: CargoItem[],
-  strategy: LoadingStrategy = 'capacity',
+  _strategy: LoadingStrategy = 'capacity',
   maxContainers = 20,
 ): MultiContainerPlan {
   const totalRequested = cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
@@ -38,7 +38,7 @@ export function planMultipleContainers(
 
   for (let index = 1; index <= Math.max(1, maxContainers) && pending.length > 0; index += 1) {
     const requestedCount = pending.reduce((sum, item) => sum + item.quantity, 0);
-    const result = loadContainer(container, pending, { strategy, publish: false });
+    const result = loadContainer(container, pending, { publish: false });
     const loadedCount = result.placements.length;
     const remainingCount = result.remaining.reduce((sum, item) => sum + item.quantity, 0);
     const totalVolume = Math.max(container.length * container.width * container.height, 1e-9);

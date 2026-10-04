@@ -10,9 +10,9 @@ const cargo: CargoItem[] = [
 ];
 
 describe('loading strategy comparison', () => {
-  it('returns all three strategies with finite scores', () => {
+  it('returns only the sole A method with finite diagnostic scores', () => {
     const rows = compareLoadingStrategies(container, cargo);
-    expect(rows.map(row => row.strategy)).toEqual(['capacity', 'stability', 'unloading']);
+    expect(rows.map(row => row.strategy)).toEqual(['capacity']);
     rows.forEach(row => {
       expect(Number.isFinite(row.overallScore)).toBe(true);
       expect(row.overallScore).toBeGreaterThanOrEqual(0);
@@ -21,13 +21,12 @@ describe('loading strategy comparison', () => {
     });
   });
 
-  it('puts later-unloaded cargo deeper than first-unloaded cargo in unloading strategy', () => {
-    const result = loadContainer(container, cargo, { strategy: 'unloading', publish: false });
-    const averageX = (id: string) => {
-      const placements = result.placements.filter(p => p.cargoId === id);
-      return placements.reduce((sum, p) => sum + p.x + p.length / 2, 0) / placements.length;
-    };
-    expect(averageX('LAST')).toBeLessThan(averageX('FIRST'));
+  it('does not reinterpret compatibility objective tokens as different A methods', () => {
+    const reference = loadContainer(container, cargo, { publish: false });
+    for (const strategy of ['capacity', 'stability', 'unloading'] as const) {
+      expect(loadContainer(container, cargo, { strategy, publish: false })).toEqual(reference);
+    }
+    expect(compareLoadingStrategies(container, cargo, reference)[0].result).toBe(reference);
   });
 
   it('does not publish comparison-only calculations into browser state', () => {

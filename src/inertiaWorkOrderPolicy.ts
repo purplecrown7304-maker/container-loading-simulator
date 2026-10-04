@@ -5,6 +5,8 @@ import {
   INERTIA_PASS_SUPPORT_SHIFT_M,
   INERTIA_PASS_TILT_DEG,
   isInertiaStable,
+  hasBlockingLoadingRules,
+  LOADING_RULE_CERTIFICATION_BLOCKED,
   securingProfileForUsage,
   type CertificationProgress,
   type InertiaAttemptScenario,
@@ -131,6 +133,7 @@ export async function completeCertificationForWorkOrder(
   onScenarioResult?: (result: InertiaAnimationResult, level: SecuringLevel) => void,
   shouldCancel?: () => boolean,
 ): Promise<InertiaCertification> {
+  if (hasBlockingLoadingRules(target.result)) throw new Error(LOADING_RULE_CERTIFICATION_BLOCKED);
   if (!certification.payloadWithinLimit || certification.status === 'passed') return certification;
 
   const level = certification.securing.level;

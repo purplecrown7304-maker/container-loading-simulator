@@ -14,5 +14,11 @@ it('visual material alone does not change packing positions, weights, or remaini
   const container = { length: 2.4, width: 2.3, height: 2.4, maxPayloadKg: 1000 };
   const cargo = [{ id: 'A', name: 'A', length: .5, width: .4, height: .3, weightKg: 10, quantity: 8 }];
   const original = packOnPallets(container, cargo, defaultPalletSpec);
-  expect(packOnPallets(container, cargo, { ...defaultPalletSpec, material: 'plastic' })).toEqual(original);
+  const changed = packOnPallets(container, cargo, { ...defaultPalletSpec, material: 'plastic' });
+  // A preparation proof records the selected spec, including cosmetic material.
+  // The physical outcome itself must remain identical.
+  const expected = structuredClone(original);
+  expect(changed.ruleEngineInput!.provenance!.preparationSpecSignature).not.toBe(original.ruleEngineInput!.provenance!.preparationSpecSignature);
+  expected.ruleEngineInput!.provenance!.preparationSpecSignature = changed.ruleEngineInput!.provenance!.preparationSpecSignature;
+  expect(changed).toEqual(expected);
 });

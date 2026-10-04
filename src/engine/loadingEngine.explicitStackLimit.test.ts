@@ -3,9 +3,9 @@ import { loadContainer } from './loadingEngine';
 import type { CargoItem, ContainerSpec } from './types';
 
 const container: ContainerSpec = {
-  length: 0.57,
-  width: 0.75,
-  height: 3.3,
+  length: 0.61,
+  width: 0.79,
+  height: 3.34,
   maxPayloadKg: 1000,
   floorLoadLimitKgPerM2: 5000,
 };

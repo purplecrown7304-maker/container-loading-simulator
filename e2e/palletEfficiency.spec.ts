@@ -35,7 +35,7 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
   await page.getByRole('radio', { name: /파렛트 적재/ }).click();
-  await page.getByRole('radio', { name: /하역 순서 우선형/ }).click();
+  await page.getByRole('radio', { name: /1번 파일 적재 방식/ }).click();
   await page.getByRole('spinbutton', { name: /하역 순서/ }).fill('3');
   await expect(page.getByRole('spinbutton', { name: /하역 순서/ })).toHaveValue('3');
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
@@ -48,7 +48,9 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   await expect(page.locator('.viewer-host .guided-loading-run-confirmation')).toHaveCount(0);
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 60_000 });
-  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.optimization?.strategy)).toBe('unloading');
+  // The compatibility token is fixed; the explicit stop remains cargo metadata for A.
+  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.optimization?.strategy)).toBe('capacity');
+  expect(await page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.ruleEngine)).toBe('load-sim');
   await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-applied', 'true', { timeout: 100_000 });
   await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-supports', '1');
   await expect(summary.locator('dl > div').filter({ hasText: '사용 파렛트' }).locator('dd')).toHaveText(/(^| · )1개$/);

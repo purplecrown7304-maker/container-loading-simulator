@@ -3,18 +3,18 @@ import { palletModelKey } from './palletModel';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cargoColor } from './cargoColors';
-import { centerPalletCargo, consumeNextPalletCenteredResultOverride } from './engine/palletCentering';
-import { validatePlacements } from './engine/constraints';
-import { validateOperationalLoading } from './engine/operationalValidator';
+import { consumeNextPalletCenteredResultOverride } from './engine/palletCentering';
+import { publishLoadSimAcceptance } from './rule-engine/acceptance';
+import { palletResultToLoadingResult } from './engine/palletContainerPlacement';
 import { defaultPalletSpec, packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
 import { packMixedMode, type MixedModePackingResult } from './engine/mixedModePacking';
-import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
+import type { CargoItem, ContainerSpec, Placement } from './engine/types';
 import { INERTIA_CERTIFICATION_EVENT, createPhysicsTargetSignature, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
-import { clearPhysicsTarget, publishPhysicsTarget, readPhysicsTarget } from './physicsTarget';
+import { clearPhysicsTarget, readPhysicsTarget } from './physicsTarget';
 import { palletSpecForType } from './engine/palletCatalog';
 import { resolvePalletType, subscribePalletTypeSelection } from './palletTypeSelection';
 import { clearPalletSnapshot, publishPalletSnapshot, readPalletSnapshot } from './palletSnapshotStore';
-import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT } from './autoCertification';
+import { FINAL_LOADING_WORKFLOW_ERROR_EVENT } from './finalWorkflowEvents';
 
 export type PalletViewerScene = LoadingViewerProps & { inputKey: string };
 type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number; mode?: 'pallets' | 'mixed'; inputKey: string; onSceneChange: (scene: PalletViewerScene | null) => void; onRunningChange: (running: boolean) => void };
@@ -37,7 +37,7 @@ function sanitizeSpec(spec: PalletSpec): PalletSpec {
 function packForMode(container: ContainerSpec, cargo: CargoItem[], spec: PalletSpec, mode: 'pallets' | 'mixed') {
   const strategy = readLoadingStrategyPreference() ?? 'capacity';
   if (mode === 'mixed') return packMixedMode(container, cargo, spec, strategy);
-  return centerPalletCargo(packOnPallets(container, cargo, spec, strategy), container);
+  return packOnPallets(container, cargo, spec, strategy);
 }
 
 function palletForPlacement(result: OptimizedPalletPackingResult, box: Placement) {
@@ -147,7 +147,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       } catch (error) {
         if (!cancelled) {
           onRunningChange(false);
-          window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, { detail: { mode: 'pallets', error: String(error) } }));
+          window.dispatchEvent(new CustomEvent(FINAL_LOADING_WORKFLOW_ERROR_EVENT, { detail: { mode: 'pallets', error: String(error) } }));
         }
       }
     }, 0);
@@ -231,7 +231,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
 
   useEffect(() => {
     if (result === EMPTY_RESULT) return;
-    publishPalletSnapshot({ spec, result }, { preserveCertification: adoptedResult.current?.result === result });
+    publishPalletSnapshot({ spec: sanitizeSpec(spec), result }, { preserveCertification: adoptedResult.current?.result === result });
   }, [spec, result]);
 
   useEffect(() => {
@@ -247,32 +247,18 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       length: pallet.length,
       width: pallet.width,
       height: pallet.height,
-      weightKg: Math.max(0.01, pallet.totalWeightKg - pallet.cargoWeightKg),
+      weightKg: Math.max(0, pallet.totalWeightKg - pallet.cargoWeightKg),
       dynamic: true,
     }));
-    const loadingResult: LoadingResult = {
-      placements: result.placements,
-      remaining: result.remaining,
-      loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg,
-      usedVolumeM3: result.placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0),
-      validationIssues: validatePlacements(container, result.placements),
-      operationalFindings: validateOperationalLoading(container, cargo, result.placements, supports),
-    };
-    publishPhysicsTarget({ mode: 'pallets', container, cargo, result: loadingResult, supports });
+    const loadingResult = palletResultToLoadingResult(result, sanitizeSpec(spec));
+    publishLoadSimAcceptance({ mode: 'pallets', container, cargo, result: loadingResult, supports });
   }, [container, cargo, result, modelKey]);
 
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
   const securingUsage = certification?.securing ?? null;
   const scene = useMemo(() => ({
-    result: {
-      placements: result.placements,
-      remaining: result.remaining,
-      loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg,
-      usedVolumeM3: result.placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0),
-      validationIssues: validatePlacements(container, result.placements),
-      operationalFindings: validateOperationalLoading(container, cargo, result.placements, result.pallets.map(p => ({ id: `PALLET-${p.palletIndex}`, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) }))),
-    },
-    supports: result.pallets.map(p => ({ modelKey, id: `PALLET-${p.palletIndex}`, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) })),
+    result: palletResultToLoadingResult(result, sanitizeSpec(spec)),
+    supports: result.pallets.map(p => ({ modelKey, id: `PALLET-${p.palletIndex}`, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(0, p.totalWeightKg - p.cargoWeightKg) })),
   }), [container, cargo, result, modelKey]);
 
   useEffect(() => {
@@ -314,12 +300,11 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
           <div><span>사용 팔레트</span><strong>{result.palletCount}</strong></div>
           <div><span>적재 화물</span><strong>{result.placements.length} EA</strong></div>
           {'mixed' in result && <div><span>직접 적재 박스</span><strong>{result.mixed.directBoxCount} EA</strong></div>}
-          {'mixed' in result && <div><span>혼합 절감 팔레트</span><strong>{result.mixed.demotedPalletCount}</strong></div>}
           <div><span>적층 팔레트</span><strong>{result.stackedPallets}</strong></div>
           <div><span>총 팔레트화 중량</span><strong>{result.totalPalletizedWeightKg.toFixed(0)} kg</strong></div>
-          <div><span>전역 최적화</span><strong>{result.optimization.selectedStackTarget}단 후보 · 바닥 {result.optimization.floorPositions}열</strong></div>
-          <div><span>재배치 / 병합</span><strong>{result.optimization.redistributedForLowUtilization ? '균등분산' : '기본배치'} · {result.optimization.consolidationPasses}회</strong></div>
-          <div><span>관성 보강</span><strong>{securingUsage?.levelLabel ?? '결과 보기 전 검증'}</strong></div>
+          <div><span>컨테이너 배치</span><strong>A 적재 방식 · {result.ruleEngineStrategy ?? "계산 완료"}</strong></div>
+          <div><span>팔레트 준비</span><strong>내용물 병합 {result.optimization.consolidationPasses}회</strong></div>
+          <div><span>관성 보강</span><strong>{securingUsage?.levelLabel ?? '선택 검증 미실행'}</strong></div>
           <div><span>보조자재 중량</span><strong>{securingUsage ? `약 ${securingUsage.estimatedNonCargoWeightKg.toFixed(1)} kg` : '-'}</strong></div>
         </div>
       </section>

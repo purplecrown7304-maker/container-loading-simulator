@@ -1,5 +1,6 @@
-import { validatePlacements } from './engine/constraints';
-import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
+import { publishLoadSimAcceptance } from './rule-engine/acceptance';
+import { palletResultToLoadingResult } from './engine/palletContainerPlacement';
+import type { CargoItem, ContainerSpec } from './engine/types';
 import { readPalletSnapshot } from './palletSnapshotStore';
 import { palletModelKey } from './palletModel';
 import { publishPhysicsTarget, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
@@ -14,14 +15,7 @@ export function buildPalletPhysicsTarget(container: ContainerSpec, cargo: CargoI
   const snapshot = readPalletSnapshot();
   if (!snapshot) return undefined;
 
-  const placements = snapshot.result.placements;
-  const result: LoadingResult = {
-    placements,
-    remaining: snapshot.result.remaining,
-    loadedWeightKg: snapshot.result.totalPalletizedWeightKg,
-    usedVolumeM3: placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0),
-    validationIssues: validatePlacements(container, placements),
-  };
+  const result = palletResultToLoadingResult(snapshot.result, snapshot.spec);
   const supports = snapshot.result.pallets.map((pallet) => ({
     modelKey: palletModelKey(snapshot.spec),
     id: `PALLET-${String(pallet.palletIndex).padStart(2, '0')}`,
@@ -31,7 +25,7 @@ export function buildPalletPhysicsTarget(container: ContainerSpec, cargo: CargoI
     length: pallet.length,
     width: pallet.width,
     height: pallet.height,
-    weightKg: Math.max(0.01, pallet.totalWeightKg - pallet.cargoWeightKg),
+    weightKg: Math.max(0, pallet.totalWeightKg - pallet.cargoWeightKg),
     dynamic: true,
   }));
 
@@ -42,6 +36,7 @@ export function restorePalletPhysicsTarget(container: ContainerSpec, cargo: Carg
   const current = readPhysicsTarget();
   if (current?.mode === 'pallets') return current;
   const restored = buildPalletPhysicsTarget(container, cargo);
-  if (restored) publishPhysicsTarget(restored);
+  if (restored?.result.ruleEngine === 'load-sim') publishLoadSimAcceptance(restored);
+  else if (restored) publishPhysicsTarget(restored);
   return restored;
 }

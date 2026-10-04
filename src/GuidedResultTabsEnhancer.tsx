@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { analyzeConstraints } from './engine/constraintAnalysis';
-import { validatePlacements } from './engine/constraints';
+import { palletResultToLoadingResult } from './engine/palletContainerPlacement';
 import { analyzeFloorLoad } from './engine/floorLoad';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
 import { useGuidedLoadingUnit } from './guidedLoadingUnitState';
-import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification } from './inertiaCertification';
+import { INERTIA_CERTIFICATION_EVENT, createPhysicsTargetSignature, readLatestInertiaCertification } from './inertiaCertification';
 import { usePalletSnapshot } from './palletSnapshotStore';
+import { PHYSICS_TARGET_EVENT, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
+import { LOAD_SIM_ACCEPTANCE_EVENT, createLoadSimTargetSignature, isLoadSimAcceptedTarget, readLoadSimAcceptance } from './rule-engine/acceptance';
 import { readStoredState, STORAGE_UPDATED_EVENT } from './storage';
 
 type ResultTab = 'result' | 'unloaded' | 'weight' | 'safety';
@@ -29,14 +30,7 @@ function readBoxDetail() {
 function buildPalletDetail(snapshot: ReturnType<typeof usePalletSnapshot>): Detail | undefined {
   const stored = readStoredState();
   if (!snapshot || !stored) return undefined;
-  const placements = snapshot.result.placements;
-  const result: LoadingResult = {
-    placements,
-    remaining: snapshot.result.remaining,
-    loadedWeightKg: snapshot.result.totalPalletizedWeightKg,
-    usedVolumeM3: placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0),
-    validationIssues: validatePlacements(stored.container, placements),
-  };
+  const result = palletResultToLoadingResult(snapshot.result, snapshot.spec);
   return { container: stored.container, cargo: stored.cargo, result };
 }
 
@@ -44,10 +38,14 @@ export default function GuidedResultTabsEnhancer() {
   const loadingUnit = useGuidedLoadingUnit();
   const palletSnapshot = usePalletSnapshot();
   const [latestCertification, setLatestCertification] = useState(readLatestInertiaCertification);
+  const [currentTarget, setCurrentTarget] = useState(readPhysicsTarget);
+  const [acceptance, setAcceptance] = useState(readLoadSimAcceptance);
   useEffect(() => {
-    const refresh = () => setLatestCertification(readLatestInertiaCertification());
+    const refresh = () => { setLatestCertification(readLatestInertiaCertification()); setCurrentTarget(readPhysicsTarget()); setAcceptance(readLoadSimAcceptance()); };
     window.addEventListener(INERTIA_CERTIFICATION_EVENT, refresh);
-    return () => window.removeEventListener(INERTIA_CERTIFICATION_EVENT, refresh);
+    window.addEventListener(LOAD_SIM_ACCEPTANCE_EVENT, refresh);
+    window.addEventListener(PHYSICS_TARGET_EVENT, refresh);
+    return () => { window.removeEventListener(INERTIA_CERTIFICATION_EVENT, refresh); window.removeEventListener(LOAD_SIM_ACCEPTANCE_EVENT, refresh); window.removeEventListener(PHYSICS_TARGET_EVENT, refresh); };
   }, []);
   const [host, setHost] = useState<HTMLElement | null>(null);
   const [stage, setStage] = useState<HTMLElement | null>(null);
@@ -111,19 +109,24 @@ export default function GuidedResultTabsEnhancer() {
   }, [stage, tab]);
 
   const detail = useMemo(
-    () => loadingUnit === 'pallets' ? buildPalletDetail(palletSnapshot) : boxDetail,
-    [loadingUnit, palletSnapshot, boxDetail],
+    () => {
+      const expectedMode = loadingUnit === 'pallets' ? 'pallets' : 'boxes';
+      return currentTarget?.mode === expectedMode ? currentTarget : expectedMode === 'pallets' ? buildPalletDetail(palletSnapshot) : boxDetail;
+    },
+    [loadingUnit, palletSnapshot, boxDetail, currentTarget],
   );
 
   const analyses = useMemo(() => {
     if (!detail) return null;
     const floor = analyzeFloorLoad(detail.container, detail.result, 12, 4);
     const balance = assessWeightBalance(detail.container, detail.result);
-    const checks = analyzeConstraints(detail.container, detail.cargo, detail.result, floor);
     const expectedMode = loadingUnit === 'pallets' ? 'pallets' : 'boxes';
-    const certification = latestCertification?.mode === expectedMode ? latestCertification : undefined;
-    return { floor, balance, checks, certification };
-  }, [detail, loadingUnit, latestCertification]);
+    const target: PhysicsTarget = { ...detail, mode: expectedMode, supports: currentTarget?.mode === expectedMode ? currentTarget.supports : undefined };
+    const certification = latestCertification?.targetSignature === createPhysicsTargetSignature(target) ? latestCertification : undefined;
+    const proof = acceptance?.targetSignature === createLoadSimTargetSignature(target) ? acceptance : undefined;
+    const accepted = isLoadSimAcceptedTarget(target);
+    return { floor, balance, certification, proof, accepted };
+  }, [detail, loadingUnit, latestCertification, currentTarget, acceptance]);
 
   if (!host) return null;
 
@@ -134,7 +137,7 @@ export default function GuidedResultTabsEnhancer() {
   const volume = detail ? detail.container.length * detail.container.width * detail.container.height : 0;
   const fillRate = result && volume > 0 ? result.usedVolumeM3 / volume * 100 : 0;
   const weightRate = result && detail && detail.container.maxPayloadKg > 0 ? result.loadedWeightKg / detail.container.maxPayloadKg * 100 : 0;
-  const certificationLabel = analyses?.certification?.status === 'passed' ? '관성 통과' : result ? '결과 확인' : '대기';
+  const certificationLabel = analyses?.accepted ? '정적 검증 통과' : analyses?.proof?.status === 'rejected' ? '정적 검증 실패' : result ? '검증 대기' : '대기';
 
   return createPortal(
     <>
@@ -156,7 +159,7 @@ export default function GuidedResultTabsEnhancer() {
           <div className={remaining ? 'warn' : 'good'}><span>미적재</span><b>{remaining.toLocaleString()} EA</b></div>
           <div><span>CBM 사용률</span><b>{fillRate.toFixed(1)}%</b></div>
           <div><span>중량 사용률</span><b>{weightRate.toFixed(1)}%</b></div>
-          <div className={analyses?.certification?.status === 'passed' ? 'good' : ''}><span>작업 판정</span><b>{certificationLabel}</b></div>
+          <div className={analyses?.accepted ? 'good' : ''}><span>작업 판정</span><b>{certificationLabel}</b></div>
         </div> : <div className="guided-result-empty">표시할 최종 적재 결과가 없습니다.</div>}
       </section>}
 
@@ -184,15 +187,17 @@ export default function GuidedResultTabsEnhancer() {
 
       {tab === 'safety' && <section className="guided-result-tab-panel">
         {analyses ? <div className="guided-safety-list">
-          {analyses.checks.map(check => <article key={check.id} className={check.status}>
-            <span className="guided-safety-icon">{check.status === 'pass' ? '✓' : check.status === 'warn' ? '!' : '×'}</span>
-            <span><b>{check.label}</b><small>{check.detail}</small></span>
-            <strong>{check.status === 'pass' ? '통과' : check.status === 'warn' ? '확인' : '실패'}</strong>
-          </article>)}
+          <article className={analyses.accepted ? 'pass' : analyses.proof?.status === 'rejected' ? 'fail' : 'warn'}>
+            <span className="guided-safety-icon">{analyses.accepted ? '✓' : '!'}</span>
+            <span><b>1번 파일 정적 검증</b><small>{analyses.accepted ? '현재 배치에 1번 파일의 배치·중량·지지·적층·하역 규칙을 적용했습니다.' : analyses.proof?.status === 'rejected' ? '규칙 위반을 확인하고 다시 계산하세요.' : '현재 최종 배치의 정적 검증 결과가 없습니다.'}</small></span>
+            <strong>{certificationLabel}</strong>
+          </article>
+          {analyses.proof?.validationIssues.map((issue, index) => <article key={`error-${index}`} className="fail"><span className="guided-safety-icon">×</span><span><b>{issue.type}</b><small>{issue.message}</small></span><strong>실패</strong></article>)}
+          {analyses.proof?.operationalFindings.filter(finding => finding.severity === 'warning').map((finding, index) => <article key={`warning-${index}`} className="warn"><span className="guided-safety-icon">!</span><span><b>{finding.code}</b><small>{finding.message}</small></span><strong>확인</strong></article>)}
           <article className={analyses.certification?.status === 'passed' ? 'pass' : 'warn'}>
             <span className="guided-safety-icon">{analyses.certification?.status === 'passed' ? '✓' : '!'}</span>
-            <span><b>관성 3종 검사</b><small>{analyses.certification ? `검사 ${analyses.certification.testedScenarios}/3 · 최대 이동 ${(analyses.certification.maxHorizontalShiftM * 1000).toFixed(1)} mm` : '현재 적재 유형의 관성 검사 결과를 확인하세요.'}</small></span>
-            <strong>{analyses.certification?.status === 'passed' ? '통과' : '확인'}</strong>
+            <span><b>관성 3종 검사 (선택)</b><small>{analyses.certification ? `검사 ${analyses.certification.testedScenarios}/3 · 최대 이동 ${(analyses.certification.maxHorizontalShiftM * 1000).toFixed(1)} mm` : '별도 관성 검사 미실행 · 정적 검증은 동적 안전 인증이 아닙니다.'}</small></span>
+            <strong>{analyses.certification?.status === 'passed' ? '통과' : analyses.certification ? '확인' : '미실행'}</strong>
           </article>
         </div> : <div className="guided-result-empty">안전 검사를 표시할 적재 결과가 없습니다.</div>}
       </section>}

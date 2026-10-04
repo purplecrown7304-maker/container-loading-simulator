@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultPalletSpec, packOnPallets } from './palletPacking';
+import { defaultPalletSpec, preparePalletLoads, packOnPallets } from './palletPacking';
 import type { CargoItem, ContainerSpec } from './types';
 
 const fortyFoot: ContainerSpec = {
@@ -57,9 +57,9 @@ describe('pallet field QA', () => {
     assertInsideContainer(result, fortyFoot);
   });
 
-  it('never exceeds configured carton top-load when stacking pallets', () => {
+  it('never exceeds configured carton top-load during pallet preparation', () => {
     const maxTopLoadKg = 30;
-    const result = packOnPallets(
+    const result = preparePalletLoads(
       { ...fortyFoot, length: 4.4, maxPayloadKg: 12000 },
       [cargo('FRAGILE', { quantity: 90, weightKg: 24, maxTopLoadKg, maxStackLayers: 4 })],
       { ...defaultPalletSpec, maxStackLevels: 3, maxSupportedTopWeightKg: 5000, maxLoadKg: 900 },
@@ -146,12 +146,12 @@ describe('pallet field QA', () => {
   });
 
   it('honors box rotation policy inside pallet loads under mixed dimensions', () => {
-    const rotatable = packOnPallets(
+    const rotatable = preparePalletLoads(
       { length: 2.5, width: 1.1, height: 1.4, maxPayloadKg: 5000 },
       [cargo('ROT', { length: 0.7, width: 0.4, height: 0.3, quantity: 12, allowRotation: true })],
       { ...defaultPalletSpec, length: 1.25, width: 1.0, maxStackLevels: 1 },
     );
-    const fixed = packOnPallets(
+    const fixed = preparePalletLoads(
       { length: 2.5, width: 1.1, height: 1.4, maxPayloadKg: 5000 },
       [cargo('FIX', { length: 0.7, width: 0.4, height: 0.3, quantity: 12, allowRotation: false })],
       { ...defaultPalletSpec, length: 1.25, width: 1.0, maxStackLevels: 1 },

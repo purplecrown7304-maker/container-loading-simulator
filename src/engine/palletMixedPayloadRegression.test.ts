@@ -1,57 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { expect, it } from 'vitest';
 import { defaultPalletSpec, packOnPallets } from './palletPacking';
-import type { CargoItem } from './types';
 
-const box = (id: string, weightKg: number): CargoItem => ({
-  id,
-  name: id,
-  length: 0.5,
-  width: 1,
-  height: 0.4,
-  weightKg,
-  quantity: 1,
-  maxStackLayers: 1,
-  maxTopLoadKg: 500,
-  allowRotation: false,
+const cargo = [{ id: 'A', name: 'A', length: .5, width: 1, height: .4, weightKg: 30, quantity: 1, maxStackLayers: 1 }, { id: 'B', name: 'B', length: .5, width: 1, height: .4, weightKg: 20, quantity: 1, maxStackLayers: 1 }];
+const pallet = { ...defaultPalletSpec, length: 1, width: 1, tareWeightKg: 25, useCornerGuards: true, cornerGuardWeightKg: 10 };
+it('keeps an overweight rigid pallet waiting as a unit without deleting a child to fit', () => {
+  const result = packOnPallets({ length: 2.2, width: 1.2, height: 1.2, maxPayloadKg: 84 }, cargo, pallet);
+  expect(result.palletCount).toBe(0);
+  expect(result.remaining.reduce((sum, p) => sum + p.quantity, 0)).toBe(2);
 });
-
-const pallet = {
-  ...defaultPalletSpec,
-  length: 1,
-  width: 1,
-  height: 0.15,
-  tareWeightKg: 25,
-  maxStackLevels: 2,
-  useCornerGuards: true,
-  cornerGuardWeightKg: 10,
-  useWrapping: false,
-  minimizePackaging: true,
-};
-
-describe('pallet final mixed payload regression', () => {
-  it('does not use free pallet space when cargo plus reserved packaging would exceed payload', () => {
-    const result = packOnPallets(
-      { length: 2, width: 1, height: 1.2, maxPayloadKg: 84 },
-      [box('A', 30), box('B', 20)],
-      pallet,
-    );
-
-    expect(result.palletCount).toBe(1);
-    expect(result.placements.map((placement) => placement.cargoId)).toEqual(['A']);
-    expect(result.remaining.find((item) => item.cargoId === 'B')?.quantity).toBe(1);
-    expect(result.totalPalletizedWeightKg).toBeLessThanOrEqual(84 + 1e-9);
-  });
-
-  it('uses the same free pallet space when the exact reserved payload is available', () => {
-    const result = packOnPallets(
-      { length: 2, width: 1, height: 1.2, maxPayloadKg: 85 },
-      [box('A', 30), box('B', 20)],
-      pallet,
-    );
-
-    expect(result.palletCount).toBe(1);
-    expect(result.placements).toHaveLength(2);
-    expect(result.remaining).toHaveLength(0);
-    expect(result.totalPalletizedWeightKg).toBeLessThanOrEqual(85 + 1e-9);
-  });
+it('counts cargo, base and actual packaging exactly once at the A payload limit', () => {
+  const result = packOnPallets({ length: 2.2, width: 1.2, height: 1.2, maxPayloadKg: 85 }, cargo, pallet);
+  expect(result.placements).toHaveLength(2);
+  expect(result.totalPalletizedWeightKg).toBe(85);
+  expect(result.ruleEngineInput?.placements.reduce((sum, p) => sum + p.weightKg, 0)).toBe(85);
 });

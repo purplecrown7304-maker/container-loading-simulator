@@ -1,10 +1,21 @@
 import { expect, test } from '@playwright/test';
 import { buildLoadingReportHtml } from '../src/report';
 import { reportFixture } from '../src/reportZones.fixture';
+import { clearLoadSimAcceptance, publishLoadSimAcceptance } from '../src/rule-engine/acceptance';
+import { clearPhysicsTarget } from '../src/physicsTarget';
+
+test.afterEach(() => { clearPhysicsTarget(); clearLoadSimAcceptance(); });
 
 test('work order presents actual zones and checks editable shipment fields before printing', async ({ page }) => {
   const fixture = reportFixture();
+  // This is a synthetic zone-layout fixture, not actual equipment. Give its unchanged
+  // 2.35 m-wide layout A's required lateral clearance before validating the exact result.
+  fixture.container = { ...fixture.container, width: 2.4 };
+  fixture.result.ruleEngine = 'load-sim';
+  expect(publishLoadSimAcceptance({ mode: 'boxes', ...fixture }).status).toBe('accepted');
   await page.setContent(buildLoadingReportHtml(fixture.container, fixture.cargo, fixture.result));
+  await expect(page.locator('.report-status')).toContainText('A 정적 규칙 검증');
+  await expect(page.locator('.footer')).toContainText('관성검사(선택): 미실시');
   await expect(page.locator('.zone-table tbody tr')).toHaveCount(5);
   await expect(page.locator('.zone-progress article')).toHaveCount(5);
   await expect(page.locator('.zone-table tfoot')).toContainText('895개');

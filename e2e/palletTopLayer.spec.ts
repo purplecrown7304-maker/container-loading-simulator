@@ -39,7 +39,7 @@ test('sparse top tier moves to a final pallet and diagnostics download a local Z
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
   await page.getByRole('radio', { name: /파렛트 적재/ }).click();
   await page.getByRole('radio', { name: /T11 플라스틱 \(수출용 경량\)/ }).click();
-  await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
+  await page.getByRole('radio', { name: /1번 파일 적재 방식/ }).click();
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.palletCount)).toBe(2);
@@ -62,9 +62,10 @@ test('sparse top tier moves to a final pallet and diagnostics download a local Z
   });
   expect(result.loaded).toBe(9);
   expect(result.remaining).toEqual([]);
-  expect(result.pallets.map((p: any) => p.count)).toEqual([8, 1]);
-  expect(result.pallets[0].fill).toBeCloseTo(1);
-  expect(result.pallets[1]).toMatchObject({ tail: true, count: 1 });
+  // A chooses rigid-unit order; preparation still preserves the regular and tail decks.
+  expect(result.pallets.map((p: any) => p.count).sort((a: number, b: number) => b - a)).toEqual([8, 1]);
+  expect(result.pallets.find((p: any) => !p.tail).fill).toBeCloseTo(1);
+  expect(result.pallets.find((p: any) => p.tail)).toMatchObject({ tail: true, count: 1 });
   await page.screenshot({ path: test.info().outputPath('pallet-top-layer.png'), fullPage: true });
 
   await page.getByRole('button', { name: /메뉴/, exact: false }).filter({ has: page.locator('span', { hasText: '☰' }) }).click();

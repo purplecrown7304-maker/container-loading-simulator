@@ -1,6 +1,7 @@
 import type { PhysicsSupport } from './engine/physicsValidation';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { createExternalStore } from './store/externalStore';
+import { isCurrentLoadingSource } from './rule-engine/inputIdentity';
 
 export const PHYSICS_TARGET_EVENT = 'container-loading:physics-target';
 
@@ -27,11 +28,13 @@ function mirrorLegacyWindowTarget(target: PhysicsTarget | undefined) {
 }
 
 export function publishPhysicsTarget(target: PhysicsTarget) {
+  if (!isCurrentLoadingSource(target.container, target.cargo)) return false;
   store.setSnapshot(target);
   mirrorLegacyWindowTarget(target);
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent<PhysicsTarget>(PHYSICS_TARGET_EVENT, { detail: target }));
   }
+  return true;
 }
 
 export function clearPhysicsTarget(mode?: PhysicsTarget['mode']) {

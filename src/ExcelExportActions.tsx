@@ -13,11 +13,32 @@ import { buildPalletSecuringPlan } from './palletSecuringPlan';
 import { palletBandingLabel } from './palletBanding';
 import { readPhysicsTarget } from './physicsTarget';
 import { defaultSecuringMaterialSettings } from './securingMaterialSettings';
+import { isLoadSimAcceptedTarget, readLoadSimAcceptance } from './rule-engine/acceptance';
 
 type Detail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type PalletSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult };
 type ExportWindow = Window & { __containerLoadingLatestResult?: Detail; __containerLoadingPalletSnapshot?: PalletSnapshot };
 type CurrentTarget = NonNullable<ReturnType<typeof readPhysicsTarget>>;
+
+/** A output contains static-rule proof and coordinates, never an invented dynamic PASS. */
+export function buildAcceptedLoadSimWorkbook(target: CurrentTarget): XLSX.WorkBook {
+  if (!isLoadSimAcceptedTarget(target)) throw new Error('A_STATIC_ACCEPTANCE_REQUIRED');
+  const wb = XLSX.utils.book_new();
+  const acceptance = readLoadSimAcceptance();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['검사', '결과'], ['적재 판정', 'A 정적 규칙 검증 통과'],
+    ['물리·관성 검사', '별도 선택 검사 · 이 파일은 관성 PASS 증명서가 아님'],
+    ['적재 화물 수량', target.result.placements.length], ['적재 중량(kg)', target.result.loadedWeightKg],
+    ['공간(m)', `${target.container.length} × ${target.container.width} × ${target.container.height}`],
+  ]), 'A 적재 판정');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(target.cargo.map(item => ({ 코드: item.id, 품명: item.name, 요청수량: item.quantity, 길이_m: item.length, 폭_m: item.width, 높이_m: item.height, 중량_kg: item.weightKg }))), '화물');
+  const placements = (items: LoadingResult['placements']) => items.map((item, index) => ({ No: index + 1, 코드: item.cargoId, X_m: item.x, Y_m: item.y, Z_m: item.z, 길이_m: item.length, 폭_m: item.width, 높이_m: item.height, 중량_kg: item.weightKg, 방향: item.loadSimOrientation ?? (item.rotated ? 'WLH' : 'LWH') }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(placements(target.result.placements)), '배치');
+  if (target.result.ruleEngineInput) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(placements(target.result.ruleEngineInput.placements)), 'A 강체 적재단위');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(target.result.remaining.map(item => ({ 코드: item.cargoId, 수량: item.quantity, 사유: item.reason }))), '미적재');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((acceptance?.operationalFindings ?? []).map(finding => ({ 규칙: finding.code, 구분: finding.severity, 설명: finding.message, 값: finding.value ?? '', 기준: finding.limit ?? '' }))), 'A 규칙 상세');
+  return wb;
+}
 
 type InertiaHistoryRow = {
   순서: number;
@@ -124,7 +145,7 @@ function exportBoxWorkbook(detail: Detail, certification: InertiaCertification) 
     ['보강 단계', securing.levelLabel], ['박스 제외 보조자재 중량(kg)', Number(securing.estimatedNonCargoWeightKg.toFixed(2))],
   ];
   const cargoRows = cargo.map(item => ({ 코드: item.id, 품명: item.name, 요청수량: item.quantity, 적재수량: loadedByCargo.get(item.id) ?? 0, 잔량: Math.max(0, item.quantity - (loadedByCargo.get(item.id) ?? 0)), 길이_m: item.length, 폭_m: item.width, 높이_m: item.height, 개당중량_kg: item.weightKg, 최대적층단: item.maxStackLayers ?? '', 상부허용중량_kg: item.maxTopLoadKg ?? '', 회전허용: item.allowRotation !== false ? 'Y' : 'N', 하역순서: item.unloadPriority ?? '' }));
-  const placementRows = result.placements.map((p, index) => ({ No: index + 1, 코드: p.cargoId, X_m: p.x, Y_m: p.y, Z_m: p.z, 길이_m: p.length, 폭_m: p.width, 높이_m: p.height, 중량_kg: p.weightKg, 회전: p.rotated ? '90도' : '기본' }));
+  const placementRows = result.placements.map((p, index) => ({ No: index + 1, 코드: p.cargoId, X_m: p.x, Y_m: p.y, Z_m: p.z, 길이_m: p.length, 폭_m: p.width, 높이_m: p.height, 중량_kg: p.weightKg, 회전: p.loadSimOrientation ?? (p.rotated ? 'WLH' : 'LWH') }));
   const remainingRows = result.remaining.map(item => ({ 코드: item.cargoId, 수량: item.quantity, 사유: item.reason }));
   const correctionRows = (result.autoCorrections ?? []).map(item => ({ 보정: item.label, 코드: item.cargoId ?? '', 내용: item.description, 이동전: item.from ? `${item.from.x.toFixed(2)},${item.from.y.toFixed(2)},${item.from.z.toFixed(2)}` : '', 이동후: item.to ? `${item.to.x.toFixed(2)},${item.to.y.toFixed(2)},${item.to.z.toFixed(2)}` : '', 점수전: item.beforeScore ?? '', 점수후: item.afterScore ?? '' }));
   const floorRows = floor.cells.map(cell => ({ 행: cell.row + 1, 열: cell.column + 1, X_m: cell.x, Y_m: cell.y, 하중_kg: Number(cell.loadKg.toFixed(2)), 하중_kg_m2: Number(cell.kgPerM2.toFixed(2)) }));
@@ -171,7 +192,7 @@ function exportPalletWorkbook(target: CurrentTarget, snapshot: PalletSnapshot, c
     const content = [...counts.entries()].map(([id, count]) => `${id}${cargoById.get(id) && cargoById.get(id) !== id ? `(${cargoById.get(id)})` : ''} ${count}EA`).join(' / ');
     return { 순서: index + 1, 팔레트: `P${pallet.palletIndex}`, 적층위치: `C${pallet.stackColumn}`, 단수: pallet.stackLevel, X_m: Number(pallet.x.toFixed(3)), Y_m: Number(pallet.y.toFixed(3)), Z_m: Number(pallet.z.toFixed(3)), 박스수_EA: pallet.cargoPlacements.length, 화물중량_kg: Number(pallet.cargoWeightKg.toFixed(2)), 총중량_kg: Number(pallet.totalWeightKg.toFixed(2)), 박스구성: content, 무게중심_X: Number(pallet.centerOfGravity.x.toFixed(3)), 무게중심_Y: Number(pallet.centerOfGravity.y.toFixed(3)), 무게중심_Z: Number(pallet.centerOfGravity.z.toFixed(3)) };
   });
-  const boxes = result.pallets.flatMap(pallet => pallet.cargoPlacements.map((item, index) => ({ 팔레트: `P${pallet.palletIndex}`, 적층위치: `C${pallet.stackColumn}`, 단수: pallet.stackLevel, 팔레트내순번: index + 1, 코드: item.cargoId, X_m: item.x, Y_m: item.y, Z_m: item.z, 길이_m: item.length, 폭_m: item.width, 높이_m: item.height, 중량_kg: item.weightKg, 회전: item.rotated ? '90도' : '기본' })));
+  const boxes = result.pallets.flatMap(pallet => pallet.cargoPlacements.map((item, index) => ({ 팔레트: `P${pallet.palletIndex}`, 적층위치: `C${pallet.stackColumn}`, 단수: pallet.stackLevel, 팔레트내순번: index + 1, 코드: item.cargoId, X_m: item.x, Y_m: item.y, Z_m: item.z, 길이_m: item.length, 폭_m: item.width, 높이_m: item.height, 중량_kg: item.weightKg, 회전: item.loadSimOrientation ?? (item.rotated ? 'WLH' : 'LWH') })));
   const securingRows = [...plan.items].sort((a, b) => a.palletIndex - b.palletIndex).map((item, index) => {
     const pallet = palletByIndex.get(item.palletIndex);
     const steps = [
@@ -245,6 +266,11 @@ export default function ExcelExportActions() {
     button.disabled = !detail;
     const click = () => {
       const target = readPhysicsTarget();
+      if (target?.result.ruleEngine === 'load-sim') {
+        if (!isLoadSimAcceptedTarget(target)) { window.alert('현재 A 적재 규칙 최종 검사를 통과한 결과가 없습니다.'); return; }
+        XLSX.writeFile(buildAcceptedLoadSimWorkbook(target), `A-loading-${new Date().toISOString().slice(0, 10)}.xlsx`);
+        return;
+      }
       if (target?.mode === 'pallets') {
         const snapshot = (window as ExportWindow).__containerLoadingPalletSnapshot;
         const certification = matchingCurrentPalletCertification(snapshot);

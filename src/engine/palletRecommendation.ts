@@ -31,11 +31,11 @@ export function evaluatePalletType(
 ): PalletTypeEvaluation {
   const active = cargo.filter(item => item.quantity > 0);
   const requestedUnits = active.reduce((sum, item) => sum + item.quantity, 0);
-  const fits = type.length <= container.length + EPS && type.width <= container.width + EPS;
-  if (!fits || !active.length) {
-    return { typeId: type.id, requestedUnits, loadedUnits: 0, palletCount: 0, maxTiers: 0, palletTareTotalKg: 0, loadedCargoKg: 0, fits };
+  if (!active.length) {
+    return { typeId: type.id, requestedUnits, loadedUnits: 0, palletCount: 0, maxTiers: 0, palletTareTotalKg: 0, loadedCargoKg: 0, fits: false };
   }
   const result = packOnPallets(container, active, palletSpecForType(type, base), strategy);
+  const fits = result.palletCount > 0 && !result.validationIssues?.length;
   const maxTiers = result.pallets.reduce((max, load) => {
     const levels = new Set(load.cargoPlacements.map(p => Math.round(p.z * 1000)));
     return Math.max(max, levels.size);

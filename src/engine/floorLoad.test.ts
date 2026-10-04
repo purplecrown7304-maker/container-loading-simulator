@@ -38,25 +38,25 @@ describe('analyzeFloorLoad', () => {
 });
 
 describe('analyzeConstraints', () => {
-  it('passes a valid two-layer stack', () => {
+  it('passes an A-valid two-layer stack with required clearances', () => {
     const r = result([
-      { cargoId: 'A', x: 0, y: 0, z: 0, length: 1, width: 1, height: .5, weightKg: 100 },
-      { cargoId: 'A', x: 0, y: 0, z: .5, length: 1, width: 1, height: .5, weightKg: 100 },
+      { cargoId: 'A', x: .5, y: .05, z: 0, length: 1, width: 1, height: .5, weightKg: 100 },
+      { cargoId: 'A', x: .5, y: .05, z: .5, length: 1, width: 1, height: .5, weightKg: 100 },
     ]);
-    const checks = analyzeConstraints(container, cargo, r, analyzeFloorLoad(container, r));
+    const checks = analyzeConstraints({ ...container, width: 1.1, height: 1.1 }, cargo, r, analyzeFloorLoad(container, r));
     expect(checks.find(c => c.id === 'payload')?.status).toBe('pass');
     expect(checks.find(c => c.id === 'height')?.status).toBe('pass');
     expect(checks.find(c => c.id === 'stack')?.status).toBe('pass');
     expect(checks.find(c => c.id === 'topLoad')?.status).toBe('pass');
   });
 
-  it('warns on conservative top-load excess', () => {
+  it('fails on A cumulative top-load excess', () => {
     const r = result([
-      { cargoId: 'A', x: 0, y: 0, z: 0, length: 1, width: 1, height: .25, weightKg: 100 },
-      { cargoId: 'A', x: 0, y: 0, z: .25, length: 1, width: 1, height: .25, weightKg: 100 },
-      { cargoId: 'A', x: 0, y: 0, z: .5, length: 1, width: 1, height: .25, weightKg: 100 },
+      { cargoId: 'A', x: .5, y: .05, z: 0, length: 1, width: 1, height: .25, weightKg: 100 },
+      { cargoId: 'A', x: .5, y: .05, z: .25, length: 1, width: 1, height: .25, weightKg: 100 },
+      { cargoId: 'A', x: .5, y: .05, z: .5, length: 1, width: 1, height: .25, weightKg: 100 },
     ]);
-    const checks = analyzeConstraints(container, [{ ...cargo[0], maxStackLayers: 4 }], r, analyzeFloorLoad(container, r));
-    expect(checks.find(c => c.id === 'topLoad')?.status).toBe('warn');
+    const checks = analyzeConstraints({ ...container, width: 1.1, height: 1.1 }, [{ ...cargo[0], height: .25, quantity: 3, maxStackLayers: 4 }], r, analyzeFloorLoad(container, r));
+    expect(checks.find(c => c.id === 'topLoad')?.status).toBe('fail');
   });
 });

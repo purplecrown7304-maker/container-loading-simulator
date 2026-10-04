@@ -1,232 +1,37 @@
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createRoot } from 'react-dom/client';
+import { expect, it, vi } from 'vitest';
 import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
 import { requestDirectWorkOrder } from './directWorkOrderEvents';
-import { buildDirectResultReoptimizationCandidatesAsync } from './engine/finalResultOptimization';
-import { buildSecuringUsage, createPhysicsTargetSignature, runInertiaCertification, type InertiaCertification } from './inertiaCertification';
-import { completeCertificationForWorkOrder } from './inertiaWorkOrderPolicy';
-import { clearPhysicsTarget, publishPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { openLoadingReport } from './report';
-import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
+import { readLatestInertiaCertification } from './inertiaCertification';
+import { clearPhysicsTarget, type PhysicsTarget } from './physicsTarget';
+import { clearLoadSimAcceptance, isLoadSimAcceptedTarget } from './rule-engine/acceptance';
 
-vi.mock('./engine/finalResultOptimization', async importOriginal => ({ ...await importOriginal<object>(), buildDirectResultReoptimizationCandidatesAsync: vi.fn() }));
-vi.mock('./inertiaCertification', async importOriginal => ({ ...await importOriginal<object>(), runInertiaCertification: vi.fn() }));
-vi.mock('./inertiaWorkOrderPolicy', async importOriginal => ({ ...await importOriginal<object>(), completeCertificationForWorkOrder: vi.fn() }));
-vi.mock('./report', () => ({ openLoadingReport: vi.fn() }));
+vi.mock('./report', () => ({ openLoadingReport: vi.fn(() => true) }));
 
-const target: PhysicsTarget = {
-  mode: 'boxes', container: { length: 3, width: 2, height: 2, maxPayloadKg: 100 },
-  cargo: [{ id: 'A', name: 'A', length: 0.3, width: 0.3, height: 0.3, weightKg: 1, quantity: 1 }],
-  result: { placements: [{ cargoId: 'A', x: 0, y: 0, z: 0, length: 0.3, width: 0.3, height: 0.3, weightKg: 1 }], remaining: [], loadedWeightKg: 1, usedVolumeM3: 0.027, validationIssues: [] },
-};
-let host: HTMLDivElement;
-let root: Root;
-let certification: InertiaCertification;
-let searchSignal: AbortSignal | undefined;
-
-beforeEach(async () => {
-  vi.clearAllMocks();
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  clearPhysicsTarget();
-  certification = { status: 'failed', mode: 'boxes', targetSignature: createPhysicsTargetSignature(target), testedAt: new Date().toISOString(), securing: buildSecuringUsage(target, 3), testedScenarios: 3, passedScenarios: 0, failedScenarios: ['acceleration', 'braking', 'cornering'], maxHorizontalShiftM: 0.1, maxTiltDeg: 10, results: {}, payloadWithinLimit: true };
-  for (const scenario of ['acceleration', 'braking', 'cornering'] as const) certification.results[scenario] = { scenario, fps: 0, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: 0.1, maxTiltDeg: 10 };
-  vi.mocked(runInertiaCertification).mockResolvedValue(certification);
-  vi.mocked(completeCertificationForWorkOrder).mockResolvedValue(certification);
-  vi.mocked(openLoadingReport).mockReturnValue(false);
-  vi.mocked(buildDirectResultReoptimizationCandidatesAsync).mockImplementation((_target, _limit, _cancelled, options) => {
-    searchSignal = options?.signal;
-    options?.onProgress?.({ completed: 0, total: 7, label: '안정성 우선' });
-    return new Promise((_resolve, reject) => options?.signal?.addEventListener('abort', () => reject(new DOMException('취소됨', 'AbortError'))));
-  });
-  host = document.createElement('div'); document.body.appendChild(host);
-  root = createRoot(host);
-  await act(async () => { root.render(<DirectWorkOrderOptimizer />); });
+it.each([true, false])('A work order openReport=%s preserves exact accepted placement without repacking or physics', async openReport => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.clearAllMocks();
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  const target: PhysicsTarget = { mode: 'boxes', container: { length: 2, width: 2, height: 2, maxPayloadKg: 1000 }, cargo: [{ id: 'A', name: 'A', length: .4, width: .4, height: .4, weightKg: 10, quantity: 1 }], result: { ruleEngine: 'load-sim', placements: [{ cargoId: 'A', x: .8, y: .8, z: 0, length: .4, width: .4, height: .4, weightKg: 10 }], remaining: [], loadedWeightKg: 10, usedVolumeM3: .064, validationIssues: [] } };
+  const before = JSON.stringify(target);
+  try {
+    await act(async () => root.render(<DirectWorkOrderOptimizer />));
+    await act(async () => requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport }));
+    expect(openLoadingReport).toHaveBeenCalledTimes(openReport ? 1 : 0);
+    expect(JSON.stringify(target)).toBe(before);
+    expect(isLoadSimAcceptedTarget(target)).toBe(true);
+    expect(readLatestInertiaCertification()).toBeUndefined();
+  } finally { await act(async () => root.unmount()); host.remove(); clearPhysicsTarget(); clearLoadSimAcceptance(); vi.unstubAllGlobals(); }
 });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); clearPhysicsTarget(); vi.unstubAllGlobals(); });
-const request = () => act(async () => { requestDirectWorkOrder(target.container, target.cargo, target.result); });
-const click = (label: string) => act(async () => { [...host.querySelectorAll('button')].find(button => button.textContent === label)!.click(); });
 
-describe('work-order optimizer recovery', () => {
-  it('shows the additional search separately, cancels its worker, and retries a blocked popup without recalculation', async () => {
-    await request();
-    expect(host.textContent).toContain('추가 배치 계산 0/7회');
-    expect(host.querySelector('progress')?.value).toBeLessThan(100);
-    expect(host.textContent).not.toContain('현재 보강');
-    await click('비교 중단하고 현재 검증 결과로 발급');
-    expect(searchSignal?.aborted).toBe(true);
-    expect(openLoadingReport).toHaveBeenCalledOnce();
-    expect(host.textContent).toContain('위험');
-    expect(host.textContent).toContain('팝업이 차단');
-    const published = (window as any).__containerLoadingLatestCertification;
-    expect(published.status).toBe('failed');
-    expect(published.searchNotice).toContain('비교를 중단');
-    vi.mocked(openLoadingReport).mockReturnValue(true);
-    await click('작업지시서 열기');
-    expect(openLoadingReport).toHaveBeenCalledTimes(2);
-    expect(runInertiaCertification).toHaveBeenCalledOnce();
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
-  });
-
-  it('finishes on the verified baseline when optional search times out', async () => {
-    vi.mocked(buildDirectResultReoptimizationCandidatesAsync).mockResolvedValue({ candidates: [], timedOut: true });
-    await request();
-    expect(openLoadingReport).toHaveBeenCalledWith(target.container, target.cargo, target.result);
-    expect(host.textContent).toContain('시간 제한');
-    expect((window as any).__containerLoadingLatestCertification.status).toBe('failed');
-    expect((window as any).__containerLoadingLatestCertification.searchNotice).toContain('모든 후보를 탐색한 결과는 아닙니다');
-  });
-
-
-
-  it('automatic final loading searches safer layouts when the baseline is only caution', async () => {
-    const caution: InertiaCertification = {
-      ...certification,
-      status: 'failed',
-      maxHorizontalShiftM: 0.02,
-      maxTiltDeg: 2.2,
-      passedScenarios: 0,
-      failedScenarios: ['acceleration', 'braking', 'cornering'],
-      results: {},
-    };
-    for (const scenario of ['acceleration', 'braking', 'cornering'] as const) {
-      caution.results[scenario] = {
-        scenario, fps: 0, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [],
-        maxHorizontalShiftM: 0.02, maxTiltDeg: 2.2,
-      };
-    }
-    const saferResult = {
-      ...target.result,
-      placements: [{ ...target.result.placements[0], x: 0.6 }],
-    };
-    const saferTarget: PhysicsTarget = { ...target, result: saferResult };
-    const passed: InertiaCertification = {
-      ...caution,
-      status: 'passed',
-      targetSignature: createPhysicsTargetSignature(saferTarget),
-      passedScenarios: 3,
-      failedScenarios: [],
-      maxHorizontalShiftM: 0.004,
-      maxTiltDeg: 0.6,
-      results: {},
-    };
-    for (const scenario of ['acceleration', 'braking', 'cornering'] as const) {
-      passed.results[scenario] = {
-        scenario, fps: 0, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [],
-        maxHorizontalShiftM: 0.004, maxTiltDeg: 0.6,
-      };
-    }
-
-    vi.mocked(runInertiaCertification)
-      .mockResolvedValueOnce(caution)
-      .mockResolvedValueOnce(passed);
-    vi.mocked(completeCertificationForWorkOrder)
-      .mockResolvedValueOnce(caution)
-      .mockResolvedValueOnce(passed);
-    vi.mocked(buildDirectResultReoptimizationCandidatesAsync).mockResolvedValue({
-      candidates: [{ label: '저중심 재배치', result: saferResult, target: saferTarget, staticPenalty: -1 }],
-      timedOut: false,
-    });
-
-    await act(async () => {
-      requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false });
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(buildDirectResultReoptimizationCandidatesAsync).toHaveBeenCalledOnce();
-    expect(runInertiaCertification).toHaveBeenCalledTimes(2);
-    expect((window as any).__containerLoadingLatestCertification.status).toBe('passed');
-    expect(createPhysicsTargetSignature((window as any).__containerLoadingPhysicsTarget)).toBe(createPhysicsTargetSignature(saferTarget));
+it('revalidates A geometry before issuing a work order', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.clearAllMocks();
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => root.render(<DirectWorkOrderOptimizer />));
+    await act(async () => requestDirectWorkOrder({ length: 1, width: 1, height: 1, maxPayloadKg: 10 }, [], { ruleEngine: 'load-sim', placements: [{ cargoId: 'MISSING', x: 0, y: 0, z: 0, length: .4, width: .4, height: .4, weightKg: 1 }], remaining: [], loadedWeightKg: 1, usedVolumeM3: .064, validationIssues: [] }));
     expect(openLoadingReport).not.toHaveBeenCalled();
-  });
-
-
-
-  it('automatic final loading still compares low-CG candidates when the tall baseline already passes', async () => {
-    const baselinePass: InertiaCertification = {
-      ...certification,
-      status: 'passed',
-      testedScenarios: 3,
-      passedScenarios: 3,
-      failedScenarios: [],
-      maxHorizontalShiftM: 0.011,
-      maxTiltDeg: 1.7,
-      results: {},
-    };
-    for (const scenario of ['acceleration', 'braking', 'cornering'] as const) {
-      baselinePass.results[scenario] = {
-        scenario, fps: 0, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [],
-        maxHorizontalShiftM: 0.011, maxTiltDeg: 1.7,
-      };
-    }
-    const saferResult = {
-      ...target.result,
-      placements: [{ ...target.result.placements[0], x: 0.8 }],
-    };
-    const saferTarget: PhysicsTarget = { ...target, result: saferResult };
-    const saferPass: InertiaCertification = {
-      ...baselinePass,
-      targetSignature: createPhysicsTargetSignature(saferTarget),
-      maxHorizontalShiftM: 0.002,
-      maxTiltDeg: 0.3,
-      results: {},
-    };
-    for (const scenario of ['acceleration', 'braking', 'cornering'] as const) {
-      saferPass.results[scenario] = {
-        scenario, fps: 0, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [],
-        maxHorizontalShiftM: 0.002, maxTiltDeg: 0.3,
-      };
-    }
-
-    vi.mocked(runInertiaCertification)
-      .mockResolvedValueOnce(baselinePass)
-      .mockResolvedValueOnce(saferPass);
-    vi.mocked(completeCertificationForWorkOrder)
-      .mockResolvedValueOnce(baselinePass)
-      .mockResolvedValueOnce(saferPass);
-    vi.mocked(buildDirectResultReoptimizationCandidatesAsync).mockResolvedValue({
-      candidates: [{ label: '저중심 재배치', result: saferResult, target: saferTarget, staticPenalty: -1 }],
-      timedOut: false,
-    });
-
-    await act(async () => {
-      requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false });
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(buildDirectResultReoptimizationCandidatesAsync).toHaveBeenCalledOnce();
-    expect(runInertiaCertification).toHaveBeenCalledTimes(2);
-    expect(createPhysicsTargetSignature((window as any).__containerLoadingPhysicsTarget)).toBe(createPhysicsTargetSignature(saferTarget));
-    expect((window as any).__containerLoadingLatestCertification.maxTiltDeg).toBe(0.3);
-    expect(openLoadingReport).not.toHaveBeenCalled();
-  });
-
-  it('closes immediately on cancel without issuing a report', async () => {
-    await request();
-    await click('계산 취소');
-    expect(searchSignal?.aborted).toBe(true);
-    expect(openLoadingReport).not.toHaveBeenCalled();
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
-  });
-
-  it('aborts the search and closes stale work-order UI when workspace inputs change', async () => {
-    await request();
-    await act(async () => window.dispatchEvent(new CustomEvent(WORKFLOW_INPUT_INVALIDATED_EVENT)));
-    expect(searchSignal?.aborted).toBe(true);
-    expect(openLoadingReport).not.toHaveBeenCalled();
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
-  });
-
-  it('rejects a stale verified report after the loading target changes', async () => {
-    await request();
-    publishPhysicsTarget({ ...target, container: { ...target.container, length: 4 } });
-    await click('비교 중단하고 현재 검증 결과로 발급');
-    expect(openLoadingReport).not.toHaveBeenCalled();
-    expect(host.textContent).toContain('적재안이 변경');
-    expect(host.textContent).not.toContain('작업지시서 열기');
-  });
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+  } finally { await act(async () => root.unmount()); host.remove(); clearPhysicsTarget(); clearLoadSimAcceptance(); vi.unstubAllGlobals(); }
 });

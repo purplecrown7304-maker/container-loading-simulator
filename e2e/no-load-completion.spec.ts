@@ -20,7 +20,7 @@ for (const mode of ['boxes', 'pallets']) test(`an oversized ${mode} shipment fin
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
   if (mode === 'pallets') await page.getByRole('radio', { name: /파렛트 적재/ }).click();
-  await page.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
+  await page.getByRole('radio', { name: /1번 파일 적재 방식/ }).click();
   await page.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   const result = page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ });
@@ -28,7 +28,7 @@ for (const mode of ['boxes', 'pallets']) test(`an oversized ${mode} shipment fin
   await result.click();
   await page.getByRole('tab', { name: '미적재', exact: true }).click();
   await expect(page.locator('.guided-unloaded-list.enhanced')).toBeVisible();
-  await expect(page.locator('.guided-unloaded-list.enhanced')).toContainText('크기가');
+  await expect(page.locator('.guided-unloaded-list.enhanced')).toContainText(mode === 'boxes' ? '탐색 한도' : '크기가');
   await expect(page.locator('.guided-unloaded-list.enhanced')).toContainText('1 EA');
   await expect(page.locator('.guided-bottom-bar:visible .guided-primary-cta')).toBeDisabled();
   await expect(page.locator('.guided-status-row')).not.toContainText('작업 가능');

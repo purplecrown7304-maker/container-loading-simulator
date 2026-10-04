@@ -1,30 +1,18 @@
-import { fillUnloadingTrenches } from './trenchFilling';
-import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
-import { auditLoading } from './loadingAudit';
-import { validateOperationalLoading } from './operationalValidator';
-import { centerPlacementsOnContainer } from './containerCentering';
-import { packByHybridOptimizer } from './hybridLoadingOptimizer';
+import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult } from './types';
 import { readManualOverride } from './manualOverride';
-import { containerInputError, preflightCargoInput } from './inputPreflight';
-import { completeResidualPacking } from './residualPacking';
-import { settleSparseTopLayer } from './topLayerSettling';
+import { loadContainerWithLoadSim, validateExistingWithLoadSim } from '../rule-engine/loadSimEngine';
+import { createLoadingSourceSignature } from '../rule-engine/inputIdentity';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
 export const LOADING_STRATEGY_STORAGE_KEY = 'container-loading-strategy';
+/** Retained caller type for preparation/UI migration; A chooses its own packing orders. */
 export type LoadingStrategy = 'capacity' | 'stability' | 'unloading';
 export type LoadingOptions = { strategy?: LoadingStrategy; publish?: boolean };
-
 type CorrectionWindow = Window & {
   __containerLoadingAutoCorrections?: AutoCorrectionRecord[];
   __containerLoadingLatestResult?: { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 };
-
-function browserStrategy(): LoadingStrategy {
-  if (typeof window === 'undefined') return 'capacity';
-  const value = window.localStorage?.getItem(LOADING_STRATEGY_STORAGE_KEY);
-  return value === 'stability' || value === 'unloading' ? value : 'capacity';
-}
 
 function publishCorrections(corrections: AutoCorrectionRecord[]) {
   if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return;
@@ -35,7 +23,7 @@ function publishCorrections(corrections: AutoCorrectionRecord[]) {
 export function publishLoadingResult(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult) {
   if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return;
   publishCorrections(result.autoCorrections ?? []);
-  const detail = { container, cargo, result };
+  const detail = { container, cargo, result, sourceSignature: createLoadingSourceSignature(container, cargo) };
   (window as CorrectionWindow).__containerLoadingLatestResult = detail;
   window.dispatchEvent(new CustomEvent(LOADING_RESULT_EVENT, { detail }));
 }
@@ -50,136 +38,20 @@ export function pendingLoadingResult(container: ContainerSpec, cargo: CargoItem[
   return result;
 }
 
-/** Restore an explicitly applied layout without re-solving it on storage events. */
+/** Restore only after the sole A validator has rechecked the actual layout. */
 export function restoreLoadingResult(container: ContainerSpec, cargo: CargoItem[]): LoadingResult {
   const manual = readManualOverride(container, cargo);
-  if (!manual || auditLoading(container, cargo, manual.placements).length > 0) return pendingLoadingResult(container, cargo);
-  const restored = { ...manual, operationalFindings: validateOperationalLoading(container, cargo, manual.placements) };
+  if (!manual) return pendingLoadingResult(container, cargo);
+  const checked = validateExistingWithLoadSim(container, cargo, manual.placements);
+  if (checked.validationIssues.length) return pendingLoadingResult(container, cargo);
+  const restored: LoadingResult = { ...manual, validationIssues: checked.validationIssues, operationalFindings: checked.operationalFindings, ruleEngine: 'load-sim' };
   publishLoadingResult(container, cargo, restored);
   return restored;
 }
 
-function averageDepthByPriority(cargo: CargoItem[], placements: Placement[]) {
-  const priorities = new Map(
-    cargo
-      .filter(item => Number.isFinite(item.unloadPriority) && (item.unloadPriority ?? 0) > 0)
-      .map(item => [item.id, item.unloadPriority as number]),
-  );
-  const grouped = new Map<number, number[]>();
-  for (const placement of placements) {
-    const priority = priorities.get(placement.cargoId);
-    if (priority == null) continue;
-    const list = grouped.get(priority) ?? [];
-    list.push(placement.x + placement.length / 2);
-    grouped.set(priority, list);
-  }
-  return [...grouped.entries()]
-    .map(([priority, xs]) => ({ priority, x: xs.reduce((sum, value) => sum + value, 0) / xs.length }))
-    .sort((a, b) => a.priority - b.priority);
-}
-
-/**
- * The door is the +X end of the container. Higher unloadPriority means later unloading,
- * so those items should sit deeper toward X=0. Some dense packers can produce the exact
- * reverse order while still scoring well on utilization. A whole-plan X reflection keeps
- * every collision/support/stack relation identical while correcting that reversed flow.
- */
-function orientForUnloading(container: ContainerSpec, cargo: CargoItem[], placements: Placement[]) {
-  const rows = averageDepthByPriority(cargo, placements);
-  if (rows.length < 2) return placements;
-
-  let priorityDelta = 0;
-  let depthDelta = 0;
-  for (let index = 1; index < rows.length; index += 1) {
-    const previous = rows[index - 1];
-    const current = rows[index];
-    priorityDelta += current.priority - previous.priority;
-    depthDelta += current.x - previous.x;
-  }
-
-  // Desired relation is negative: later-unloaded cargo (higher priority) is deeper (smaller X).
-  if (priorityDelta <= 0 || depthDelta <= 1e-9) return placements;
-  return placements.map(placement => ({
-    ...placement,
-    x: Math.round((container.length - placement.x - placement.length) * 1_000_000) / 1_000_000,
-  }));
-}
-
-/**
- * DIRECT BOX hybrid loading policy.
- *
- * Two deterministic solvers generate competing physically valid plans:
- *  - StrictWallPacker: dense homogeneous wall/block construction.
- *  - EMS Beam V2: homogeneous blocks + maximal empty spaces + residual-gap reuse.
- *
- * HybridLoadingOptimizer evaluates both plans with the selected operating strategy.
- * Capacity emphasizes utilization/completion, stability emphasizes low/balanced weight
- * distribution, and unloading emphasizes unload order while retaining all hard safety
- * constraints. Bounds/collision/payload violations can never be traded for a higher score.
- *
- * The selected arrangement is then translated as one rigid X/Y group so its weighted
- * horizontal center of gravity is as close as possible to the container target center.
- * Rigid translation preserves support, stacking and collision relationships and is
- * clamped by the container walls. Z is never raised.
- */
+/** The supplied A pack/validate module is the only container-loading algorithm. */
 export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
-  const strategy = options.strategy ?? browserStrategy();
-  const shouldPublish = options.publish !== false;
-  const preflight = preflightCargoInput(cargo);
-  const normalizedCargo = preflight.cargo;
-  const invalidContainer = containerInputError(container);
-
-  if (invalidContainer) {
-    const result: LoadingResult = {
-      placements: [],
-      remaining: [
-        ...preflight.rejected,
-        ...normalizedCargo.map((item) => ({ cargoId: item.id, quantity: item.quantity, reason: invalidContainer })),
-      ],
-      loadedWeightKg: 0,
-      usedVolumeM3: 0,
-      validationIssues: [],
-      operationalFindings: [],
-      autoCorrections: [],
-    };
-    if (shouldPublish) {
-      publishLoadingResult(container, normalizedCargo, result);
-    }
-    return result;
-  }
-
-  if (preflight.rejected.length === 0 && shouldPublish && options.strategy === undefined) {
-    const manual = readManualOverride(container, normalizedCargo);
-    if (manual && auditLoading(container, normalizedCargo, manual.placements).length === 0) {
-      publishLoadingResult(container, normalizedCargo, manual);
-      return manual;
-    }
-  }
-
-  const packed = settleSparseTopLayer(container, normalizedCargo,
-    completeResidualPacking(container, normalizedCargo, packByHybridOptimizer(container, normalizedCargo, strategy), strategy),
-    strategy);
-  // Unloading layouts stack one block per stop; flatten trenches left between tall stop walls.
-  const flattened = strategy === 'unloading' ? fillUnloadingTrenches(container, normalizedCargo, packed.placements) : packed.placements;
-  const centered = centerPlacementsOnContainer(container, flattened);
-  const finalPlacements = strategy === 'unloading'
-    ? orientForUnloading(container, normalizedCargo, centered)
-    : centered;
-  const result: LoadingResult = {
-    placements: finalPlacements,
-    remaining: [
-      ...preflight.rejected,
-      ...packed.remaining,
-    ],
-    loadedWeightKg: packed.loadedWeightKg,
-    usedVolumeM3: packed.usedVolumeM3,
-    validationIssues: auditLoading(container, normalizedCargo, finalPlacements),
-    operationalFindings: validateOperationalLoading(container, normalizedCargo, finalPlacements),
-    autoCorrections: [],
-  };
-
-  if (shouldPublish) {
-    publishLoadingResult(container, normalizedCargo, result);
-  }
+  const result = loadContainerWithLoadSim(container, cargo);
+  if (options.publish !== false) publishLoadingResult(container, cargo, result);
   return result;
 }

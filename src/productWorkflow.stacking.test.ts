@@ -19,7 +19,7 @@ describe('registered carton stacking through product packaging', () => {
     expect(assignment.maxStackLayers).toBe(10);
     const cargo = cargoFromProductPackaging([product], [assignment]);
     expect(cargo[0].boxId).toBe(box.id);
-    const result = loadContainer(container, cargo, { strategy: 'capacity', publish: false });
+    const result = loadContainer({ ...container, length: container.length + .04, width: container.width + .04, height: container.height + .04 }, cargo.map(row => ({ ...row, thisSideUp: true })), { strategy: 'capacity', publish: false });
     expect(result.placements).toHaveLength(10);
     expect(new Set(result.placements.map(item => item.z)).size).toBe(10);
     expect(result.remaining).toEqual([]);

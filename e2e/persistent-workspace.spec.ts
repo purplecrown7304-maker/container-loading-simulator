@@ -89,12 +89,13 @@ test('product drafts and the packaging/strategy next flow survive closing and re
   await openWorkspace(page, 3);
   await expect(workspace.locator('.guided-packaging-list article')).toContainText('7 EA');
   await workspace.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
-  await workspace.getByRole('radio', { name: /하역 순서 우선형/ }).click();
+  await expect(workspace.getByRole('radiogroup', { name: '적재 방식 확인' }).getByRole('radio')).toHaveCount(1);
+  await workspace.getByRole('radio', { name: /1번 파일 적재 방식/ }).click();
   const priority = workspace.getByRole('spinbutton', { name: /하역 순서/ });
   await priority.fill('3');
   await page.keyboard.press('Escape');
   await openWorkspace(page, 4);
-  await expect(workspace.getByRole('radio', { name: /하역 순서 우선형/ })).toHaveAttribute('aria-checked', 'true');
+  await expect(workspace.getByRole('radio', { name: /1번 파일 적재 방식/ })).toHaveAttribute('aria-checked', 'true');
   await expect(priority).toHaveValue('3');
   await workspace.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
   await expect(workspace).toBeHidden();
@@ -139,7 +140,7 @@ test('mobile dialogs scroll internally, keep their close and next controls visib
 });
 
 // Requires a supported WebGL browser. Do not force GPU flags or mock the renderer:
-// the actual canvas identity, scene application and final certification are the assertions.
+// the actual canvas identity, scene application and final A acceptance are the assertions.
 test('one real canvas survives equipment, product, packaging, loading-unit, result and repeated workspace changes @webgl', async ({ page }) => {
   test.setTimeout(150_000);
   await page.goto('/');
@@ -173,7 +174,7 @@ test('one real canvas survives equipment, product, packaging, loading-unit, resu
   await workspace.getByRole('radio', { name: /파렛트 적재/ }).click();
   await assertCanvas();
   await workspace.getByRole('radio', { name: /박스 직접 적재/ }).click();
-  await workspace.getByRole('radio', { name: /공간효율·적재량 우선형/ }).click();
+  await workspace.getByRole('radio', { name: /1번 파일 적재 방식/ }).click();
   await workspace.getByRole('button', { name: /선택 완료 · 다음: 자동 적재/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   const results = page.locator('.guided-bottom-bar:visible').getByRole('button', { name: /^결과 확인/ });

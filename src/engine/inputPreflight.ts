@@ -34,6 +34,10 @@ function rowError(item: CargoItem) {
   if (item.unloadPriority != null && (!Number.isInteger(item.unloadPriority) || item.unloadPriority < 1)) {
     return '하역 우선순위는 1 이상의 정수여야 함';
   }
+  if (item.maxTopPressureKgPerM2 != null && !finiteNonNegative(item.maxTopPressureKgPerM2)) return '상부 허용 면압은 0 이상의 유한한 값이어야 함';
+  if (item.friction != null && !finiteNonNegative(item.friction)) return '마찰계수는 0 이상의 유한한 값이어야 함';
+  if (item.cgOffsetM && ![item.cgOffsetM.l, item.cgOffsetM.w, item.cgOffsetM.h].every(Number.isFinite)) return '무게중심 오프셋은 유한한 값이어야 함';
+  if (item.allowedOrientations && (!item.allowedOrientations.length || item.allowedOrientations.some(o => !['LWH','WLH','LHW','HLW','WHL','HWL'].includes(o)))) return '허용 방향 목록이 유효하지 않음';
   return null;
 }
 
@@ -45,7 +49,28 @@ function samePhysicalSpec(a: CargoItem, b: CargoItem) {
     && a.maxStackLayers === b.maxStackLayers
     && a.maxTopLoadKg === b.maxTopLoadKg
     && a.allowRotation === b.allowRotation
-    && a.unloadPriority === b.unloadPriority;
+    && a.unloadPriority === b.unloadPriority
+    && a.floorOnly === b.floorOnly
+    && a.unitKind === b.unitKind
+    && a.demandUnits === b.demandUnits
+    && a.unitsPerPackage === b.unitsPerPackage
+    && a.productId === b.productId
+    && a.productName === b.productName
+    && a.boxId === b.boxId
+    && a.boxName === b.boxName
+    && a.contentWeightKg === b.contentWeightKg
+    && a.sourcePalletIndex === b.sourcePalletIndex
+    && a.loadSimType === b.loadSimType
+    && JSON.stringify(a.allowedOrientations) === JSON.stringify(b.allowedOrientations)
+    && a.thisSideUp === b.thisSideUp
+    && a.maxTopPressureKgPerM2 === b.maxTopPressureKgPerM2
+    && a.canBePlacedOnTop === b.canBePlacedOnTop
+    && a.groupId === b.groupId
+    && a.segregationClass === b.segregationClass
+    && a.tempZone === b.tempZone
+    && JSON.stringify(a.cgOffsetM) === JSON.stringify(b.cgOffsetM)
+    && a.friction === b.friction
+    && a.forklift === b.forklift;
 }
 
 export function preflightCargoInput(rows: CargoItem[]): CargoPreflightResult {
@@ -78,7 +103,7 @@ export function preflightCargoInput(rows: CargoItem[]): CargoPreflightResult {
       rejected.push({
         cargoId: id,
         quantity: group.reduce((sum, item) => sum + item.quantity, 0),
-        reason: '동일 SKU 코드에 서로 다른 규격·중량·적층조건이 입력되어 전체 행을 제외함',
+        reason: '동일 SKU 코드에 서로 다른 규격·중량·적층·제품/포장 정보가 입력되어 전체 행을 제외함',
       });
       continue;
     }
@@ -98,6 +123,17 @@ export function containerInputError(container: ContainerSpec) {
   }
   if (container.floorLoadWarningMultiplier != null && !finitePositive(container.floorLoadWarningMultiplier)) {
     return '바닥하중 경고 배수는 0보다 큰 유한한 값이어야 함';
+  }
+  for (const value of [container.doorWidth, container.doorHeight, container.floorLineLoadKgPerM, container.heightLimitM]) {
+    if (value != null && !finitePositive(value)) return '도어·높이·선하중 한도는 0보다 큰 유한한 값이어야 함';
+  }
+  if ((container.doorWidth == null) !== (container.doorHeight == null)) return '도어 폭과 높이는 함께 입력해야 함';
+  if (container.tareKg != null && !finiteNonNegative(container.tareKg)) return '장비 자중은 0 이상의 유한한 값이어야 함';
+  const ax = container.axles;
+  if (ax) {
+    if (![ax.frontX, ax.rearX].every(Number.isFinite) || ax.rearX <= ax.frontX) return '축 위치는 유한하며 후축이 전축 뒤에 있어야 함';
+    if (![ax.emptyFront, ax.emptyRear].every(finiteNonNegative) || ![ax.maxFront, ax.maxRear, ax.maxGross].every(finitePositive)) return '축 하중·총중량 한도 값이 유효하지 않음';
+    if (![ax.rearAxleCount, ax.frontAxleCount ?? 1].every(v => Number.isInteger(v) && v > 0)) return '축 수는 1 이상의 정수여야 함';
   }
   return null;
 }

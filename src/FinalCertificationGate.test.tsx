@@ -2,57 +2,23 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import FinalCertificationGate from './FinalCertificationGate';
-import { requestCertifiedResults, runInertiaCertification, createPhysicsTargetSignature, buildSecuringUsage, type CertificationProgress, type InertiaCertification } from './inertiaCertification';
-import { clearPhysicsTarget, publishPhysicsTarget, type PhysicsTarget } from './physicsTarget';
+import { requestCertifiedResults, readLatestInertiaCertification } from './inertiaCertification';
+import { clearPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { openResultsModal } from './resultsModalEvents';
-import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
+import { clearLoadSimAcceptance, isLoadSimAcceptedTarget } from './rule-engine/acceptance';
 
-vi.mock('./inertiaCertification', async importOriginal => ({ ...await importOriginal<object>(), runInertiaCertification: vi.fn() }));
 vi.mock('./resultsModalEvents', () => ({ openResultsModal: vi.fn() }));
 
-it('closes obsolete certification UI and ignores late progress/completion after input changes', async () => {
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
-  let resolve!: (value: InertiaCertification) => void;
-  let progress!: (value: CertificationProgress) => void;
-  let cancelled!: () => boolean;
-  vi.mocked(runInertiaCertification).mockImplementation((_target, onProgress, _onResult, isCancelled) => {
-    progress = onProgress!; cancelled = isCancelled!;
-    return new Promise(done => { resolve = done; });
-  });
-  const target: PhysicsTarget = { mode: 'pallets', container: { length: 3, width: 2, height: 2, maxPayloadKg: 100 }, cargo: [], result: {
-    placements: [{ cargoId: 'A', x: 0, y: 0, z: 0, length: .3, width: .3, height: .3, weightKg: 1 }], remaining: [], loadedWeightKg: 1, usedVolumeM3: .027, validationIssues: [],
-  } };
-  try {
-    await act(async () => root.render(<FinalCertificationGate />));
-    await act(async () => { publishPhysicsTarget(target); requestCertifiedResults(target); });
-    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
-    await act(async () => window.dispatchEvent(new CustomEvent(WORKFLOW_INPUT_INVALIDATED_EVENT)));
-    expect(cancelled()).toBe(true); expect(host.querySelector('[role="dialog"]')).toBeNull();
-    await act(async () => {
-      progress({ level: 1, levelLabel: 'old', scenario: 'braking', scenarioIndex: 2, scenarioCount: 3, physicsProgress: .8 });
-      resolve({} as InertiaCertification);
-    });
-    expect(openResultsModal).not.toHaveBeenCalled(); expect(host.querySelector('[role="dialog"]')).toBeNull();
-  } finally {
-    await act(async () => root.unmount()); host.remove(); clearPhysicsTarget(); vi.unstubAllGlobals();
-  }
-});
-
-
-it.each([true, false])('automatic=%s preserves the canvas while manual certification still opens results', async automatic => {
+it.each([true, false])('A automatic=%s keeps optional inertia separate and opens only requested results', async automatic => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.clearAllMocks();
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
-  const target: PhysicsTarget = { mode: 'pallets', container: { length: 3, width: 2, height: 2, maxPayloadKg: 100 }, cargo: [], result: {
-    placements: [{ cargoId: 'A', x: 0, y: 0, z: 0, length: .3, width: .3, height: .3, weightKg: 1 }], remaining: [], loadedWeightKg: 1, usedVolumeM3: .027, validationIssues: [],
-  } };
-  const passed = { mode: 'pallets', status: 'passed', targetSignature: createPhysicsTargetSignature(target), securing: buildSecuringUsage(target, 0) } as InertiaCertification;
-  vi.mocked(runInertiaCertification).mockResolvedValue(passed);
+  const target: PhysicsTarget = { mode: 'boxes', container: { length: 2, width: 2, height: 2, maxPayloadKg: 1000 }, cargo: [{ id: 'A', name: 'A', length: .4, width: .4, height: .4, weightKg: 10, quantity: 1 }], result: { ruleEngine: 'load-sim', placements: [{ cargoId: 'A', x: .8, y: .8, z: 0, length: .4, width: .4, height: .4, weightKg: 10 }], remaining: [], loadedWeightKg: 10, usedVolumeM3: .064, validationIssues: [] } };
   try {
     await act(async () => root.render(<FinalCertificationGate />));
-    await act(async () => { publishPhysicsTarget(target); requestCertifiedResults({ ...target, automatic }); });
-    expect(runInertiaCertification).toHaveBeenCalledOnce();
+    await act(async () => requestCertifiedResults({ ...target, automatic }));
     expect(openResultsModal).toHaveBeenCalledTimes(automatic ? 0 : 1);
+    expect(isLoadSimAcceptedTarget(target)).toBe(true);
+    expect(readLatestInertiaCertification()).toBeUndefined();
     expect(host.querySelector('[role="dialog"]')).toBeNull();
-  } finally { await act(async () => root.unmount()); host.remove(); clearPhysicsTarget(); vi.unstubAllGlobals(); }
+  } finally { await act(async () => root.unmount()); host.remove(); clearPhysicsTarget(); clearLoadSimAcceptance(); vi.unstubAllGlobals(); }
 });

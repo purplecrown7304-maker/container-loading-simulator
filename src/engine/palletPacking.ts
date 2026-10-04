@@ -1,4 +1,6 @@
-import type { CargoItem, ContainerSpec, Placement } from './types';
+import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
+import { placePreparedPallets, palletPreparationContainer, palletPreparationGroups, combinePreparedPallets } from './palletContainerPlacement';
+import { containerInputError, preflightCargoInput } from './inputPreflight';
 import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules, projectedTopLoadKg } from './stacking';
 import { packByBlockSpaceBeamV2 } from './blockSpaceBeamPackerV2';
@@ -46,7 +48,9 @@ export type PalletLoad = {
   centerOfGravity: { x: number; y: number; z: number };
 };
 
-export type PalletPackingResult = {
+export type PalletPackingResult = Pick<LoadingResult, 'ruleEngine' | 'ruleEngineStrategy' | 'ruleEngineInput' | 'loadSimShift'> & {
+  validationIssues?: LoadingResult['validationIssues'];
+  operationalFindings?: LoadingResult['operationalFindings'];
   pallets: PalletLoad[];
   placements: Placement[];
   remaining: Array<{ cargoId: string; quantity: number; reason: string }>;
@@ -80,6 +84,22 @@ export const defaultPalletSpec: PalletSpec = {
   minimizePackaging: true,
 };
 
+export function palletInputError(pallet: PalletSpec) {
+  const positive = (value: number) => Number.isFinite(value) && value > 0;
+  const nonNegative = (value: number) => Number.isFinite(value) && value >= 0;
+  if (!positive(pallet.length) || !positive(pallet.width) || !positive(pallet.height)) {
+    return '팔레트 길이·폭·높이는 0보다 큰 유한한 값이어야 함';
+  }
+  if (!nonNegative(pallet.tareWeightKg)) return '팔레트 자중은 0 이상의 유한한 값이어야 함';
+  if (!positive(pallet.maxLoadKg)) return '팔레트 최대 적재중량은 0보다 큰 유한한 값이어야 함';
+  if (!Number.isInteger(pallet.maxStackLevels) || pallet.maxStackLevels < 1) return '팔레트 최대 적층단은 1 이상의 정수여야 함';
+  if (!nonNegative(pallet.maxSupportedTopWeightKg)) return '팔레트 상부 허용중량은 0 이상의 유한한 값이어야 함';
+  if (!nonNegative(pallet.cornerGuardWeightKg) || !nonNegative(pallet.cornerGuardExtraHeightM)) return '각대 중량·추가 높이는 0 이상의 유한한 값이어야 함';
+  if (!nonNegative(pallet.wrappingWeightKg) || !nonNegative(pallet.wrappingExtraHeightM)) return '랩핑 중량·추가 높이는 0 이상의 유한한 값이어야 함';
+  if (pallet.minTopLayerFillRatio !== undefined && (!Number.isFinite(pallet.minTopLayerFillRatio) || pallet.minTopLayerFillRatio < 0 || pallet.minTopLayerFillRatio > 1)) return '최상단 최소충전율은 0~1 사이의 유한한 값이어야 함';
+  return null;
+}
+
 type Strategy = 'capacity' | 'stability' | 'unloading';
 const EPS = 1e-9;
 function stopOf(load: PalletLoad, cargo: Map<string, CargoItem>) { return cargo.get(load.cargoPlacements[0]?.cargoId)?.unloadPriority ?? 0; }
@@ -94,21 +114,6 @@ function lateralSide(centerY: number, containerWidth: number) {
   const delta = centerY - containerWidth / 2;
   if (Math.abs(delta) <= CENTER_TOLERANCE) return 0;
   return delta < 0 ? -1 : 1;
-}
-
-function palletPositions(container: ContainerSpec, pallet: PalletSpec) {
-  const positions: Array<{ x: number; y: number }> = [];
-  const lanes = fitCount(container.width, pallet.width);
-  if (lanes < 1) return positions;
-  const occupiedWidth = lanes * pallet.width;
-  const yOffset = Math.max(0, (container.width - occupiedWidth) / 2);
-
-  for (let x = 0; x + pallet.length <= container.length + EPS; x += pallet.length) {
-    const row = Array.from({ length: lanes }, (_, lane) => ({ x, y: yOffset + lane * pallet.width }));
-    row.sort((a, b) => Math.abs((a.y + pallet.width / 2) - container.width / 2) - Math.abs((b.y + pallet.width / 2) - container.width / 2));
-    positions.push(...row);
-  }
-  return positions;
 }
 
 function cargoTop(load: PalletLoad) {
@@ -322,90 +327,6 @@ function hasPalletFootprintSupport(lower: PalletLoad, pallet: PalletSpec) {
   return hasAdequateSupport(footprint, lower.cargoPlacements);
 }
 
-function columnSupportsNewLoad(loads: PalletLoad[], newLoad: PalletLoad, cargoMap: Map<string, CargoItem>, pallet: PalletSpec) {
-  for (let i = 0; i < loads.length; i += 1) {
-    const existingAbove = loads.slice(i + 1).reduce((sum, p) => sum + p.totalWeightKg, 0);
-    if (!canSupportUpper(loads[i], existingAbove + newLoad.totalWeightKg, cargoMap, pallet)) return false;
-  }
-  const immediateLower = loads[loads.length - 1];
-  return Boolean(immediateLower && hasPalletFootprintSupport(immediateLower, pallet));
-}
-
-function moveLoad(load: PalletLoad, x: number, y: number, z: number, level: number, column: number, pallet: PalletSpec) {
-  const dx = x - load.x;
-  const dy = y - load.y;
-  const dz = z - load.z;
-  load.x = x; load.y = y; load.z = z; load.stackLevel = level; load.stackColumn = column;
-  load.cargoPlacements = load.cargoPlacements.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy, z: p.z + dz }));
-  load.centerOfGravity = palletCog(load, pallet);
-}
-
-function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number; y: number }>, container: ContainerSpec, pallet: PalletSpec, cargoMap: Map<string, CargoItem>, strategy: Strategy) {
-  // Keep the final residual tail last within its stop, even when it is heavier.
-  pallets.sort((a, b) => (strategy === 'unloading' ? stopOf(b, cargoMap) - stopOf(a, cargoMap) : 0)
-    || Number(Boolean(a.isMixedTail)) - Number(Boolean(b.isMixedTail))
-    || (a.isMixedTail && b.isMixedTail ? a.palletIndex - b.palletIndex : b.totalWeightKg - a.totalWeightKg));
-  const columns: Array<{ positionIndex: number; loads: PalletLoad[]; totalWeightKg: number }> = [];
-  const unplaced: PalletLoad[] = [];
-  const maxLevels = Math.max(1, Math.floor(pallet.maxStackLevels || 1));
-  for (const load of pallets) {
-    let best: { column: number; level: number; z: number; score: number } | null = null;
-    for (let c = 0; c < columns.length; c += 1) {
-      const column = columns[c];
-      if (column.loads.length >= maxLevels) continue;
-      const lower = column.loads[column.loads.length - 1];
-      if (strategy === 'unloading' && stopOf(lower, cargoMap) !== stopOf(load, cargoMap)) continue;
-      const z = palletTop(lower);
-      const movedTop = z + (palletTop(load) - load.z);
-      if (movedTop > container.height + EPS) continue;
-      if (!columnSupportsNewLoad(column.loads, load, cargoMap, pallet)) continue;
-      const score = column.positionIndex * 10 + column.loads.length;
-      if (!best || score < best.score) best = { column: c, level: column.loads.length + 1, z, score };
-    }
-    if (best) {
-      const column = columns[best.column];
-      const pos = positions[column.positionIndex];
-      moveLoad(load, pos.x, pos.y, best.z, best.level, best.column + 1, pallet);
-      column.loads.push(load);
-      column.totalWeightKg += load.totalWeightKg;
-      continue;
-    }
-    const used = new Set(columns.map((c) => c.positionIndex));
-    let bestPosition = -1;
-    let bestScore = Infinity;
-    const left = columns
-      .filter((c) => lateralSide(positions[c.positionIndex].y + pallet.width / 2, container.width) < 0)
-      .reduce((sum, c) => sum + c.totalWeightKg, 0);
-    const right = columns
-      .filter((c) => lateralSide(positions[c.positionIndex].y + pallet.width / 2, container.width) > 0)
-      .reduce((sum, c) => sum + c.totalWeightKg, 0);
-    for (let p = 0; p < positions.length; p += 1) {
-      if (used.has(p)) continue;
-      const pos = positions[p];
-      const side = lateralSide(pos.y + pallet.width / 2, container.width);
-      const balance = Math.abs(
-        (left + (side < 0 ? load.totalWeightKg : 0))
-        - (right + (side > 0 ? load.totalWeightKg : 0)),
-      );
-      const depth = pos.x;
-      const score = depth * 100 + balance * 0.01;
-      if (score < bestScore) { bestPosition = p; bestScore = score; }
-    }
-    if (bestPosition < 0) {
-      unplaced.push(load);
-      continue;
-    }
-    const pos = positions[bestPosition];
-    const column = { positionIndex: bestPosition, loads: [] as PalletLoad[], totalWeightKg: 0 };
-    moveLoad(load, pos.x, pos.y, 0, 1, columns.length + 1, pallet);
-    column.loads.push(load);
-    column.totalWeightKg = load.totalWeightKg;
-    columns.push(column);
-  }
-  return unplaced;
-}
-
-
 function placementVolume(placements: Placement[]) {
   return placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0);
 }
@@ -426,6 +347,7 @@ function palletShapeMetrics(placements: Placement[]) {
   };
 }
 
+/** Internal pallet-deck preparation only; never used for container arrangement. */
 function densePackOnePallet(cargo: CargoItem[], pallet: PalletSpec, container: ContainerSpec, strategy: Strategy) {
   const reserveHeight =
     (pallet.useCornerGuards ? pallet.cornerGuardExtraHeightM : 0)
@@ -819,9 +741,20 @@ export function absorbSparsePallets(
   return { pallets, removed };
 }
 
-export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pallet: PalletSpec = defaultPalletSpec, strategy: Strategy = 'capacity'): PalletPackingResult {
+/** Pallet preparation only. Its independent local deck coordinates are not a container layout. */
+export function preparePalletLoads(container: ContainerSpec, cargo: CargoItem[], pallet: PalletSpec = defaultPalletSpec, strategy: Strategy = 'capacity'): PalletPackingResult {
   const { pallets, remaining, consolidated, cargoMap } = buildInitialPallets(cargo, pallet, container, strategy);
-  return finishPalletPacking(pallets, remaining, consolidated, cargoMap, container, pallet, strategy);
+  return finishPalletPreparation(pallets, remaining, consolidated, cargoMap, container, pallet);
+}
+
+/** Public pallet loading uses the supplied A engine for its sole container arrangement. */
+export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pallet: PalletSpec = defaultPalletSpec, strategy: Strategy = 'capacity'): PalletPackingResult {
+  const preflight = preflightCargoInput(cargo);
+  const error = containerInputError(container) ?? palletInputError(pallet);
+  if (error) return { ...combinePreparedPallets([]), remaining: [...preflight.rejected, ...preflight.cargo.map(item => ({ cargoId: item.id, quantity: item.quantity, reason: error }))] };
+  const prepared = combinePreparedPallets(palletPreparationGroups(preflight.cargo).map(rows => preparePalletLoads(palletPreparationContainer(container, rows, pallet), rows, pallet, strategy)));
+  prepared.remaining = [...preflight.rejected, ...prepared.remaining];
+  return placePreparedPallets(container, preflight.cargo, pallet, prepared);
 }
 
 /** Footprint at the highest occupied tier, measured against the usable pallet deck. */
@@ -939,7 +872,7 @@ export function applyTopLayerFillPolicy(input: PalletPackingResult, cargo: Cargo
   }
   const remaining = new Map(input.remaining.map(row => [row.cargoId, row.quantity]));
   for (const [id, quantity] of pending) if (quantity > 0) remaining.set(id, (remaining.get(id) ?? 0) + quantity);
-  const result = finishPalletPacking([...regular, ...tails], remaining, input.consolidatedPallets, cargoMap, container, pallet, strategy);
+  const result = finishPalletPreparation([...regular, ...tails], remaining, input.consolidatedPallets, cargoMap, container, pallet);
   result.remaining = result.remaining.map(row => row.quantity > (input.remaining.find(old => old.cargoId === row.cargoId)?.quantity ?? 0)
     ? { ...row, reason: `최상단 최소충전율 ${Math.round(minimum * 100)}% 적용 후: ${row.reason}` } : row);
   return result;
@@ -1031,17 +964,9 @@ export function placeTopTierHolesInsideAll(pallets: PalletLoad[], cargoMap: Map<
   });
 }
 
-function finishPalletPacking(pallets: PalletLoad[], remaining: Map<string, number>, consolidated: number, cargoMap: Map<string, CargoItem>, container: ContainerSpec, pallet: PalletSpec, strategy: Strategy): PalletPackingResult {
-  const positions = palletPositions(container, pallet);
-  const unplaced = arrangePalletStacks(pallets, positions, container, pallet, cargoMap, strategy);
-  const unplacedSet = new Set(unplaced);
-  for (const load of unplaced) {
-    for (const placement of load.cargoPlacements) {
-      remaining.set(placement.cargoId, (remaining.get(placement.cargoId) ?? 0) + 1);
-    }
-  }
-  const placedPallets = pallets.filter((load) => !unplacedSet.has(load));
-  placedPallets.forEach((load, index) => { load.palletIndex = index + 1; });
+/** Finish preparation without arranging, stacking, or filtering units for the container. */
+function finishPalletPreparation(pallets: PalletLoad[], remaining: Map<string, number>, consolidated: number, cargoMap: Map<string, CargoItem>, container: ContainerSpec, pallet: PalletSpec): PalletPackingResult {
+  const placedPallets = pallets.map((load, index) => ({ ...load, palletIndex: index + 1, stackLevel: 1, stackColumn: index + 1 }));
 
   const placements = placedPallets.flatMap((load) => load.cargoPlacements);
   const totalPackagingWeightKg = placedPallets.reduce((sum, load) => sum + load.packagingWeightKg, 0);

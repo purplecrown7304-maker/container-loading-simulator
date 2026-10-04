@@ -44,7 +44,7 @@ export function explainLoading(container: ContainerSpec, cargo: CargoItem[], res
       else if (zone === '중앙') reasons.push('안쪽의 선행 블록 뒤에 이어지는 중앙 구역에 배치되었습니다.');
       else reasons.push('앞선 완전 블록 또는 후순위 잔량 처리 이후 문쪽 구역에 배치되었습니다.');
 
-      if (rotated > 0) reasons.push(`${rotated}개는 바닥 면적 활용도를 높이기 위해 90도 회전 배치되었습니다.`);
+      if (rotated > 0) reasons.push(`${rotated}개는 A 허용 방향으로 회전 배치되었습니다. 정확한 방향은 배치의 L/W/H 축 코드를 확인하세요.`);
       if (item.maxStackLayers != null) reasons.push(`최대 적층단 ${item.maxStackLayers}단을 넘지 않도록 제한했습니다.`);
       if (item.maxTopLoadKg != null) reasons.push(`하부 박스당 상부 허용중량 ${item.maxTopLoadKg}kg 제약을 적용했습니다.`);
       if (remaining > 0) reasons.push('완전한 동일품목 블록을 먼저 만든 뒤 남은 수량은 후순위 혼합 적재로 넘겼습니다.');

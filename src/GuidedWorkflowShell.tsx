@@ -3,15 +3,15 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT } from './adminAccess';
 import {
-  FINAL_PHYSICS_VALIDATION_ERROR_EVENT,
   NO_LOAD_RESULT_EVENT,
-  FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT,
 } from './autoCertification';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { LOADING_RESULT_EVENT, type LoadingStrategy } from './engine/loadingEngine';
 import { publishGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingUnitState';
 import { publishGuidedWorkflowState } from './guidedWorkflowState';
-import { INERTIA_CERTIFICATION_EVENT, type InertiaCertification } from './inertiaCertification';
+import { LOAD_SIM_ACCEPTANCE_EVENT, isLoadSimAcceptedTarget, type LoadSimAcceptance } from './rule-engine/acceptance';
+import { readPhysicsTarget } from './physicsTarget';
+import { FINAL_LOADING_WORKFLOW_ERROR_EVENT } from './finalWorkflowEvents';
 import { usePalletSnapshot } from './palletSnapshotStore';
 import { OPEN_RESULTS_MODAL_EVENT } from './resultsModalEvents';
 import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState } from './storage';
@@ -74,34 +74,17 @@ const steps: Array<{ id: StepId; label: string }> = [
   { id: 6, label: '결과 확인' },
 ];
 
-const loadingStrategyOptions: Array<{
-  id: LoadingStrategy;
-  title: string;
-  summary: string;
-  detail: string;
-}> = [
-  {
-    id: 'stability',
-    title: '무게중심·안정성 우선형',
-    summary: '낮은 무게중심과 좌우·전후 균형을 우선',
-    detail: '무거운 화물을 낮게 두고 중량 편중과 불안정한 접촉을 줄이는 방향으로 배치합니다.',
-  },
-  {
-    id: 'capacity',
-    title: '공간효율·적재량 우선형',
-    summary: '안전 조건 안에서 빈 공간과 미적재를 최소화',
-    detail: '물리 안전 조건은 그대로 지키면서 컨테이너 공간 사용률과 적재 수량을 더 강하게 평가합니다.',
-  },
-  {
-    id: 'unloading',
-    title: '하역 순서 우선형',
-    summary: '현장 하역 동선과 출고 순서를 우선',
-    detail: '문쪽 접근성과 하역 순서를 더 크게 반영하되 중량·지지·충돌 같은 안전 조건은 유지합니다.',
-  },
-];
+// The compatibility token is internal only. A pack chooses among weight, volume,
+// and footprint orderings itself; the former B objectives are no longer options.
+const loadingStrategyOptions: Array<{ id: LoadingStrategy; title: string; summary: string; detail: string }> = [{
+  id: 'capacity',
+  title: '1번 파일 적재 방식',
+  summary: '중량·부피·바닥면적 정렬을 자동 비교',
+  detail: '1번 파일의 배치 탐색과 검증 규칙으로 최종 적재안을 계산합니다.',
+}];
 
-function strategyLabel(strategy: LoadingStrategy) {
-  return loadingStrategyOptions.find(item => item.id === strategy)?.title ?? strategy;
+function strategyLabel(_strategy: LoadingStrategy) {
+  return loadingStrategyOptions[0].title;
 }
 
 function readLive(): LiveDetail {
@@ -325,19 +308,19 @@ function LoadingStrategyStage({ strategy, onStrategy, live }: {
   onStrategy: (strategy: LoadingStrategy) => void;
 }) {
   const updateStop = (id: string, stop: number) => {
-    if (!Number.isInteger(stop) || stop < 1) return;
+    if (!Number.isInteger(stop) || stop < 0) return;
     const product = live.cargo.find(item => item.id === id)?.productId;
-    writeStoredState({ container: live.container, cargo: live.cargo.map(item => item.id === id || (product && item.productId === product) ? { ...item, unloadPriority: stop } : item) }, true);
+    writeStoredState({ container: live.container, cargo: live.cargo.map(item => item.id === id || (product && item.productId === product) ? { ...item, unloadPriority: stop > 0 ? stop : undefined } : item) }, true);
   };
   return <section className="guided-stage-panel guided-strategy-stage">
     <div className="guided-panel-title">
       <div>
         <h1>적재 방식 선택</h1>
-        <p>이번 작업에서 가장 중요한 목표를 선택합니다. 안전 제약은 어떤 전략에서도 동일하게 유지됩니다.</p>
+        <p>1번 파일의 적재 방식으로 계산합니다. 적용할 방식과 하역 순서를 확인하세요.</p>
       </div>
-      <span className={`guided-strategy-status ${strategy ? 'ready' : ''}`}>{strategy ? '전략 선택 완료' : '전략 선택 필요'}</span>
+      <span className={`guided-strategy-status ${strategy ? 'ready' : ''}`}>{strategy ? '적재 방식 확인 완료' : '적재 방식 확인 필요'}</span>
     </div>
-    <div className="guided-strategy-grid" role="radiogroup" aria-label="적재 전략 선택">
+    <div className="guided-strategy-grid" role="radiogroup" aria-label="적재 방식 확인">
       {loadingStrategyOptions.map(option => {
         const selected = strategy === option.id;
         return <button
@@ -355,11 +338,11 @@ function LoadingStrategyStage({ strategy, onStrategy, live }: {
         </button>;
       })}
     </div>
-    {strategy === 'unloading' && <div className="guided-unload-priorities" aria-label="하역 순서 설정">
-      <b>배송지별 하역 순서</b><p>1번이 가장 먼저 문쪽에서 하역됩니다. 기본값은 제품 목록 순서이며, 같은 배송지는 같은 번호로 지정하세요.</p>
-      <div>{live.cargo.map(item => <label key={item.id}><span>{item.productName || item.name}<small>{item.id}</small></span><input aria-label={`${item.name} 하역 순서`} type="number" min="1" step="1" value={item.unloadPriority ?? 1} onChange={event => updateStop(item.id, Number(event.target.value))}/></label>)}</div>
+    {strategy && <div className="guided-unload-priorities" aria-label="하역 순서 설정">
+      <b>배송지별 하역 순서</b><p>작은 번호가 먼저 하역됩니다. 설정한 순서를 1번 파일의 배치·검증 규칙에 반영합니다. 순서를 지정하지 않으려면 0을 입력하세요.</p>
+      <div>{live.cargo.map(item => <label key={item.id}><span>{item.productName || item.name}<small>{item.id}</small></span><input aria-label={`${item.name} 하역 순서`} type="number" min="0" step="1" value={item.unloadPriority ?? 0} onChange={event => updateStop(item.id, Number(event.target.value))}/></label>)}</div>
     </div>}
-    <div className="guided-strategy-note"><b>선택 전략 적용 범위</b><span>박스 위치 · 방향 · 공간 사용률 · 무게중심 · 하역 우선순위의 평가 가중치가 바뀝니다. 충돌, 지지율, 적층, 최대중량 같은 안전 제한은 완화하지 않습니다.</span></div>
+    <div className="guided-strategy-note"><b>적용 규칙</b><span>1번 파일의 회전·간격·중량·지지·적층·하역 규칙을 적용합니다. Rapier·관성 시뮬레이션은 별도 선택 검사입니다.</span></div>
   </section>;
 }
 
@@ -399,7 +382,7 @@ function StagePanel({ step, live, selection, strategy, onSelection, onBundle, on
     <div hidden={step !== 2}><ProductSelectionStage container={live.container} selection={selection} onSelection={onSelection} /></div>
     <div hidden={step !== 3}><PackagingStage container={live.container} selection={selection} onBundle={onBundle} /></div>
     <div hidden={step !== 4}><LoadingStrategyStage strategy={strategy} onStrategy={onStrategy} live={live} /></div>
-    <div hidden={step !== 5}><section className="guided-stage-panel"><div className="guided-panel-title"><div><h1>자동 적재</h1><p>선택한 포장·적재 유형·전략을 확인한 뒤 최종 적재를 실행하세요. 계산과 검사는 메인 3D 화면에서 진행됩니다.</p></div></div></section></div>
+    <div hidden={step !== 5}><section className="guided-stage-panel"><div className="guided-panel-title"><div><h1>자동 적재</h1><p>선택한 포장과 적재 유형을 확인한 뒤 1번 파일 방식으로 최종 적재를 실행하세요. 계산과 정적 검증은 메인 3D 화면에서 진행됩니다.</p></div></div></section></div>
     <div hidden={step !== 6}><ResultStage live={live} /></div>
   </>;
 }
@@ -436,7 +419,7 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
   const maxVolume = live.container.length * live.container.width * live.container.height;
   const usedVolume = boxResult?.usedVolumeM3 ?? 0;
   const fillRate = maxVolume > 0 && usedVolume > 0 ? usedVolume / maxVolume * 100 : 0;
-  const status = finalReady ? (!loaded && remaining ? '적재 불가' : '작업 가능') : running ? '검사 중' : loaded ? '검증 대기' : '대기';
+  const status = finalReady ? (!loaded && remaining ? '적재 불가' : '정적 검증 완료') : running ? '검사 중' : loaded ? '검증 대기' : '대기';
   const restrictedCount = live.cargo.filter(item => item.quantity > 0 && (item.maxStackLayers === 1 || item.maxTopLoadKg === 0)).length;
   return <details className="guided-job-summary" open={summaryOpen} onToggle={event => setSummaryOpen(event.currentTarget.open)}><summary className="studio-summary-toggle">현재 작업 요약</summary>
     <div className="studio-summary-heading"><h2>현재 작업</h2><span>OVERVIEW</span></div>
@@ -446,7 +429,7 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
       <div><dt>선택 제품</dt><dd>{Object.keys(selection).length ? `${Object.keys(selection).length}종 / ${selectedUnits} EA` : '-'}</dd></div>
       <div><dt>포장 적재단위</dt><dd>{live.cargo.length ? `${live.cargo.length}종` : '-'}</dd></div>
       <div><dt>적재 유형</dt><dd>{mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재'}</dd></div>
-      <div><dt>적재 전략</dt><dd>{strategy ? strategyLabel(strategy) : '-'}</dd></div>
+      <div><dt>적재 방식</dt><dd>{strategy ? strategyLabel(strategy) : '-'}</dd></div>
       {mode === 'pallets' && <div><dt>사용 파렛트</dt><dd>{palletSnapshot ? `${palletName}${palletSnapshot.result.palletCount}개` : palletType.name}</dd></div>}
       <div><dt>적재</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div>
       <div><dt>미적재</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div>
@@ -457,8 +440,8 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
     <div className="studio-capacity"><span>공간 사용률<b>{mode === 'boxes' ? `${fillRate.toFixed(1)}%` : '팔레트 결과 참고'}</b></span><meter aria-label="공간 사용률" min="0" max="100" value={mode === 'boxes' ? Math.min(100, fillRate) : 0}/><small>전체 공간 {maxVolume.toFixed(1)} m³</small></div>
     {step === 5 && !running && !finalReady && <div className="guided-loading-run-confirmation" aria-label="자동 적재 실행 설정 확인">
       <b>실행 설정 확인</b>
-      <span>{mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재'} · {strategy ? strategyLabel(strategy) : '전략 미선택'}</span>
-      <small>설정을 확인한 뒤 ‘최종 적재 진행’을 눌러 관성·물리 검증을 시작하세요.</small>
+      <span>{mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재'} · {strategy ? strategyLabel(strategy) : '방식 미확인'}</span>
+      <small>설정을 확인한 뒤 ‘최종 적재 진행’을 눌러 1번 파일 적재·정적 검증을 시작하세요.</small>
     </div>}
     {step === 5 && mode === 'pallets' && restrictedCount > 0 && <p className="guided-pallet-stack-note">
       {restrictedCount}종은 1단 또는 상부 적재 금지로 설정되어 있습니다. 더 쌓으려면 박스 관리에 검증된 최대 적층단과 상부 허용중량을 등록하세요.
@@ -567,12 +550,6 @@ export default function GuidedWorkflowShell() {
     completedEmpty.current = null;
     setNoLoadComplete(false);
     setRunning(false);
-    if (next === 'unloading') {
-      const source = readStoredState() ?? live;
-      const stops = new Map<string, number>();
-      source.cargo.forEach(item => { const key = item.productId || item.id; if (!stops.has(key)) stops.set(key, stops.size + 1); });
-      if (source.cargo.some(item => item.unloadPriority == null)) writeStoredState({ container: source.container, cargo: source.cargo.map(item => ({ ...item, unloadPriority: item.unloadPriority ?? stops.get(item.productId || item.id) })) }, true);
-    }
     setStrategy(next);
     writeLoadingStrategyPreference(next);
     setFinalReady(false);
@@ -640,8 +617,9 @@ export default function GuidedWorkflowShell() {
       }
       setLive(readLive());
     };
-    const onCertificationInvalidated = (event: Event) => {
-      if ((event as CustomEvent<InertiaCertification | undefined>).detail) return;
+    const onAcceptanceInvalidated = (event: Event) => {
+      const acceptance = (event as CustomEvent<LoadSimAcceptance | undefined>).detail;
+      if (acceptance?.status === 'accepted' && isLoadSimAcceptedTarget(readPhysicsTarget())) return;
       // Empty results carry no certification. Unmounting the pallet viewer clears
       // its physics target, but must not close the completed reasons-only view.
       if (completedEmpty.current && emptyInputsUnchanged()) return;
@@ -670,7 +648,7 @@ export default function GuidedWorkflowShell() {
     window.addEventListener(LOADING_RESULT_EVENT, refresh);
     window.addEventListener(STORAGE_UPDATED_EVENT, refresh);
     window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
-    window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertificationInvalidated);
+    window.addEventListener(LOAD_SIM_ACCEPTANCE_EVENT, onAcceptanceInvalidated);
     window.addEventListener(PRODUCT_SELECTION_EVENT, refreshSelection);
     window.addEventListener(LOCAL_OPERATOR_EVENT, refreshIdentity);
     window.addEventListener(ADMIN_ACCESS_EVENT, refreshIdentity);
@@ -680,7 +658,7 @@ export default function GuidedWorkflowShell() {
       window.removeEventListener(LOADING_RESULT_EVENT, refresh);
       window.removeEventListener(STORAGE_UPDATED_EVENT, refresh);
       window.removeEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
-      window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertificationInvalidated);
+      window.removeEventListener(LOAD_SIM_ACCEPTANCE_EVENT, onAcceptanceInvalidated);
       window.removeEventListener(PRODUCT_SELECTION_EVENT, refreshSelection);
       window.removeEventListener(LOCAL_OPERATOR_EVENT, refreshIdentity);
       window.removeEventListener(ADMIN_ACCESS_EVENT, refreshIdentity);
@@ -711,20 +689,14 @@ export default function GuidedWorkflowShell() {
       setRunning(false); setNoLoadComplete(true); setFinalReady(true); setLive(detail);
       setFurthest(previous => Math.max(previous, 6) as StepId);
     };
-    const onPhysicsError = () => setRunning(false);
+    const onLoadingError = () => setRunning(false);
     const onInputInvalidated = () => {
       setRunning(false); setFinalReady(false); setNoLoadComplete(false); completedEmpty.current = null;
       setFurthest(previous => Math.min(previous, 5) as StepId);
     };
-    const onCertification = (event: Event) => {
-      const certification = (event as CustomEvent<InertiaCertification | undefined>).detail;
-      if (!certification) {
-        setFinalReady(false);
-        return;
-      }
-      // A completed certification object is not the same as a passed plan.
-      // Keep STEP 06 locked until the exact loading target passes all inertia checks.
-      if (certification.status === 'passed') {
+    const onAcceptance = () => {
+      if (completedEmpty.current && emptyInputsUnchanged()) return;
+      if (isLoadSimAcceptedTarget(readPhysicsTarget())) {
         markReady();
         return;
       }
@@ -733,22 +705,23 @@ export default function GuidedWorkflowShell() {
       setFurthest(previous => Math.min(previous, 5) as StepId);
       setStep(previous => previous === 6 ? 5 : previous);
     };
+    const onResultsOpened = () => {
+      if (isLoadSimAcceptedTarget(readPhysicsTarget())) markReady();
+    };
 
     window.addEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, onInputInvalidated);
     window.addEventListener(NO_LOAD_RESULT_EVENT, onNoLoad);
     window.addEventListener(APP_ACTION_EVENT, onAppAction);
-    window.addEventListener(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, markRunning);
-    window.addEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
-    window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
-    window.addEventListener(OPEN_RESULTS_MODAL_EVENT, markReady);
+    window.addEventListener(FINAL_LOADING_WORKFLOW_ERROR_EVENT, onLoadingError);
+    window.addEventListener(LOAD_SIM_ACCEPTANCE_EVENT, onAcceptance);
+    window.addEventListener(OPEN_RESULTS_MODAL_EVENT, onResultsOpened);
     return () => {
       window.removeEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, onInputInvalidated);
       window.removeEventListener(NO_LOAD_RESULT_EVENT, onNoLoad);
       window.removeEventListener(APP_ACTION_EVENT, onAppAction);
-      window.removeEventListener(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, markRunning);
-      window.removeEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
-      window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
-      window.removeEventListener(OPEN_RESULTS_MODAL_EVENT, markReady);
+      window.removeEventListener(FINAL_LOADING_WORKFLOW_ERROR_EVENT, onLoadingError);
+      window.removeEventListener(LOAD_SIM_ACCEPTANCE_EVENT, onAcceptance);
+      window.removeEventListener(OPEN_RESULTS_MODAL_EVENT, onResultsOpened);
     };
   }, []);
 

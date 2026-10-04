@@ -35,6 +35,6 @@ describe('explainLoading', () => {
     const result = loadContainer(c, [rotating]);
     const explanation = explainLoading(c, [rotating], result);
     expect(explanation.cargo[0].rotated).toBeGreaterThan(0);
-    expect(explanation.cargo[0].reasons.some((r) => r.includes('90도 회전'))).toBe(true);
+    expect(explanation.cargo[0].reasons.some((r) => r.includes('A 허용 방향'))).toBe(true);
   });
 });
