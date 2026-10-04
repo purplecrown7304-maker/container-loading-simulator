@@ -33,6 +33,7 @@ test('A rules keep the canvas, run a real worker and invalidate results on switc
  await page.screenshot({path:test.info().outputPath('a-loaded.png'),fullPage:true});
  const findings=await page.evaluate(()=>(window as any).__containerLoadingLatestResult.result.operationalFindings);
  expect(findings.filter((f:any)=>f.severity==='error')).toEqual([]);
+ expect(findings.filter((f:any)=>f.code==='SECURING_FORCE')).toEqual([expect.objectContaining({severity:'warning',placementIndexes:[0],value:expect.any(Number)})]);
  await expect.poll(()=>page.evaluate(()=>!(window as any).__containerLoadingFinalPhysicsRunning),{timeout:60000}).toBe(true);
  await expect.poll(()=>page.evaluate(()=>Boolean((window as any).__containerLoadingLatestCertification)),{timeout:60000}).toBe(true);
  await page.locator('.header-menu-button').click();

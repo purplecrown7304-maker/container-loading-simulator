@@ -128,6 +128,19 @@ export function validateAPlan(c:ContainerSpec,cargo:CargoItem[],ps:Placement[],s
   if(identity.some(x=>x.type==='INVALID_CARGO'||x.type==='QUANTITY')) return identity.map(x=>finding(x.type,x.message,x.placementIndexes));
   const {units,indices}=transportUnits(cargo,ps,supports), result=validate(units,toASpace(c),aConfig(c));
   const out:OperationalRuleFinding[]=result.violations.map(v=>({...v,placementIndexes:[...new Set(v.itemIds.flatMap(id=>indices.get(id)??[]))]}));
+  // A returns securing demand separately from violations. Preserve it in the
+  // application's warning contract without re-calculating loads or friction.
+  for (const item of result.securing.items) {
+    const force = item.requiredForce;
+    const maximum = Math.max(force.forward, force.rearward, force.sideways);
+    if (maximum <= 1e-6) continue;
+    const placementIndexes = [...new Set(indices.get(item.id) ?? [])];
+    const labels = [...new Set(placementIndexes.map(i => ps[i].cargoId))];
+    out.push({
+      code: 'SECURING_FORCE', severity: 'warning', placementIndexes, value: maximum,
+      message: `${labels.join(', ') || '운송 단위'}: 계산상 필요 고정력 전방 ${force.forward.toFixed(1)}daN, 후방 ${force.rearward.toFixed(1)}daN, 측방 ${force.sideways.toFixed(1)}daN (최대 ${maximum.toFixed(1)}daN). 실제 고정장치의 충족 여부는 별도 확인이 필요합니다.`,
+    });
+  }
   if (supports.length) {
     const bodies = [...toAPlacements(cargo,ps), ...supports.map((s,i):APlacement=>({item:{id:`base:${i}`,type:'carton',dims:{l:s.length*1000,w:s.width*1000,h:s.height*1000},weight:s.weightKg},pos:{x:s.x*1000,y:s.y*1000,z:s.z*1000},orientation:'LWH'}))];
     const cfg=aConfig(c);

@@ -17,6 +17,29 @@ const box:CargoItem={id:'sku:with:delimiter',name:'Box',length:.6,width:.4,heigh
 const placed=(id:string,x:number,y:number,z:number):Placement=>({cargoId:id,x,y,z,length:.6,width:.4,height:.3,weightKg:10});
 
 describe('A integration contracts',()=>{
+ it('publishes securing demand in daN for every direction without making it a hard error',()=>{
+   const p=placed(box.id,2.7,1,0);
+   const warnings=validateAPlan(c,[box],[p]).filter(f=>f.code==='SECURING_FORCE');
+   expect(warnings).toHaveLength(1);
+   expect(warnings[0]).toMatchObject({severity:'warning',placementIndexes:[0]});
+   expect(warnings[0].value).toBeCloseTo((.8-.45)*10*9.81/10);
+   expect(warnings[0].message).toContain('전방 3.4daN, 후방 0.5daN, 측방 0.5daN');
+   const side={...c,rules:{...c.rules!,config:{accel:{forward:.1,rearward:.2,sideways:.9}}}};
+   expect(validateAPlan(side,[box],[p]).find(f=>f.code==='SECURING_FORCE')?.value).toBeCloseTo((.9-.45)*10*9.81/10);
+   expect(validateAPlan(c,[{...box,friction:1}],[p]).some(f=>f.code==='SECURING_FORCE')).toBe(false);
+ });
+ it('counts transmitted stack mass once and maps pallet securing warnings back to its cartons',()=>{
+   const stack=[placed(box.id,2.7,1,0),placed(box.id,2.7,1,.3)];
+   const stackWarnings=validateAPlan(c,[box],stack).filter(f=>f.code==='SECURING_FORCE');
+   expect(stackWarnings).toHaveLength(1);
+   expect(stackWarnings[0].value).toBeCloseTo((.8-.45)*20*9.81/10);
+   const support={id:'base',x:2.7,y:1,z:0,length:1.2,width:.4,height:.15,weightKg:25};
+   const cartons=[placed(box.id,2.7,1,.15),placed(box.id,3.3,1,.15)];
+   const warnings=validateAPlan(c,[box],cartons,[support]).filter(f=>f.code==='SECURING_FORCE');
+   expect(warnings).toHaveLength(1);
+   expect(warnings[0].placementIndexes).toEqual([0,1]);
+   expect(warnings[0].value).toBeCloseTo((.8-.45)*45*9.81/10);
+ });
  it('preserves individual identity and converts every orientation without quantizing coordinates',()=>{
    const {items,originals}=expandCargo([box]); expect(new Set(items.map(i=>i.id)).size).toBe(8);
    for(const orientation of ALL_ORIENTATIONS){
