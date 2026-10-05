@@ -83,7 +83,9 @@ it.each([['0', 0], ['45', 45], ['', undefined]] as const)('saves and reopens top
   const saved = readPersonalBoxCatalog(operator)[0];
   expect(saved.maxTopLoadKg).toBe(expected);
   expect(saved).toMatchObject({ maxStackLayers: 10, topLoadLimitExplicit: true });
-  expect(applyPersonalStackPolicyToCargo(item, saved).maxTopLoadKg).toBe(expected);
+  expect(saved.strengthUnverified).toBe(expected === undefined);
+  expect(applyPersonalStackPolicyToCargo(item, saved).maxTopLoadKg).toBe(expected ?? 0);
+  if (expected === undefined) expect(applyPersonalStackPolicyToCargo(item, saved).maxStackLayers).toBe(1);
   if (expected === 0) expect(document.body.textContent).toContain('0 · 위에 적재 금지');
   await click('수정');
   const reopened = [...document.querySelectorAll('label')].find(node => node.textContent === '상부 허용하중(kg)');

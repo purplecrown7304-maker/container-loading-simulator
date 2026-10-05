@@ -93,8 +93,9 @@ export function registerRecommendedPersonalBox(operator: LocalOperator, box: Box
     // Registration must not replace the source policy with an artificial one-layer cap.
     // Re-registering a recommendation must also preserve the user's existing limits.
     maxStackLayers: previous ? previous.maxStackLayers : box.maxStackLayers,
-    maxTopLoadKg: previous ? previous.maxTopLoadKg : (box.maxTopLoadKg ?? 0),
+    maxTopLoadKg: previous ? previous.maxTopLoadKg : box.maxTopLoadKg,
     topLoadLimitExplicit: previous?.topLoadLimitExplicit,
+    strengthUnverified: previous ? previous.strengthUnverified : (box.strengthUnverified === true || box.maxTopLoadKg == null),
     allowRotation: true,
     displayColor: previous?.displayColor,
     catalogOrigin: 'recommendation',
@@ -108,6 +109,7 @@ export function registerRecommendedPersonalBox(operator: LocalOperator, box: Box
     ...box,
     maxStackLayers: item.maxStackLayers,
     maxTopLoadKg: item.maxTopLoadKg,
+    strengthUnverified: item.strengthUnverified,
   });
   return item;
 }

@@ -67,6 +67,7 @@ export type MixedResidualCarton = {
   fillRate: number;
   maxStackLayers: number;
   maxTopLoadKg?: number;
+  strengthUnverified?: boolean;
   source: 'catalog' | 'generated';
   boxUnitCost?: number;
   contents: Array<{ productId: string; productName: string; quantity: number }>;
@@ -159,7 +160,8 @@ function assignmentBox(
     tareWeightKg: assignmentTare(assignment, product),
     maxGrossWeightKg: Math.max(packaging.maxGeneratedGrossWeightKg, assignment.grossWeightKg),
     // 자동설계/공용규격은 강도 미검증 상태라 0kg 상부하중을 유지한다.
-    maxTopLoadKg: assignment.source === 'generated' ? 0 : assignment.maxTopLoadKg,
+    maxTopLoadKg: assignment.source === 'generated' || assignment.strengthUnverified ? 0 : assignment.maxTopLoadKg,
+    strengthUnverified: assignment.source === 'generated' || assignment.strengthUnverified === true,
     unitCost: assignment.boxUnitCost ?? (packaging.generatedBoxUnitCost && packaging.generatedBoxUnitCost > 0 ? packaging.generatedBoxUnitCost : undefined),
     source: assignment.source === 'catalog' ? 'catalog' : 'generated',
   };
@@ -217,6 +219,7 @@ function dedicatedPartialCargo(
     quantity: 1,
     maxStackLayers: assignment.maxStackLayers,
     maxTopLoadKg: assignment.maxTopLoadKg,
+    strengthUnverified: assignment.strengthUnverified,
     allowRotation: true,
   };
 }
@@ -233,6 +236,7 @@ function fullCartonCargo(assignment: ProductPackagingAssignment, fullCount: numb
     quantity: fullCount,
     maxStackLayers: assignment.maxStackLayers,
     maxTopLoadKg: assignment.maxTopLoadKg,
+    strengthUnverified: assignment.strengthUnverified,
     allowRotation: true,
   };
 }
@@ -325,7 +329,8 @@ function buildAccurateCargo(
       grossWeightKg: chosen.packing.grossWeightKg,
       fillRate: chosen.packing.fillRate,
       maxStackLayers: stack,
-      maxTopLoadKg: chosen.box.maxTopLoadKg,
+      maxTopLoadKg: chosen.box.strengthUnverified ? 0 : chosen.box.maxTopLoadKg,
+      strengthUnverified: chosen.box.strengthUnverified,
       source: chosen.box.source,
       boxUnitCost: chosen.box.unitCost,
       contents: chosen.packing.contents,
@@ -340,7 +345,8 @@ function buildAccurateCargo(
       weightKg: chosen.packing.grossWeightKg,
       quantity: 1,
       maxStackLayers: stack,
-      maxTopLoadKg: chosen.box.maxTopLoadKg,
+      maxTopLoadKg: chosen.box.strengthUnverified ? 0 : chosen.box.maxTopLoadKg,
+      strengthUnverified: chosen.box.strengthUnverified,
       allowRotation: true,
     });
     const placed = new Set(chosen.packing.placements.map((placement) => placement.unitKey));

@@ -53,10 +53,11 @@ describe('personal recommendation box registration', () => {
     expect(item.maxTopLoadKg).toBe(0);
   });
 
-  it('keeps the conservative compression default when the recommendation has no strength data', () => {
+  it('preserves missing strength separately from the operational loading restriction', () => {
     const item = registerRecommendedPersonalBox(operator, { ...recommendedBox, maxStackLayers: 10, maxTopLoadKg: undefined });
     expect(item.maxStackLayers).toBe(10);
-    expect(item.maxTopLoadKg).toBe(0);
+    expect(item.maxTopLoadKg).toBeUndefined();
+    expect(item.strengthUnverified).toBe(true);
   });
 
   it('removes recommendation rows that were never explicitly registered', () => {

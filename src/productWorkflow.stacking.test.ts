@@ -55,3 +55,37 @@ describe('registered carton stacking through product packaging', () => {
     expect(cargo.every(item => item.maxStackLayers === 10 && item.boxId === box.id)).toBe(true);
   });
 });
+
+
+describe('unverified recommendation through packaging and loading', () => {
+  it('keeps raw missing strength separate while full and partial cartons stay one layer', () => {
+    const unknown = { ...box, strengthUnverified: true, maxTopLoadKg: undefined };
+    const selected = { ...product, quantity: 961 };
+    const assignment = packagingCandidates(container, selected, [unknown])[0];
+    expect(assignment).toMatchObject({ maxStackLayers: 1, maxTopLoadKg: 0, strengthUnverified: true, strengthStatus: 'design-target' });
+    const cargo = cargoFromProductPackaging([selected], [assignment]);
+    expect(cargo).toHaveLength(2);
+    expect(cargo.every(item => item.maxStackLayers === 1 && item.maxTopLoadKg === 0 && item.strengthUnverified)).toBe(true);
+    const result = loadContainer(container, cargo, { strategy: 'capacity', publish: false });
+    expect(result.placements.every(item => item.z === 0)).toBe(true);
+    expect(result.placements.length + result.remaining.reduce((sum, item) => sum + item.quantity, 0)).toBe(cargo.reduce((sum, item) => sum + item.quantity, 0));
+    expect(unknown.maxTopLoadKg).toBeUndefined();
+    const detailed = optimizeProductPackaging(container, [selected], [unknown], { ...defaultProductPackagingOptions, allowCustomBoxDesign: false });
+    expect(detailed.assignments[0]).toMatchObject({ maxStackLayers: 1, maxTopLoadKg: 0, strengthUnverified: true });
+  });
+  it('requires explicit finite compression before releasing an unverified recommendation', () => {
+    const unknown = { ...box, strengthUnverified: true, maxTopLoadKg: undefined };
+    const personal = { id: box.id, name: box.name, length: box.outerLength, width: box.outerWidth, height: box.outerHeight, weightKg: 22, quantity: 0, maxStackLayers: 10, strengthUnverified: true, topLoadLimitExplicit: true };
+    const initial = { container, products: [product], boxes: [unknown] };
+    const blank = mergePersonalBoxStackingIntoPlanner(initial, [personal]);
+    expect(blank.boxes[0].maxTopLoadKg).toBeUndefined();
+    expect(packagingCandidates(container, product, blank.boxes)[0].maxStackLayers).toBe(1);
+    const zero = mergePersonalBoxStackingIntoPlanner(initial, [{ ...personal, maxTopLoadKg: 0 }]);
+    expect(zero.boxes[0].strengthUnverified).toBe(false);
+    expect(packagingCandidates(container, product, zero.boxes)[0].maxStackLayers).toBe(1);
+    const confirmed = mergePersonalBoxStackingIntoPlanner(initial, [{ ...personal, maxTopLoadKg: 45 }]);
+    expect(confirmed.boxes[0]).toMatchObject({ maxTopLoadKg: 45, strengthUnverified: false });
+    expect(packagingCandidates(container, product, confirmed.boxes)[0].maxStackLayers).toBeGreaterThan(1);
+    expect(initial.boxes[0].maxTopLoadKg).toBeUndefined();
+  });
+});

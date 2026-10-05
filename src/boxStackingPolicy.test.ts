@@ -75,3 +75,24 @@ describe('personal box stacking policy', () => {
     expect(effectivePlannerTopLoadKg(previouslyDerived, { maxStackLayers: 12, maxTopLoadKg: 0 })).toBe(242);
   });
 });
+
+
+describe('unverified recommendation strength', () => {
+  it('does not convert a layer setting into invented compression capacity', () => {
+    const personal = { maxStackLayers: 10, strengthUnverified: true };
+    expect(effectivePlannerTopLoadKg({ ...plannerBox, strengthUnverified: true }, personal)).toBe(0);
+    const next = applyPersonalStackPolicyToCargo(cargo, personal);
+    expect(next).toMatchObject({ maxStackLayers: 1, maxTopLoadKg: 0, strengthUnverified: true, topLoadLimitExplicit: false });
+    expect(applyPersonalStackPolicyToCargo(next, next)).toEqual(next);
+  });
+  it('keeps blank explicitly saved strength unverified', () => {
+    const next = applyPersonalStackPolicyToCargo({ ...cargo, strengthUnverified: true }, { maxStackLayers: 10, topLoadLimitExplicit: true });
+    expect(next).toMatchObject({ maxStackLayers: 1, maxTopLoadKg: 0, strengthUnverified: true });
+  });
+  it('accepts an explicit measured limit including zero without inventing another', () => {
+    for (const limit of [0, 45]) {
+      const next = applyPersonalStackPolicyToCargo({ ...cargo, strengthUnverified: true }, { maxStackLayers: 10, maxTopLoadKg: limit, topLoadLimitExplicit: true });
+      expect(next).toMatchObject({ maxStackLayers: 10, maxTopLoadKg: limit, strengthUnverified: false });
+    }
+  });
+});

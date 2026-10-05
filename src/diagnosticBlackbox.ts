@@ -13,6 +13,7 @@ import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { readShipmentInstructionSnapshot } from './shipmentInstruction';
 import { readTransportEquipment, type TransportEquipment } from './transportEquipment';
 import { readDiagnosticTrace, runtimeSnapshot } from './runtimeDiagnostics';
+import { cartonStrengthChecks } from './cargoStackRestrictions';
 
 export type DiagnosticSeverity = 'OK' | 'WARNING' | 'CRITICAL';
 export type DiagnosticCheck = {
@@ -393,6 +394,7 @@ export function buildConsistencyReport(container: ContainerSpec, cargo: CargoIte
     ...identityChecks(),
     ...packagingChecks(cargo),
     ...quantityChecks(cargo, result),
+    ...cartonStrengthChecks(container, cargo, result.placements),
     ...validationChecks(container, cargo, result),
     {
       id: 'loaded-weight-recalculation',

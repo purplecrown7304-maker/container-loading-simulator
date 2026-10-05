@@ -43,6 +43,7 @@ export function applyConfirmedPackagingIdentity(
       || next.maxStackLayers !== item.maxStackLayers
       || next.maxTopLoadKg !== item.maxTopLoadKg
       || next.topLoadLimitExplicit !== item.topLoadLimitExplicit
+      || next.strengthUnverified !== item.strengthUnverified
     ) changed = true;
     return next;
   });

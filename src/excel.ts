@@ -164,7 +164,7 @@ async function parseWorkbook(file: File, defaultQuantity?: number): Promise<Impo
       quantity,
       ...(defaultQuantity == null || stackValue !== undefined ? { maxStackLayers: Number.isFinite(maxStackLayers) ? maxStackLayers : undefined } : {}),
       ...(defaultQuantity == null || topLoadValue !== undefined ? { maxTopLoadKg: Number.isFinite(maxTopLoadKg) ? maxTopLoadKg : undefined } : {}),
-      ...(defaultQuantity != null && topLoadValue !== undefined ? { topLoadLimitExplicit: true } : {}),
+      ...(defaultQuantity != null && topLoadValue !== undefined ? { topLoadLimitExplicit: true, strengthUnverified: isBlank(topLoadValue) } : {}),
       ...(defaultQuantity == null || rotationValue !== undefined ? { allowRotation: rotation.value } : {}),
       ...(defaultQuantity == null || unloadValue !== undefined ? { unloadPriority: Number.isFinite(unloadPriority) ? unloadPriority : undefined } : {}),
     });
@@ -223,7 +223,7 @@ export function createBoxCatalogWorkbook(items: readonly CargoItem[]): XLSX.Work
   const worksheet = XLSX.utils.aoa_to_sheet([
     ['코드', '이름', '길이(m)', '폭(m)', '높이(m)', '중량(kg)', '수량', '최대적층단', '상부 허용하중(kg)', '90도회전허용', '하역순서'],
     ...items.map(item => [item.id, item.name, item.length, item.width, item.height, item.weightKg,
-      item.quantity, item.maxStackLayers ?? '', item.maxTopLoadKg ?? '', item.allowRotation === false ? 'N' : 'Y', item.unloadPriority ?? '']),
+      item.quantity, item.maxStackLayers ?? '', item.strengthUnverified ? '' : item.maxTopLoadKg ?? '', item.allowRotation === false ? 'N' : 'Y', item.unloadPriority ?? '']),
   ]);
   worksheet['!cols'] = [25, 44, 13, 13, 13, 13, 12, 16, 24, 18, 14].map(wch => ({ wch }));
   worksheet['!autofilter'] = { ref: `A1:K${items.length + 1}` };
@@ -234,7 +234,7 @@ export function createBoxCatalogWorkbook(items: readonly CargoItem[]): XLSX.Work
     ['등록 목록 전체', '검색·선택 여부와 관계없이 현재 로그인 사용자의 전체 박스 목록입니다.'],
     ['코드', '기존 코드를 유지하면 해당 박스를 갱신합니다. 새 코드는 신규 박스로 추가됩니다. 중복 코드는 반영하지 않습니다.'],
     ['치수 / 중량', '치수는 m, 중량은 kg입니다. 수량은 기본수량이며 이번 적재 선택 수량과 다릅니다.'],
-    ['상부 허용하중(kg)', '위에 놓이는 화물의 누적 허용중량입니다. 0은 위에 적재 금지, 빈칸은 제한 미설정입니다. 파렛트 허용중량과 다릅니다.'],
+    ['상부 허용하중(kg)', '위에 놓이는 화물의 누적 허용중량입니다. 0은 상부 적재 금지, 빈칸은 강도 미확인이며 계산 시 1단·상부하중 0kg로 제한합니다. 파렛트 허용중량과 다릅니다.'],
     ['최대적층단', '1 이상의 정수 또는 빈칸(별도 제한 없음)을 입력하세요.'],
     ['재업로드', 'Boxes 시트를 첫 번째로 유지하고 수정한 엑셀 업로드를 사용하세요. 삭제한 행은 기존 목록에서 삭제되지 않습니다.'],
     ['기존 정보', '이 양식에 없는 취급 제한·색상 등은 같은 코드로 업로드할 때 기존 등록값을 유지합니다. 전체 백업 파일은 아닙니다.'],

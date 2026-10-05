@@ -2,7 +2,13 @@ import type { BoxCatalogItem } from './engine/productPackagingOptimizer';
 import type { CargoItem } from './engine/types';
 
 const EPS = 1e-9;
-type PersonalStackPolicy = Pick<CargoItem, 'maxStackLayers' | 'maxTopLoadKg' | 'topLoadLimitExplicit'>;
+type PersonalStackPolicy = Pick<CargoItem, 'maxStackLayers' | 'maxTopLoadKg' | 'topLoadLimitExplicit' | 'strengthUnverified'>;
+
+export function isStrengthUnverified(policy: PersonalStackPolicy, inherited = false) {
+  if (policy.topLoadLimitExplicit && typeof policy.maxTopLoadKg === 'number'
+    && Number.isFinite(policy.maxTopLoadKg) && policy.maxTopLoadKg >= 0) return false;
+  return policy.strengthUnverified === true || inherited;
+}
 
 export function normalizeDeclaredStackLayers(value: unknown): number | undefined {
   const number = Number(value);
@@ -23,6 +29,7 @@ export function positiveTopLoadKg(value: unknown): number | undefined {
  * 해석하지 않는다.
  */
 export function effectivePlannerTopLoadKg(box: BoxCatalogItem, personal: PersonalStackPolicy): number | undefined {
+  if (isStrengthUnverified(personal, box.strengthUnverified)) return 0;
   if (personal.topLoadLimitExplicit) return personal.maxTopLoadKg;
   const layers = normalizeDeclaredStackLayers(personal.maxStackLayers);
   const personalTopLoad = positiveTopLoadKg(personal.maxTopLoadKg);
@@ -36,9 +43,13 @@ export function effectivePlannerTopLoadKg(box: BoxCatalogItem, personal: Persona
 /** 개인 박스에서 사용자가 선언한 적층단을 실제 적재 CargoItem에 그대로 적용한다. */
 export function applyPersonalStackPolicyToCargo<T extends CargoItem>(cargo: T, personal: PersonalStackPolicy | undefined): T {
   if (!personal) return cargo;
+  if (isStrengthUnverified(personal, cargo.strengthUnverified)) {
+    return { ...cargo, maxStackLayers: 1, maxTopLoadKg: 0, strengthUnverified: true, topLoadLimitExplicit: false,
+      stackLimitOrigin: { kind: 'unverified-carton', maxStackLayers: 1, maxTopLoadKg: 0 } };
+  }
   const layers = normalizeDeclaredStackLayers(personal.maxStackLayers);
   if (personal.topLoadLimitExplicit) {
-    return { ...cargo, maxStackLayers: layers, maxTopLoadKg: personal.maxTopLoadKg, topLoadLimitExplicit: true };
+    return { ...cargo, maxStackLayers: layers, maxTopLoadKg: personal.maxTopLoadKg, topLoadLimitExplicit: true, strengthUnverified: false, stackLimitOrigin: { kind: 'box-catalog', maxStackLayers: layers, maxTopLoadKg: personal.maxTopLoadKg } };
   }
   if (!layers) return cargo;
 

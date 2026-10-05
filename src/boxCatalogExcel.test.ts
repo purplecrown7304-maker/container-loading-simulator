@@ -19,7 +19,7 @@ describe('editable registered box workbook', () => {
     expect(workbook.Sheets.Boxes.I3.v).toBe('');
     const parsed = await parseBoxCatalogWorkbook(file(workbook));
     expect(parsed.issues).toEqual([]);
-    expect(parsed.items).toEqual(items.map(item => ({ ...item, topLoadLimitExplicit: true })));
+    expect(parsed.items).toEqual(items.map(item => ({ ...item, topLoadLimitExplicit: true, strengthUnverified: item.maxTopLoadKg == null })));
   });
 
   it('imports edited limits without using the old workbook values', async () => {
@@ -29,6 +29,14 @@ describe('editable registered box workbook', () => {
     const result = await parseBoxCatalogWorkbook(file(workbook));
     expect(result.issues).toEqual([]);
     expect(result.items[0]).toMatchObject({ id: '001', maxStackLayers: 6, maxTopLoadKg: 45.5, topLoadLimitExplicit: true });
+  });
+
+  it('does not turn an unverified operational zero into an explicitly verified zero on round trip', async () => {
+    const workbook = createBoxCatalogWorkbook([{ ...box, strengthUnverified: true }]);
+    expect(workbook.Sheets.Boxes.I2.v).toBe('');
+    const result = await parseBoxCatalogWorkbook(file(workbook));
+    expect(result.items[0]).toMatchObject({ strengthUnverified: true });
+    expect(result.items[0].maxTopLoadKg).toBeUndefined();
   });
 
   it('omits absent optional columns so a partial upload can preserve registered restrictions', async () => {

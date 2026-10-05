@@ -59,4 +59,17 @@ describe('explicit recommendation sync', () => {
     });
     expect(localStorage.getItem(operatorScopedStorageKey(PERSONAL_BOX_CATALOG_KEY, operator))).toContain(box.id);
   });
+  it('stores missing recommendation strength in neither catalog as a false zero', () => {
+    const operator = loginLocalOperator('미확인등록')!;
+    const key = operatorScopedStorageKey(plannerKey, operator);
+    localStorage.setItem(key, JSON.stringify({ boxes: [] }));
+    registerRecommendedPersonalBox(operator, { ...box, maxTopLoadKg: undefined, strengthUnverified: true });
+    const personal = readPersonalBoxCatalog(operator)[0];
+    const planner = JSON.parse(localStorage.getItem(key)!).boxes[0];
+    expect(personal.strengthUnverified).toBe(true);
+    expect(personal).not.toHaveProperty('maxTopLoadKg');
+    expect(planner.strengthUnverified).toBe(true);
+    expect(planner).not.toHaveProperty('maxTopLoadKg');
+  });
+
 });

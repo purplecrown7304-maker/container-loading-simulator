@@ -248,12 +248,13 @@ export default function ProductToolsCenter() {
       outerHeight: assignment.outerHeight,
       tareWeightKg: options.packaging.generatedBoxTareKg,
       maxGrossWeightKg: Math.max(options.packaging.maxGeneratedGrossWeightKg, assignment.grossWeightKg),
-      maxTopLoadKg: 0,
+      maxTopLoadKg: undefined,
+      strengthUnverified: true,
       unitCost: assignment.boxUnitCost,
     };
     registerExplicitRecommendation(
       box,
-      `${box.id} 규격을 사용자가 직접 등록했습니다. 개인 박스 목록에 추가했습니다. 강도 확인 전 상부 허용중량은 0kg입니다.`,
+      `${box.id} 규격을 사용자가 직접 등록했습니다. 개인 박스 목록에 추가했습니다. 강도는 미입력입니다. 확인 전 실제 적재는 1단·상부하중 0kg로 제한됩니다.`,
     );
   };
 
@@ -272,7 +273,8 @@ export default function ProductToolsCenter() {
       outerLength, outerWidth, outerHeight,
       tareWeightKg: options.packaging.generatedBoxTareKg,
       maxGrossWeightKg: options.packaging.maxGeneratedGrossWeightKg,
-      maxTopLoadKg: 0,
+      maxTopLoadKg: undefined,
+      strengthUnverified: true,
     };
     registerExplicitRecommendation(
       box,
