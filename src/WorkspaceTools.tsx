@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { cargoColor, randomUniqueCargoColor } from './cargoColors';
-import { downloadBoxCatalogTemplate, parseBoxCatalogWorkbook } from './excel';
+import { downloadBoxCatalog, downloadBoxCatalogTemplate, parseBoxCatalogWorkbook } from './excel';
 import { operatorScopedStorageKey, readLocalOperator, type LocalOperator } from './localOperator';
 import { writePersonalBoxCatalog } from './personalBoxCatalog';
 import { readStoredState, writeStoredState, type StoredState } from './storage';
@@ -187,7 +187,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
         const previous = map.get(item.id);
         if (previous) updatedCount += 1;
         else newCount += 1;
-        map.set(item.id, { ...item, displayColor: previous?.displayColor });
+        map.set(item.id, { ...previous, ...item, stackLimitOrigin: undefined, displayColor: previous?.displayColor });
       }
       setCatalog(ensureCatalogColors([...map.values()]));
       setSelected(current => {
@@ -195,7 +195,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
         for (const item of result.items) delete next[item.id];
         return next;
       });
-      const issueText = result.issues.length ? ` · 오류 제외 ${result.issues.length}건` : '';
+      const issueText = result.issues.length ? ` · 오류 제외 ${result.issues.length}건: ${result.issues.map(issue => `${issue.row}행 ${issue.code ?? ''} ${issue.message}`).join(' / ')}` : '';
       setMessage(`내 박스 엑셀 반영 완료 · 신규 ${newCount}종 · 기존 갱신 ${updatedCount}종${issueText}`);
     } catch {
       setMessage('박스 엑셀 파일을 읽지 못했습니다. 다운로드한 양식의 열 이름과 파일 형식을 확인하세요.');
@@ -347,17 +347,20 @@ export default function WorkspaceTools({ showNav = true }: Props) {
               <div>
                 {operator ? <button onClick={() => setRegisterOpen(value => !value)}>신규 박스 등록</button> : <button disabled title="로그인 후 개인 박스 목록을 사용할 수 있습니다.">로그인 후 개인 박스 등록</button>}
                 <button onClick={downloadBoxCatalogTemplate}>기초 엑셀 다운로드</button>
+                <button onClick={() => downloadBoxCatalog(catalog)} disabled={!operator || catalog.length === 0}>등록 목록 엑셀 다운로드</button>
+                <button onClick={() => catalogInputRef.current?.click()} disabled={!operator}>수정한 엑셀 업로드</button>
+                <input ref={catalogInputRef} className="hidden-file-input" type="file" aria-label="박스 목록 엑셀 업로드" accept=".xlsx,.xls" onChange={event => void importCatalogWorkbook(event.target.files?.[0])} />
                 {operator && catalogBackup && <button onClick={restoreCatalogBackup}>직전 변경 되돌리기</button>}
               </div>
               <button className="blue" onClick={importSelected} disabled={!operator || chosen.length === 0}>수량 입력 박스 적재 투입</button>
             </div>
+            <p>등록 목록 전체를 엑셀로 내려받아 수정할 수 있습니다. 같은 코드는 갱신하고 새 코드는 추가합니다. 파일에서 행을 지워도 등록된 박스는 삭제되지 않습니다.</p>
             {registerOpen && operator && <div className="box-register">
               <b>내 박스 등록 / 수정</b>
               <span>{operator.name}님의 개인 박스 목록에만 저장됩니다. 직접 등록하거나 엑셀을 업로드하면 신규 코드는 추가되고 기존 코드는 최신 값으로 갱신됩니다.</span>
               <div className="box-register-actions">
                 <button onClick={startNewCatalogItem}>직접 신규 박스 등록</button>
                 <button onClick={() => catalogInputRef.current?.click()}>기초 엑셀 업로드</button>
-                <input ref={catalogInputRef} className="hidden-file-input" type="file" accept=".xlsx,.xls" onChange={event => void importCatalogWorkbook(event.target.files?.[0])} />
               </div>
               {catalogDraft && <div className="vehicle-form">
                 <h3>{catalogDraft.originalId ? `${catalogDraft.originalId} 수정` : '신규 박스 등록'}</h3>
