@@ -90,8 +90,11 @@ export function registerRecommendedPersonalBox(operator: LocalOperator, box: Box
     // 기존 박스 관리 화면의 추천 박스 표기와 호환되도록 최대 총중량을 중량 칸에 사용한다.
     weightKg: box.maxGrossWeightKg,
     quantity: 0,
-    maxStackLayers: 1,
-    maxTopLoadKg: box.maxTopLoadKg ?? 0,
+    // Registration must not replace the source policy with an artificial one-layer cap.
+    // Re-registering a recommendation must also preserve the user's existing limits.
+    maxStackLayers: previous ? previous.maxStackLayers : box.maxStackLayers,
+    maxTopLoadKg: previous ? previous.maxTopLoadKg : (box.maxTopLoadKg ?? 0),
+    topLoadLimitExplicit: previous?.topLoadLimitExplicit,
     allowRotation: true,
     displayColor: previous?.displayColor,
     catalogOrigin: 'recommendation',
@@ -101,6 +104,10 @@ export function registerRecommendedPersonalBox(operator: LocalOperator, box: Box
     ? current.map(existing => existing.id === box.id ? item : existing)
     : [...current, item];
   writePersonalBoxCatalog(operator, next);
-  upsertExplicitPlannerRecommendation(operator, box);
+  upsertExplicitPlannerRecommendation(operator, {
+    ...box,
+    maxStackLayers: item.maxStackLayers,
+    maxTopLoadKg: item.maxTopLoadKg,
+  });
   return item;
 }

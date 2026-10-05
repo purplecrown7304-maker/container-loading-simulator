@@ -78,7 +78,7 @@ export function mergePersonalBoxStackingIntoPlanner(
     const personal = personalById.get(box.id);
     if (!personal) return box;
     const maxStackLayers = normalizeDeclaredStackLayers(personal.maxStackLayers);
-    if (!maxStackLayers) return box;
+    if (!maxStackLayers && !personal.topLoadLimitExplicit) return box;
 
     const maxTopLoadKg = effectivePlannerTopLoadKg(box, personal);
     if (box.maxStackLayers === maxStackLayers && box.maxTopLoadKg === maxTopLoadKg) return box;

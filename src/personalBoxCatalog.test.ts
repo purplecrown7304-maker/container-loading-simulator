@@ -5,6 +5,7 @@ import {
   personalBoxCatalogKey,
   readPersonalBoxCatalog,
   registerRecommendedPersonalBox,
+  writePersonalBoxCatalog,
 } from './personalBoxCatalog';
 
 const operator: LocalOperator = { id: 'park', name: '박흥신' };
@@ -25,6 +26,38 @@ const recommendedBox: BoxCatalogItem = {
 
 describe('personal recommendation box registration', () => {
   beforeEach(() => localStorage.clear());
+
+  it('preserves the recommended stack limit instead of forcing one layer', () => {
+    const item = registerRecommendedPersonalBox(operator, { ...recommendedBox, maxStackLayers: 10, maxTopLoadKg: 100 });
+    expect(item.maxStackLayers).toBe(10);
+    expect(item.maxTopLoadKg).toBe(100);
+  });
+
+  it('does not invent a one-layer limit when none is declared, and retains zero top load', () => {
+    const item = registerRecommendedPersonalBox(operator, recommendedBox);
+    expect(item.maxStackLayers).toBeUndefined();
+    expect(item.maxTopLoadKg).toBe(0);
+  });
+
+  it('preserves existing user limits when a recommendation is registered again', () => {
+    const item = registerRecommendedPersonalBox(operator, recommendedBox);
+    writePersonalBoxCatalog(operator, [{ ...item, maxStackLayers: 5, maxTopLoadKg: 40 }]);
+    const updated = registerRecommendedPersonalBox(operator, { ...recommendedBox, maxStackLayers: 10, maxTopLoadKg: 100 });
+    expect(updated.maxStackLayers).toBe(5);
+    expect(updated.maxTopLoadKg).toBe(40);
+  });
+
+  it('retains an explicitly declared single-layer limit', () => {
+    const item = registerRecommendedPersonalBox(operator, { ...recommendedBox, maxStackLayers: 1 });
+    expect(item.maxStackLayers).toBe(1);
+    expect(item.maxTopLoadKg).toBe(0);
+  });
+
+  it('keeps the conservative compression default when the recommendation has no strength data', () => {
+    const item = registerRecommendedPersonalBox(operator, { ...recommendedBox, maxStackLayers: 10, maxTopLoadKg: undefined });
+    expect(item.maxStackLayers).toBe(10);
+    expect(item.maxTopLoadKg).toBe(0);
+  });
 
   it('removes recommendation rows that were never explicitly registered', () => {
     localStorage.setItem(personalBoxCatalogKey(operator), JSON.stringify([{

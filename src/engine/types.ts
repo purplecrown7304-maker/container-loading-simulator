@@ -38,6 +38,8 @@ export type CargoItem = {
   quantity: number;
   maxStackLayers?: number;
   maxTopLoadKg?: number;
+  /** Box management explicitly saved this limit; zero must never be treated as a legacy default. */
+  topLoadLimitExplicit?: boolean;
   /** Provenance only; changing either limit invalidates this recorded explanation. */
   stackLimitOrigin?: {
     kind: 'unverified-carton' | 'direct-product' | 'box-catalog';

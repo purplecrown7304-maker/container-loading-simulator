@@ -83,7 +83,7 @@ function validateCatalogDraft(draft: CatalogDraft): string | null {
   if (![draft.length, draft.width, draft.height, draft.weightKg].every(value => Number.isFinite(value) && value > 0)) return '길이·폭·높이·중량은 0보다 커야 합니다.';
   if (!Number.isInteger(draft.quantity) || draft.quantity < 0) return '기본 수량은 0 이상의 정수여야 합니다.';
   if (draft.maxStackLayers != null && (!Number.isInteger(draft.maxStackLayers) || draft.maxStackLayers < 1)) return '최대 적층단은 1 이상의 정수여야 합니다.';
-  if (draft.maxTopLoadKg != null && (!Number.isFinite(draft.maxTopLoadKg) || draft.maxTopLoadKg < 0)) return '최대 보관중량은 0 이상이어야 합니다.';
+  if (draft.maxTopLoadKg != null && (!Number.isFinite(draft.maxTopLoadKg) || draft.maxTopLoadKg < 0)) return '상부 허용하중은 0 이상의 유한한 값이어야 합니다.';
   return null;
 }
 
@@ -233,6 +233,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
       if (field === 'id' || field === 'name') return { ...current, [field]: String(value) };
       if (field === 'allowRotation') return { ...current, allowRotation: Boolean(value) };
       if (field === 'maxTopLoadKg' && String(value).trim() === '') return { ...current, maxTopLoadKg: undefined };
+      if (field === 'maxStackLayers' && String(value).trim() === '') return { ...current, maxStackLayers: undefined };
       return { ...current, [field]: Number(value) };
     });
   };
@@ -243,6 +244,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
       ...catalogDraft,
       id: catalogDraft.id.trim(),
       name: catalogDraft.name.trim(),
+      topLoadLimitExplicit: true,
     };
     const error = validateCatalogDraft(normalized);
     if (error) return setMessage(error);
@@ -367,11 +369,11 @@ export default function WorkspaceTools({ showNav = true }: Props) {
                   <label>높이(m)<input type="number" min="0.001" step="0.001" value={catalogDraft.height} onChange={event => updateCatalogDraft('height', event.target.value)} /></label>
                   <label>중량(kg)<input type="number" min="0.001" step="0.01" value={catalogDraft.weightKg} onChange={event => updateCatalogDraft('weightKg', event.target.value)} /></label>
                   <label>기본수량<input type="number" min="0" step="1" value={catalogDraft.quantity} onChange={event => updateCatalogDraft('quantity', event.target.value)} /></label>
-                  <label>최대적층단<input type="number" min="1" step="1" value={catalogDraft.maxStackLayers ?? 1} onChange={event => updateCatalogDraft('maxStackLayers', event.target.value)} /></label>
-                  <label>최대보관중량(kg)<input type="number" min="0" step="0.1" value={catalogDraft.maxTopLoadKg ?? ''} onChange={event => updateCatalogDraft('maxTopLoadKg', event.target.value)} /></label>
+                  <label>최대적층단<input type="number" min="1" step="1" placeholder="별도 제한 없음" value={catalogDraft.maxStackLayers ?? ''} onChange={event => updateCatalogDraft('maxStackLayers', event.target.value)} /></label>
+                  <label>상부 허용하중(kg)<input aria-describedby="box-top-load-help" placeholder="제한 미설정" type="number" min="0" step="0.1" value={catalogDraft.maxTopLoadKg ?? ''} onChange={event => updateCatalogDraft('maxTopLoadKg', event.target.value)} /></label>
                   <label><input type="checkbox" checked={catalogDraft.allowRotation !== false} onChange={event => updateCatalogDraft('allowRotation', event.target.checked)} /> 90도 회전 허용</label>
                 </div>
-                <div className="box-register-actions"><button className="blue" onClick={saveCatalogDraft}>저장</button><button onClick={() => setCatalogDraft(null)}>취소</button></div>
+                <p id="box-top-load-help">상부 허용하중은 이 박스 위에 놓이는 모든 화물의 누적 중량입니다. 0kg은 위에 적재 금지, 빈칸은 하중 제한 미설정입니다. 박스 자체 중량이나 파렛트 허용중량과 다릅니다. BCT 시험값은 안전계수를 반영한 허용하중으로 환산해 입력하세요. 값을 바꾼 뒤 포장 확정과 자동 적재를 다시 실행하세요.</p><div className="box-register-actions"><button className="blue" onClick={saveCatalogDraft}>저장</button><button onClick={() => setCatalogDraft(null)}>취소</button></div>
               </div>}
             </div>}
             {!operator && <div className="workspace-empty-state"><b>로그인이 필요합니다.</b><span>로그인하면 해당 작업자 이름으로 저장된 개인 박스만 표시됩니다.</span></div>}
@@ -379,10 +381,10 @@ export default function WorkspaceTools({ showNav = true }: Props) {
               <label className="box-search-label">박스 검색</label>
               <div className="box-search"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="박스코드, 내용물 검색" /><button onClick={() => setQuery('')}>검색 초기화</button></div>
               <div className="selected-boxes"><b>선택된 박스</b><small>{chosen.length}종 선택</small><div>{chosen.length ? chosen.map(x => <span key={x.id} style={{ borderLeftColor: cargoColor(x.id, x.displayColor) }}>{x.id} · {x.name} <b>{selected[x.id]}EA</b></span>) : '아래 목록에서 박스를 선택하면 이곳에 표시됩니다.'}</div></div>
-              <div className="catalog-wrap"><table><caption>{operator.name} 개인 박스 목록</caption><thead><tr><th>선택</th><th>NO</th><th>박스코드</th><th>내용물</th><th>L</th><th>W</th><th>T</th><th>중량</th><th>CBM</th><th>재질</th><th>최대보관중량</th><th>최대적층단</th><th>취급주의</th><th>색상</th><th>회전허용</th><th>적재 수량</th><th>관리</th></tr></thead><tbody>
+              <div className="catalog-wrap"><table><caption>{operator.name} 개인 박스 목록</caption><thead><tr><th>선택</th><th>NO</th><th>박스코드</th><th>내용물</th><th>L</th><th>W</th><th>T</th><th>중량</th><th>CBM</th><th>재질</th><th>상부 허용하중(kg)</th><th>최대적층단</th><th>취급주의</th><th>색상</th><th>회전허용</th><th>적재 수량</th><th>관리</th></tr></thead><tbody>
                 {filtered.map((x, i) => <tr key={x.id}>
                   <td><input type="checkbox" checked={(selected[x.id] ?? 0) > 0} onChange={event => setSelected(state => ({ ...state, [x.id]: event.target.checked ? Math.max(1, x.quantity) : 0 }))} /></td>
-                  <td>{i + 1}</td><td>{x.id}</td><td>{x.name}</td><td>{Math.round(x.length * 1000)}</td><td>{Math.round(x.width * 1000)}</td><td>{Math.round(x.height * 1000)}</td><td>{x.weightKg}</td><td>{(x.length * x.width * x.height).toFixed(3)}</td><td>-</td><td>{x.maxTopLoadKg ?? '제한없음'}</td><td>{x.maxStackLayers ?? '제한없음'}</td><td>-</td><td><i className="catalog-color" style={{ background: cargoColor(x.id, x.displayColor) }} /></td><td>{x.allowRotation !== false ? '허용' : '금지'}</td>
+                  <td>{i + 1}</td><td>{x.id}</td><td>{x.name}</td><td>{Math.round(x.length * 1000)}</td><td>{Math.round(x.width * 1000)}</td><td>{Math.round(x.height * 1000)}</td><td>{x.weightKg}</td><td>{(x.length * x.width * x.height).toFixed(3)}</td><td>-</td><td>{x.maxTopLoadKg === 0 ? '0 · 위에 적재 금지' : x.maxTopLoadKg ?? '제한 미설정'}</td><td>{x.maxStackLayers ?? '제한없음'}</td><td>-</td><td><i className="catalog-color" style={{ background: cargoColor(x.id, x.displayColor) }} /></td><td>{x.allowRotation !== false ? '허용' : '금지'}</td>
                   <td><input className="qty-input" type="number" min="0" step="1" value={selected[x.id] ?? x.quantity} onChange={event => setSelected(state => ({ ...state, [x.id]: Math.max(0, Math.floor(Number(event.target.value) || 0)) }))} /></td>
                   <td><div className="box-register-actions"><button onClick={() => editCatalogItem(x)}>수정</button><button className="danger" onClick={() => deleteCatalogItem(x)}>삭제</button></div></td>
                 </tr>)}

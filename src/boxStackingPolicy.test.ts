@@ -30,6 +30,23 @@ const cargo: CargoItem = {
 };
 
 describe('personal box stacking policy', () => {
+  it('honors an explicitly saved zero top load even when ten layers are configured', () => {
+    const policy = { maxStackLayers: 10, maxTopLoadKg: 0, topLoadLimitExplicit: true };
+    expect(effectivePlannerTopLoadKg(plannerBox, policy)).toBe(0);
+    expect(applyPersonalStackPolicyToCargo(cargo, policy).maxTopLoadKg).toBe(0);
+  });
+
+  it('applies explicit top load without requiring a layer setting', () => {
+    expect(applyPersonalStackPolicyToCargo(cargo, { maxTopLoadKg: 45, topLoadLimitExplicit: true }).maxStackLayers).toBeUndefined();
+    expect(applyPersonalStackPolicyToCargo(cargo, { maxTopLoadKg: 45, topLoadLimitExplicit: true }).maxTopLoadKg).toBe(45);
+    expect(effectivePlannerTopLoadKg(plannerBox, { maxTopLoadKg: 45, topLoadLimitExplicit: true })).toBe(45);
+  });
+
+  it('clears an old top load only when explicitly saved as unset', () => {
+    const policy = { maxStackLayers: 10, topLoadLimitExplicit: true };
+    expect(applyPersonalStackPolicyToCargo(cargo, policy).maxTopLoadKg).toBeUndefined();
+    expect(effectivePlannerTopLoadKg(plannerBox, policy)).toBeUndefined();
+  });
   it('restores a user-declared 10-layer limit instead of keeping the legacy one-layer fallback', () => {
     const next = applyPersonalStackPolicyToCargo(cargo, { maxStackLayers: 10, maxTopLoadKg: 0 });
     expect(next.maxStackLayers).toBe(10);
