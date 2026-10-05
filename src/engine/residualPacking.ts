@@ -6,6 +6,7 @@ import { nextSpaces, type Space, type BeamPackingOutput } from './blockSpaceBeam
 import { isInsideContainer, overlaps } from './constraints';
 import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules } from './stacking';
+import { floorLoadLayerCap, withinFloorLoadLimit, FLOOR_LOAD_REASON } from './floorLoadLimit';
 import { unloadingObstructions } from './operationalQuality';
 import { acceptsUnloadCandidate } from './unloadingPolicy';
 import type { LoadingStrategy } from './loadingEngine';
@@ -41,13 +42,18 @@ export function completeResidualPacking(container: ContainerSpec, cargo: CargoIt
     for (const p of placements) spaces = nextSpaces(spaces, p);
   }
   const failures = new Map<string, string>();
+  const floorBlockedIds = new Set<string>();
+  const reasonCodes = new Map<string, string>();
   while (waiting().length) {
     let added = false;
     for (const item of waiting().sort((a, b) => (strategy === 'unloading' ? (b.unloadPriority ?? 0) - (a.unloadPriority ?? 0) : 0) || volume(b) - volume(a) || a.id.localeCompare(b.id))) {
+      floorBlockedIds.delete(item.id);
+      reasonCodes.delete(item.id);
       if (!isARules(container) && !fits(item, container)) { failures.set(item.id, '허용 회전 방향에서도 박스 크기가 적재공간 내부 규격에 맞지 않음'); continue; }
       if (weight + item.weightKg > container.maxPayloadKg + EPS) { failures.set(item.id, '컨테이너 최대 적재 중량 초과 · 남은 허용중량 부족'); continue; }
+      if (!isARules(container) && floorLoadLayerCap(container,item) === 0) { failures.set(item.id, FLOOR_LOAD_REASON); floorBlockedIds.add(item.id); continue; }
       if (volume(container) - used < volume(item) - EPS) { failures.set(item.id, '잔여 공간 부족 · 남은 전체 용적이 박스 1개보다 작음'); continue; }
-      let geometry = false, support = false, stacking = false;
+      let geometry = false, support = false, stacking = false, floorBlocked = false;
       let selected: Placement | undefined;
       const blockers = strategy === 'unloading' ? unloadingObstructions(cargo, placements) : 0;
       search: for (const space of [...spaces].sort((a, b) => a.z - b.z || a.x - b.x || a.y - b.y)) {
@@ -66,6 +72,7 @@ export function completeResidualPacking(container: ContainerSpec, cargo: CargoIt
             support = true;
             if (isARules(container) ? !aCandidateAllowed(container,cargo,placements,p) : !canPlaceByStackingRules(item, p, placements, cargoById)) continue;
             stacking = true;
+            if (!isARules(container) && !withinFloorLoadLimit(container,p,placements)) { floorBlocked = true; continue; }
             if (!acceptsUnloadCandidate(container, cargoById, placements, p)) continue;
             if (strategy === 'unloading' && unloadingObstructions(cargo, [...placements, p]) > blockers) continue;
             selected = p; break search;
@@ -77,13 +84,18 @@ export function completeResidualPacking(container: ContainerSpec, cargo: CargoIt
         left.set(item.id, (left.get(item.id) ?? 0) - 1);
         spaces = nextSpaces(spaces, selected); added = true; break;
       }
+      if (floorBlocked) floorBlockedIds.add(item.id); else floorBlockedIds.delete(item.id);
+      reasonCodes.set(item.id, !geometry ? 'NO_FEASIBLE_EMS'
+        : !support ? 'SUPPORT_RULE'
+        : !stacking ? (item.maxStackLayers === 1 ? 'STACK_LIMIT' : 'STACK_OR_TOP_LOAD_LIMIT')
+        : floorBlocked ? 'FLOOR_LOAD_LIMIT' : 'BLOCKS_UNLOAD_PATH');
       failures.set(item.id, !geometry ? '잔여 공간의 가로·세로·높이에 박스가 맞지 않음 · 허용 회전 및 빈 공간 재검사 완료'
         : !support ? '빈 공간은 있으나 박스 바닥을 충분히 지지할 수 없음'
         : !stacking ? '추가 적재 시 최대 적층단 또는 누적 상부 허용중량 초과'
-        : '추가 적재 시 먼저 하역할 화물의 접근 경로가 차단됨');
+        : floorBlocked ? FLOOR_LOAD_REASON : '추가 적재 시 먼저 하역할 화물의 접근 경로가 차단됨');
     }
     if (!added) break;
   }
   return { placements, loadedWeightKg: weight, usedVolumeM3: used,
-    remaining: waiting().map(item => ({ cargoId: item.id, quantity: left.get(item.id)!, reason: failures.get(item.id) ?? '현재 배치의 안전한 추가 적재 위치 없음' })) };
+    remaining: waiting().map(item => ({ cargoId: item.id, quantity: left.get(item.id)!, reasonCode: floorBlockedIds.has(item.id) ? 'FLOOR_LOAD_LIMIT' : failures.get(item.id)?.startsWith('컨테이너 최대 적재 중량 초과') ? 'PAYLOAD_LIMIT' : reasonCodes.get(item.id) ?? 'NO_FEASIBLE_EMS', reason: failures.get(item.id) ?? '현재 배치의 안전한 추가 적재 위치 없음' })) };
 }

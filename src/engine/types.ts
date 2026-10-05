@@ -17,6 +17,8 @@ export type ContainerSpec = {
   floorLoadLimitKgPerM2?: number;
   /** 평균 바닥하중 대비 국부하중 경고 배수. 미입력 시 3배를 사용한다. */
   floorLoadWarningMultiplier?: number;
+  /** Capacity compactness is disabled above this payload-utilization / volume-utilization ratio. */
+  weightLimitedBalanceRatio?: number;
 };
 
 export type CargoItem = {
@@ -120,7 +122,7 @@ export type AutoCorrectionRecord = {
 export type LoadingResult = {
   ruleset?: LoadingRuleset;
   placements: Placement[];
-  remaining: Array<{ cargoId: string; quantity: number; reason: string }>;
+  remaining: Array<{ cargoId: string; quantity: number; reason: string; reasonCode?: string }>;
   loadedWeightKg: number;
   usedVolumeM3: number;
   validationIssues: ValidationIssue[];

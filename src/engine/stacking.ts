@@ -117,12 +117,14 @@ export function canPlaceByStackingRules(
 
   // 혼합 SKU 적재에서도 아래 박스의 최대 적층단을 존중한다.
   // 예: 바닥 박스가 최대 2단이면, 다른 SKU를 위에 얹어 3단 체인을 만드는 것도 금지한다.
-  for (const [base, resultingDepth] of supportingAncestorsWithDepth(candidate, placements)) {
+  const ancestors = supportingAncestorsWithDepth(candidate, placements);
+  for (const [base, resultingDepth] of ancestors) {
     const baseItem = cargoById.get(base.cargoId);
     if (baseItem?.maxStackLayers !== undefined && resultingDepth > baseItem.maxStackLayers) return false;
   }
 
-  for (const base of placements) {
+  // Only these bases gain load from the candidate. Existing layouts are validated separately.
+  for (const base of ancestors.keys()) {
     const baseItem = cargoById.get(base.cargoId);
     if (baseItem?.maxTopLoadKg === undefined) continue;
 

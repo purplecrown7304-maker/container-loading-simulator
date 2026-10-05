@@ -1,3 +1,4 @@
+import { withinFloorLoadLimit } from './floorLoadLimit';
 import { isARules, placementOrientation, rotateHorizontal } from './loadingRuleset';
 import { aCandidateAllowed } from './loadSimAdapter';
 import { isInsideContainer, overlaps } from './constraints';
@@ -178,6 +179,7 @@ export function fillUnloadingTrenches(container: ContainerSpec, cargo: CargoItem
         if (blocksUnloading(candidate, others, stopOf)) continue;
         if (!hasAdequateSupport(candidate, others, undefined, 0.999)) continue;
         if (alignedColumnOverloaded(candidate, others, byId)) continue;
+        if (!withinFloorLoadLimit(container, candidate, others)) continue;
         if (isARules(container) ? !aCandidateAllowed(container,cargo,others,candidate) : !canPlaceByStackingRules(item, candidate, others, byId)) continue;
         placements = [...others, candidate];
         moved = true;

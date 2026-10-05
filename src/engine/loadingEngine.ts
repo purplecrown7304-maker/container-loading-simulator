@@ -11,6 +11,7 @@ import { containerInputError, preflightCargoInput } from './inputPreflight';
 import { completeResidualPacking } from './residualPacking';
 import { settleSparseTopLayer } from './topLayerSettling';
 import { cargoWithUnloadingPolicy } from './unloadingPolicy';
+import { balanceLongitudinalWalls } from './longitudinalBalance';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -187,7 +188,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     strategy);
   // Unloading layouts stack one block per stop; flatten trenches left between tall stop walls.
   const flattened = strategy === 'unloading' ? fillUnloadingTrenches(container, normalizedCargo, packed.placements) : packed.placements;
-  const centered = centerPlacementsOnContainer(container, flattened);
+  const centered = centerPlacementsOnContainer(container, balanceLongitudinalWalls(container, normalizedCargo, flattened));
   const finalPlacements = strategy === 'unloading'
     ? orientForUnloading(container, normalizedCargo, centered)
     : centered;

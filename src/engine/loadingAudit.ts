@@ -1,6 +1,7 @@
 import { isARules } from './loadingRuleset';
 import { validateAPlan } from './loadSimAdapter';
 import { validatePlacements } from './constraints';
+import { placementsWithinFloorLoadLimit } from './floorLoadLimit';
 import { assessPlacementSupport } from './support';
 import { acceptsUnloadCandidate } from './unloadingPolicy';
 import type { CargoItem, ContainerSpec, Placement, ValidationIssue } from './types';
@@ -58,5 +59,6 @@ export function auditLoading(container: ContainerSpec, cargo: CargoItem[], place
     if (load > item.maxTopLoadKg + EPS) add('TOP_LOAD', `누적 상부 하중 ${load.toFixed(1)}kg이 허용치 ${item.maxTopLoadKg}kg을 초과했습니다.`, [i]);
   });
   if (placements.reduce((sum, p) => sum + p.weightKg, 0) > container.maxPayloadKg + EPS) add('PAYLOAD', '운송 장비의 허용 적재 중량을 초과했습니다.', []);
+  if (!placementsWithinFloorLoadLimit(container, placements)) add('INVALID_CARGO', 'FLOOR_LOAD_LIMIT: 투영 국부 바닥하중이 장비 한도를 초과했습니다.', []);
   return issues;
 }

@@ -6,6 +6,7 @@ import { packByStrictWalls, type StrictWallOutput, type StrictWallStrategy } fro
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 import { assessWeightBalance } from './weightBalance';
 import { fitsEmptyContainer, loadingHeightProfiles, operationalQuality, unloadingObstructions } from './operationalQuality';
+import { balanceLongitudinalWalls, longitudinalMetrics, usesLongitudinalBalancing } from './longitudinalBalance';
 
 const EPS = 1e-9;
 const LARGE_COMPLETED_JOB_COUNT = 120;
@@ -25,6 +26,8 @@ export type HybridCandidateAssessment = {
   floorDistributionScore: number;
   unloadingScore: number;
   validationIssueCount: number;
+  longitudinalDeviation: number;
+  longitudinalHalfRatio: number;
   output: PackingOutput;
 };
 
@@ -85,6 +88,7 @@ function scoreCandidate(
   engine: HybridPackingEngine,
   output: PackingOutput,
 ): HybridCandidateAssessment {
+  if (usesLongitudinalBalancing(container)) output = { ...output, placements: balanceLongitudinalWalls(container, cargo, output.placements) };
   const result = toCenteredResult(container, cargo, output);
   const requestedCount = Math.max(1, cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0));
   const containerVolume = Math.max(EPS, container.length * container.width * container.height);
@@ -94,6 +98,11 @@ function scoreCandidate(
   const floorScore = floorDistributionScore(container, result);
   const unloadScore = unloadingArrangementScore(container, cargo, result);
   const shape = operationalQuality(container, result.placements);
+  const longitudinal = longitudinalMetrics(container, result.placements);
+  const configuredRatio = container.weightLimitedBalanceRatio;
+  const ratio = Number.isFinite(configuredRatio) && (configuredRatio ?? 0) > 0 ? configuredRatio! : 1;
+  const weightLimited = usesLongitudinalBalancing(container)
+    && result.loadedWeightKg / Math.max(EPS, container.maxPayloadKg) > result.usedVolumeM3 / containerVolume * ratio;
 
   // Bounds/collision and payload are hard gates. A candidate cannot buy its way out of a
   // physical violation with a better utilization score.
@@ -104,7 +113,7 @@ function scoreCandidate(
     if (strategy === 'capacity') {
       score = fillRatePct * 0.35
         + loadedRatePct * 0.35
-        + (1 - shape.footprint) * 30;
+        + (weightLimited ? quality.balanceScore * 0.3 : (1 - shape.footprint) * 30);
     } else if (strategy === 'stability') {
       score = fillRatePct * 0.12
         + loadedRatePct * 0.18
@@ -138,6 +147,8 @@ function scoreCandidate(
     floorDistributionScore: floorScore,
     unloadingScore: unloadScore,
     validationIssueCount: result.validationIssues.length,
+    longitudinalDeviation: longitudinal.deviation,
+    longitudinalHalfRatio: longitudinal.halfRatio,
     output,
   };
 }
@@ -159,6 +170,12 @@ function rankCandidates(
         const obstructionDiff = unloadingObstructions(cargo, a.output.placements)
           - unloadingObstructions(cargo, b.output.placements);
         if (obstructionDiff) return obstructionDiff;
+      }
+      if (usesLongitudinalBalancing(container)) {
+        const deviation = a.longitudinalDeviation - b.longitudinalDeviation;
+        if (Math.abs(deviation) > EPS) return deviation;
+        const concentration = a.longitudinalHalfRatio - b.longitudinalHalfRatio;
+        if (Math.abs(concentration) > EPS) return concentration;
       }
       const scoreDiff = b.score - a.score;
       if (Number.isFinite(scoreDiff) && Math.abs(scoreDiff) > EPS) return scoreDiff;

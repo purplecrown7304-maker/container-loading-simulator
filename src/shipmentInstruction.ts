@@ -18,7 +18,7 @@ export type ShipmentInstructionLine = {
   boxesNeeded: number;
   /** 포장 설계 검증용 총중량(박스 자중 포함). */
   grossWeightKg: number;
-  /** 실제 적재/표시에 사용하는 박스 내 제품 총중량(박스 자중 제외). */
+  /** 박스 내 제품 총중량(박스 자중 제외). 적재 중량은 자중 포함 grossWeightKg 기준. */
   contentWeightKg?: number;
   /** 마지막 잔량박스에 들어가는 실제 제품 EA. */
   partialUnits?: number;
@@ -68,6 +68,8 @@ function cargoSignature(cargo: CargoItem[]) {
       item.width.toFixed(5),
       item.height.toFixed(5),
       item.weightKg.toFixed(5),
+      item.contentWeightKg?.toFixed(5) ?? '',
+      item.unitsPerPackage ?? '',
     ].join(':'))
     .join('|');
 }
