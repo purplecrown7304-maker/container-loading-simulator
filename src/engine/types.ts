@@ -138,6 +138,41 @@ export type OperationalRuleFinding = {
   limit?: number;
 };
 
+export type VoidFillKind = 'side-gap' | 'door-face' | 'height-step' | 'row-hole' | 'top-void';
+
+export type VoidFillPlanItem = {
+  id: string;
+  kind: VoidFillKind;
+  x: number;
+  y: number;
+  z: number;
+  length: number;
+  width: number;
+  height: number;
+  volumeM3: number;
+  /** Gap thickness, or installed support span for door-face bars. */
+  applicabilityMeasureM: number;
+  materialId: string;
+  materialLabel: string;
+  quantity: number;
+  unitWeightKg: number;
+  totalWeightKg: number;
+  minGapM: number;
+  maxGapM: number;
+  applicable: boolean;
+};
+
+export type VoidFillPlan = {
+  fills: VoidFillPlanItem[];
+  sideGapM: number;
+  rearGapM: number;
+  volumeM3: number;
+  weightKg: number;
+  applicableWeightKg: number;
+  unresolvedCount: number;
+  disclaimer: string;
+};
+
 export type AutoCorrectionRecord = {
   kind: 'SHAPE' | 'LOW_ROW' | 'ZONE_HEIGHT';
   label: string;
@@ -152,7 +187,18 @@ export type AutoCorrectionRecord = {
 export type LoadingResult = {
   limitReview?: LimitReviewMetadata;
   /** Planning budget only; this does not assert physics certification. */
-  securingBudget?: { level: 1 | 2 | 3; reservedWeightKg: number; requiredWeightKg: number; totalTransportWeightKg: number };
+  securingBudget?: {
+    level: 1 | 2 | 3;
+    reservedWeightKg: number;
+    /** Existing count-based securing reserve; remains the conservative floor. */
+    requiredWeightKg: number;
+    /** Actual-void material planning weight. */
+    voidFillWeightKg?: number;
+    /** max(requiredWeightKg, voidFillWeightKg). */
+    transportSecuringWeightKg?: number;
+    totalTransportWeightKg: number;
+  };
+  voidFillPlan?: VoidFillPlan;
   ruleset?: LoadingRuleset;
   placements: Placement[];
   remaining: Array<{ cargoId: string; quantity: number; reason: string; reasonCode?: string }>;
