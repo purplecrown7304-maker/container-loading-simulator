@@ -68,7 +68,7 @@ function revalidateRestoredResult(container: ContainerSpec, cargo: CargoItem[], 
   const result: LoadingResult = { ...saved, loadedWeightKg,
     usedVolumeM3: saved.placements.reduce((sum,p)=>sum+p.length*p.width*p.height,0),
     validationIssues: auditLoading(container, container.limitReview === undefined ? cargo : preflightCargoInput(cargo).cargo, saved.placements),
-    operationalFindings: [ ...validateOperationalLoading(container, cargo, saved.placements),
+    operationalFindings: [ ...validateOperationalLoading(container, cargo, saved.placements, [], { legacyDirectBox: usesHeavyInnerLoading(container, cargo) }),
       ...heavyInnerConflictFindings(container, cargo, saved.placements, browserStrategy()) ],
     securingBudget: { level, reservedWeightKg: required,
       requiredWeightKg: required, totalTransportWeightKg: loadedWeightKg + required },
@@ -226,7 +226,7 @@ function loadCargoOnly(container: ContainerSpec, cargo: CargoItem[], options: Lo
     loadedWeightKg: packed.loadedWeightKg,
     usedVolumeM3: packed.usedVolumeM3,
     validationIssues: auditLoading(container, normalizedCargo, finalPlacements),
-    operationalFindings: validateOperationalLoading(container, normalizedCargo, finalPlacements),
+    operationalFindings: validateOperationalLoading(container, normalizedCargo, finalPlacements, [], { legacyDirectBox: sequential }),
     autoCorrections: [],
   };
 
@@ -302,7 +302,7 @@ function loadStrictContainer(container: ContainerSpec, cargo: CargoItem[], optio
     usedVolumeM3: packed.placements.reduce((sum,p)=>sum+p.length*p.width*p.height,0),
     validationIssues: auditLoading(container, cargoWithUnloadingPolicy(container, preflightCargoInput(cargo).cargo), packed.placements),
     operationalFindings: [
-      ...validateOperationalLoading(container, cargo, packed.placements),
+      ...validateOperationalLoading(container, cargo, packed.placements, [], { legacyDirectBox: usesHeavyInnerLoading(container, cargo) }),
       ...heavyInnerConflictFindings(container, cargo, packed.placements, options.strategy ?? browserStrategy()),
     ],
   };
@@ -349,7 +349,7 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
   }
   const result:LoadingResult={...packed,
     validationIssues:auditLoading(container,cargoWithUnloadingPolicy(container,preflightCargoInput(cargo).cargo),packed.placements),
-    operationalFindings:[...validateOperationalLoading(container,cargo,packed.placements),...heavyInnerConflictFindings(container,cargo,packed.placements,options.strategy??browserStrategy())],
+    operationalFindings:[...validateOperationalLoading(container,cargo,packed.placements,[],{legacyDirectBox:usesHeavyInnerLoading(container,cargo)}),...heavyInnerConflictFindings(container,cargo,packed.placements,options.strategy??browserStrategy())],
   };
   if((result.securingBudget?.totalTransportWeightKg??result.loadedWeightKg)>container.maxPayloadKg+1e-6) result.validationIssues.push({type:'PAYLOAD',message:'WHAT-IF REVIEW: 화물과 필수 고정재의 합계가 원래 최대 허용중량을 초과합니다.',placementIndexes:[]});
   if(blockers.length) result.operationalFindings!.push({code:'LIMIT_REVIEW_BLOCKED',severity:'error',message:`WHAT-IF REVIEW 계산 차단: ${blockers.join(' ')}`,placementIndexes:[]});
