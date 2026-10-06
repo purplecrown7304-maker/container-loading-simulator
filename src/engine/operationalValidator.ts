@@ -14,6 +14,11 @@ const GAP_WARNING_M = 0.15;
 const DEFAULT_FRICTION = 0.45;
 const ACCEL = { forward: 0.8, rearward: 0.5, sideways: 0.5 };
 
+export type OperationalValidationOptions = {
+  /** 2026-10-06 owner consolidation applies only to legacy direct-box loading. */
+  legacyDirectBox?: boolean;
+};
+
 export type OperationalSupport = {
   id: string;
   x: number;
@@ -312,7 +317,7 @@ function cargoOnly(bodies: Body[]) {
   return bodies.filter(body => body.kind === 'cargo');
 }
 
-function checkWeightAndCog(container: ContainerSpec, bodies: Body[]) {
+function checkWeightAndCog(container: ContainerSpec, bodies: Body[], options: OperationalValidationOptions = {}) {
   const out: OperationalRuleFinding[] = [];
   const cargoBodies = cargoOnly(bodies);
   const weight = cargoBodies.reduce((sum, body) => sum + body.placement.weightKg, 0);
@@ -338,8 +343,11 @@ function checkWeightAndCog(container: ContainerSpec, bodies: Body[]) {
   cg.x /= weight; cg.y /= weight; cg.z /= weight;
 
   const longDev = Math.abs(cg.x - container.length / 2);
-  // Weight-proportional: identical to the legacy limit at full payload, wider for light loads.
-  const longLimit = Math.min(container.length / 2, container.length * CG_LONG_TOLERANCE * Math.max(1, container.maxPayloadKg / weight));
+  // The weight-proportional 2026-10-06 rule is isolated to legacy direct boxes.
+  // Pallet/MIXED and other shared callers retain the prior fixed ±5% contract.
+  const longLimit = options.legacyDirectBox
+    ? Math.min(container.length / 2, container.length * CG_LONG_TOLERANCE * Math.max(1, container.maxPayloadKg / weight))
+    : container.length * CG_LONG_TOLERANCE;
   if (longDev > longLimit + EPS) {
     out.push(finding(
       'CG_LONGITUDINAL',
@@ -379,11 +387,15 @@ function checkWeightAndCog(container: ContainerSpec, bodies: Body[]) {
 }
 
 /** Exact legacy operational weight/CG checks without rebuilding support graphs. */
-export function validateOperationalWeightAndCog(container: ContainerSpec, placements: Placement[]): OperationalRuleFinding[] {
-  return checkWeightAndCog(container, placements.map((placement, cargoIndex) => ({ kind: 'cargo', placement, cargoIndex })));
+export function validateOperationalWeightAndCog(
+  container: ContainerSpec,
+  placements: Placement[],
+  options: OperationalValidationOptions = {},
+): OperationalRuleFinding[] {
+  return checkWeightAndCog(container, placements.map((placement, cargoIndex) => ({ kind: 'cargo', placement, cargoIndex })), options);
 }
 
-function checkSecuring(container: ContainerSpec, bodies: Body[], supporters: SupportLink[][]) {
+function checkSecuring(container: ContainerSpec, bodies: Body[], supporters: SupportLink[][], options: OperationalValidationOptions = {}) {
   const out: OperationalRuleFinding[] = [];
   const cargoBodies = cargoOnly(bodies);
   const maxX = cargoBodies.reduce((max, body) => Math.max(max, body.placement.x + body.placement.length), 0);
@@ -402,9 +414,11 @@ function checkSecuring(container: ContainerSpec, bodies: Body[], supporters: Sup
   bodies.forEach((body, bodyIndex) => {
     if (body.kind !== 'cargo' || supporters[bodyIndex].length > 0 || body.placement.z > HEIGHT_TOLERANCE_M) return;
     const p = body.placement;
-    // Contact restraint: a face within 30 mm of a wall or neighbouring cargo is blocked.
+    // Contact restraint is part of the owner-approved legacy direct-box rule only.
+    // Shared pallet/MIXED validation keeps its previous conservative open-face warnings.
     const near = 0.03;
     const blocked = (axis: 'x' | 'y', positive: boolean) => {
+      if (!options.legacyDirectBox) return false;
       const face = axis === 'x' ? (positive ? p.x + p.length : p.x) : (positive ? p.y + p.width : p.y);
       const wall = positive ? (axis === 'x' ? container.length : container.width) : 0;
       if (Math.abs(wall - face) <= near) return true;
@@ -493,6 +507,7 @@ export function validateOperationalLoading(
   cargo: CargoItem[],
   placements: Placement[],
   supports: OperationalSupport[] = [],
+  options: OperationalValidationOptions = {},
 ): OperationalRuleFinding[] {
   if (isARules(container)) return validateAPlan(container, cargo, placements, supports);
   if (!placements.length && !supports.length) return [];
@@ -506,9 +521,10 @@ export function validateOperationalLoading(
     ...checkStacking(bodies, supporters),
     ...checkUnloadOrder(bodies).map(issue => container.unloadingPolicy === 'soft'
       ? { ...issue, severity: 'warning' as const, message: `${issue.message} 완화 모드: 현장 재취급이 필요합니다.` } : issue),
-    ...checkWeightAndCog(container, bodies),
-    ...checkSecuring(container, bodies, supporters),
-    ...checkAfterStops(bodies, supporters),
+    ...checkWeightAndCog(container, bodies, options),
+    ...checkSecuring(container, bodies, supporters, options),
+    ...checkAfterStops(bodies, supporters).map(issue => container.unloadingPolicy === 'soft' && options.legacyDirectBox
+      ? { ...issue, severity: 'warning' as const, message: `${issue.message} 완화 모드: 현장 재취급이 필요합니다.` } : issue),
   ];
 }
 
