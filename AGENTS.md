@@ -58,6 +58,29 @@ invalidates old certification; returning to strict requires original checks agai
 Computational input bounds are not safety margins. See the review section in
 `docs/engine/LOADING_RULES.md` for scope and UI behavior.
 
+## 2C. Owner-approved rule consolidation (2026-10-06)
+
+The owner approved one priority table for legacy **direct-box** loading. It is in
+`docs/engine/LOADING_RULES.md` section 1 and overrides any conflicting sentence in
+sections 2A, 3, 3A, 4 and 5 of this file:
+
+- Hard limits and explicit strict unloading block a placement. Loaded quantity comes
+  next. The inner-to-door weight sequence of 2A is used while it loads all cargo within
+  the CG range; otherwise the engine switches to level loading (heavy cartons in the
+  lowest tiers, lighter cartons above, one common low height).
+- Longitudinal CG is a verdict, not a silent reason to drop cargo. A full load that
+  fails CG is shown with its error and a separate CG-compliant alternative; cartons
+  removed there carry `CG_LIMIT`. The allowed deviation scales with
+  `maxPayload / loadedWeight` and equals the previous 5% at full payload.
+- Securing and void fill follow actual voids, not carton count. `VOID_FILL_REQUIRED`
+  must reach every output. `VOID_FILL_KG_PER_M3` is a placeholder until the company
+  material table exists; do not treat it as a verified value.
+- Section 3 (EMS + Beam Search) describes the pallet/MIXED search, not the direct-box
+  default. Section 5's sparse top-tier re-insertion (#86) applies to pallet, MIXED and
+  A paths only. Section 4's "CG is an optimization preference" is replaced by the
+  verdict rule above.
+- A-rules, pallet and MIXED planners are unchanged by this consolidation.
+
 ## 3. DIRECT BOX baseline algorithm
 The legacy fixed sequence of `CBM/weight sort -> full vertical stacks -> x shelf progression -> door-side tail mixing` is retired.
 
