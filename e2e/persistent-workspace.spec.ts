@@ -167,7 +167,10 @@ test('one real canvas survives equipment, product, packaging, loading-unit, resu
   await expect(viewer.locator('.unity-summary')).toContainText('5.90');
   await assertCanvas();
   workspace = await selectProduct(page);
-  await expect(viewer).toHaveAttribute('data-three-count', '6');
+  // The staging preview keeps 25 mm gaps: six 0.98 m cartons need 6.005 m,
+  // exceeding the 5.90 m floor. The final packing below must still load all six.
+  await expect(viewer).toHaveAttribute('data-three-count', '5');
+  await expect(page.locator('.workflow-preview-status')).toContainText('5 / 6개 표시');
   await assertCanvas();
   await workspace.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.locator('.workflow-preview-status')).toHaveAttribute('data-preview-kind', 'packaging');
