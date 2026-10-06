@@ -16,6 +16,7 @@ import { balanceLongitudinalWalls } from './longitudinalBalance';
 import { readSecuringMaterialSettings, type SecuringMaterialSettings } from '../securingMaterialSettings';
 import { usesHeavyInnerLoading, centerHeavyInnerLaterally, heavyInnerConflictFindings } from './heavyInnerPolicy';
 import { boxSecuringCapacity, boxSecuringRequirements, type BoxSecuringLevel } from './securingBudget';
+import { gapSecuringPlan } from './gapSecuring';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -306,7 +307,11 @@ function loadStrictContainer(container: ContainerSpec, cargo: CargoItem[], optio
     ],
   };
   if (useBudget) {
-    const required = boxSecuringRequirements(result.placements.length, level, materials).weightKg;
+    // Securing follows actual voids. The count-based reserve stays as the conservative floor.
+    const voidPlan = isARules(container) ? undefined : gapSecuringPlan(container, result.placements);
+    if (voidPlan?.fills.length) result.operationalFindings!.push({ code: 'VOID_FILL_REQUIRED', severity: 'warning', placementIndexes: [], value: voidPlan.volumeM3,
+      message: `빈 공간 ${voidPlan.fills.length}곳(${voidPlan.volumeM3.toFixed(2)}m³)을 메우거나 버팀재로 막아야 합니다. 옆 틈 최대 ${(voidPlan.sideGapM * 100).toFixed(0)}cm, 문 쪽 ${(voidPlan.rearGapM * 100).toFixed(0)}cm.` });
+    const required = Math.max(boxSecuringRequirements(result.placements.length, level, materials).weightKg, voidPlan?.weightKg ?? 0);
     result.securingBudget = { level, reservedWeightKg: reserve, requiredWeightKg: required,
       totalTransportWeightKg: result.loadedWeightKg + required };
     result.remaining = result.remaining.map(row => row.reasonCode === 'PAYLOAD_LIMIT'
