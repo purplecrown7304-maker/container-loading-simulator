@@ -10,7 +10,7 @@ import {
   type ProductPackagingAssignment,
 } from './engine/productPackagingOptimizer';
 import { getProductBoxCompatibility } from './productBoxCompatibility';
-import { downloadProductTemplate, parseProductWorkbook } from './productExcel';
+import { downloadProductCatalog, downloadProductTemplate, mergeProductCatalog, parseProductWorkbook } from './productExcel';
 import {
   ENTERPRISE_PACKAGING_PLANNER_EVENT,
   enterprisePackagingOptionsFromPlanner,
@@ -77,6 +77,7 @@ export default function ProductToolsCenter() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [message, setMessage] = useState('');
+  const [importing, setImporting] = useState(false);
   const [familyPlan, setFamilyPlan] = useState<CommonCartonFamilyPlan | null>(null);
   const [additional, setAdditional] = useState<SuggestedBox[]>([]);
 
@@ -146,9 +147,9 @@ export default function ProductToolsCenter() {
     setDraft({
       id: product.id,
       name: product.name,
-      lengthMm: mm(product.length),
-      widthMm: mm(product.width),
-      heightMm: mm(product.height),
+      lengthMm: product.length * 1000,
+      widthMm: product.width * 1000,
+      heightMm: product.height * 1000,
       weightKg: product.weightKg,
       requiresBoxPackaging: requiresBoxPackaging(product),
     });
@@ -163,30 +164,25 @@ export default function ProductToolsCenter() {
 
   const importWorkbook = async (file?: File) => {
     if (!file) return;
+    setImporting(true);
     try {
       const result = await parseProductWorkbook(file);
-      const map = new Map(products.map(product => [product.id, product]));
-      for (const imported of result.items) {
-        const previous = map.get(imported.id);
-        const merged: CompanyProductItem = {
-          ...previous,
-          ...imported,
-          quantity: Math.max(1, previous?.quantity ?? imported.quantity ?? 1),
-          orientationPolicy: previous?.orientationPolicy ?? imported.orientationPolicy,
-          allowRotation: previous?.allowRotation ?? imported.allowRotation,
-          cushioningM: previous?.cushioningM ?? imported.cushioningM,
-          maxInternalLayers: previous?.maxInternalLayers,
-          fragile: previous?.fragile,
-          allowMixedCarton: previous?.allowMixedCarton ?? imported.allowMixedCarton,
-        };
-        delete merged.maxUnitsPerBox;
-        map.set(imported.id, merged);
+      const issues = result.issues.slice(0, 5).map(issue => `${issue.row}행${issue.code ? ` (${issue.code})` : ''}: ${issue.message}`).join(' / ');
+      if (!result.items.length) {
+        setMessage(`반영할 제품이 없습니다. 기존 목록을 유지합니다.${issues ? ` ${issues}` : ''}`);
+        return;
       }
-      saveState([...map.values()]);
-      setMessage(`제품 엑셀 반영 완료 · ${result.items.length}종 · 확인 필요 ${result.issues.length}건`);
+      // File reading is async; retain changes made to the catalog while it was being read.
+      const current = readEnterprisePackagingPlannerState() ?? plannerState;
+      const merged = mergeProductCatalog(current.products, result.items);
+      writeEnterprisePackagingPlannerState({ ...current, products: merged.products });
+      setDraft(emptyDraft);
+      setEditingId(null);
+      setMessage(`제품 엑셀 반영 완료 · 추가 ${merged.added}종 · 수정 ${merged.updated}종 · 확인 필요 ${result.issues.length}건${issues ? ` — ${issues}${result.issues.length > 5 ? ' / 나머지 오류도 파일에서 확인하세요.' : ''}` : ''}`);
     } catch {
       setMessage('제품 엑셀을 읽지 못했습니다. 기초 양식의 열 이름을 확인하세요.');
     } finally {
+      setImporting(false);
       if (inputRef.current) inputRef.current.value = '';
     }
   };
@@ -291,7 +287,8 @@ export default function ProductToolsCenter() {
 
       {view === 'products' ? <div className="product-tools-body">
         <input ref={inputRef} hidden type="file" accept=".xlsx,.xls" onChange={event => void importWorkbook(event.target.files?.[0])}/>
-        <div className="product-tools-actions"><button onClick={downloadProductTemplate}>기초 엑셀 양식</button><button onClick={() => inputRef.current?.click()}>제품 엑셀 업로드</button><span>등록 {products.length}종 · 보유 박스 {boxes.length}종</span></div>
+        <div className="product-tools-actions"><button onClick={downloadProductTemplate}>기초 엑셀 양식</button><button disabled={!products.length || importing} onClick={() => downloadProductCatalog(products)}>등록 제품 엑셀 다운로드</button><button disabled={importing} onClick={() => inputRef.current?.click()}>{importing ? '제품 엑셀 읽는 중…' : '제품 엑셀 업로드'}</button><span>등록 {products.length}종 · 보유 박스 {boxes.length}종</span></div>
+        <p>등록 제품 전체를 내려받아 수정 후 업로드하세요. 같은 제품코드는 수정, 새 코드는 추가되며 파일에 없는 제품은 유지됩니다.</p>
         <div className="product-master-form">
           <label>제품코드<input value={draft.id} disabled={Boolean(editingId)} onChange={event => setDraft(value => ({ ...value, id: event.target.value }))}/></label>
           <label>제품명<input value={draft.name} onChange={event => setDraft(value => ({ ...value, name: event.target.value }))}/></label>
@@ -319,7 +316,7 @@ export default function ProductToolsCenter() {
         <div className="carton-tool-section"><div className="carton-tool-title"><h3>추가 보유 권장 박스</h3><span>현재 박스 스펙과 비교했을 때 추가하면 효율이 좋아지는 규격 · 등록 전에는 목록에 저장하지 않음</span></div>{additional.length ? additional.map(item => <article className="carton-recommend-row" key={item.key}><div><b>{formatBoxSize(item.assignment)}</b><span>{item.reason}</span></div><div><b>{item.products.length}개 제품 개선</b><span>{item.products.join(', ')} · {item.assignment.unitsPerBox}EA/BOX · 충진율 {Math.round(item.assignment.productFillRate * 100)}%</span></div><button onClick={() => registerAssignment(item.assignment, '추가추천')}>회사 박스로 등록</button></article>) : <div className="carton-empty">분석 후 현재 보유 박스보다 추가 가치가 있는 규격만 표시합니다.</div>}</div>
         <details className="packaging-advanced-tools"><summary>제조 규격 · 전략 비교 · 강도 승인</summary><EnterpriseManufacturingSettings/><EnterprisePackagingStrategyExplorer/><EnterpriseCartonApprovalCenter/></details>
       </div>}
-      {message && <footer className="product-tools-message">{message}</footer>}
+      {message && <footer className="product-tools-message" role="status">{message}</footer>}
     </section>
   </div>;
 }
