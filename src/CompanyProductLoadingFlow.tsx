@@ -147,6 +147,7 @@ function cargoFromProducts(products: CompanyProductItem[], assignments: ProductP
       maxStackLayers: item.maxStackLayers,
       maxTopLoadKg: item.maxTopLoadKg,
       stackLimitOrigin: { kind: item.strengthStatus === 'design-target' ? 'unverified-carton' : 'box-catalog', maxStackLayers: item.maxStackLayers, maxTopLoadKg: item.maxTopLoadKg },
+      strengthUnverified: item.strengthUnverified,
       allowRotation: true,
       displayColor,
     });

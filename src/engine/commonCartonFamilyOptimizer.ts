@@ -207,8 +207,9 @@ function evaluateCandidate(
       boxName: box.name,
       source: generated ? 'generated' : 'catalog',
       maxStackLayers: generated ? 1 : assignment.maxStackLayers,
-      maxTopLoadKg: generated ? 0 : box.maxTopLoadKg,
-      strengthStatus: generated ? 'design-target' : 'catalog',
+      maxTopLoadKg: generated || box.strengthUnverified ? 0 : box.maxTopLoadKg,
+      strengthUnverified: generated || box.strengthUnverified === true,
+      strengthStatus: generated || box.strengthUnverified ? 'design-target' : 'catalog',
       boxUnitCost: box.unitCost,
     });
   }
@@ -226,6 +227,7 @@ function cargoFromAssignments(assignments: ProductPackagingAssignment[]): CargoI
     quantity: item.boxesNeeded,
     maxStackLayers: item.maxStackLayers,
     maxTopLoadKg: item.maxTopLoadKg,
+    strengthUnverified: item.strengthUnverified,
     allowRotation: true,
   }));
 }

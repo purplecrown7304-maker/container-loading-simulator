@@ -39,6 +39,16 @@ const personal: PersonalBoxCatalogItem = {
 };
 
 describe('planner personal-box stacking overlay', () => {
+  it('propagates explicitly saved zero top load without converting it to a layer-derived allowance', () => {
+    expect(mergePersonalBoxStackingIntoPlanner(state, [{ ...personal, topLoadLimitExplicit: true }]).boxes[0].maxTopLoadKg).toBe(0);
+  });
+
+  it('propagates top load even without a declared stack count', () => {
+    const limited = { ...state, boxes: [{ ...box, maxStackLayers: 1 }] };
+    const merged = mergePersonalBoxStackingIntoPlanner(limited, [{ ...personal, maxStackLayers: undefined, maxTopLoadKg: 45, topLoadLimitExplicit: true }]);
+    expect(merged.boxes[0].maxTopLoadKg).toBe(45);
+    expect(merged.boxes[0].maxStackLayers).toBeUndefined();
+  });
   it('migrates an existing personal maxStackLayers=10 into the matching planner box', () => {
     const merged = mergePersonalBoxStackingIntoPlanner(state, [personal]);
     const mergedBox = merged.boxes[0] as BoxCatalogItem & { maxStackLayers?: number };

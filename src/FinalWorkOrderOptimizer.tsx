@@ -12,13 +12,28 @@ import { createPhysicsTargetSignature, runInertiaCertification, type Certificati
 import {
   assessWorkOrderCertification,
   completeCertificationForWorkOrder,
-  workOrderApprovalLabel,
+  workOrderTargetApprovalLabel,
+  physicsTargetHardFailureReasons,
+  isInertiaCertificationComplete,
+  isPhysicsTargetVerified,
 } from './inertiaWorkOrderPolicy';
 import { openPalletLoadingReport as openPalletLoadingReportV2 } from './palletWorkerReportV2';
 import { readPhysicsTarget } from './physicsTarget';
 import { REQUEST_FINAL_WORK_ORDER_EVENT, type FinalWorkOrderRequest } from './finalWorkOrderEvents';
 
 const MAX_PALLET_WORK_ORDER_CANDIDATES = 8;
+
+function betterWorkOrderEvaluation(a: EvaluatedPalletCandidate, b: EvaluatedPalletCandidate) {
+  const aStatic = physicsTargetHardFailureReasons(a.target).length === 0;
+  const bStatic = physicsTargetHardFailureReasons(b.target).length === 0;
+  if (aStatic !== bStatic) return aStatic;
+  if (a.certification.payloadWithinLimit !== b.certification.payloadWithinLimit) return a.certification.payloadWithinLimit;
+  const aComplete = isInertiaCertificationComplete(a.certification), bComplete = isInertiaCertificationComplete(b.certification);
+  if (aComplete !== bComplete) return aComplete;
+  const aPassed = isPhysicsTargetVerified(a.target, a.certification), bPassed = isPhysicsTargetVerified(b.target, b.certification);
+  if (aPassed !== bPassed) return aPassed;
+  return betterPalletEvaluation(a, b);
+}
 
 export default function FinalWorkOrderOptimizer() {
   const [open, setOpen] = useState(false);
@@ -83,16 +98,16 @@ export default function FinalWorkOrderOptimizer() {
 
         const evaluated: EvaluatedPalletCandidate = { ...candidate, certification, risk: palletCertificationRisk(certification) };
         const approval = assessWorkOrderCertification(certification);
-        if (approval === 'pass' || approval === 'caution') {
+        if ((approval === 'pass' || approval === 'caution') && physicsTargetHardFailureReasons(candidate.target).length === 0) {
           applyPalletAdaptiveCandidate(candidate, certification);
           setRunning(false);
-          setMessage(`작업지시서 ${workOrderApprovalLabel(certification)} · ${candidate.label}`);
+          setMessage(`작업지시서 ${workOrderTargetApprovalLabel(candidate.target, certification)} · ${candidate.label}`);
           const opened = openPalletLoadingReportV2(candidate.target.container, candidate.target.cargo);
           if (opened) setOpen(false);
           else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');
           return;
         }
-        if (!bestWarning || betterPalletEvaluation(evaluated, bestWarning)) bestWarning = evaluated;
+        if (!bestWarning || betterWorkOrderEvaluation(evaluated, bestWarning)) bestWarning = evaluated;
       }
 
       if (cancelled()) return;
@@ -103,7 +118,7 @@ export default function FinalWorkOrderOptimizer() {
       }
 
       applyPalletAdaptiveCandidate(bestWarning, bestWarning.certification);
-      setMessage(`안전 후보 비교 완료 · 가장 낮은 위험안 적용 · ${bestWarning.label}`);
+      setMessage(`후보 비교 완료 · ${workOrderTargetApprovalLabel(bestWarning.target, bestWarning.certification)} · 검토용 작업지시서 · ${bestWarning.label}`);
       const opened = openPalletLoadingReportV2(bestWarning.target.container, bestWarning.target.cargo);
       if (opened) setOpen(false);
       else setError('브라우저가 작업지시서 팝업을 차단했습니다. 팝업 허용 후 다시 실행하세요.');

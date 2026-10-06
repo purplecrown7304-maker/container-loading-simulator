@@ -42,6 +42,8 @@ export function applyConfirmedPackagingIdentity(
       || next.boxName !== item.boxName
       || next.maxStackLayers !== item.maxStackLayers
       || next.maxTopLoadKg !== item.maxTopLoadKg
+      || next.topLoadLimitExplicit !== item.topLoadLimitExplicit
+      || next.strengthUnverified !== item.strengthUnverified
     ) changed = true;
     return next;
   });

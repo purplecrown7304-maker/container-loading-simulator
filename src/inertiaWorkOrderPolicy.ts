@@ -5,6 +5,8 @@ import {
   INERTIA_PASS_SUPPORT_SHIFT_M,
   INERTIA_PASS_TILT_DEG,
   isInertiaStable,
+  isNumericalLimitReviewTarget,
+  createPhysicsTargetSignature,
   securingProfileForUsage,
   type CertificationProgress,
   type InertiaAttemptScenario,
@@ -13,6 +15,7 @@ import {
   type SecuringLevel,
 } from './inertiaCertification';
 import type { PhysicsTarget } from './physicsTarget';
+import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 
 export const WORK_ORDER_DANGER_SHIFT_M = 0.03;
 export const WORK_ORDER_DANGER_TILT_DEG = 4.5;
@@ -22,6 +25,46 @@ export const WORK_ORDER_DANGER_SUPPORT_SHIFT_M = 0.03;
 const SCENARIOS: InertiaScenario[] = ['acceleration', 'braking', 'cornering'];
 
 export type WorkOrderSafetyLevel = 'pass' | 'caution' | 'danger' | 'incomplete';
+
+/** Completion, a strict PASS, and permission to print a review document are independent. */
+export function isInertiaCertificationComplete(certification: InertiaCertification): boolean {
+  return certification.testedScenarios === SCENARIOS.length && SCENARIOS.every(scenario => {
+    const result = certification.results[scenario];
+    if (!result || result.scenario !== scenario) return false;
+    const metrics = [result.maxHorizontalShiftM, result.maxTiltDeg];
+    if (certification.mode === 'pallets') {
+      metrics.push(result.maxCargoRelativeSlipM ?? result.maxHorizontalShiftM, result.maxSupportShiftM ?? 0);
+    }
+    return metrics.every(value => Number.isFinite(value) && value >= 0);
+  });
+}
+
+export function isInertiaCertificationPassed(certification: InertiaCertification): boolean {
+  return !certification.limitReview && certification.status === 'passed'
+    && certification.payloadWithinLimit
+    && certification.passedScenarios === SCENARIOS.length
+    && certification.failedScenarios.length === 0
+    && isInertiaCertificationComplete(certification)
+    && SCENARIOS.every(scenario => isInertiaStable(certification.results[scenario]!, certification.mode));
+}
+
+export function physicsTargetHardFailureReasons(target: PhysicsTarget): string[] {
+  return [
+    ...target.result.validationIssues.map(issue => issue.message),
+    ...(target.result.operationalFindings ?? []).filter(finding => finding.severity === 'error').map(finding => finding.message),
+  ];
+}
+
+/** A physical-plan acceptance additionally requires its static/operational hard checks. */
+export function isPhysicsTargetVerified(target: PhysicsTarget | undefined, certification: InertiaCertification | undefined): boolean {
+  return Boolean(target && certification
+    && !isLimitReviewTarget(target)
+    && target.result.placements.length > 0
+    && target.mode === certification.mode
+    && certification.targetSignature === createPhysicsTargetSignature(target)
+    && isInertiaCertificationPassed(certification)
+    && physicsTargetHardFailureReasons(target).length === 0);
+}
 
 export function isInertiaResultDangerous(
   result: InertiaAnimationResult,
@@ -40,8 +83,8 @@ export function assessWorkOrderCertification(certification: InertiaCertification
   if (!certification.payloadWithinLimit) return 'danger';
   const tested = SCENARIOS.flatMap(scenario => certification.results[scenario] ? [certification.results[scenario]!] : []);
   if (tested.some(result => isInertiaResultDangerous(result, certification.mode))) return 'danger';
-  if (tested.length !== SCENARIOS.length) return 'incomplete';
-  return certification.status === 'passed' ? 'pass' : 'caution';
+  if (!isInertiaCertificationComplete(certification)) return 'incomplete';
+  return isInertiaCertificationPassed(certification) ? 'pass' : 'caution';
 }
 
 /**
@@ -55,10 +98,22 @@ export function canCreateWorkOrder(_certification: InertiaCertification) {
 
 export function workOrderApprovalLabel(certification: InertiaCertification) {
   const level = assessWorkOrderCertification(certification);
+  if (certification.limitReview) return `${LIMIT_REVIEW_WARNING}${level === 'danger' ? ' · 위험' : level === 'incomplete' ? ' · 검증 미완료' : ''}`;
   if (level === 'pass') return 'PASS';
-  if (level === 'caution') return '주의 승인';
+  if (level === 'caution') return '주의 · 검토용';
   if (level === 'danger') return '위험';
   return '검증 미완료';
+}
+
+export function workOrderTargetApprovalLabel(target: PhysicsTarget, certification: InertiaCertification): string {
+  if (isLimitReviewTarget(target)) {
+    const level = assessWorkOrderCertification(certification);
+    return `${LIMIT_REVIEW_WARNING}${physicsTargetHardFailureReasons(target).length ? ' · 적재 제약 실패' : ''}${level === 'danger' ? ' · 위험' : level === 'incomplete' ? ' · 검증 미완료' : certification.failedScenarios.length ? ' · 내부 기준 초과' : ''}`;
+  }
+  if (physicsTargetHardFailureReasons(target).length) return '적재 제약 실패';
+  if (target.mode !== certification.mode || createPhysicsTargetSignature(target) !== certification.targetSignature) return '검증 미완료';
+  if (assessWorkOrderCertification(certification) === 'pass' && !isPhysicsTargetVerified(target, certification)) return '검증 미완료';
+  return workOrderApprovalLabel(certification);
 }
 
 function scenarioLabel(scenario: InertiaScenario) {
@@ -69,15 +124,20 @@ function scenarioLabel(scenario: InertiaScenario) {
 
 export function buildWorkOrderRecommendations(certification: InertiaCertification) {
   const items: string[] = [];
+  if (certification.limitReview) items.push(LIMIT_REVIEW_WARNING);
   if (certification.searchNotice) items.push(certification.searchNotice);
   const level = assessWorkOrderCertification(certification);
 
-  if (level === 'danger') {
+  if (!certification.payloadWithinLimit) {
+    items.push(`보강 자재를 포함한 총중량이 장비 허용중량을 초과했습니다. 보강재 추가중량 ${certification.securing.estimatedAddedWeightKg.toFixed(1)} kg을 포함해 적재량을 줄이고 다시 검증하세요. 이 문서는 검토용이며 출고 승인으로 사용할 수 없습니다.`);
+  } else if (level === 'danger') {
     items.push('관성 결과가 위험 기준을 초과했습니다. 작업지시서는 현장 참고용으로 발급되며 출고 전 재배치·고정 보강과 책임자 확인이 필요합니다.');
   } else if (level === 'incomplete') {
     items.push('관성 3종 검증이 모두 끝나지 않았습니다. 작업지시서는 현재 적재 결과 기준으로 발급되며 미검증 항목을 현장에서 추가 확인하세요.');
+  } else if (certification.limitReview && certification.failedScenarios.length === 0) {
+    items.push('내부 기준 이내의 계산 결과도 WHAT-IF 검토용으로 유지됩니다. 시나리오 한도 선택은 실제 장비 정격 변경이나 출고 승인이 아닙니다.');
   } else if (level === 'caution') {
-    items.push('내부 PASS 기준을 일부 초과했지만 위험 기준 이내입니다. 아래 보완사항을 적용하고 출고 전 현장 흔들림·간섭 상태를 재확인하세요.');
+    items.push('내부 PASS 기준을 일부 초과했지만 위험 기준 이내입니다. 이 문서는 검토용이며 출고 승인을 의미하지 않습니다. 아래 보완사항을 적용하고 출고 전 현장 흔들림·간섭 상태를 재확인하세요.');
   } else {
     items.push('관성 3종 내부 PASS 조건을 충족했습니다. 작업지시서에 표시된 보강자재 수량과 설치 위치를 그대로 적용하세요.');
   }
@@ -131,7 +191,10 @@ export async function completeCertificationForWorkOrder(
   onScenarioResult?: (result: InertiaAnimationResult, level: SecuringLevel) => void,
   shouldCancel?: () => boolean,
 ): Promise<InertiaCertification> {
-  if (!certification.payloadWithinLimit || certification.status === 'passed') return certification;
+  const limitReview = target.container.limitReview ?? target.result.limitReview?.config ?? certification.limitReview;
+  const numericalReview = isNumericalLimitReviewTarget(target)
+    && target.result.loadedWeightKg + certification.securing.estimatedAddedWeightKg <= (limitReview?.maxPayloadKg ?? target.container.maxPayloadKg) + 1e-9;
+  if ((limitReview && !numericalReview) || (!certification.payloadWithinLimit && !numericalReview) || isInertiaCertificationPassed(certification)) return certification;
 
   const level = certification.securing.level;
   const profile = securingProfileForUsage(target.mode, certification.securing);
@@ -190,7 +253,8 @@ export async function completeCertificationForWorkOrder(
 
   return {
     ...certification,
-    status: strictPassed ? 'passed' : 'failed',
+    status: strictPassed ? (limitReview ? 'review' : 'passed') : 'failed',
+    limitReview,
     testedAt: new Date().toISOString(),
     testedScenarios: values.length,
     passedScenarios: values.filter(result => isInertiaStable(result, target.mode)).length,

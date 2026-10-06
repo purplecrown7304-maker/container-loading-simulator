@@ -4,6 +4,8 @@ import { defaultPalletSpec, packOnPallets } from './palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 import type { PhysicsTarget } from '../physicsTarget';
 import { unloadingObstructions } from './operationalQuality';
+import { validateOperationalLoading } from './operationalValidator';
+import { palletSupportBodies } from './palletPlanValidation';
 
 const container: ContainerSpec = {
   length: 1,
@@ -52,6 +54,8 @@ describe('pallet adaptive configured stack depth regression', () => {
     for (const candidate of candidates) {
       expect(candidate.result.optimization.strategy).toBe('unloading');
       expect(unloadingObstructions(items, candidate.result.placements)).toBe(0);
+      expect(candidate.target.result.operationalFindings).toEqual(validateOperationalLoading(
+        space,items,candidate.result.placements,palletSupportBodies(candidate.result)));
     }
   });
   it('preserves loaded cargo while respecting configured stack depth and support safety', () => {

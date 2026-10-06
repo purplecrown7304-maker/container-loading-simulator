@@ -150,16 +150,21 @@ export default function ManualPlacementEditor() {
   const nudge = (axis: keyof Target, delta: number) => { setSnapReason(null); setPosition(p => ({...p,[axis]:Math.max(0,p[axis]+delta)})); };
   const nudgeGroup = (axis: keyof Target, delta: number) => setGroupDelta(p => ({...p,[axis]:Number((p[axis]+delta).toFixed(2))}));
   const apply = () => {
-    if (!detail || !assessment?.valid) return;
+    if (!detail || !assessment?.valid || selectedIndex === null) return;
+    // Recheck at application time as material settings can change after preview.
+    const checked = assessManualMove(detail.container,detail.cargo,detail.result,selectedIndex,position,rotate);
+    if (!checked.valid) { setMessage(checked.reasons[0] ?? '안전조건을 만족하지 않아 이동을 취소했습니다.'); return; }
     setHistory(h => [...h.slice(-9),detail.result]);
-    writeManualOverride(detail.container,detail.cargo,assessment.result);
+    writeManualOverride(detail.container,detail.cargo,checked.result);
     writeStoredState({container:detail.container,cargo:detail.cargo},true);
     setMessage('수동 이동을 적용했습니다. 모든 분석값을 다시 계산했습니다.');
   };
   const applyGroup = () => {
     if (!detail || !groupAssessment?.valid || groupIndices.length === 0) return;
+    const checked = assessGroupMove(detail.container,detail.cargo,detail.result,groupIndices,groupDelta);
+    if (!checked.valid) { setMessage(checked.reasons[0] ?? '안전조건을 만족하지 않아 이동을 취소했습니다.'); return; }
     setHistory(h => [...h.slice(-9),detail.result]);
-    writeManualOverride(detail.container,detail.cargo,groupAssessment.result);
+    writeManualOverride(detail.container,detail.cargo,checked.result);
     writeStoredState({container:detail.container,cargo:detail.cargo},true);
     setGroupDelta(zeroDelta);
     setMessage(`${groupIndices.length}개 박스 블록 이동을 적용했습니다. 모든 분석값을 다시 계산했습니다.`);

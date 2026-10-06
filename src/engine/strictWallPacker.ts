@@ -2,6 +2,7 @@ import type { CargoItem, ContainerSpec, Placement } from './types';
 import { isInsideContainer, overlaps } from './constraints';
 import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules } from './stacking';
+import { floorLoadLayerCap, withinFloorLoadLimit, floorLoadBlocksRemaining, FLOOR_LOAD_REASON } from './floorLoadLimit';
 import { acceptsUnloadCandidate } from './unloadingPolicy';
 
 const EPS = 1e-9;
@@ -20,7 +21,7 @@ const volumeOfItem = (item: CargoItem) => item.length * item.width * item.height
 export type StrictWallStrategy = 'capacity' | 'stability' | 'unloading';
 export type StrictWallOutput = {
   placements: Placement[];
-  remaining: Array<{ cargoId: string; quantity: number; reason: string }>;
+  remaining: Array<{ cargoId: string; quantity: number; reason: string; reasonCode?: string }>;
   loadedWeightKg: number;
   usedVolumeM3: number;
 };
@@ -78,12 +79,12 @@ function fitCount(available: number, size: number) {
   return size > 0 ? Math.floor((available + EPS) / size) : 0;
 }
 
-function safeLayers(item: CargoItem) {
+function safeLayers(item: CargoItem, container?: ContainerSpec) {
   let limit = item.maxStackLayers ?? Number.POSITIVE_INFINITY;
   if (item.maxTopLoadKg !== undefined) {
     limit = Math.min(limit, 1 + Math.floor((Math.max(0, item.maxTopLoadKg) + EPS) / Math.max(item.weightKg, EPS)));
   }
-  return Math.max(1, limit);
+  return Math.min(Math.max(1, limit), container ? floorLoadLayerCap(container, item) : Infinity);
 }
 
 function countOptions(max: number) {
@@ -143,7 +144,7 @@ function blockOptionsForDepth(
       if (nx < 1 || Math.abs(nx * o.boxLength - depth) > 0.00001) continue;
       const maxNy = fitCount(widthLeft, o.boxWidth);
       if (maxNy < 1) continue;
-      const maxByHeight = Math.min(fitCount(context.container.height, item.height), safeLayers(item));
+      const maxByHeight = Math.min(fitCount(context.container.height, item.height), safeLayers(item, context.container));
       for (const ny of countOptions(maxNy)) {
         const footprintUnits = nx * ny;
         if (footprintUnits > left) continue;
@@ -291,7 +292,7 @@ function applyWall(state: State, plan: WallPlan, context: Context): State | null
       && Math.abs(block.length - block.nx * block.boxLength) <= TOUCH
       && Math.abs(block.width - block.ny * block.boxWidth) <= TOUCH
       && Math.abs(block.height - block.nz * block.item.height) <= TOUCH;
-    if (!geometryMatches || block.nz > safeLayers(block.item)) return null;
+    if (!geometryMatches || block.nz > safeLayers(block.item, context.container)) return null;
   }
 
   const additions = plan.lanes.flatMap((lane) => blockPlacements(lane.block, state.xFront, lane.y));
@@ -370,6 +371,7 @@ function topFill(state: State, context: Context) {
   for (let step = 0; step < MAX_TOP_STEPS; step += 1) {
     let best: { placement: Placement; item: CargoItem; score: number } | null = null;
     for (const item of context.cargo) {
+      if (item.floorOnly || item.maxStackLayers === 1) continue;
       if ((current.remaining.get(item.id) ?? 0) <= 0) continue;
       if (current.loadedWeightKg + item.weightKg > context.container.maxPayloadKg + EPS) continue;
       for (const support of current.placements) {
@@ -392,6 +394,7 @@ function topFill(state: State, context: Context) {
           if (!isInsideContainer(context.container, candidate)) continue;
           if (current.placements.some((p) => overlaps(candidate, p))) continue;
           if (!hasAdequateSupport(candidate, current.placements, undefined, 0.999)) continue;
+          if (!withinFloorLoadLimit(context.container, candidate, current.placements)) continue;
           if (!canPlaceByStackingRules(item, candidate, current.placements, context.cargoById)) continue;
           if (!acceptsUnloadCandidate(context.container, context.cargoById, current.placements, candidate)) continue;
           const weightRank = item.weightKg / Math.max(EPS, context.maxUnitWeightKg);
@@ -474,10 +477,12 @@ export function packByStrictWalls(container: ContainerSpec, cargo: CargoItem[], 
   const remaining = ordered.flatMap((item) => {
     const quantity = Math.max(0, best.remaining.get(item.id) ?? 0);
     if (!quantity) return [];
+    const floorBlocked = best.loadedWeightKg + item.weightKg <= container.maxPayloadKg + EPS && floorLoadBlocksRemaining(container, item, best.placements, context.cargoById);
     return [{
+      reasonCode: floorBlocked ? 'FLOOR_LOAD_LIMIT' : best.loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS ? 'PAYLOAD_LIMIT' : undefined,
       cargoId: item.id,
       quantity,
-      reason: best.loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS
+      reason: floorBlocked ? FLOOR_LOAD_REASON : best.loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS
         ? '컨테이너 최대 적재 중량을 초과하므로 추가 적재하지 못함'
         : '화물 사이 내부 빈 통로를 만들지 않는 연속 벽 적재 또는 동일 바닥면 100% 지지 적층 위치를 찾지 못함',
     }];

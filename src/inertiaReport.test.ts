@@ -25,3 +25,14 @@ describe('inertia report completion status', () => {
     expect(buildInertiaImprovementReportHtml(target, {})).toBeNull();
   });
 });
+
+it('keeps completed standalone inertia comparisons review-only with baseline and scenario values', () => {
+  const reviewTarget: PhysicsTarget = { ...target, container: { ...target.container, limitReview: { mode: 'what-if', simulation: { maxDisplacementMm: 30, maxRotationDeg: 5 } } } };
+  const html = buildInertiaImprovementReportHtml(reviewTarget, {
+    acceleration: stable, braking: { ...stable, scenario: 'braking' }, cornering: { ...stable, scenario: 'cornering', maxHorizontalShiftM: .01612, maxTiltDeg: 1.826 },
+  });
+  expect(html).toContain('WHAT-IF REVIEW'); expect(html).toContain('class="watermark"');
+  expect(html).toContain('시나리오한도'); expect(html).toContain('원래한도초과량');
+  expect(html).toContain('16.12'); expect(html).toContain('34.333');
+  expect(html).not.toContain('안정 · 작업지시서 생성 가능');
+});

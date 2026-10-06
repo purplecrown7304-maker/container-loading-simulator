@@ -7,6 +7,7 @@ import { buildPalletSecuringPlan } from './palletSecuringPlan';
 import { palletBandingLabel } from './palletBanding';
 import { readPhysicsTarget } from './physicsTarget';
 import type { ResultsModalDetail } from './resultsModalEvents';
+import { isPhysicsTargetVerified } from './inertiaWorkOrderPolicy';
 
 function mm(value: number) {
   return `${(value * 1000).toFixed(value * 1000 >= 10 ? 0 : 1)} mm`;
@@ -58,13 +59,14 @@ function reinforcementComparison(attempts: InertiaReinforcementAttempt[]) {
 }
 
 export default function CertificationResultSummary({ detail }: { detail: ResultsModalDetail }) {
-  if (!detail.certification || detail.certification.status !== 'passed') return null;
+  const target = readPhysicsTarget();
+  if (!detail.certification || !target || !isPhysicsTargetVerified(target, detail.certification)) return null;
+  if (createPhysicsTargetSignature({ ...target, container: detail.container, cargo: detail.cargo, result: detail.result }) !== detail.certification.targetSignature) return null;
   const cert = detail.certification;
   const usage = cert.securing;
   const attempts = cert.attempts ?? [];
   const comparison = reinforcementComparison(attempts);
   const palletMode = cert.mode === 'pallets';
-  const target = palletMode ? readPhysicsTarget() : undefined;
   const palletPlan = target
     && target.mode === 'pallets'
     && cert.targetSignature === createPhysicsTargetSignature(target)

@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { directLoadingFixtures } from './helpers/loadingFixtures';
+import { expectVerifiedLoading } from './helpers/certification';
 
 test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
 test('manual checks use the real loaded plan, cancel safely and invalidate edited inputs', async ({ page, context, baseURL }) => {
@@ -27,11 +29,12 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   await expect(motion.getByText(/먼저 자동 적재/)).toBeVisible();
   await motion.getByRole('button', { name: '관성 테스트 닫기' }).click();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:open-product-tool', { detail: 'products' })));
+  const fixture = directLoadingFixtures.threeBox40ft;
   const product = page.getByRole('dialog', { name: '회사 제품 관리' });
   await product.getByLabel('제품코드').fill('INSPECTION');
   await product.getByLabel('제품명').fill('점검용 샘플');
-  await product.getByLabel('길이 mm').fill('400'); await product.getByLabel('폭 mm').fill('300'); await product.getByLabel('높이 mm').fill('200');
-  await product.getByLabel('중량 kg').fill('2'); await product.getByLabel('박스 적재').selectOption('no');
+  await product.getByLabel('길이 mm').fill(String(fixture.length * 1000)); await product.getByLabel('폭 mm').fill(String(fixture.width * 1000)); await product.getByLabel('높이 mm').fill(String(fixture.height * 1000));
+  await product.getByLabel('중량 kg').fill(String(fixture.weightKg)); await product.getByLabel('박스 적재').selectOption('no');
   await product.getByRole('button', { name: '제품 등록' }).click(); await product.locator('header button').click();
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
   await page.getByPlaceholder('제품명 또는 제품코드 검색').fill('INSPECTION');
@@ -48,7 +51,8 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   await expect.poll(() => page.evaluate(() => Boolean((window as any).__containerLoadingPhysicsTarget && !(window as any).__containerLoadingFinalPhysicsRunning)), { timeout: 60_000 }).toBe(true);
   // The first physics target precedes final-result publication. Start preservation
   // checks only after the workflow confirms that completed result is usable.
-  await expect(page.locator('.guided-primary-cta:visible')).toContainText('결과 확인', { timeout: 60_000 });
+  await expectVerifiedLoading(page);
+  await expect(page.locator('.guided-primary-cta:visible')).toContainText('결과 확인');
   await expect(page.locator('.guided-primary-cta:visible')).toBeEnabled();
   await expect(viewer).toHaveAttribute('data-three-applied', 'true');
   await page.screenshot({ path: test.info().outputPath('three-default-loaded.png'), fullPage: true });

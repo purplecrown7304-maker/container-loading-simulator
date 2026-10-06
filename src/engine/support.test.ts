@@ -36,4 +36,14 @@ describe('physical support validity', () => {
     expect(result.centerInsideSupportEnvelope).toBe(true);
     expect(result.supported).toBe(true);
   });
+
+  it('uses the same 80% lower bound for candidates and final audits', () => {
+    expect(hasAdequateSupport(box({x:.3,z:.4}),[box()])).toBe(false);
+    expect(hasAdequateSupport(box({x:.2,z:.4}),[box()])).toBe(true);
+  });
+
+  it('does not count a small vertical gap as physical support', () => {
+    expect(hasAdequateSupport(box({z:.4014}),[box()])).toBe(false);
+    expect(hasAdequateSupport(box({z:.4009}),[box()])).toBe(true);
+  });
 });

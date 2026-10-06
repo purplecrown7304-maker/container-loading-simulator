@@ -1,5 +1,5 @@
 import { isAdminSession } from './adminAccess';
-import { effectivePlannerTopLoadKg, normalizeDeclaredStackLayers } from './boxStackingPolicy';
+import { effectivePlannerTopLoadKg, isStrengthUnverified, normalizeDeclaredStackLayers } from './boxStackingPolicy';
 import { isLegacyVirtualCompanyProduct } from './companyProduct';
 import {
   defaultEnterprisePackagingOptions,
@@ -78,12 +78,14 @@ export function mergePersonalBoxStackingIntoPlanner(
     const personal = personalById.get(box.id);
     if (!personal) return box;
     const maxStackLayers = normalizeDeclaredStackLayers(personal.maxStackLayers);
-    if (!maxStackLayers) return box;
+    if (!maxStackLayers && !personal.topLoadLimitExplicit && !personal.strengthUnverified && !box.strengthUnverified) return box;
 
-    const maxTopLoadKg = effectivePlannerTopLoadKg(box, personal);
-    if (box.maxStackLayers === maxStackLayers && box.maxTopLoadKg === maxTopLoadKg) return box;
+    const strengthUnverified = isStrengthUnverified(personal, box.strengthUnverified);
+    // Preserve raw missing strength; operational limits are derived by the engine.
+    const maxTopLoadKg = strengthUnverified ? personal.maxTopLoadKg : effectivePlannerTopLoadKg(box, personal);
+    if (box.maxStackLayers === maxStackLayers && box.maxTopLoadKg === maxTopLoadKg && Boolean(box.strengthUnverified) === strengthUnverified) return box;
     changed = true;
-    return { ...box, maxStackLayers, maxTopLoadKg };
+    return { ...box, maxStackLayers, maxTopLoadKg, strengthUnverified };
   });
   return changed ? { ...state, boxes } : state;
 }

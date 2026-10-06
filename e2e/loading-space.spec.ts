@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { directLoadingFixtures } from './helpers/loadingFixtures';
+import { expectVerifiedLoading } from './helpers/certification';
 
 test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
 
@@ -6,14 +8,15 @@ async function registerDirectProduct(page: import('@playwright/test').Page, id: 
   await page.evaluate(() => {
     window.dispatchEvent(new CustomEvent('container-loading:open-product-tool', { detail: 'products' }));
   });
+  const fixture = directLoadingFixtures.threeBox40ft;
   const dialog = page.getByRole('dialog', { name: '회사 제품 관리' });
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('제품코드').fill(id);
   await dialog.getByLabel('제품명').fill('가이드 스모크 제품');
-  await dialog.getByLabel('길이 mm').fill('200');
-  await dialog.getByLabel('폭 mm').fill('150');
-  await dialog.getByLabel('높이 mm').fill('100');
-  await dialog.getByLabel('중량 kg').fill('1');
+  await dialog.getByLabel('길이 mm').fill(String(fixture.length * 1000));
+  await dialog.getByLabel('폭 mm').fill(String(fixture.width * 1000));
+  await dialog.getByLabel('높이 mm').fill(String(fixture.height * 1000));
+  await dialog.getByLabel('중량 kg').fill(String(fixture.weightKg));
   await dialog.getByLabel('박스 적재').selectOption('no');
   await dialog.getByRole('button', { name: '제품 등록' }).click();
   await dialog.locator('header button').click();
@@ -39,7 +42,7 @@ test('Three model failure offers retry while the fixed-height product workflow r
   await expect(page.locator('.viewer-host iframe')).toHaveCount(0);
   await expect(page.locator('.workspace-modal iframe')).toHaveCount(0);
   await advanceToStrategy(page, 'SPACE-CHECK');
-  // This success-path fixture must satisfy the existing lateral-CG gate.
+  // Full-depth cargo satisfies the unchanged CG gate without shifting off X=0.
   await page.getByRole('radio', { name: /공간효율 우선/ }).click();
   await page.getByRole('button', { name: /다음 단계/ }).click();
   await expect(page.locator('.three-comparison-error').getByRole('button', { name: '다시 시도', exact: true })).toBeVisible();
@@ -49,7 +52,8 @@ test('Three model failure offers retry while the fixed-height product workflow r
   await expect(page.locator('.three-comparison-viewer')).toHaveAttribute('data-three-ready', 'true', { timeout: 100_000 });
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect(page.locator('.unity-summary')).toContainText('3 EA', { timeout: 60_000 });
-  await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 60_000 });
+  await expectVerifiedLoading(page);
+  await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled();
   await expect(page.locator('.three-comparison-viewer')).toHaveAttribute('data-three-applied', 'true');
   await expect(page.locator('.reference-3d canvas')).toHaveCount(0);
   expect(errors).toEqual([]);

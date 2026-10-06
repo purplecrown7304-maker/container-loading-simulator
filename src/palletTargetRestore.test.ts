@@ -3,7 +3,9 @@ import { defaultPalletSpec, type OptimizedPalletPackingResult, type PalletLoad }
 import type { CargoItem, ContainerSpec, Placement } from './engine/types';
 import { clearPalletSnapshot, publishPalletSnapshot } from './palletSnapshotStore';
 import { buildPalletPhysicsTarget, restorePalletPhysicsTarget } from './palletTargetRestore';
-import { clearPhysicsTarget, readPhysicsTarget } from './physicsTarget';
+import { clearPhysicsTarget, publishPhysicsTarget, readPhysicsTarget } from './physicsTarget';
+import { buildSecuringUsage, createPhysicsTargetSignature, type InertiaCertification } from './inertiaCertification';
+import { isPhysicsTargetVerified } from './inertiaWorkOrderPolicy';
 import { viewerPlan } from './viewerSceneProtocol';
 import { choosePalletType } from './palletTypeSelection';
 
@@ -125,5 +127,45 @@ describe('pallet target restoration', () => {
 
     expect(restored?.mode).toBe('pallets');
     expect(readPhysicsTarget()).toEqual(restored);
+  });
+
+  it('retains static errors during restoration even when identical coordinates carry an old PASS', () => {
+    publishPalletSnapshot({spec:defaultPalletSpec,result},{preserveCertification:true,emitLegacyEvent:false});
+    const rebuilt = buildPalletPhysicsTarget(container,cargo)!;
+    const unchecked = {...rebuilt,result:{...rebuilt.result,validationIssues:[],operationalFindings:[]}};
+    const certification: InertiaCertification = {
+      status:'passed',mode:'pallets',targetSignature:createPhysicsTargetSignature(unchecked),testedAt:'2026-10-06T00:00:00Z',
+      securing:buildSecuringUsage(unchecked,1),testedScenarios:3,passedScenarios:3,failedScenarios:[],payloadWithinLimit:true,
+      maxHorizontalShiftM:0,maxTiltDeg:0,maxCargoRelativeSlipM:0,maxSupportShiftM:0,
+      results:Object.fromEntries((['acceleration','braking','cornering'] as const).map(scenario=>[scenario,{
+        scenario,fps:30,simulatedSeconds:4,cargoCount:1,supportCount:1,frames:[],maxHorizontalShiftM:0,maxTiltDeg:0,
+        maxCargoRelativeSlipM:0,maxSupportShiftM:0,
+      }])),
+    };
+    expect(isPhysicsTargetVerified(unchecked,certification)).toBe(true);
+    publishPhysicsTarget(unchecked);
+    const restored = restorePalletPhysicsTarget(container,cargo)!;
+    expect(createPhysicsTargetSignature(restored)).toBe(certification.targetSignature);
+    expect(restored.result.operationalFindings?.some(f=>f.code==='CG_LONGITUDINAL' && f.severity==='error')).toBe(true);
+    expect(isPhysicsTargetVerified(restored,certification)).toBe(false);
+    expect(readPhysicsTarget()).toEqual(restored);
+  });
+
+  it('rechecks live-only pallet targets when no saved snapshot exists', () => {
+    const live = {mode:'pallets' as const,container,cargo,result:{
+      placements:[placement],remaining:[],loadedWeightKg:10,usedVolumeM3:.06,validationIssues:[],
+    }};
+    publishPhysicsTarget(live);
+    const restored = restorePalletPhysicsTarget(container,cargo)!;
+    expect(restored.result.operationalFindings?.some(f=>f.code==='FLOATING')).toBe(true);
+  });
+
+  it('preserves the A ruleset marker used by the original target signature', () => {
+    const space: ContainerSpec = {...container,rules:{version:'a-v1',equipmentId:'restore-test',kind:'container',access:['rear'],source:'test'}};
+    publishPalletSnapshot({spec:defaultPalletSpec,result},{preserveCertification:true,emitLegacyEvent:false});
+    const restored = buildPalletPhysicsTarget(space,cargo)!;
+    expect(restored.result.ruleset).toBe('a-v1');
+    const original = {...restored,result:{...restored.result,ruleset:'a-v1' as const}};
+    expect(createPhysicsTargetSignature(restored)).toBe(createPhysicsTargetSignature(original));
   });
 });

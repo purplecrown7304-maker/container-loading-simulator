@@ -1,5 +1,7 @@
 import { validatePlacements } from './engine/constraints';
-import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
+import { validateOperationalLoading } from './engine/operationalValidator';
+import type { CargoItem, ContainerSpec } from './engine/types';
+import { physicsTargetFromPalletSnapshot } from './certifiedExport';
 import { readPalletSnapshot } from './palletSnapshotStore';
 import { palletModelKey } from './palletModel';
 import { publishPhysicsTarget, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
@@ -14,14 +16,7 @@ export function buildPalletPhysicsTarget(container: ContainerSpec, cargo: CargoI
   const snapshot = readPalletSnapshot();
   if (!snapshot) return undefined;
 
-  const placements = snapshot.result.placements;
-  const result: LoadingResult = {
-    placements,
-    remaining: snapshot.result.remaining,
-    loadedWeightKg: snapshot.result.totalPalletizedWeightKg,
-    usedVolumeM3: placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0),
-    validationIssues: validatePlacements(container, placements),
-  };
+  const target = physicsTargetFromPalletSnapshot(container,cargo,snapshot);
   const supports = snapshot.result.pallets.map((pallet) => ({
     modelKey: palletModelKey(snapshot.spec),
     id: `PALLET-${String(pallet.palletIndex).padStart(2, '0')}`,
@@ -35,13 +30,25 @@ export function buildPalletPhysicsTarget(container: ContainerSpec, cargo: CargoI
     dynamic: true,
   }));
 
-  return { mode: 'pallets', container, cargo, result, supports };
+  return { ...target, supports };
 }
 
 export function restorePalletPhysicsTarget(container: ContainerSpec, cargo: CargoItem[]): PhysicsTarget | undefined {
   const current = readPhysicsTarget();
-  if (current?.mode === 'pallets') return current;
   const restored = buildPalletPhysicsTarget(container, cargo);
-  if (restored) publishPhysicsTarget(restored);
-  return restored;
+  if (restored) {
+    publishPhysicsTarget(restored);
+    return restored;
+  }
+  // A live-only target may exist before the first persisted snapshot. Refresh
+  // its hard findings too; missing cached findings never imply a valid layout.
+  if (current?.mode === 'pallets') {
+    const refreshed: PhysicsTarget = {...current,container,cargo,result:{...current.result,
+      validationIssues:validatePlacements(container,current.result.placements),
+      operationalFindings:validateOperationalLoading(container,cargo,current.result.placements,current.supports ?? []),
+    }};
+    publishPhysicsTarget(refreshed);
+    return refreshed;
+  }
+  return undefined;
 }

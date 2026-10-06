@@ -5,12 +5,9 @@ const KEY = 'container-loading-manual-override-v1';
 type ManualOverride = { fingerprint: string; result: LoadingResult };
 
 function fingerprint(container: ContainerSpec, cargo: CargoItem[]): string {
-  return JSON.stringify({
-    c:container.rules ? container : [container.length,container.width,container.height,container.maxPayloadKg],
-    rulesVersion: container.rules?.version,
-    cargoMetadata: container.rules ? cargo : undefined,
-    items:cargo.map(item => [item.id,item.length,item.width,item.height,item.weightKg,item.quantity,item.maxStackLayers??null,item.maxTopLoadKg??null,item.allowRotation!==false,item.unloadPriority??null]),
-  });
+  // Every declared constraint and review number participates. Legacy fingerprints
+  // deliberately expire rather than revive a layout after a changed safety input.
+  return JSON.stringify({ version: 2, container, cargo });
 }
 
 export function readManualOverride(container: ContainerSpec, cargo: CargoItem[]): LoadingResult | null {

@@ -5,6 +5,7 @@ import {
   PERSONAL_BOX_CATALOG_KEY,
   readPersonalBoxCatalog,
   registerRecommendedPersonalBox,
+  writePersonalBoxCatalog,
 } from './personalBoxCatalog';
 
 const plannerKey = 'container-loading-product-packaging-v1';
@@ -24,6 +25,17 @@ const box: BoxCatalogItem = {
 
 describe('explicit recommendation sync', () => {
   beforeEach(() => localStorage.clear());
+
+  it('keeps existing stack and compression limits consistent in both stores on re-registration', () => {
+    const operator = loginLocalOperator('재등록사용자')!;
+    const key = operatorScopedStorageKey(plannerKey, operator);
+    localStorage.setItem(key, JSON.stringify({ boxes: [] }));
+    const registered = registerRecommendedPersonalBox(operator, { ...box, maxStackLayers: 10, maxTopLoadKg: 100 });
+    writePersonalBoxCatalog(operator, [{ ...registered, maxStackLayers: 4, maxTopLoadKg: 30 }]);
+    registerRecommendedPersonalBox(operator, box);
+    expect(readPersonalBoxCatalog(operator)[0]).toMatchObject({ maxStackLayers: 4, maxTopLoadKg: 30 });
+    expect(JSON.parse(localStorage.getItem(key)!).boxes[0]).toMatchObject({ maxStackLayers: 4, maxTopLoadKg: 30 });
+  });
 
   it('adds only a clicked recommendation to both stores with an explicit marker', () => {
     const operator = loginLocalOperator('등록사용자')!;
@@ -47,4 +59,17 @@ describe('explicit recommendation sync', () => {
     });
     expect(localStorage.getItem(operatorScopedStorageKey(PERSONAL_BOX_CATALOG_KEY, operator))).toContain(box.id);
   });
+  it('stores missing recommendation strength in neither catalog as a false zero', () => {
+    const operator = loginLocalOperator('미확인등록')!;
+    const key = operatorScopedStorageKey(plannerKey, operator);
+    localStorage.setItem(key, JSON.stringify({ boxes: [] }));
+    registerRecommendedPersonalBox(operator, { ...box, maxTopLoadKg: undefined, strengthUnverified: true });
+    const personal = readPersonalBoxCatalog(operator)[0];
+    const planner = JSON.parse(localStorage.getItem(key)!).boxes[0];
+    expect(personal.strengthUnverified).toBe(true);
+    expect(personal).not.toHaveProperty('maxTopLoadKg');
+    expect(planner.strengthUnverified).toBe(true);
+    expect(planner).not.toHaveProperty('maxTopLoadKg');
+  });
+
 });

@@ -1,3 +1,4 @@
+import { decorateLimitReview, resolveLimitReview, reviewPlacementBlockers } from './limitReview';
 import { isARules } from './loadingRuleset';
 import { packWithARules, validateAPlan, auditAIdentity } from './loadSimAdapter';
 import { fillUnloadingTrenches } from './trenchFilling';
@@ -11,12 +12,16 @@ import { containerInputError, preflightCargoInput } from './inputPreflight';
 import { completeResidualPacking } from './residualPacking';
 import { settleSparseTopLayer } from './topLayerSettling';
 import { cargoWithUnloadingPolicy } from './unloadingPolicy';
+import { balanceLongitudinalWalls } from './longitudinalBalance';
+import { readSecuringMaterialSettings, type SecuringMaterialSettings } from '../securingMaterialSettings';
+import { usesHeavyInnerLoading, centerHeavyInnerLaterally, heavyInnerConflictFindings } from './heavyInnerPolicy';
+import { boxSecuringCapacity, boxSecuringRequirements, type BoxSecuringLevel } from './securingBudget';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
 export const LOADING_STRATEGY_STORAGE_KEY = 'container-loading-strategy';
 export type LoadingStrategy = 'capacity' | 'stability' | 'unloading';
-export type LoadingOptions = { strategy?: LoadingStrategy; publish?: boolean };
+export type LoadingOptions = { strategy?: LoadingStrategy; publish?: boolean; securingLevel?: BoxSecuringLevel; securingMaterials?: SecuringMaterialSettings };
 
 type CorrectionWindow = Window & {
   __containerLoadingAutoCorrections?: AutoCorrectionRecord[];
@@ -53,11 +58,44 @@ export function pendingLoadingResult(container: ContainerSpec, cargo: CargoItem[
   return result;
 }
 
-/** Restore an explicitly applied layout without re-solving it on storage events. */
-export function restoreLoadingResult(container: ContainerSpec, cargo: CargoItem[]): LoadingResult {
+/** Recompute evidence from coordinates, never trust a saved total or old material budget. */
+function revalidateRestoredResult(container: ContainerSpec, cargo: CargoItem[], saved: LoadingResult): LoadingResult {
+  const loadedWeightKg = saved.placements.reduce((sum, p) => sum + p.weightKg, 0);
+  const level = saved.securingBudget?.level ?? 1;
+  const materials = readSecuringMaterialSettings();
+  const required = boxSecuringRequirements(saved.placements.length, level, materials).weightKg;
+  const result: LoadingResult = { ...saved, loadedWeightKg,
+    usedVolumeM3: saved.placements.reduce((sum,p)=>sum+p.length*p.width*p.height,0),
+    validationIssues: auditLoading(container, container.limitReview === undefined ? cargo : preflightCargoInput(cargo).cargo, saved.placements),
+    operationalFindings: [ ...validateOperationalLoading(container, cargo, saved.placements),
+      ...heavyInnerConflictFindings(container, cargo, saved.placements, browserStrategy()) ],
+    securingBudget: { level, reservedWeightKg: required,
+      requiredWeightKg: required, totalTransportWeightKg: loadedWeightKg + required },
+  };
+  if (loadedWeightKg + required > container.maxPayloadKg + 1e-6) result.validationIssues.push({
+    type: 'PAYLOAD', message: '화물과 현재 고정재의 합계가 최대 허용중량을 초과합니다. 검토용 배치이며 다시 적재해야 합니다.', placementIndexes: [],
+  });
+  return decorateLimitReview(container, cargo, result);
+}
+
+/** Restore accepted coordinates; a rejected edit leaves the previous plan visible for review. */
+export function restoreLoadingResult(container: ContainerSpec, cargo: CargoItem[], previousResult?: LoadingResult): LoadingResult {
   const manual = readManualOverride(container, cargo);
-  if (!manual || auditLoading(container, cargo, manual.placements).length > 0) return pendingLoadingResult(container, cargo);
-  const restored = { ...manual, operationalFindings: validateOperationalLoading(container, cargo, manual.placements) };
+  const restored = manual ? revalidateRestoredResult(container, cargo, manual) : undefined;
+  const acceptable = (result: LoadingResult) => container.limitReview !== undefined
+    ? reviewPlacementBlockers(container,cargo,result.placements,result.securingBudget?.totalTransportWeightKg).length === 0
+    : result.validationIssues.length === 0 && !result.operationalFindings?.some(f=>f.severity==='error');
+  if (!restored || !acceptable(restored)) {
+    if (previousResult) {
+      const previous = revalidateRestoredResult(container, cargo, previousResult);
+      const retainStrictReview = container.limitReview === undefined && previousResult.limitReview === undefined && auditLoading(container,cargo,previousResult.placements).length === 0;
+      if (acceptable(previous) || retainStrictReview) {
+        publishLoadingResult(container, cargo, previous);
+        return previous;
+      }
+    }
+    return pendingLoadingResult(container, cargo);
+  }
   publishLoadingResult(container, cargo, restored);
   return restored;
 }
@@ -108,24 +146,10 @@ function orientForUnloading(container: ContainerSpec, cargo: CargoItem[], placem
   }));
 }
 
-/**
- * DIRECT BOX hybrid loading policy.
- *
- * Two deterministic solvers generate competing physically valid plans:
- *  - StrictWallPacker: dense homogeneous wall/block construction.
- *  - EMS Beam V2: homogeneous blocks + maximal empty spaces + residual-gap reuse.
- *
- * HybridLoadingOptimizer evaluates both plans with the selected operating strategy.
- * Capacity emphasizes utilization/completion, stability emphasizes low/balanced weight
- * distribution, and unloading emphasizes unload order while retaining all hard safety
- * constraints. Bounds/collision/payload violations can never be traded for a higher score.
- *
- * The selected arrangement is then translated as one rigid X/Y group so its weighted
- * horizontal center of gravity is as close as possible to the container target center.
- * Rigid translation preserves support, stacking and collision relationships and is
- * clamped by the container walls. Z is never raised.
- */
-export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
+/** Raw packing under a cargo-only budget. The public wrapper reserves actual securing
+ * weight and revalidates against the original equipment. A remains independent;
+ * legacy direct boxes use the owner-approved inner-to-door working blocks. */
+function loadCargoOnly(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
   const strategy = options.strategy ?? browserStrategy();
   const shouldPublish = options.publish !== false;
   const preflight = preflightCargoInput(cargo);
@@ -182,15 +206,16 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     return packed;
   }
 
-  const packed = settleSparseTopLayer(container, normalizedCargo,
-    completeResidualPacking(container, normalizedCargo, packByHybridOptimizer(container, normalizedCargo, strategy), strategy),
-    strategy);
-  // Unloading layouts stack one block per stop; flatten trenches left between tall stop walls.
-  const flattened = strategy === 'unloading' ? fillUnloadingTrenches(container, normalizedCargo, packed.placements) : packed.placements;
-  const centered = centerPlacementsOnContainer(container, flattened);
-  const finalPlacements = strategy === 'unloading'
-    ? orientForUnloading(container, normalizedCargo, centered)
-    : centered;
+  const sequential = usesHeavyInnerLoading(container, normalizedCargo);
+  const initial = packByHybridOptimizer(container, normalizedCargo, strategy);
+  // Sequential work fronts cannot be permuted by residual, top-tier or balance passes.
+  const packed = sequential ? initial : settleSparseTopLayer(container, normalizedCargo,
+    completeResidualPacking(container, normalizedCargo, initial, strategy), strategy);
+  const flattened = !sequential && strategy === 'unloading' ? fillUnloadingTrenches(container, normalizedCargo, packed.placements) : packed.placements;
+  const centered = sequential ? centerHeavyInnerLaterally(container, flattened)
+    : centerPlacementsOnContainer(container, balanceLongitudinalWalls(container, normalizedCargo, flattened));
+  const finalPlacements = !sequential && strategy === 'unloading'
+    ? orientForUnloading(container, normalizedCargo, centered) : centered;
   const result: LoadingResult = {
     placements: finalPlacements,
     remaining: [
@@ -208,4 +233,122 @@ export function loadContainer(container: ContainerSpec, cargo: CargoItem[], opti
     publishLoadingResult(container, normalizedCargo, result);
   }
   return result;
+}
+
+/** Reserve compulsory transport securing before accepting a direct-box load. The final
+ * certification still checks its exact reinforcement level against the original limit. */
+function loadStrictContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
+  const level = options.securingLevel ?? 1;
+  const materials = options.securingMaterials ?? readSecuringMaterialSettings();
+  const preflight = preflightCargoInput(cargo);
+  const securedCapacity = boxSecuringCapacity(container, preflight.cargo, level, materials);
+  const maximumReserve = securedCapacity.weightKg;
+  let reserve = 0;
+  // Rigid pallet units are handled by their independent pallet/MIXED planner.
+  const useBudget = !cargo.some(item => item.unitKind === 'pallet');
+
+  if (options.publish !== false && options.strategy === undefined) {
+    const manual = readManualOverride(container, cargo);
+    if (manual) {
+      const checked = revalidateRestoredResult(container, cargo, manual);
+      if (!checked.validationIssues.length && !checked.operationalFindings?.some(f=>f.severity === 'error')) {
+        publishLoadingResult(container, cargo, checked);
+        return checked;
+      }
+    }
+  }
+  let packed = loadCargoOnly(container, cargo, { ...options, publish: false });
+  const initialRemaining = packed.remaining;
+  let packingCargo = cargo;
+  let clippedCount = false;
+  if (useBudget && packed.placements.length > securedCapacity.maxCount) {
+    const selected = new Map<string, number>();
+    for (const p of packed.placements.slice(0, securedCapacity.maxCount)) selected.set(p.cargoId, (selected.get(p.cargoId) ?? 0) + 1);
+    packingCargo = preflight.cargo.map(item => ({ ...item, quantity: selected.get(item.id) ?? 0 }));
+    clippedCount = true;
+    packed = loadCargoOnly(container, packingCargo, { ...options, publish: false });
+  }
+  // Compute materials from the actual placed count, not requested/impossible demand.
+  // Count clipping and a monotonically increasing material budget prevent staircase loops.
+  // Repack only when necessary; later passes can never silently exceed the original limit.
+  if (useBudget && !containerInputError(container)) {
+    for (;;) {
+      const required = boxSecuringRequirements(packed.placements.length, level, materials).weightKg;
+      if (packed.loadedWeightKg + required <= container.maxPayloadKg + 1e-6) { reserve = Math.max(reserve, required); break; }
+      const nextReserve = reserve === 0 ? Math.min(maximumReserve, required) : Math.max(reserve, required);
+      if (nextReserve <= reserve + 1e-9 || container.maxPayloadKg - nextReserve <= 0) {
+        packed = { placements: [], remaining: [...preflight.rejected, ...preflight.cargo.map(c=>({ cargoId:c.id, quantity:c.quantity,
+          reason:'필수 고정재를 포함하면 최대 허용중량을 초과합니다.', reasonCode:'PAYLOAD_LIMIT' }))],
+          loadedWeightKg:0, usedVolumeM3:0, validationIssues:[], operationalFindings:[], autoCorrections:[] };
+        break;
+      }
+      reserve = nextReserve;
+      packed = loadCargoOnly({ ...container, maxPayloadKg: container.maxPayloadKg - reserve }, packingCargo, { ...options, publish: false });
+    }
+  }
+  if (clippedCount) {
+    const counts = new Map<string, number>();
+    for (const p of packed.placements) counts.set(p.cargoId, (counts.get(p.cargoId) ?? 0) + 1);
+    packed.remaining = [...preflight.rejected, ...preflight.cargo.flatMap(item => {
+      const quantity = item.quantity - (counts.get(item.id) ?? 0);
+      const reason = packed.remaining.find(row=>row.cargoId === item.id) ?? initialRemaining.find(row=>row.cargoId === item.id);
+      return quantity > 0 ? [{ cargoId:item.id, quantity, reasonCode:reason?.reasonCode ?? 'PAYLOAD_LIMIT',
+        reason:reason?.reason ?? '화물과 필수 고정재 합계의 중량 한도를 확보하기 위해 미적재' }] : [];
+    })];
+  }
+  const result: LoadingResult = { ...packed,
+    loadedWeightKg: packed.placements.reduce((sum,p)=>sum+p.weightKg,0),
+    usedVolumeM3: packed.placements.reduce((sum,p)=>sum+p.length*p.width*p.height,0),
+    validationIssues: auditLoading(container, cargoWithUnloadingPolicy(container, preflightCargoInput(cargo).cargo), packed.placements),
+    operationalFindings: [
+      ...validateOperationalLoading(container, cargo, packed.placements),
+      ...heavyInnerConflictFindings(container, cargo, packed.placements, options.strategy ?? browserStrategy()),
+    ],
+  };
+  if (useBudget) {
+    const required = boxSecuringRequirements(result.placements.length, level, materials).weightKg;
+    result.securingBudget = { level, reservedWeightKg: reserve, requiredWeightKg: required,
+      totalTransportWeightKg: result.loadedWeightKg + required };
+    result.remaining = result.remaining.map(row => row.reasonCode === 'PAYLOAD_LIMIT'
+      ? { ...row, reason: `${row.reason} (필수 고정재 중량 ${required.toFixed(2)}kg 포함)` } : row);
+    if (result.securingBudget.totalTransportWeightKg > container.maxPayloadKg + 1e-6) result.validationIssues.push({
+      type: 'PAYLOAD', message: '화물과 필수 고정재의 합계가 최대 허용중량을 초과합니다.', placementIndexes: [],
+    });
+  }
+  if (options.publish !== false) publishLoadingResult(container, cargo, result);
+  return result;
+}
+
+/** Explicit, isolated numerical review. The original equipment and cargo remain immutable. */
+export function loadContainer(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}): LoadingResult {
+  if (container.limitReview === undefined) return loadStrictContainer(container,cargo,options);
+  const review=resolveLimitReview(container,cargo);
+  if (review.status !== 'active') {
+    const preflight=preflightCargoInput(cargo);
+    const result=decorateLimitReview(container,cargo,{placements:[],remaining:[...preflight.rejected,...preflight.cargo.map(item=>({cargoId:item.id,quantity:item.quantity,reason:review.errors.join(' '),reasonCode:'LIMIT_REVIEW_INVALID'}))],loadedWeightKg:0,usedVolumeM3:0,validationIssues:[],operationalFindings:[],autoCorrections:[]});
+    if(options.publish!==false) publishLoadingResult(container,cargo,result);
+    return result;
+  }
+  if(options.publish!==false && options.strategy===undefined) {
+    const manual=readManualOverride(container,cargo);
+    if(manual) {
+      const checked=revalidateRestoredResult(container,cargo,manual);
+      if(!reviewPlacementBlockers(container,cargo,checked.placements,checked.securingBudget?.totalTransportWeightKg).length){publishLoadingResult(container,cargo,checked);return checked;}
+    }
+  }
+  let packed=loadStrictContainer(review.container,review.cargo,{...options,publish:false});
+  const blockers=reviewPlacementBlockers(container,cargo,packed.placements,packed.securingBudget?.totalTransportWeightKg);
+  if(blockers.length) {
+    const preflight=preflightCargoInput(cargo);
+    packed={placements:[],remaining:[...preflight.rejected,...preflight.cargo.map(item=>({cargoId:item.id,quantity:item.quantity,reason:`WHAT-IF REVIEW 계산 차단: ${blockers.join(' ')}`,reasonCode:'LIMIT_REVIEW_BLOCKED'}))],loadedWeightKg:0,usedVolumeM3:0,validationIssues:[],operationalFindings:[],autoCorrections:[]};
+  }
+  const result:LoadingResult={...packed,
+    validationIssues:auditLoading(container,cargoWithUnloadingPolicy(container,preflightCargoInput(cargo).cargo),packed.placements),
+    operationalFindings:[...validateOperationalLoading(container,cargo,packed.placements),...heavyInnerConflictFindings(container,cargo,packed.placements,options.strategy??browserStrategy())],
+  };
+  if((result.securingBudget?.totalTransportWeightKg??result.loadedWeightKg)>container.maxPayloadKg+1e-6) result.validationIssues.push({type:'PAYLOAD',message:'WHAT-IF REVIEW: 화물과 필수 고정재의 합계가 원래 최대 허용중량을 초과합니다.',placementIndexes:[]});
+  if(blockers.length) result.operationalFindings!.push({code:'LIMIT_REVIEW_BLOCKED',severity:'error',message:`WHAT-IF REVIEW 계산 차단: ${blockers.join(' ')}`,placementIndexes:[]});
+  const decorated=decorateLimitReview(container,cargo,result);
+  if(options.publish!==false) publishLoadingResult(container,cargo,decorated);
+  return decorated;
 }

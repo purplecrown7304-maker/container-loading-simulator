@@ -2,6 +2,10 @@ import type { OptimizedPalletPackingResult, PalletSpec } from './engine/palletOp
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { createPhysicsTargetSignature, type InertiaCertification } from './inertiaCertification';
 import type { PhysicsTarget } from './physicsTarget';
+import { isPhysicsTargetVerified } from './inertiaWorkOrderPolicy';
+import { validatePlacements } from './engine/constraints';
+import { validateOperationalLoading } from './engine/operationalValidator';
+import { palletSupportBodies } from './engine/palletPlanValidation';
 
 const EPS = 1e-9;
 
@@ -22,6 +26,7 @@ export function physicsTargetFromPalletSnapshot(
   snapshot: CertifiedPalletSnapshot,
 ): PhysicsTarget {
   const result: LoadingResult = {
+    ruleset: container.rules?.version,
     placements: snapshot.result.placements,
     remaining: snapshot.result.remaining,
     loadedWeightKg: snapshot.result.totalPalletizedWeightKg,
@@ -29,7 +34,8 @@ export function physicsTargetFromPalletSnapshot(
       (sum, placement) => sum + placement.length * placement.width * placement.height,
       0,
     ),
-    validationIssues: [],
+    validationIssues: validatePlacements(container, snapshot.result.placements),
+    operationalFindings: validateOperationalLoading(container, cargo, snapshot.result.placements, palletSupportBodies(snapshot.result)),
   };
   const supports = snapshot.result.pallets.map((pallet) => ({
     id: `PALLET-${String(pallet.palletIndex).padStart(2, '0')}`,
@@ -49,9 +55,7 @@ export function certificationMatchesTarget(
   target: PhysicsTarget | undefined,
   certification: InertiaCertification | undefined,
 ): certification is InertiaCertification {
-  if (!target || !certification || certification.status !== 'passed') return false;
-  if (target.mode !== certification.mode) return false;
-  return certification.targetSignature === createPhysicsTargetSignature(target);
+  return isPhysicsTargetVerified(target, certification);
 }
 
 /**
@@ -107,9 +111,20 @@ export function palletSnapshotMatchesCertification(
   target: PhysicsTarget | undefined,
   certification: InertiaCertification | undefined,
 ): certification is InertiaCertification {
+  return certificationMatchesTarget(target, certification)
+    && palletSnapshotMatchesWorkOrderCertification(snapshot, target, certification);
+}
+
+/** Warning-bearing pallet documents still require exact live/snapshot identity. */
+export function palletSnapshotMatchesWorkOrderCertification(
+  snapshot: CertifiedPalletSnapshot | undefined,
+  target: PhysicsTarget | undefined,
+  certification: InertiaCertification | undefined,
+): certification is InertiaCertification {
   if (!snapshot || !target || target.mode !== 'pallets') return false;
   if (!palletSnapshotSpecMatchesResult(snapshot)) return false;
-  if (!certificationMatchesTarget(target, certification) || certification.mode !== 'pallets') return false;
+  if (!certification || certification.mode !== 'pallets') return false;
+  if (createPhysicsTargetSignature(target) !== certification.targetSignature) return false;
   const snapshotTarget = physicsTargetFromPalletSnapshot(target.container, target.cargo, snapshot);
   return createPhysicsTargetSignature(snapshotTarget) === certification.targetSignature;
 }

@@ -57,7 +57,10 @@ describe('block + maximal-empty-space + beam loading engine', () => {
       { publish: false },
     );
     expect(result.placements).toHaveLength(2);
-    expect(result.placements.every((p) => p.rotated)).toBe(true);
+    // An inner-start mixed orientation may be needed to keep CG admissible.
+    expect(result.placements.some((p) => p.rotated)).toBe(true);
+    expect(result.validationIssues).toEqual([]);
+    expect(result.operationalFindings?.filter(f => f.code.startsWith('CG_') && f.severity === 'error')).toEqual([]);
   });
 
   it('does not rotate cargo when rotation is disabled', () => {

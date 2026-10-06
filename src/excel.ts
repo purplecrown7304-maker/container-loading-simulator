@@ -25,6 +25,10 @@ function toNumber(value: unknown): number {
   return Number.NaN;
 }
 
+function isBlank(value: unknown): boolean {
+  return value == null || String(value).trim() === '';
+}
+
 function toRotationPolicy(value: unknown): { value: boolean; valid: boolean } {
   if (value == null || String(value).trim() === '') return { value: true, valid: true };
   if (typeof value === 'boolean') return { value, valid: true };
@@ -107,10 +111,14 @@ async function parseWorkbook(file: File, defaultQuantity?: number): Promise<Impo
     const quantity = defaultQuantity != null && (quantityValue == null || String(quantityValue).trim() === '')
       ? defaultQuantity
       : toNumber(quantityValue);
-    const maxStackLayers = toNumber(row['최대적층단'] ?? row['최대 적층단'] ?? row['MaxStackLayers']);
-    const maxTopLoadKg = toNumber(row['상부허용중량(kg)'] ?? row['상부허용'] ?? row['MaxTopLoadKg']);
-    const unloadPriority = toNumber(row['하역순서'] ?? row['하역 순서'] ?? row['UnloadPriority']);
-    const rotation = toRotationPolicy(row['90도회전허용'] ?? row['회전허용'] ?? row['AllowRotation']);
+    const stackValue = row['최대적층단'] ?? row['최대 적층단'] ?? row['MaxStackLayers'];
+    const topLoadValue = row['상부 허용하중(kg)'] ?? row['상부허용하중(kg)'] ?? row['상부허용중량(kg)'] ?? row['상부허용'] ?? row['MaxTopLoadKg'];
+    const unloadValue = row['하역순서'] ?? row['하역 순서'] ?? row['UnloadPriority'];
+    const maxStackLayers = toNumber(stackValue);
+    const maxTopLoadKg = toNumber(topLoadValue);
+    const unloadPriority = toNumber(unloadValue);
+    const rotationValue = row['90도회전허용'] ?? row['회전허용'] ?? row['AllowRotation'];
+    const rotation = toRotationPolicy(rotationValue);
 
     if (!id || !name) {
       issues.push({ row: excelRow, code: id || undefined, message: '코드 또는 이름이 비어 있습니다.' });
@@ -128,15 +136,15 @@ async function parseWorkbook(file: File, defaultQuantity?: number): Promise<Impo
       issues.push({ row: excelRow, code: id, message: '수량은 0 이상의 정수여야 합니다. 0은 비활성 SKU로 유지됩니다.' });
       return;
     }
-    if (Number.isFinite(maxStackLayers) && (!Number.isInteger(maxStackLayers) || maxStackLayers < 1)) {
+    if (!isBlank(stackValue) && (!Number.isFinite(maxStackLayers) || !Number.isInteger(maxStackLayers) || maxStackLayers < 1)) {
       issues.push({ row: excelRow, code: id, message: '최대 적층단은 비워두거나 1 이상의 정수여야 합니다.' });
       return;
     }
-    if (Number.isFinite(maxTopLoadKg) && maxTopLoadKg < 0) {
-      issues.push({ row: excelRow, code: id, message: '상부 허용중량은 비워두거나 0 이상의 값이어야 합니다.' });
+    if (!isBlank(topLoadValue) && (!Number.isFinite(maxTopLoadKg) || maxTopLoadKg < 0)) {
+      issues.push({ row: excelRow, code: id, message: '상부 허용하중은 비워두거나 0 이상의 숫자여야 합니다.' });
       return;
     }
-    if (Number.isFinite(unloadPriority) && (!Number.isInteger(unloadPriority) || unloadPriority < 1)) {
+    if (!isBlank(unloadValue) && (!Number.isFinite(unloadPriority) || !Number.isInteger(unloadPriority) || unloadPriority < 1)) {
       issues.push({ row: excelRow, code: id, message: '하역순서는 비워두거나 1 이상의 정수여야 합니다.' });
       return;
     }
@@ -154,12 +162,26 @@ async function parseWorkbook(file: File, defaultQuantity?: number): Promise<Impo
       height,
       weightKg,
       quantity,
-      maxStackLayers: Number.isFinite(maxStackLayers) ? maxStackLayers : undefined,
-      maxTopLoadKg: Number.isFinite(maxTopLoadKg) ? maxTopLoadKg : undefined,
-      allowRotation: rotation.value,
-      unloadPriority: Number.isFinite(unloadPriority) ? unloadPriority : undefined,
+      ...(defaultQuantity == null || stackValue !== undefined ? { maxStackLayers: Number.isFinite(maxStackLayers) ? maxStackLayers : undefined } : {}),
+      ...(defaultQuantity == null || topLoadValue !== undefined ? { maxTopLoadKg: Number.isFinite(maxTopLoadKg) ? maxTopLoadKg : undefined } : {}),
+      ...(defaultQuantity != null && topLoadValue !== undefined ? { topLoadLimitExplicit: true, strengthUnverified: isBlank(topLoadValue) } : {}),
+      ...(defaultQuantity == null || rotationValue !== undefined ? { allowRotation: rotation.value } : {}),
+      ...(defaultQuantity == null || unloadValue !== undefined ? { unloadPriority: Number.isFinite(unloadPriority) ? unloadPriority : undefined } : {}),
     });
   });
+
+  if (defaultQuantity != null) {
+    // Catalog rows update master data: duplicate IDs must never silently sum or choose a row.
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      const id = String(row['코드'] ?? row['Code'] ?? row['ID'] ?? '').trim();
+      if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    for (const [id, count] of counts) {
+      if (count > 1) issues.push({ row: firstRowById.get(id) ?? 2, code: id, message: `중복 박스코드 ${id}: 같은 코드는 한 행만 남겨 주세요.` });
+    }
+    return { items: rawItems.filter(item => counts.get(item.id) === 1), issues, totalRows: rows.length };
+  }
 
   return {
     items: mergeWorkbookDuplicates(rawItems, firstRowById, issues),
@@ -194,4 +216,35 @@ export function createBoxCatalogTemplate(): XLSX.WorkBook {
 
 export function downloadBoxCatalogTemplate() {
   XLSX.writeFile(createBoxCatalogTemplate(), 'container-loading-box-template.xlsx');
+}
+
+/** Editable master-data export, independent of the current search/selected loading quantities. */
+export function createBoxCatalogWorkbook(items: readonly CargoItem[]): XLSX.WorkBook {
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ['코드', '이름', '길이(m)', '폭(m)', '높이(m)', '중량(kg)', '수량', '최대적층단', '상부 허용하중(kg)', '90도회전허용', '하역순서'],
+    ...items.map(item => [item.id, item.name, item.length, item.width, item.height, item.weightKg,
+      item.quantity, item.maxStackLayers ?? '', item.strengthUnverified ? '' : item.maxTopLoadKg ?? '', item.allowRotation === false ? 'N' : 'Y', item.unloadPriority ?? '']),
+  ]);
+  worksheet['!cols'] = [25, 44, 13, 13, 13, 13, 12, 16, 24, 18, 14].map(wch => ({ wch }));
+  worksheet['!autofilter'] = { ref: `A1:K${items.length + 1}` };
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Boxes');
+  const guide = XLSX.utils.aoa_to_sheet([
+    ['항목', '수정 및 업로드 안내'],
+    ['등록 목록 전체', '검색·선택 여부와 관계없이 현재 로그인 사용자의 전체 박스 목록입니다.'],
+    ['코드', '기존 코드를 유지하면 해당 박스를 갱신합니다. 새 코드는 신규 박스로 추가됩니다. 중복 코드는 반영하지 않습니다.'],
+    ['치수 / 중량', '치수는 m, 중량은 kg입니다. 수량은 기본수량이며 이번 적재 선택 수량과 다릅니다.'],
+    ['상부 허용하중(kg)', '위에 놓이는 화물의 누적 허용중량입니다. 0은 상부 적재 금지, 빈칸은 강도 미확인이며 계산 시 1단·상부하중 0kg로 제한합니다. 파렛트 허용중량과 다릅니다.'],
+    ['최대적층단', '1 이상의 정수 또는 빈칸(별도 제한 없음)을 입력하세요.'],
+    ['재업로드', 'Boxes 시트를 첫 번째로 유지하고 수정한 엑셀 업로드를 사용하세요. 삭제한 행은 기존 목록에서 삭제되지 않습니다.'],
+    ['기존 정보', '이 양식에 없는 취급 제한·색상 등은 같은 코드로 업로드할 때 기존 등록값을 유지합니다. 전체 백업 파일은 아닙니다.'],
+    ['오류 / 재계산', '오류 행은 제외하고 정상 행만 반영합니다. 직전 변경 되돌리기가 가능합니다. 수정 후 포장 확정과 자동 적재를 다시 실행하세요.'],
+  ]);
+  guide['!cols'] = [{ wch: 25 }, { wch: 110 }];
+  XLSX.utils.book_append_sheet(workbook, guide, '수정 안내');
+  return workbook;
+}
+
+export function downloadBoxCatalog(items: readonly CargoItem[]) {
+  XLSX.writeFile(createBoxCatalogWorkbook(items), `registered-boxes-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }

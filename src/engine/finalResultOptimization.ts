@@ -259,3 +259,18 @@ export async function buildDirectResultReoptimizationCandidatesAsync(
   }
   return { candidates: step.value, timedOut };
 }
+
+/** A payload failure cannot be repaired by permuting the same cargo. Reserve the
+ * maximum enabled reinforcement once, repack, and leave omitted units explicitly waiting. */
+export async function buildSecuringPayloadAdjustmentCandidateAsync(
+  current: PhysicsTarget,
+  strategy: LoadingStrategy = 'capacity',
+  signal?: AbortSignal,
+): Promise<DirectResultReoptimizationCandidate | null> {
+  if (current.mode !== 'boxes') return null;
+  const result = await loadContainerAsync(current.container, current.cargo, strategy, signal, { securingLevel: 3 });
+  if (!result.placements.length || result.validationIssues.length) return null;
+  const target: PhysicsTarget = { ...current, result };
+  if (createPhysicsTargetSignature(target) === createPhysicsTargetSignature(current)) return null;
+  return { label: '최대 보강재 중량 확보 · 초과 화물 미적재', result, target, staticPenalty: staticPenalty(current, result, strategy) };
+}

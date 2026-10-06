@@ -1,6 +1,36 @@
 import type { RulesContext, LoadingRuleset } from './loadingRuleset';
 import type { Orientation, Dims } from './loadSimA/types';
+/** Explicit numerical scenarios never amend equipment ratings or certify transport. */
+export type LimitReviewConfig = {
+  mode: 'what-if';
+  maxPayloadKg?: number;
+  floorLoadLimitKgPerM2?: number;
+  minimumSupportRatio?: number;
+  cargoLimits?: Record<string, { maxStackLayers?: number; maxTopLoadKg?: number }>;
+  simulation?: { maxDisplacementMm?: number; maxRotationDeg?: number };
+};
+export type LimitReviewMetric = {
+  key: 'payload' | 'floor-load' | 'support' | 'stack-layers' | 'top-load' | 'displacement' | 'rotation';
+  cargoId?: string;
+  unit: 'kg' | 'kg/m²' | 'ratio' | 'layers' | 'mm' | 'deg';
+  originalLimit: number | null;
+  scenarioLimit: number;
+  actual: number;
+  excess: number | null;
+  excessPercent: number | null;
+  provenance: 'configured' | 'app-default' | 'unverified' | 'unknown';
+  direction: 'maximum' | 'minimum';
+};
+export type LimitReviewMetadata = {
+  mode: 'what-if';
+  label: 'WHAT-IF REVIEW';
+  status: 'active' | 'invalid' | 'unsupported';
+  config: LimitReviewConfig;
+  metrics: LimitReviewMetric[];
+  errors: string[];
+};
 export type ContainerSpec = {
+  limitReview?: LimitReviewConfig;
   /** Independent from the optimization objective. Omitted preserves historical behavior. */
   unloadingPolicy?: 'strict' | 'soft';
   palletDestination?: {
@@ -17,6 +47,8 @@ export type ContainerSpec = {
   floorLoadLimitKgPerM2?: number;
   /** 평균 바닥하중 대비 국부하중 경고 배수. 미입력 시 3배를 사용한다. */
   floorLoadWarningMultiplier?: number;
+  /** Capacity compactness is disabled above this payload-utilization / volume-utilization ratio. */
+  weightLimitedBalanceRatio?: number;
 };
 
 export type CargoItem = {
@@ -38,6 +70,10 @@ export type CargoItem = {
   quantity: number;
   maxStackLayers?: number;
   maxTopLoadKg?: number;
+  /** Box management explicitly saved this limit; zero must never be treated as a legacy default. */
+  topLoadLimitExplicit?: boolean;
+  /** Strength is not measured; operational loading remains one layer/no top load. */
+  strengthUnverified?: boolean;
   /** Provenance only; changing either limit invalidates this recorded explanation. */
   stackLimitOrigin?: {
     kind: 'unverified-carton' | 'direct-product' | 'box-catalog';
@@ -114,9 +150,12 @@ export type AutoCorrectionRecord = {
 };
 
 export type LoadingResult = {
+  limitReview?: LimitReviewMetadata;
+  /** Planning budget only; this does not assert physics certification. */
+  securingBudget?: { level: 1 | 2 | 3; reservedWeightKg: number; requiredWeightKg: number; totalTransportWeightKg: number };
   ruleset?: LoadingRuleset;
   placements: Placement[];
-  remaining: Array<{ cargoId: string; quantity: number; reason: string }>;
+  remaining: Array<{ cargoId: string; quantity: number; reason: string; reasonCode?: string }>;
   loadedWeightKg: number;
   usedVolumeM3: number;
   validationIssues: ValidationIssue[];

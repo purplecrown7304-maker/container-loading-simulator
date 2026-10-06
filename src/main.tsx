@@ -108,6 +108,27 @@ import './studio-viewport.css';
 import './persistent-workspace.css';
 import './viewer-background-selector.css';
 
+function isMobileServiceClient(): boolean {
+  const nav = navigator as Navigator & { userAgentData?: { mobile?: boolean } };
+  if (nav.userAgentData?.mobile === true) return true;
+  if (/Android|iPhone|iPad|iPod|Mobile|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+}
+
+function renderMobileServiceNotice() {
+  const root = document.getElementById('root');
+  if (!root) return;
+  root.innerHTML = `
+    <main style="min-height:100dvh;display:grid;place-items:center;padding:24px;background:#f5f5f7;color:#1d1d1f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Malgun Gothic',sans-serif">
+      <section style="width:min(100%,520px);padding:40px 28px;border:1px solid #d2d2d7;border-radius:18px;background:#fff;box-shadow:0 18px 48px rgba(0,0,0,.08);text-align:center">
+        <div style="font-size:44px;line-height:1;margin-bottom:18px" aria-hidden="true">🖥️</div>
+        <h1 style="margin:0 0 12px;font-size:24px">모바일 버전 준비 중</h1>
+        <p style="margin:0;color:#6e6e73;line-height:1.7">현재 물류 적재 시뮬레이터는 PC 웹 버전만 제공됩니다.<br>데스크톱 또는 노트북에서 이용해 주세요.</p>
+      </section>
+    </main>
+  `;
+}
+
 function renderApplication() {
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
@@ -163,6 +184,10 @@ function renderApplication() {
 
 async function bootstrap() {
   const root = document.getElementById('root');
+  if (isMobileServiceClient()) {
+    renderMobileServiceNotice();
+    return;
+  }
   try {
     // 모든 영구 데이터는 React가 시작되기 전에 Supabase에서 복원한다.
     // 이후 기존 localStorage API는 디스크가 아니라 메모리 shim을 가리킨다.

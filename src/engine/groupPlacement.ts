@@ -1,7 +1,14 @@
+import { preflightCargoInput } from './inputPreflight';
+import { decorateLimitReview, resolveLimitReview, reviewPlacementBlockers } from './limitReview';
 import { isARules, aConfig } from './loadingRuleset';
-import { validateAPlan } from './loadSimAdapter';
-import { isInsideContainer, overlaps, validatePlacements } from './constraints';
+import { isInsideContainer, overlaps } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
+import { auditLoading } from './loadingAudit';
+import { validateOperationalLoading } from './operationalValidator';
+import { hasAdequateSupport, supportContactArea } from './support';
+import { boxSecuringRequirements } from './securingBudget';
+import { readSecuringMaterialSettings } from '../securingMaterialSettings';
+import { heavyInnerConflictFindings } from './heavyInnerPolicy';
 import { analyzeFloorLoad } from './floorLoad';
 import { assessWeightBalance } from './weightBalance';
 import { buildPlacementAddresses } from './locationGrid';
@@ -31,7 +38,7 @@ function overlapArea(a: Placement, b: Placement): number {
 }
 
 function directlySupports(lower: Placement, upper: Placement): boolean {
-  return Math.abs(lower.z + lower.height - upper.z) <= EPS && overlapArea(lower, upper) > EPS;
+  return supportContactArea(lower, upper) > 0;
 }
 
 function fullySupported(candidate: Placement, placements: Placement[]): boolean {
@@ -80,6 +87,8 @@ export function assessGroupMove(
   indices: number[],
   delta: { x: number; y: number; z: number },
 ): GroupMoveAssessment {
+  const review = resolveLimitReview(container,cargo);
+  const reviewing = review.status === 'active';
   const uniqueIndices = [...new Set(indices)].filter(index => source.placements[index]);
   const reasons: string[] = [];
   if (uniqueIndices.length === 0) reasons.push('이동할 박스가 선택되지 않았습니다.');
@@ -102,7 +111,7 @@ export function assessGroupMove(
   }
 
   const finalPlacements = source.placements.map((placement, index) => movedByIndex.get(index) ?? placement);
-  const cargoById = new Map(cargo.map(item => [item.id, item]));
+  const cargoById = new Map(review.cargo.map(item => [item.id, item]));
 
   for (const index of uniqueIndices) {
     const candidate = finalPlacements[index];
@@ -111,16 +120,27 @@ export function assessGroupMove(
     if (!isInsideContainer(container, candidate)) reasons.push(`${candidate.cargoId}: 컨테이너 경계를 벗어납니다.`);
     const others = finalPlacements.filter((_, i) => i !== index);
     if (others.some(other => overlaps(candidate, other,isARules(container)?aConfig(container).epsilon/1000:undefined))) reasons.push(`${candidate.cargoId}: 이동 후 다른 화물과 충돌합니다.`);
-    if (!fullySupported(candidate, others)) reasons.push(`${candidate.cargoId}: 이동 후 바닥면 전체가 지지되지 않습니다.`);
+    // Group edits retain the stricter full-footprint manual policy. It supplements,
+    // rather than replaces, the final audit of every moved and unmoved box below.
+    if (!(isARules(container) ? fullySupported(candidate, others) : hasAdequateSupport(candidate,others,undefined,reviewing && container.limitReview?.minimumSupportRatio !== undefined ? review.minimumSupportRatio : 1))) reasons.push(`${candidate.cargoId}: 이동 후 바닥면 전체가 지지되지 않습니다.`);
     if (!isARules(container) && !canPlaceByStackingRules(item, candidate, others, cargoById)) reasons.push(`${candidate.cargoId}: 적층단 또는 상부 허용중량 조건을 만족하지 않습니다.`);
   }
 
-  const validationIssues = validatePlacements(container, finalPlacements);
-  if (validationIssues.length) reasons.push('최종 배치 검증에서 충돌 또는 경계 문제가 발견됐습니다.');
-
-  const operationalFindings = isARules(container) ? validateAPlan(container,cargo,finalPlacements) : source.operationalFindings;
-  if(isARules(container)) reasons.push(...(operationalFindings??[]).filter(f=>f.severity==='error').map(f=>f.message));
-  const result: LoadingResult = { ...source, placements: finalPlacements, validationIssues, operationalFindings };
+  const validationIssues = auditLoading(container, container.limitReview === undefined ? cargo : preflightCargoInput(cargo).cargo, finalPlacements);
+  const securingLevel = source.securingBudget?.level ?? 1;
+  const requiredWeightKg = boxSecuringRequirements(finalPlacements.length,securingLevel,readSecuringMaterialSettings()).weightKg;
+  const loadedWeightKg = finalPlacements.reduce((sum, placement) => sum + placement.weightKg,0);
+  if (loadedWeightKg + requiredWeightKg > container.maxPayloadKg + 1e-6) validationIssues.push({
+    type:'PAYLOAD',message:'필수 고정 자재를 포함한 운송 중량이 허용 적재 중량을 초과합니다.',placementIndexes:[],
+  });
+  if (container.limitReview === undefined) reasons.push(...validationIssues.map(issue => issue.message));
+  const conflictStrategy = source.operationalFindings?.some(f => f.code === 'HEAVY_INNER_UNLOAD_CONFLICT') ? 'unloading' : 'capacity';
+  const operationalFindings = [...validateOperationalLoading(container,cargo,finalPlacements),
+    ...heavyInnerConflictFindings(container,cargo,finalPlacements,conflictStrategy)];
+  if (container.limitReview === undefined) reasons.push(...operationalFindings.filter(finding => finding.severity === 'error').map(finding => finding.message));
+  else reasons.push(...reviewPlacementBlockers(container,cargo,finalPlacements,loadedWeightKg+requiredWeightKg));
+  const result: LoadingResult = decorateLimitReview(container,cargo,{ ...source, placements: finalPlacements, validationIssues, operationalFindings, loadedWeightKg,
+    securingBudget:{level:securingLevel,reservedWeightKg:Math.max(source.securingBudget?.reservedWeightKg ?? 0,requiredWeightKg),requiredWeightKg,totalTransportWeightKg:loadedWeightKg+requiredWeightKg} });
   const beforeQuality = assessWeightBalance(container, source);
   const afterQuality = assessWeightBalance(container, result);
   const beforeFloor = analyzeFloorLoad(container, source, 12, 4);

@@ -1,5 +1,6 @@
 import { openWorkspace } from './helpers/workspace';
 import { expect, test } from '@playwright/test';
+import { directLoadingFixtures } from './helpers/loadingFixtures';
 
 test('stalled optional re-layout completes and a blocked warning report opens without recalculation', async ({ page, context, baseURL }) => {
   test.setTimeout(120_000);
@@ -41,14 +42,17 @@ test('stalled optional re-layout completes and a blocked warning report opens wi
   await page.getByRole('button', { name: '선택한 장비 변경', exact: true }).click();
   await page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' }).locator('[data-equipment-id="20-standard"]').click();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:open-product-tool', { detail: 'products' })));
+  // Two long, narrow upright panels span the 20ft depth. Static CG is valid,
+  // while real inertia still fails because their lateral base is only 80mm.
+  const fixture = directLoadingFixtures.unstableTwoBox20ft;
   const products = page.getByRole('dialog', { name: '회사 제품 관리' });
   await expect(products).toBeVisible();
   await products.getByLabel('제품코드').fill('SLENDER');
   await products.getByLabel('제품명').fill('검증용 고형상 박스');
-  await products.getByLabel('길이 mm').fill('80');
-  await products.getByLabel('폭 mm').fill('80');
-  await products.getByLabel('높이 mm').fill('2000');
-  await products.getByLabel('중량 kg').fill('1');
+  await products.getByLabel('길이 mm').fill(String(fixture.length * 1000));
+  await products.getByLabel('폭 mm').fill(String(fixture.width * 1000));
+  await products.getByLabel('높이 mm').fill(String(fixture.height * 1000));
+  await products.getByLabel('중량 kg').fill(String(fixture.weightKg));
   await products.getByLabel('박스 적재').selectOption('no');
   await products.getByRole('button', { name: '제품 등록' }).click();
   await products.locator('header button').click();
@@ -85,6 +89,8 @@ test('stalled optional re-layout completes and a blocked warning report opens wi
   expect(before.started).toBe(before.terminated);
   expect(before.certification.status).toBe('failed');
   expect(before.certification.testedScenarios).toBe(3);
+  await expect(page.locator('.guided-status-row')).toHaveAttribute('data-verification-status', 'failed');
+  await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   const popupPromise = page.waitForEvent('popup');
   await modal.getByRole('button', { name: '작업지시서 열기', exact: true }).click();
   const popup = await popupPromise;

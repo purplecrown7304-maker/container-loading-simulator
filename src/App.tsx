@@ -1,4 +1,4 @@
-import LoadingRulesSelector from './LoadingRulesSelector';
+import LimitReviewControls, { LimitReviewBanner } from './LimitReviewControls';
 import { useLoadingRuleset, equipmentRules, RULESET_EVENT } from './loadingRulesPreference';
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT, cancelPendingCertification, requestExactCertification, requestNextPalletCertification } from './autoCertification';
@@ -226,7 +226,11 @@ export default function App() {
         const manual = readManualOverride(state.container, normalized);
         if (manual && JSON.stringify(manual) !== JSON.stringify(liveInputs.current.result)) {
           invalidatePhysics();
-          setResult(restoreLoadingResult(state.container, normalized));
+          const restored = restoreLoadingResult(state.container, normalized, liveInputs.current.result);
+          setResult(restored);
+          if (JSON.stringify(restored.placements) !== JSON.stringify(manual.placements)) {
+            announce('warning', '수동 배치가 최종 안전조건을 만족하지 않아 기존 배치를 유지했습니다.');
+          }
         }
         return;
       }
@@ -296,6 +300,7 @@ export default function App() {
 
   const runLoading = async () => {
     if (isRunning) return;
+    if (container.limitReview && (mode !== 'boxes' || container.rules)) return announce('error', '한도 초과 검토는 기존 규칙의 박스 직접 적재에서만 지원합니다. 엄격 모드로 전환하거나 지원하는 적재 방식을 선택하세요.');
     const invalidContainer = containerInputError(container);
     if (invalidContainer) return announce('error', invalidContainer);
     const preflight = preflightCargoInput(cargo);
@@ -357,7 +362,7 @@ export default function App() {
       setOptimizationEtaSeconds(0);
       (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = optimized.physics;
       window.dispatchEvent(new CustomEvent('container-loading:physics-validation-result', { detail: { mode: 'boxes', result: optimized.physics } }));
-      announce(published.placements.length ? 'success' : 'warning', published.placements.length ? `자동 적재 계산 완료 · ${published.placements.length}EA · 관성 3종 최종검증 진행 중` : '계산 완료 · 적재 가능한 화물이 없습니다. 결과에서 미적재 사유를 확인하세요.');
+      announce(container.limitReview || !published.placements.length ? 'warning' : 'success', container.limitReview ? `검토용 계산 완료 · ${published.placements.length}EA · 원 기준의 초과·실패 경고를 유지합니다. 출고 승인 불가` : published.placements.length ? `자동 적재 계산 완료 · ${published.placements.length}EA · 관성 3종 최종검증 진행 중` : '계산 완료 · 적재 가능한 화물이 없습니다. 결과에서 미적재 사유를 확인하세요.');
       setOptimizationMessage('');
     } catch (error) {
       if (!ownsRun()) return;
@@ -392,7 +397,7 @@ export default function App() {
     setContainer(state.container);
     setCargo(normalized);
     restoreInput.current = sameInput ? null : { container: state.container, cargo: normalized };
-    if (sameInput) setResult(restoreLoadingResult(state.container, normalized.filter(item => item.quantity > 0)));
+    if (sameInput) setResult(restoreLoadingResult(state.container, normalized.filter(item => item.quantity > 0), result));
     invalidatePhysics();
     announce('success', '저장된 데이터를 불러왔습니다.');
   };
@@ -446,7 +451,11 @@ export default function App() {
         <button className="secondary" onClick={printReport}>작업지시서</button>
       </div>
     </header>
-    <LoadingRulesSelector />
+    <LimitReviewControls container={container} cargo={cargo} result={result} mode={mode} onChange={limitReview => {
+      invalidatePhysics();
+      setContainer(current => ({ ...current, limitReview }));
+      announce('warning', limitReview ? '한도 초과 검토 모드입니다. 범위를 적용하고 다시 계산하세요. 검토 전용 표시와 원 기준 초과 경고가 유지됩니다.' : '엄격 모드로 전환했습니다. 이전 검토 결과는 무효화되며 원 기준으로 다시 적재해야 합니다.');
+    }} />
 
     {!stored && cargo.length === 0 && <section className="onboarding-banner" aria-label="처음 사용 안내">
       <div><b>처음 사용하시나요?</b><span>① 컨테이너 규격 확인 → ② 로그인 후 개인 박스 등록/선택 → ③ 물리 최적 자동 적재</span></div>
@@ -527,6 +536,7 @@ export default function App() {
 
       <section className="dashboard-center">
         {renderViewer && <section className="dashboard-card viewer-card">
+          <LimitReviewBanner container={container} cargo={cargo} result={displayResult} />
           <div className="viewer-host">
             {isRunning && <div className={`calculation-overlay${container.rules ? ' a-rules-calculating' : ''}`} role="status" aria-live="polite">
               <div className="calculation-progress-ring" style={{ background: `conic-gradient(#2563eb ${optimizationProgress}%, #dbe3ee 0)` }}><span>{mode === 'boxes' ? `${Math.round(optimizationProgress)}%` : '…'}</span></div>
@@ -568,7 +578,7 @@ export default function App() {
           <div><span>총 중량</span><b>{result.loadedWeightKg.toLocaleString()} / {container.maxPayloadKg.toLocaleString()} kg</b><small>{weightRate.toFixed(1)}%</small></div>
           <div><span>사용 박스 수</span><b>{result.placements.length} EA</b></div>
           <div><span>물리 안정성</span><b>{physicsScore !== null ? `${physicsScore} 점` : '검증 전'}</b><small>{physicsStrategy ? strategyLabel(physicsStrategy) : `${maxLayer} 층`}</small></div>
-        </div><button className={`constraint-ok ${hasConstraintFailure ? 'failure' : hasConstraintWarning ? 'warning' : ''}`} onClick={showResults}>{hasConstraintFailure ? '제약 조건 실패 항목 있음' : hasConstraintWarning ? '현장 확인 항목 있음' : physicsScore !== null ? '물리 최적안 선택 완료' : '제약 조건 모두 만족'}</button></section>
+        </div><button className={`constraint-ok ${hasConstraintFailure ? 'failure' : hasConstraintWarning ? 'warning' : ''}`} onClick={showResults}>{container.limitReview ? '검토 전용 · 출고 승인 불가' : hasConstraintFailure ? '제약 조건 실패 항목 있음' : hasConstraintWarning ? '현장 확인 항목 있음' : physicsScore !== null ? '물리 최적안 선택 완료' : '제약 조건 모두 만족'}</button></section>
 
         <section className="dashboard-card constraint-card"><h2>5. 제약 조건 체크</h2><div className="constraint-list">
           {constraintChecks.map(check => <span key={check.id} className={check.status === 'pass' ? 'constraint-pass' : check.status === 'warn' ? 'constraint-warn' : 'constraint-fail'} title={check.detail}><span>{check.label}</span><b>{check.status === 'pass' ? '통과' : check.status === 'warn' ? '확인' : '실패'}</b></span>)}

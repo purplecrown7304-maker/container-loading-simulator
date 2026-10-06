@@ -214,6 +214,7 @@ export function packMixedMode(
   strategy: LoadingStrategy = 'capacity',
   options: MixedModeOptions = {},
 ): MixedModePackingResult {
+  if (container.limitReview !== undefined) return {...packOnPallets(container,cargo,pallet,strategy),mixed:{enabled:true,directBoxCount:0,directFloorBoxCount:0,palletBoxCount:0,palletCount:0,demotedPalletCount:0,candidateCount:0,minPalletFillRatio:options.minPalletFillRatio??0.7,totalLoadedWeightKg:0,palletFillRates:[]}};
   const active = cargo.filter((item) => item.quantity > 0);
   const threshold = Math.max(0, Math.min(1, options.minPalletFillRatio ?? 0.7));
   const candidateCap = Math.max(2, Math.floor(options.maxDemotionCandidates ?? 10));

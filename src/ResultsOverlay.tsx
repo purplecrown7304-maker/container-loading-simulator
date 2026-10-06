@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { LimitReviewBanner } from './LimitReviewControls';
 import CertificationResultSummary from './CertificationResultSummary';
 import { analyzeConstraints } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
@@ -120,6 +121,7 @@ export default function ResultsOverlay() {
         <button type="button" onClick={() => setOpen(false)} aria-label="결과창 닫기">닫기</button>
       </header>
 
+      <LimitReviewBanner container={detail.container} cargo={detail.cargo} result={effectiveResult} />
       <article className="results-panel results-preview-info">
         <div className="results-panel-title"><b>미리보기 정보</b><span>{palletSnapshot ? '팔레트 모드' : '박스 모드'}</span></div>
         <div className="results-cargo-legend">

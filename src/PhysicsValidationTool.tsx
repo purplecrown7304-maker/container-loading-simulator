@@ -1,3 +1,5 @@
+import { createPhysicsTargetSignature, isNumericalLimitReviewTarget } from './inertiaCertification';
+import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
@@ -23,7 +25,7 @@ export default function PhysicsValidationTool(){
   const [open,setOpen]=useState(false),[status,setStatus]=useState<Status>('idle'),[progress,setProgress]=useState(0),[activeScenario,setActiveScenario]=useState<PhysicsScenario>('settle'),[validation,setValidation]=useState<PhysicsValidationSuite|null>(null),[message,setMessage]=useState(''),[targetMode,setTargetMode]=useState<'boxes'|'pallets'>('boxes');
   const detailRef=useRef<LoadingDetail|undefined>(undefined),targetRef=useRef<PhysicsTarget|undefined>(undefined),runIdRef=useRef(0);
 
-  const invalidate=useCallback((text:string)=>{(window as LoadingWindow).__containerLoadingLatestPhysics=undefined;setValidation(null);setStatus('idle');setProgress(0);setMessage(text)},[]);
+  const invalidate=useCallback((text:string)=>{++runIdRef.current;(window as LoadingWindow).__containerLoadingLatestPhysics=undefined;setValidation(null);setStatus('idle');setProgress(0);setMessage(text)},[]);
 
   useEffect(()=>{
     const physicsWindow=window as LoadingWindow;detailRef.current=physicsWindow.__containerLoadingLatestResult;targetRef.current=readPhysicsTarget();setTargetMode(targetRef.current?.mode??'boxes');setValidation(physicsWindow.__containerLoadingLatestPhysics??null);
@@ -36,16 +38,19 @@ export default function PhysicsValidationTool(){
 
   const run=useCallback(async()=>{
     const target=currentTarget();if(!target){setStatus('error');setMessage('먼저 자동 적재를 실행해 적재 결과를 만들어 주세요.');return}if(!target.result.placements.length&&!target.supports?.length){setStatus('error');setMessage('현재 물리 검증할 적재물이 없습니다.');return}
-    targetRef.current=target;setTargetMode(target.mode);const runId=++runIdRef.current;setStatus('running');setValidation(null);setProgress(0);setActiveScenario('settle');setMessage('Rapier 3D 물리 월드를 준비하고 있습니다.');
-    try{const result=await runPhysicsValidationSuite(target.container,target.result.placements,(value,scenario)=>{if(runId!==runIdRef.current)return;setProgress(Math.round(value*100));setActiveScenario(scenario)},target.supports??[]);if(runId!==runIdRef.current)return;const physicsWindow=window as LoadingWindow;physicsWindow.__containerLoadingLatestPhysics=result;window.dispatchEvent(new CustomEvent(PHYSICS_VALIDATION_RESULT_EVENT,{detail:{mode:target.mode,result}}));setValidation(result);setStatus('done');setProgress(100);setMessage(result.summary)}catch(error){if(runId!==runIdRef.current)return;console.error('Physics validation failed',error);setStatus('error');setMessage('물리엔진을 실행하지 못했습니다. 브라우저를 새로고침한 뒤 다시 시도하세요.')}
-  },[currentTarget]);
+    if(isLimitReviewTarget(target)&&!isNumericalLimitReviewTarget(target)){setStatus('error');setMessage('검토 시나리오 입력·형상·선택 한도를 확인하세요.');return}
+    targetRef.current=target;setTargetMode(target.mode);const signature=createPhysicsTargetSignature(target);const runId=++runIdRef.current;setStatus('running');setValidation(null);setProgress(0);setActiveScenario('settle');setMessage('Rapier 3D 물리 월드를 준비하고 있습니다.');
+    try{const result=await runPhysicsValidationSuite(target.container,target.result.placements,(value,scenario)=>{if(runId!==runIdRef.current)return;setProgress(Math.round(value*100));setActiveScenario(scenario)},target.supports??[]);if(runId!==runIdRef.current)return;const live=currentTarget();if(!live||createPhysicsTargetSignature(live)!==signature){invalidate('입력 또는 검토 한도가 변경되어 이전 물리 결과를 폐기했습니다.');return}const physicsWindow=window as LoadingWindow;physicsWindow.__containerLoadingLatestPhysics=result;window.dispatchEvent(new CustomEvent(PHYSICS_VALIDATION_RESULT_EVENT,{detail:{mode:target.mode,result}}));setValidation(result);setStatus('done');setProgress(100);setMessage(result.summary)}catch(error){if(runId!==runIdRef.current)return;console.error('Physics validation failed',error);setStatus('error');setMessage('물리엔진을 실행하지 못했습니다. 브라우저를 새로고침한 뒤 다시 시도하세요.')}
+  },[currentTarget,invalidate]);
 
   useEffect(()=>{const onOpen=()=>{setOpen(true);if(status!=='running')void run()};window.addEventListener(OPEN_PHYSICS_VALIDATION_EVENT,onOpen);return()=>window.removeEventListener(OPEN_PHYSICS_VALIDATION_EVENT,onOpen)},[run,status]);
+  useEffect(()=>()=>{++runIdRef.current},[]);
   const issues=useMemo(()=>{if(!validation)return[];const rank={unstable:0,warning:1,stable:2} as const;return[...validation.placements].filter(x=>x.severity!=='stable').sort((a,b)=>rank[a.severity]-rank[b.severity]||b.horizontalShiftM-a.horizontalShiftM||b.tiltDeg-a.tiltDeg).slice(0,30)},[validation]);
   const supportIssues=useMemo(()=>validation?[...validation.supports].filter(x=>x.severity!=='stable').sort((a,b)=>Number(a.severity==='warning')-Number(b.severity==='warning')||b.horizontalShiftM-a.horizontalShiftM).slice(0,20):[],[validation]);
   const printReport=()=>{const target=targetRef.current??currentTarget();if(!target||!validation)return;if(!openPhysicsReport(target.container,target.cargo,target.result,validation))setMessage('팝업이 차단되어 물리 리포트를 열지 못했습니다.')};
 
   if(!open)return null;return createPortal(<div className="physics-modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget&&status!=='running')setOpen(false)}}><section className="physics-modal" role="dialog" aria-modal="true" aria-labelledby="physics-title"><header className="physics-modal-head"><div><span className="physics-kicker">RAPIER 3D TRANSPORT PHYSICS · {targetMode==='pallets'?'PALLET MODE':'BOX MODE'}</span><h2 id="physics-title">실제 물리 안정성 종합검증</h2><p>{targetMode==='pallets'?'팔레트 바닥판과 박스를 함께 강체로 계산해 팔레트 적층까지 검사합니다.':'현재 박스 적재안에 정적 중력·급제동·횡가속을 적용합니다.'}</p></div><div className="physics-head-actions">{validation&&status!=='running'&&<button type="button" onClick={printReport}>리포트 / PDF</button>}<button type="button" onClick={()=>setOpen(false)} disabled={status==='running'}>닫기</button></div></header>
+  {isLimitReviewTarget(targetRef.current ?? detailRef.current) && <p className="physics-footnote" role="alert">{LIMIT_REVIEW_WARNING}</p>}
   {status==='running'&&<div className="physics-running"><div className="physics-spinner"/><b>{scenarioLabel(activeScenario)} 시뮬레이션 · {progress}%</b><span>정적 중력 → 급제동 0.5g → 횡가속 0.35g 순으로 검증합니다.</span><div className="physics-progress"><i style={{width:`${progress}%`}}/></div></div>}
   {status!=='running'&&validation&&<><div className="physics-score-row"><div className={`physics-score ${scoreClass(validation.score)}`}><strong>{validation.score}</strong><span>/ 100</span><b>{scoreLabel(validation.score)}</b></div><div className="physics-summary"><b>{message}</b><span>최악 조건: {scenarioLabel(validation.worstScenario)} · {targetMode==='pallets'?`박스 ${validation.placements.length} + 팔레트 ${validation.supports.length}`:`박스 ${validation.placements.length}`} 강체 검증</span></div></div>
   <div className="physics-scenarios">{validation.scenarios.map(row=><article key={row.scenario} className={scoreClass(row.score)}><span>{scenarioLabel(row.scenario)}</span><b>{row.score}점</b><small>박스 불안정 {row.unstableCount} · 주의 {row.warningCount}{row.supportCount?` · 팔레트 불안정 ${row.supportUnstableCount}`:''}</small></article>)}</div>

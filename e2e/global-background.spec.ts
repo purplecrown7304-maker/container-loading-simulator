@@ -61,7 +61,7 @@ test('the single global background preference survives main-page reload and rema
 });
 
 for (const width of [390, 720]) {
-  test(`mobile header menu stays below both header rows and scrolls internally at ${width}px`, async ({ page }) => {
+  test(`mobile header menu stays below all header rows and scrolls internally at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 600 });
     await page.goto('/');
     await expect(page.locator('.guided-step-list button')).toHaveCount(6);

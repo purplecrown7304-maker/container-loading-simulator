@@ -2,6 +2,7 @@ import type { CargoItem, ContainerSpec, Placement } from './types';
 import { isInsideContainer, overlaps } from './constraints';
 import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules } from './stacking';
+import { configuredFloorLoadLimit, floorLoadLayerCap, withinFloorLoadLimit, floorLoadBlocksRemaining, FLOOR_LOAD_REASON } from './floorLoadLimit';
 import { acceptsUnloadCandidate } from './unloadingPolicy';
 
 const EPS = 1e-9;
@@ -11,6 +12,22 @@ const MAX_SPACES = 14;
 const MAX_CANDIDATES = 36;
 const MAX_VARIANTS = 8;
 const MAX_STEPS = 120;
+export type FloorBeamBudget = { minRequestedCount: number; beamWidth: number; maxSpaces: number; maxCandidates: number; maxVariants: number };
+export const DEFAULT_FLOOR_BEAM_BUDGET: Readonly<FloorBeamBudget> = Object.freeze({
+  minRequestedCount: 120, beamWidth: 2, maxSpaces: 8, maxCandidates: 12, maxVariants: 4,
+});
+export type BeamPackingOptions = { floorBudget?: Partial<FloorBeamBudget> };
+type SearchBudget = Omit<FloorBeamBudget, 'minRequestedCount'>;
+function searchBudget(container: ContainerSpec, requestedCount: number, options: BeamPackingOptions): SearchBudget {
+  const configured = { ...DEFAULT_FLOOR_BEAM_BUDGET };
+  for (const key of Object.keys(configured) as Array<keyof FloorBeamBudget>) {
+    const value = options.floorBudget?.[key];
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) configured[key] = value;
+  }
+  // Input-based budget only: no elapsed-time cutoff and no change to unrestricted legacy searches.
+  if (configuredFloorLoadLimit(container) !== undefined && requestedCount >= configured.minRequestedCount) return configured;
+  return { beamWidth: BEAM_WIDTH, maxSpaces: MAX_SPACES, maxCandidates: MAX_CANDIDATES, maxVariants: MAX_VARIANTS };
+}
 const round6 = (value: number) => Math.round(value * 1_000_000) / 1_000_000;
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const volumeOfItem = (item: CargoItem) => item.length * item.width * item.height;
@@ -18,7 +35,7 @@ const volumeOfItem = (item: CargoItem) => item.length * item.width * item.height
 export type BeamPackingStrategy = 'capacity' | 'stability' | 'unloading';
 export type BeamPackingOutput = {
   placements: Placement[];
-  remaining: Array<{ cargoId: string; quantity: number; reason: string }>;
+  remaining: Array<{ cargoId: string; quantity: number; reason: string; reasonCode?: string }>;
   loadedWeightKg: number;
   usedVolumeM3: number;
 };
@@ -47,6 +64,7 @@ type State = {
   loadedCount: number;
 };
 type Context = {
+  budget: SearchBudget;
   container: ContainerSpec;
   cargo: CargoItem[];
   cargoById: Map<string, CargoItem>;
@@ -70,13 +88,13 @@ function fitCount(available: number, size: number) {
   return size > 0 ? Math.floor((available + EPS) / size) : 0;
 }
 
-function safeLayers(item: CargoItem) {
+function safeLayers(item: CargoItem, container?: ContainerSpec) {
   let limit = item.maxStackLayers ?? Number.POSITIVE_INFINITY;
   if (item.maxTopLoadKg !== undefined) {
     const byTopLoad = 1 + Math.floor((Math.max(0, item.maxTopLoadKg) + EPS) / Math.max(item.weightKg, EPS));
     limit = Math.min(limit, byTopLoad);
   }
-  return Math.max(1, limit);
+  return Math.min(Math.max(1, limit), container ? floorLoadLayerCap(container, item) : Infinity);
 }
 
 function countOptions(max: number) {
@@ -86,12 +104,12 @@ function countOptions(max: number) {
     .sort((a, b) => b - a);
 }
 
-function blocksFor(item: CargoItem, remaining: number, space: Space, allowSingles: boolean): Block[] {
+function blocksFor(item: CargoItem, remaining: number, space: Space, allowSingles: boolean, container: ContainerSpec, maxVariants: number): Block[] {
   const all: Block[] = [];
   for (const orientation of orientations(item)) {
     const maxX = fitCount(space.length, orientation.boxLength);
     const maxY = fitCount(space.width, orientation.boxWidth);
-    const maxZ = Math.min(fitCount(space.height, item.height), safeLayers(item));
+    const maxZ = Math.min(fitCount(space.height, item.height), safeLayers(item, container));
     if (maxX < 1 || maxY < 1 || maxZ < 1) continue;
 
     const variants: Block[] = [];
@@ -126,7 +144,7 @@ function blocksFor(item: CargoItem, remaining: number, space: Space, allowSingle
       || b.length * b.width - a.length * a.width
       || b.nz - a.nz,
     );
-    all.push(...variants.slice(0, MAX_VARIANTS));
+    all.push(...variants.slice(0, maxVariants));
   }
   return all;
 }
@@ -174,6 +192,9 @@ function physicallyValid(candidate: Candidate, state: State, context: Context) {
   const box = occupied(candidate);
   if (!acceptsUnloadCandidate(context.container, context.cargoById, state.placements, box)) return false;
   if (!isInsideContainer(context.container, box) || state.placements.some((p) => overlaps(box, p))) return false;
+  // A homogeneous rectangular block has the same projected density as the sum
+  // of its aligned unit columns. Reject the entire block before expanding it.
+  if (!withinFloorLoadLimit(context.container, box, state.placements)) return false;
   const units = unitsOf(block, candidate.x, candidate.y, candidate.z);
 
   // 바닥에서 생성되는 동일 SKU 블록은 safeLayers()로 내부 기둥의 층수/상부하중을 제한한다.
@@ -418,13 +439,13 @@ function candidateList(state: State, context: Context, allowSingles: boolean) {
       const bFrontier = frontier !== null && b.z <= TOUCH && Math.abs(b.x - frontier) <= TOUCH ? 0 : 1;
       return aFrontier - bFrontier || a.z - b.z || a.x - b.x || spaceVolume(b) - spaceVolume(a) || a.y - b.y;
     })
-    .slice(0, MAX_SPACES);
+    .slice(0, context.budget.maxSpaces);
 
   for (const space of spaces) {
     for (const item of context.cargo) {
       const left = state.remaining.get(item.id) ?? 0;
       if (left <= 0) continue;
-      for (const block of blocksFor(item, left, space, allowSingles)) {
+      for (const block of blocksFor(item, left, space, allowSingles, context.container, context.budget.maxVariants)) {
         for (const x of xOptionsFor(space, block, state.placements)) {
           for (const y of yOptionsFor(space, block, state.placements)) {
             const candidate: Candidate = { block, space, x, y, z: space.z, score: 0 };
@@ -448,7 +469,7 @@ function candidateList(state: State, context: Context, allowSingles: boolean) {
       || a.x - b.x
       || a.y - b.y,
     )
-    .slice(0, MAX_CANDIDATES);
+    .slice(0, context.budget.maxCandidates);
 }
 
 function intersects(space: Space, p: Placement) {
@@ -630,7 +651,7 @@ function trim(states: State[], context: Context) {
       || b.usedVolumeM3 - a.usedVolumeM3
       || b.loadedCount - a.loadedCount,
     )
-    .slice(0, BEAM_WIDTH);
+    .slice(0, context.budget.beamWidth);
 }
 
 function phase(initial: State[], context: Context, allowSingles: boolean) {
@@ -652,16 +673,18 @@ function phase(initial: State[], context: Context, allowSingles: boolean) {
   return beam;
 }
 
-export function packByBlockSpaceBeamV2(container: ContainerSpec, cargo: CargoItem[], strategy: BeamPackingStrategy): BeamPackingOutput {
+export function packByBlockSpaceBeamV2(container: ContainerSpec, cargo: CargoItem[], strategy: BeamPackingStrategy, options: BeamPackingOptions = {}): BeamPackingOutput {
   const ordered = [...cargo].sort((a, b) => a.id.localeCompare(b.id));
   const priorities = ordered.map((i) => i.unloadPriority).filter((v): v is number => Number.isFinite(v));
+  const requestedCount = ordered.reduce((sum, i) => sum + i.quantity * Math.max(1, i.demandUnits ?? 1), 0);
   const context: Context = {
+    budget: searchBudget(container, requestedCount, options),
     container,
     cargo: ordered,
     cargoById: new Map(ordered.map((i) => [i.id, i])),
     strategy,
     requestedVolumeM3: ordered.reduce((sum, i) => sum + volumeOfItem(i) * i.quantity, 0),
-    requestedCount: ordered.reduce((sum, i) => sum + i.quantity * Math.max(1, i.demandUnits ?? 1), 0),
+    requestedCount,
     maxUnitWeightKg: Math.max(EPS, ...ordered.map((i) => i.weightKg)),
     unloadMin: priorities.length ? Math.min(...priorities) : 0,
     unloadMax: priorities.length ? Math.max(...priorities) : 0,
@@ -684,10 +707,12 @@ export function packByBlockSpaceBeamV2(container: ContainerSpec, cargo: CargoIte
   const remaining = ordered.flatMap((item) => {
     const quantity = Math.max(0, best.remaining.get(item.id) ?? 0);
     if (!quantity) return [];
+    const floorBlocked = best.loadedWeightKg + item.weightKg <= container.maxPayloadKg + EPS && floorLoadBlocksRemaining(container, item, best.placements, context.cargoById);
     return [{
+      reasonCode: floorBlocked ? 'FLOOR_LOAD_LIMIT' : best.loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS ? 'PAYLOAD_LIMIT' : undefined,
       cargoId: item.id,
       quantity,
-      reason: best.loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS
+      reason: floorBlocked ? FLOOR_LOAD_REASON : best.loadedWeightKg + item.weightKg > container.maxPayloadKg + EPS
         ? '컨테이너 최대 적재 중량을 초과하므로 추가 적재하지 못함'
         : '벽 완성·블록·최대 빈 공간·회전·경계·지지·적층단·상부 허용중량 조건을 동시에 만족하는 안전한 위치를 찾지 못함',
     }];

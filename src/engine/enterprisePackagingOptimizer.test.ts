@@ -172,3 +172,19 @@ describe('optimizeEnterprisePackaging', () => {
     expect(estimate.remaining).toHaveLength(0);
   });
 });
+
+
+describe('unverified strength across family and residual packaging', () => {
+  it('retains safe operational restrictions in both family modes and mixed residual cargo', () => {
+    const unknown = { ...commonBox, maxTopLoadKg: undefined, maxStackLayers: 10, strengthUnverified: true };
+    const products: ProductItem[] = ['A', 'B'].map(id => ({ id, name: id, length: .19, width: .14, height: .09, weightKg: 1, quantity: 5, maxUnitsPerBox: 4, orientationPolicy: 'upright', allowMixedCarton: true }));
+    for (const enabled of [false, true]) {
+      const config = options(true); config.family.enabled = enabled;
+      const plan = optimizeEnterprisePackaging(container, products, [unknown], config);
+      expect(plan.cargo.length).toBeGreaterThan(0);
+      expect(plan.cargo.every(item => item.maxStackLayers === 1 && item.maxTopLoadKg === 0 && item.strengthUnverified)).toBe(true);
+      expect(plan.assignments.every(item => item.maxStackLayers === 1 && item.maxTopLoadKg === 0 && item.strengthStatus === 'design-target')).toBe(true);
+      expect(unknown.maxTopLoadKg).toBeUndefined();
+    }
+  });
+});

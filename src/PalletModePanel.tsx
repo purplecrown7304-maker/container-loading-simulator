@@ -15,6 +15,7 @@ import { palletJobSpec, recordPalletJobSpec } from './palletJobSpecs';
 import { resolvePalletType, subscribePalletTypeSelection } from './palletTypeSelection';
 import { clearPalletSnapshot, publishPalletSnapshot, readPalletSnapshot } from './palletSnapshotStore';
 import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT } from './autoCertification';
+import { cargoStackRestrictions } from './cargoStackRestrictions';
 
 export type PalletViewerScene = LoadingViewerProps & { inputKey: string };
 type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number; mode?: 'pallets' | 'mixed'; inputKey: string; onSceneChange: (scene: PalletViewerScene | null) => void; onRunningChange: (running: boolean) => void };
@@ -74,6 +75,10 @@ function PalletContents({ pallet, cargo, onClose, modelKey }: { pallet: PalletLo
     return [...map.entries()];
   }, [pallet]);
   const maxTop = Math.max(pallet.z, ...pallet.cargoPlacements.map((box) => box.z + box.height));
+  const restrictions = cargoStackRestrictions(groups.flatMap(([id, quantity]) => {
+    const item = cargo.find(candidate => candidate.id === id);
+    return item ? [{ ...item, quantity }] : [];
+  }));
 
   return (
     <div className="pallet-content-popover" onContextMenu={(event) => event.preventDefault()}>
@@ -91,6 +96,11 @@ function PalletContents({ pallet, cargo, onClose, modelKey }: { pallet: PalletLo
         <div><span>적재 높이</span><strong>{Math.round((maxTop - pallet.z) * 1000)} mm</strong></div>
       </div>
       <PalletMiniPreview pallet={pallet} modelKey={modelKey} />
+      {restrictions.length > 0 && <section aria-label="이 팔레트의 박스 적층 제한">
+        <h4>위로 더 쌓을 수 없는 박스</h4>
+        {restrictions.map((entry, index) => <p key={index}><b>{entry.name}</b><br />{entry.limits}<br /><small>{entry.reason}</small></p>)}
+        <p>현재 적용된 제한입니다. 박스 관리에서 실제 허용하중·최대 적층단을 확인한 뒤 포장 확정과 자동 적재를 다시 실행하세요.</p>
+      </section>}
       <h4>팔레트 속 내용</h4>
       <div className="pallet-content-list">
         {groups.map(([id, count]) => {

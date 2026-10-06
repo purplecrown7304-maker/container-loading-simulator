@@ -1,3 +1,6 @@
+import { scenarioSupportRatio } from './support';
+import { packByHeavyInnerBlocks } from './heavyInnerBlockPacker';
+import { usesHeavyInnerLoading, centerHeavyInnerLaterally } from './heavyInnerPolicy';
 import { packByBlockSpaceBeamV2, type BeamPackingOutput } from './blockSpaceBeamPackerV2';
 import { centerPlacementsOnContainer } from './containerCentering';
 import { auditLoading } from './loadingAudit';
@@ -6,13 +9,14 @@ import { packByStrictWalls, type StrictWallOutput, type StrictWallStrategy } fro
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 import { assessWeightBalance } from './weightBalance';
 import { fitsEmptyContainer, loadingHeightProfiles, operationalQuality, unloadingObstructions } from './operationalQuality';
+import { balanceLongitudinalWalls, longitudinalMetrics, usesLongitudinalBalancing } from './longitudinalBalance';
 
 const EPS = 1e-9;
 const LARGE_COMPLETED_JOB_COUNT = 120;
 const clamp100 = (value: number) => Math.max(0, Math.min(100, value));
 
 type PackingOutput = StrictWallOutput | BeamPackingOutput;
-export type HybridPackingEngine = 'strict-wall' | 'ems-beam-v2';
+export type HybridPackingEngine = 'heavy-inner-block' | 'strict-wall' | 'ems-beam-v2';
 
 export type HybridCandidateAssessment = {
   engine: HybridPackingEngine;
@@ -25,17 +29,19 @@ export type HybridCandidateAssessment = {
   floorDistributionScore: number;
   unloadingScore: number;
   validationIssueCount: number;
+  longitudinalDeviation: number;
+  longitudinalHalfRatio: number;
   output: PackingOutput;
 };
 
-function toCenteredResult(container: ContainerSpec, cargo: CargoItem[], output: PackingOutput): LoadingResult {
-  const placements = centerPlacementsOnContainer(container, output.placements);
+function toCenteredResult(container: ContainerSpec, cargo: CargoItem[], output: PackingOutput, engine: HybridPackingEngine): LoadingResult {
+  const placements = engine === 'heavy-inner-block' ? centerHeavyInnerLaterally(container, output.placements) : centerPlacementsOnContainer(container, output.placements);
   return {
     placements,
     remaining: output.remaining,
     loadedWeightKg: output.loadedWeightKg,
     usedVolumeM3: output.usedVolumeM3,
-    validationIssues: auditLoading(container, cargo, placements),
+    validationIssues: auditLoading(container, cargo, placements,{minimumSupportRatio:scenarioSupportRatio(container)}),
     autoCorrections: [],
   };
 }
@@ -85,7 +91,8 @@ function scoreCandidate(
   engine: HybridPackingEngine,
   output: PackingOutput,
 ): HybridCandidateAssessment {
-  const result = toCenteredResult(container, cargo, output);
+  if (engine !== 'heavy-inner-block' && usesLongitudinalBalancing(container)) output = { ...output, placements: balanceLongitudinalWalls(container, cargo, output.placements) };
+  const result = toCenteredResult(container, cargo, output, engine);
   const requestedCount = Math.max(1, cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0));
   const containerVolume = Math.max(EPS, container.length * container.width * container.height);
   const fillRatePct = clamp100(result.usedVolumeM3 / containerVolume * 100);
@@ -94,6 +101,11 @@ function scoreCandidate(
   const floorScore = floorDistributionScore(container, result);
   const unloadScore = unloadingArrangementScore(container, cargo, result);
   const shape = operationalQuality(container, result.placements);
+  const longitudinal = longitudinalMetrics(container, result.placements);
+  const configuredRatio = container.weightLimitedBalanceRatio;
+  const ratio = Number.isFinite(configuredRatio) && (configuredRatio ?? 0) > 0 ? configuredRatio! : 1;
+  const weightLimited = usesLongitudinalBalancing(container)
+    && result.loadedWeightKg / Math.max(EPS, container.maxPayloadKg) > result.usedVolumeM3 / containerVolume * ratio;
 
   // Bounds/collision and payload are hard gates. A candidate cannot buy its way out of a
   // physical violation with a better utilization score.
@@ -104,7 +116,7 @@ function scoreCandidate(
     if (strategy === 'capacity') {
       score = fillRatePct * 0.35
         + loadedRatePct * 0.35
-        + (1 - shape.footprint) * 30;
+        + (weightLimited ? quality.balanceScore * 0.3 : (1 - shape.footprint) * 30);
     } else if (strategy === 'stability') {
       score = fillRatePct * 0.12
         + loadedRatePct * 0.18
@@ -138,6 +150,8 @@ function scoreCandidate(
     floorDistributionScore: floorScore,
     unloadingScore: unloadScore,
     validationIssueCount: result.validationIssues.length,
+    longitudinalDeviation: longitudinal.deviation,
+    longitudinalHalfRatio: longitudinal.halfRatio,
     output,
   };
 }
@@ -160,6 +174,12 @@ function rankCandidates(
           - unloadingObstructions(cargo, b.output.placements);
         if (obstructionDiff) return obstructionDiff;
       }
+      if (usesLongitudinalBalancing(container)) {
+        const deviation = a.longitudinalDeviation - b.longitudinalDeviation;
+        if (Math.abs(deviation) > EPS) return deviation;
+        const concentration = a.longitudinalHalfRatio - b.longitudinalHalfRatio;
+        if (Math.abs(concentration) > EPS) return concentration;
+      }
       const scoreDiff = b.score - a.score;
       if (Number.isFinite(scoreDiff) && Math.abs(scoreDiff) > EPS) return scoreDiff;
       return b.output.placements.length - a.output.placements.length
@@ -169,7 +189,8 @@ function rankCandidates(
 }
 
 /**
- * Deterministic solver portfolio for DIRECT BOX loading.
+ * Direct boxes use the owner-approved heavy-inner work-sequence solver.
+ * The legacy deterministic portfolio remains available for rigid pallet callers.
  *
  * StrictWall is strong at dense homogeneous walls. EMS Beam V2 is strong at safe residual
  * space reuse. The portfolio lets both compete on the same strategy score instead of
@@ -180,6 +201,9 @@ export function compareHybridCandidates(
   cargo: CargoItem[],
   strategy: StrictWallStrategy,
 ): HybridCandidateAssessment[] {
+  if (usesHeavyInnerLoading(container, cargo)) return rankCandidates(container, cargo, strategy, [
+    { engine: 'heavy-inner-block', output: packByHeavyInnerBlocks(container, cargo, strategy) },
+  ]);
   return rankCandidates(container, cargo, strategy, [
     { engine: 'strict-wall', output: packByStrictWalls(container, cargo, strategy) },
     { engine: 'ems-beam-v2', output: packByBlockSpaceBeamV2(container, cargo, strategy) },
@@ -191,6 +215,7 @@ export function packByHybridOptimizer(
   cargo: CargoItem[],
   strategy: StrictWallStrategy,
 ): PackingOutput {
+  if (usesHeavyInnerLoading(container, cargo)) return packByHeavyInnerBlocks(container, cargo, strategy);
   // Impossible units must not hold the latest unloading stop open forever or
   // trigger a costly residual search for a large otherwise-complete shipment.
   const eligible = cargo.filter(item => fitsEmptyContainer(container, item));

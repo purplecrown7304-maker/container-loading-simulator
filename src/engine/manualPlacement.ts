@@ -1,7 +1,15 @@
+import { preflightCargoInput } from './inputPreflight';
+import { decorateLimitReview, resolveLimitReview, reviewPlacementBlockers } from './limitReview';
 import { isARules, placementOrientation, rotateHorizontal, aConfig } from './loadingRuleset';
-import { validateAPlan, aCandidateAllowed } from './loadSimAdapter';
-import { isInsideContainer, overlaps, validatePlacements } from './constraints';
+import { aCandidateAllowed } from './loadSimAdapter';
+import { isInsideContainer, overlaps } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
+import { auditLoading } from './loadingAudit';
+import { validateOperationalLoading } from './operationalValidator';
+import { hasAdequateSupport, supportContactArea } from './support';
+import { boxSecuringRequirements } from './securingBudget';
+import { readSecuringMaterialSettings } from '../securingMaterialSettings';
+import { heavyInnerConflictFindings } from './heavyInnerPolicy';
 import { analyzeFloorLoad } from './floorLoad';
 import { assessWeightBalance } from './weightBalance';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
@@ -27,8 +35,7 @@ function overlapArea(a: Placement, b: Placement): number {
 export function supportsOtherPlacement(index: number, placements: Placement[]): boolean {
   const base = placements[index];
   if (!base) return false;
-  const top = base.z + base.height;
-  return placements.some((p,i) => i !== index && Math.abs(p.z-top) <= EPS && overlapArea(base,p) > EPS);
+  return placements.some((p,i) => i !== index && supportContactArea(base,p) > 0);
 }
 
 function fullySupported(candidate: Placement, placements: Placement[]): boolean {
@@ -56,7 +63,9 @@ export function assessManualMove(
 ): ManualMoveAssessment {
   const original = source.placements[placementIndex];
   if (!original) throw new Error('선택한 박스를 찾을 수 없습니다.');
-  const item = cargo.find(c => c.id === original.cargoId);
+  const review = resolveLimitReview(container,cargo);
+  const reviewing = review.status === 'active';
+  const item = review.cargo.find(c => c.id === original.cargoId);
   if (!item) throw new Error(`품목 정보가 없습니다: ${original.cargoId}`);
 
   const others = source.placements.filter((_,i) => i !== placementIndex);
@@ -72,24 +81,38 @@ export function assessManualMove(
   if (supportsOtherPlacement(placementIndex, source.placements)) reasons.push('이 박스는 위 화물을 지지하고 있어 먼저 이동할 수 없습니다.');
   if (!isInsideContainer(container,candidate)) reasons.push('컨테이너 벽·바닥·천장 경계를 벗어납니다.');
   if (others.some(p => overlaps(candidate,p,isARules(container)?aConfig(container).epsilon/1000:undefined))) reasons.push('다른 화물과 충돌합니다.');
-  if (!fullySupported(candidate,others)) reasons.push('바닥 또는 하부 박스가 전체 바닥면을 지지하지 못합니다.');
-  const cargoById = new Map(cargo.map(c => [c.id,c]));
+  // Manual edits intentionally require a full footprint; final acceptance still
+  // runs below, with the same hard rules used when restoring the saved result.
+  if (!(isARules(container) ? fullySupported(candidate,others) : hasAdequateSupport(candidate,others,undefined,reviewing && container.limitReview?.minimumSupportRatio !== undefined ? review.minimumSupportRatio : 1))) reasons.push('바닥 또는 하부 박스가 전체 바닥면을 지지하지 못합니다.');
+  const cargoById = new Map(review.cargo.map(c => [c.id,c]));
   if (isARules(container) ? !aCandidateAllowed(container,cargo,others,candidate) : !canPlaceByStackingRules(item,candidate,others,cargoById)) reasons.push('최대 적층단 또는 상부 허용중량 조건을 만족하지 않습니다.');
 
   const placements = [...others];
   placements.splice(Math.min(placementIndex, placements.length),0,candidate);
-  const validationIssues = validatePlacements(container,placements);
-  if (validationIssues.length) reasons.push('최종 충돌/경계 검증에서 문제가 발견됐습니다.');
-  const operationalFindings = isARules(container) ? validateAPlan(container,cargo,placements) : source.operationalFindings;
-  if(isARules(container)) reasons.push(...(operationalFindings??[]).filter(f=>f.severity==='error').map(f=>f.message));
-  const result: LoadingResult = { ...source, placements, validationIssues, operationalFindings };
+  const validationIssues = auditLoading(container,container.limitReview === undefined ? cargo : preflightCargoInput(cargo).cargo,placements);
+  const securingLevel = source.securingBudget?.level ?? 1;
+  const requiredWeightKg = boxSecuringRequirements(placements.length,securingLevel,readSecuringMaterialSettings()).weightKg;
+  const loadedWeightKg = placements.reduce((sum, placement) => sum + placement.weightKg,0);
+  if (loadedWeightKg + requiredWeightKg > container.maxPayloadKg + 1e-6) validationIssues.push({
+    type:'PAYLOAD',message:'필수 고정 자재를 포함한 운송 중량이 허용 적재 중량을 초과합니다.',placementIndexes:[],
+  });
+  if (container.limitReview === undefined) reasons.push(...validationIssues.map(issue => issue.message));
+  // A prior conflict records that the source used the unloading strategy even
+  // when no explicit container policy was saved. Edits preserve that provenance.
+  const conflictStrategy = source.operationalFindings?.some(f => f.code === 'HEAVY_INNER_UNLOAD_CONFLICT') ? 'unloading' : 'capacity';
+  const operationalFindings = [...validateOperationalLoading(container,cargo,placements),
+    ...heavyInnerConflictFindings(container,cargo,placements,conflictStrategy)];
+  if (container.limitReview === undefined) reasons.push(...operationalFindings.filter(finding => finding.severity === 'error').map(finding => finding.message));
+  else reasons.push(...reviewPlacementBlockers(container,cargo,placements,loadedWeightKg+requiredWeightKg));
+  const result: LoadingResult = decorateLimitReview(container,cargo,{ ...source, placements, validationIssues, operationalFindings, loadedWeightKg,
+    securingBudget:{level:securingLevel,reservedWeightKg:Math.max(source.securingBudget?.reservedWeightKg ?? 0,requiredWeightKg),requiredWeightKg,totalTransportWeightKg:loadedWeightKg+requiredWeightKg} });
   const beforeQuality = assessWeightBalance(container,source);
   const afterQuality = assessWeightBalance(container,result);
   const beforeFloor = analyzeFloorLoad(container,source,12,4);
   const afterFloor = analyzeFloorLoad(container,result,12,4);
 
   return {
-    valid: reasons.length === 0, reasons, candidate, result,
+    valid: reasons.length === 0, reasons: [...new Set(reasons)], candidate, result,
     before: { quality: beforeQuality.loadingQualityScore, maxFloorLoadKgPerM2: beforeFloor.maxKgPerM2, center: beforeQuality.centerOfGravity },
     after: { quality: afterQuality.loadingQualityScore, maxFloorLoadKgPerM2: afterFloor.maxKgPerM2, center: afterQuality.centerOfGravity },
   };

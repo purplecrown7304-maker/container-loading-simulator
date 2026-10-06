@@ -1,13 +1,15 @@
+import { resolveLimitReview, reviewPlacementBlockers } from './engine/limitReview';
 import type { InertiaAnimationResult, InertiaSecuringProfile } from './engine/inertiaSimulation';
 import { runInertiaAnimation } from './engine/inertiaSimulation';
 import type { PhysicsScenario, PhysicsSupport } from './engine/physicsValidation';
-import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
+import type { CargoItem, ContainerSpec, LimitReviewConfig, LoadingResult, Placement } from './engine/types';
 import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { readSecuringMaterialSettings, type SecuringMaterialSettings } from './securingMaterialSettings';
 import { palletBandingLengthM } from './palletBanding';
+import { boxSecuringRequirements } from './engine/securingBudget';
 
 export type InertiaScenario = Exclude<PhysicsScenario, 'settle'>;
-export type CertificationStatus = 'passed' | 'failed';
+export type CertificationStatus = 'passed' | 'failed' | 'review';
 export type SecuringLevel = 0 | 1 | 2 | 3;
 
 export type SecuringUsage = {
@@ -46,6 +48,8 @@ export type InertiaReinforcementAttempt = {
 };
 
 export type InertiaCertification = {
+  /** Persistent review provenance: never eligible for dispatch/PASS. */
+  limitReview?: LimitReviewConfig;
   /** Discloses a bounded or operator-stopped optional layout search on the work order. */
   searchNotice?: string;
   status: CertificationStatus;
@@ -159,6 +163,7 @@ export function createPhysicsTargetSignature(target: PhysicsTarget) {
     .map(item => [item.cargoId, item.quantity, item.reason]);
   return JSON.stringify({
     physicsModel: 'restraint-v5-unit-load',
+    limitReview: target.container.limitReview ?? target.result.limitReview?.config,
     rulesMetadata: target.container.rules ? { cargo: target.cargo, ruleset: target.result.ruleset, orientation: target.result.placements.map(p=>[p.unitId,p.orientation]) } : undefined,
     bandingLayout: target.mode === 'pallets' ? 'grid-v1' : undefined,
     mode: target.mode,
@@ -282,10 +287,10 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
       }
     });
   } else if (target.mode === 'boxes' && level > 0) {
-    const boxCount = Math.max(1, target.result.placements.length);
-    antiSlipMats = Math.max(2, Math.ceil(boxCount / (level === 1 ? 30 : 20)));
-    dunnageBlocks = Math.max(level === 1 ? 2 : level === 2 ? 4 : 6, Math.ceil(boxCount / 80) * 2);
-    loadBars = level >= 2 ? 2 : 0;
+    const required = boxSecuringRequirements(target.result.placements.length, level as 1 | 2 | 3, unitWeights);
+    antiSlipMats = required.antiSlipMats;
+    dunnageBlocks = required.dunnageBlocks;
+    loadBars = required.loadBars;
   }
 
   const estimatedAddedWeightKg =
@@ -323,12 +328,20 @@ function payloadWithinLimit(target: PhysicsTarget, usage: SecuringUsage) {
   return target.result.loadedWeightKg + usage.estimatedAddedWeightKg <= target.container.maxPayloadKg + 1e-9;
 }
 
+/** Numerical review is allowed only for a valid, scenario-feasible direct-box layout. */
+export function isNumericalLimitReviewTarget(target: PhysicsTarget): boolean {
+  return target.mode === 'boxes' && resolveLimitReview(target.container, target.cargo).status === 'active'
+    && reviewPlacementBlockers(target.container, target.cargo, target.result.placements).length === 0;
+}
+
 export async function runInertiaCertification(
   target: PhysicsTarget,
   onProgress?: (progress: CertificationProgress) => void,
   onScenarioResult?: (result: InertiaAnimationResult, level: SecuringLevel) => void,
   shouldCancel?: () => boolean,
 ): Promise<InertiaCertification> {
+  const limitReview = target.container.limitReview ?? target.result.limitReview?.config;
+  const numericalReview = isNumericalLimitReviewTarget(target);
   let finalResults: Partial<Record<InertiaScenario, InertiaAnimationResult>> = {};
   const minimumLevel = minimumSecuringLevelForMode(target.mode);
   let finalLevel: SecuringLevel = minimumLevel;
@@ -336,11 +349,18 @@ export async function runInertiaCertification(
 
   for (let rawLevel = minimumLevel; rawLevel <= 3; rawLevel += 1) {
     if (shouldCancel?.()) throw new Error('INERTIA_CERTIFICATION_CANCELLED');
+    if (limitReview && !numericalReview) break;
     const level = rawLevel as SecuringLevel;
     const securing = buildSecuringUsage(target, level);
+    const scenarioPayloadOk = !numericalReview || target.result.loadedWeightKg + securing.estimatedAddedWeightKg
+      <= (limitReview?.maxPayloadKg ?? target.container.maxPayloadKg) + 1e-9;
+    if (!scenarioPayloadOk) {
+      attempts.push({ level, levelLabel: securing.levelLabel, payloadWithinLimit: payloadWithinLimit(target, securing), passed: false, scenarios: [] });
+      break;
+    }
     finalLevel = level;
     const payloadOk = payloadWithinLimit(target, securing);
-    if (!payloadOk) {
+    if (!payloadOk && !numericalReview) {
       attempts.push({ level, levelLabel: securing.levelLabel, payloadWithinLimit: false, passed: false, scenarios: [] });
       finalResults = {};
       break;
@@ -373,7 +393,7 @@ export async function runInertiaCertification(
       onScenarioResult?.(result, level);
       if (!isInertiaStable(result, target.mode)) {
         allPassed = false;
-        break;
+        if (!numericalReview) break;
       }
     }
 
@@ -392,8 +412,8 @@ export async function runInertiaCertification(
     attempts.push({
       level,
       levelLabel: securing.levelLabel,
-      payloadWithinLimit: true,
-      passed: levelPassed,
+      payloadWithinLimit: payloadOk,
+      passed: levelPassed && payloadOk,
       scenarios: scenarioAttempts,
     });
 
@@ -412,7 +432,8 @@ export async function runInertiaCertification(
   const passed = failedScenarios.length === 0 && results.length === SCENARIOS.length && payloadOk;
 
   const certification: InertiaCertification = {
-    status: passed ? 'passed' : 'failed',
+    status: passed ? (limitReview ? 'review' : 'passed') : 'failed',
+    limitReview,
     mode: target.mode,
     targetSignature: createPhysicsTargetSignature(target),
     testedAt: new Date().toISOString(),

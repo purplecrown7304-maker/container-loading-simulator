@@ -13,6 +13,7 @@ import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { readShipmentInstructionSnapshot } from './shipmentInstruction';
 import { readTransportEquipment, type TransportEquipment } from './transportEquipment';
 import { readDiagnosticTrace, runtimeSnapshot } from './runtimeDiagnostics';
+import { cartonStrengthChecks } from './cargoStackRestrictions';
 
 export type DiagnosticSeverity = 'OK' | 'WARNING' | 'CRITICAL';
 export type DiagnosticCheck = {
@@ -271,8 +272,12 @@ function packagingChecks(cargo: CargoItem[]): DiagnosticCheck[] {
     const quantityMismatch = familyQuantity !== line.boxesNeeded;
     const weightMismatch = family.some(item => {
       const partial = item.id.endsWith('-PARTIAL') || (line.boxesNeeded === 1 && line.partialUnits != null);
-      const expectedWeight = partial && line.partialContentWeightKg != null ? line.partialContentWeightKg : line.contentWeightKg;
-      return expectedWeight != null && Math.abs(item.weightKg - expectedWeight) > 0.01;
+      const expectedContent = partial && line.partialContentWeightKg != null ? line.partialContentWeightKg : line.contentWeightKg;
+      const tareWeight = line.packagingMode === 'box' && line.contentWeightKg != null
+        ? Math.max(0, line.grossWeightKg - line.contentWeightKg) : 0;
+      const expectedWeight = expectedContent != null ? expectedContent + tareWeight : line.grossWeightKg;
+      return Math.abs(item.weightKg - expectedWeight) > 0.01
+        || (item.contentWeightKg != null && expectedContent != null && Math.abs(item.contentWeightKg - expectedContent) > 0.01);
     });
     const critical = dimensionMismatch || productMismatch || boxMismatch || quantityMismatch || weightMismatch;
     const warning = !critical && (metadataMissing || missingBoxIdentity);
@@ -284,7 +289,7 @@ function packagingChecks(cargo: CargoItem[]): DiagnosticCheck[] {
         : productMismatch ? '자동 적재 화물의 원 제품 코드가 포장 확정 정보와 다릅니다.'
           : boxMismatch ? '자동 적재 화물의 박스 코드가 포장 확정 박스와 다릅니다.'
             : quantityMismatch ? `포장 필요 ${line.boxesNeeded}개 / 자동 적재 입력 ${familyQuantity}개로 수량이 다릅니다.`
-              : weightMismatch ? '박스 안 실제 제품 총중량이 포장 확정 정보와 다릅니다.'
+              : weightMismatch ? '박스 자중 포함 총중량 또는 내용물 중량이 포장 확정 정보와 다릅니다.'
                 : metadataMissing || missingBoxIdentity ? '규격은 일치하지만 제품/박스 추적 메타데이터가 일부 누락됐습니다.'
                   : '제품·박스·규격·수량·중량이 포장 확정 정보와 일치합니다.',
       expected: line.packagingMode === 'box' ? { productId: line.productId, boxId: line.boxId, boxesNeeded: line.boxesNeeded } : { productId: line.productId, boxesNeeded: line.boxesNeeded },
@@ -393,6 +398,7 @@ export function buildConsistencyReport(container: ContainerSpec, cargo: CargoIte
     ...identityChecks(),
     ...packagingChecks(cargo),
     ...quantityChecks(cargo, result),
+    ...cartonStrengthChecks(container, cargo, result.placements),
     ...validationChecks(container, cargo, result),
     {
       id: 'loaded-weight-recalculation',

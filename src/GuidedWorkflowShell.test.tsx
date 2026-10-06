@@ -7,6 +7,10 @@ import { writeProductSelection } from './productWorkflow';
 import { publishWorkflowPreview, readWorkflowPreview } from './workflowPreview';
 import { publishGuidedLoadingUnit } from './guidedLoadingUnitState';
 import type { ContainerSpec, LoadingResult } from './engine/types';
+import { buildSecuringUsage, clearLatestInertiaCertification, createPhysicsTargetSignature, type InertiaCertification } from './inertiaCertification';
+import { clearPhysicsTarget, publishPhysicsTarget, type PhysicsTarget } from './physicsTarget';
+import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
+import { publishVerificationCancelled } from './workflowVerificationState';
 
 // Keep the actual shell, stage components, product/packaging stores and modal lifecycle.
 // No renderer or packing/physics worker is needed to exercise DOM/confirmation ownership.
@@ -35,7 +39,7 @@ async function settle() { await act(async () => { await new Promise(resolve => s
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  localStorage.clear(); sessionStorage.clear(); delete latest.__containerLoadingLatestResult;
+  localStorage.clear(); sessionStorage.clear(); delete latest.__containerLoadingLatestResult; clearLatestInertiaCertification(); clearPhysicsTarget();
   publishGuidedLoadingUnit(null); publishWorkflowPreview(null); commits = 0;
   localStorage.setItem('container-loading-product-packaging-v1:guest', JSON.stringify({ container,
     products: [{ id: 'RETAIN-1', name: 'Retained direct product', length: .2, width: .15, height: .1, weightKg: 1, quantity: 3, requiresBoxPackaging: false }], boxes: [], settings: { allowCustom: false },
@@ -66,6 +70,21 @@ async function prepareStrategy() {
   await click(capacity);
   expect(capacity.getAttribute('aria-checked')).toBe('true');
   expect(action().disabled).toBe(false);
+}
+
+function publishCertification(overrides: Partial<InertiaCertification> = {}) {
+  const detail = latest.__containerLoadingLatestResult!;
+  const target: PhysicsTarget = { mode: 'boxes', ...detail };
+  publishPhysicsTarget(target);
+  const certification: InertiaCertification = {
+    status: 'passed', mode: 'boxes', targetSignature: createPhysicsTargetSignature(target), testedAt: new Date(0).toISOString(),
+    securing: buildSecuringUsage(target, 1), testedScenarios: 3, passedScenarios: 3, failedScenarios: [],
+    maxHorizontalShiftM: .005, maxTiltDeg: .5, payloadWithinLimit: true,
+    results: Object.fromEntries(['acceleration', 'braking', 'cornering'].map(scenario => [scenario, { scenario, fps: 30, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: .005, maxTiltDeg: .5 }])),
+    ...overrides,
+  };
+  (window as Window & { __containerLoadingLatestCertification?: InertiaCertification }).__containerLoadingLatestCertification = certification;
+  window.dispatchEvent(new CustomEvent('container-loading:inertia-certification-result', { detail: certification }));
 }
 
 it('settles with all retained stages, leaves the main canvas untouched and survives repeated modal navigation', async () => {
@@ -129,7 +148,7 @@ it('keeps completed results and canvas available through result-modal close/reop
   latest.__containerLoadingLatestResult = { ...stored, result };
   await act(async () => {
     window.dispatchEvent(new CustomEvent('container-loading:result', { detail: latest.__containerLoadingLatestResult }));
-    window.dispatchEvent(new CustomEvent('container-loading:inertia-certification-result', { detail: { mode: 'boxes', status: 'passed' } }));
+    publishCertification();
   });
   const canvas = document.querySelector('canvas');
   expect(action().textContent).toContain('결과 확인');
@@ -158,9 +177,44 @@ it('keeps STEP 06 locked when inertia certification completes with failed status
   latest.__containerLoadingLatestResult = { ...stored, result };
   await act(async () => {
     window.dispatchEvent(new CustomEvent('container-loading:result', { detail: latest.__containerLoadingLatestResult }));
-    window.dispatchEvent(new CustomEvent('container-loading:inertia-certification-result', { detail: { mode: 'boxes', status: 'failed' } }));
+    publishCertification({ status: 'failed', testedScenarios: 0, passedScenarios: 0, payloadWithinLimit: false, results: {} });
   });
   expect(step(6).disabled).toBe(true);
+  expect(document.querySelector('.guided-status-row')?.textContent).toContain('검증 실패');
+  expect(document.querySelector('.guided-job-summary [role=alert]')?.textContent).toContain('보강재 추가중량');
   expect(action().textContent).toContain('최종 적재 진행');
   expect(action().textContent).not.toContain('결과 확인');
+});
+
+
+it('distinguishes unrun, running, failed and cancelled; retry clears the reason and input changes invalidate it', async () => {
+  await mount(); await prepareStrategy(); await click(action());
+  const state = () => document.querySelector('.guided-status-row')?.getAttribute('data-verification-status');
+  expect(state()).toBe('unrun');
+  await act(async () => { window.dispatchEvent(new CustomEvent('test:physics-progress')); });
+  expect(state()).toBe('running');
+  await act(async () => { window.dispatchEvent(new CustomEvent('test:physics-error', { detail: { error: '운영 규칙 검증 실패 2건' } })); });
+  expect(state()).toBe('failed');
+  expect(document.querySelector('.guided-job-summary [role=alert]')?.textContent).toContain('운영 규칙 검증 실패 2건');
+  expect(step(6).disabled).toBe(true);
+  await act(async () => { window.dispatchEvent(new CustomEvent('test:physics-progress')); });
+  expect(state()).toBe('running');
+  expect(document.querySelector('.guided-job-summary [role=alert]')).toBeNull();
+  await act(async () => { publishVerificationCancelled(); });
+  expect(state()).toBe('cancelled');
+  expect(document.querySelector('.guided-job-summary [role=status]')?.textContent).toContain('취소');
+  await act(async () => window.dispatchEvent(new CustomEvent(WORKFLOW_INPUT_INVALIDATED_EVENT)));
+  expect(state()).toBe('unrun');
+  expect(step(6).disabled).toBe(true);
+});
+
+it('does not unlock STEP 06 for an unverified modal-open event or a stale PASS', async () => {
+  await mount(); await prepareStrategy(); await click(action());
+  await act(async () => window.dispatchEvent(new CustomEvent('container-loading-open-results-modal')));
+  expect(step(6).disabled).toBe(true);
+  const stored = readStoredState()!;
+  latest.__containerLoadingLatestResult = { ...stored, result: { placements: [], remaining: [], validationIssues: [], loadedWeightKg: 0, usedVolumeM3: 0 } };
+  await act(async () => publishCertification({ targetSignature: 'obsolete' }));
+  expect(step(6).disabled).toBe(true);
+  expect(document.querySelector('.guided-status-row')?.getAttribute('data-verification-status')).toBe('unrun');
 });

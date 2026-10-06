@@ -1,7 +1,7 @@
 import { requestDirectWorkOrder } from './directWorkOrderEvents';
 import { runPhysicsValidationSuite, type PhysicsScenario, type PhysicsValidationSuite } from './engine/physicsValidation';
 import { operationalErrors } from './engine/operationalValidator';
-import { createPhysicsTargetSignature, requestCertifiedResults } from './inertiaCertification';
+import { createPhysicsTargetSignature, isNumericalLimitReviewTarget, requestCertifiedResults } from './inertiaCertification';
 import { publishPhysicsTarget, readPhysicsTarget, subscribePhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
 export const FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT = 'container-loading:final-physics-validation-progress';
@@ -79,7 +79,7 @@ async function validateThenCertify(target: PhysicsTarget) {
   const signature = createPhysicsTargetSignature(target);
   const physicsWindow = window as FinalPhysicsWindow;
   const hardFindings = operationalErrors(target.result.operationalFindings ?? []);
-  if (hardFindings.length) {
+  if (hardFindings.length && !isNumericalLimitReviewTarget(target)) {
     physicsWindow.__containerLoadingFinalPhysicsRunning = false;
     clearFinalPhysicsRecord();
     window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, {

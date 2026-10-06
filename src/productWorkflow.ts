@@ -160,9 +160,10 @@ function quickAssignment(container: ContainerSpec, product: CompanyProductItem, 
     simulatedLoadedBoxes: 0,
     maxStackLayers,
     recommendedStackLayers: geometryStack,
-    maxTopLoadKg: source === 'generated' ? 0 : box.maxTopLoadKg,
+    maxTopLoadKg: source === 'generated' || box.strengthUnverified ? 0 : box.maxTopLoadKg,
     requiredTopLoadKg,
-    strengthStatus: source === 'generated' ? 'design-target' : 'catalog',
+    strengthStatus: source === 'generated' || box.strengthUnverified ? 'design-target' : 'catalog',
+    strengthUnverified: source === 'generated' || box.strengthUnverified === true,
     score,
     boxUnitCost: box.unitCost,
   };
@@ -187,6 +188,7 @@ function boxCatalogFingerprint(boxes: BoxCatalogItem[]) {
     box.maxGrossWeightKg,
     box.maxStackLayers ?? '',
     box.maxTopLoadKg ?? '',
+    box.strengthUnverified === true,
     box.unitCost ?? '',
   ].join(':')).join('|');
   boxCatalogFingerprintCache.set(boxes, fingerprint);
@@ -378,6 +380,7 @@ export function cargoFromProductPackaging(
     if (!assignment) continue;
 
     const unitsPerBox = Math.max(1, assignment.unitsPerBox);
+    const cartonTareWeightKg = Math.max(0, assignment.grossWeightKg - assignment.unitsPerBox * product.weightKg);
     const fullBoxCount = Math.floor(product.quantity / unitsPerBox);
     const remainingUnits = product.quantity % unitsPerBox;
     const addPackedBoxes = (id: string, quantity: number, unitsInBox: number, suffix = '') => {
@@ -389,11 +392,12 @@ export function cargoFromProductPackaging(
         length: assignment.outerLength,
         width: assignment.outerWidth,
         height: assignment.outerHeight,
-        // 적재 화물의 박스 무게는 빈 박스 자중이 아니라 실제 담긴 제품들의 총중량으로 사용한다.
-        weightKg: contentWeightKg,
+        // 잔량박스도 같은 빈 박스를 사용하므로 내용물과 별도로 자중을 포함한다.
+        weightKg: contentWeightKg + cartonTareWeightKg,
         quantity,
         maxStackLayers: assignment.maxStackLayers,
         maxTopLoadKg: assignment.maxTopLoadKg,
+        strengthUnverified: assignment.strengthUnverified,
         stackLimitOrigin: { kind: assignment.strengthStatus === 'design-target' ? 'unverified-carton' : 'box-catalog', maxStackLayers: assignment.maxStackLayers, maxTopLoadKg: assignment.maxTopLoadKg },
         boxId: assignment.boxId,
         boxName: assignment.boxName,

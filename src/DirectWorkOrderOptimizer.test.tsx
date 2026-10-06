@@ -3,14 +3,15 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DirectWorkOrderOptimizer from './DirectWorkOrderOptimizer';
 import { requestDirectWorkOrder } from './directWorkOrderEvents';
-import { buildDirectResultReoptimizationCandidatesAsync } from './engine/finalResultOptimization';
+import { buildDirectResultReoptimizationCandidatesAsync, buildSecuringPayloadAdjustmentCandidateAsync } from './engine/finalResultOptimization';
 import { buildSecuringUsage, createPhysicsTargetSignature, runInertiaCertification, type InertiaCertification } from './inertiaCertification';
 import { completeCertificationForWorkOrder } from './inertiaWorkOrderPolicy';
 import { clearPhysicsTarget, publishPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { openLoadingReport } from './report';
 import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
+import { WORKFLOW_VERIFICATION_CANCELLED_EVENT } from './workflowVerificationState';
 
-vi.mock('./engine/finalResultOptimization', async importOriginal => ({ ...await importOriginal<object>(), buildDirectResultReoptimizationCandidatesAsync: vi.fn() }));
+vi.mock('./engine/finalResultOptimization', async importOriginal => ({ ...await importOriginal<object>(), buildDirectResultReoptimizationCandidatesAsync: vi.fn(), buildSecuringPayloadAdjustmentCandidateAsync: vi.fn() }));
 vi.mock('./inertiaCertification', async importOriginal => ({ ...await importOriginal<object>(), runInertiaCertification: vi.fn() }));
 vi.mock('./inertiaWorkOrderPolicy', async importOriginal => ({ ...await importOriginal<object>(), completeCertificationForWorkOrder: vi.fn() }));
 vi.mock('./report', () => ({ openLoadingReport: vi.fn() }));
@@ -34,6 +35,7 @@ beforeEach(async () => {
   vi.mocked(runInertiaCertification).mockResolvedValue(certification);
   vi.mocked(completeCertificationForWorkOrder).mockResolvedValue(certification);
   vi.mocked(openLoadingReport).mockReturnValue(false);
+  vi.mocked(buildSecuringPayloadAdjustmentCandidateAsync).mockResolvedValue(null);
   vi.mocked(buildDirectResultReoptimizationCandidatesAsync).mockImplementation((_target, _limit, _cancelled, options) => {
     searchSignal = options?.signal;
     options?.onProgress?.({ completed: 0, total: 7, label: '안정성 우선' });
@@ -206,8 +208,11 @@ describe('work-order optimizer recovery', () => {
   });
 
   it('closes immediately on cancel without issuing a report', async () => {
+    const cancelled = vi.fn();
+    window.addEventListener(WORKFLOW_VERIFICATION_CANCELLED_EVENT, cancelled, { once: true });
     await request();
     await click('계산 취소');
+    expect(cancelled).toHaveBeenCalledOnce();
     expect(searchSignal?.aborted).toBe(true);
     expect(openLoadingReport).not.toHaveBeenCalled();
     expect(host.querySelector('[role="dialog"]')).toBeNull();
@@ -229,4 +234,50 @@ describe('work-order optimizer recovery', () => {
     expect(host.textContent).toContain('적재안이 변경');
     expect(host.textContent).not.toContain('작업지시서 열기');
   });
+});
+
+
+it('retries a payload failure once with reserved securing mass and never favors its unrun zero-motion metrics', async () => {
+  const overload = { ...certification, payloadWithinLimit: false, testedScenarios: 0, passedScenarios: 0, results: {}, maxHorizontalShiftM: 0, maxTiltDeg: 0 };
+  const adjustedResult = { ...target.result, placements: [{ ...target.result.placements[0], x: .5 }], remaining: [{ cargoId: 'B', quantity: 1, reason: '보강재 중량 확보' }] };
+  const adjustedTarget: PhysicsTarget = { ...target, result: adjustedResult };
+  // A completed caution remains preferable to an invalid zero-scenario "zero risk" result.
+  const completed = { ...certification, targetSignature: createPhysicsTargetSignature(adjustedTarget) };
+  vi.mocked(runInertiaCertification).mockResolvedValueOnce(overload).mockResolvedValueOnce(completed);
+  vi.mocked(completeCertificationForWorkOrder).mockResolvedValueOnce(overload).mockResolvedValueOnce(completed);
+  vi.mocked(buildSecuringPayloadAdjustmentCandidateAsync).mockResolvedValue({ label: '보강재 예산 확보', target: adjustedTarget, result: adjustedResult, staticPenalty: 0 });
+  await request();
+  expect(buildSecuringPayloadAdjustmentCandidateAsync).toHaveBeenCalledOnce();
+  expect(buildDirectResultReoptimizationCandidatesAsync).not.toHaveBeenCalled();
+  expect(runInertiaCertification).toHaveBeenCalledTimes(2);
+  expect((window as any).__containerLoadingLatestCertification.payloadWithinLimit).toBe(true);
+  expect((window as any).__containerLoadingLatestCertification.testedScenarios).toBe(3);
+  expect((window as any).__containerLoadingLatestCertification.searchNotice).toContain('미적재');
+  expect(openLoadingReport).toHaveBeenCalledWith(target.container, target.cargo, adjustedResult);
+});
+
+it('keeps the failed review result without looping when no payload-adjusted candidate exists', async () => {
+  const overload = { ...certification, payloadWithinLimit: false, testedScenarios: 0, passedScenarios: 0, results: {}, maxHorizontalShiftM: 0, maxTiltDeg: 0 };
+  vi.mocked(runInertiaCertification).mockResolvedValue(overload);
+  vi.mocked(completeCertificationForWorkOrder).mockResolvedValue(overload);
+  await request();
+  expect(buildSecuringPayloadAdjustmentCandidateAsync).toHaveBeenCalledOnce();
+  expect(buildDirectResultReoptimizationCandidatesAsync).not.toHaveBeenCalled();
+  expect(runInertiaCertification).toHaveBeenCalledOnce();
+  expect(host.textContent).toContain('검증 미완료');
+  expect((window as any).__containerLoadingLatestCertification.payloadWithinLimit).toBe(false);
+});
+
+it('keeps blocked-popup and ready-report labels failed when inertia PASS has a static hard failure', async () => {
+  const invalidTarget: PhysicsTarget = { ...target, result: { ...target.result, operationalFindings: [{ code: 'CG_LONGITUDINAL', severity: 'error', message: '무게중심 초과', placementIndexes: [] }] } };
+  const passed: InertiaCertification = { ...certification, status: 'passed', targetSignature: createPhysicsTargetSignature(invalidTarget), passedScenarios: 3, failedScenarios: [], maxHorizontalShiftM: .005, maxTiltDeg: .5, results: Object.fromEntries(['acceleration', 'braking', 'cornering'].map(scenario => [scenario, { scenario, fps: 30, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: .005, maxTiltDeg: .5 }])) };
+  vi.mocked(runInertiaCertification).mockResolvedValue(passed);
+  vi.mocked(completeCertificationForWorkOrder).mockResolvedValue(passed);
+  vi.mocked(buildDirectResultReoptimizationCandidatesAsync).mockResolvedValue({ candidates: [], timedOut: false });
+  await act(async () => requestDirectWorkOrder(invalidTarget.container, invalidTarget.cargo, invalidTarget.result));
+  expect(openLoadingReport).toHaveBeenCalledOnce();
+  expect(host.textContent).toContain('검사 완료 · 적재 제약 실패');
+  expect(host.textContent).toContain('검증 등급: 적재 제약 실패');
+  expect(host.textContent).not.toContain('검증 등급: PASS');
+  expect(host.textContent).not.toContain('검사 완료 · PASS');
 });

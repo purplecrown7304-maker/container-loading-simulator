@@ -2,3 +2,4 @@
 
 /* Load Studio visual system — owned by this feature. Dense work theme. */
 html[data-guided-workflow="true"] :is(.product-tools-dialog,.workspace-modal,.transport-equipment-modal,.header-login-panel,.results-modal) { border-radius: var(--studio-radius); border: 1px solid var(--studio-line); box-shadow: 0 16px 48px #11182729; }
+.box-selector-actions>div{flex-wrap:wrap;gap:6px;min-width:0}

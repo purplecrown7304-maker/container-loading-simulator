@@ -46,6 +46,7 @@ export type BoxCatalogItem = {
   /** 사용자가 등록한 박스의 최대 적층단. 미입력 시 기존 7단 기본값을 유지한다. */
   maxStackLayers?: number;
   maxTopLoadKg?: number;
+  strengthUnverified?: boolean;
   /** 박스 1EA 구매/제작 단가. 통화 단위는 기업 설정에서 일관되게 사용한다. */
   unitCost?: number;
 };
@@ -86,6 +87,7 @@ export type ProductPackagingAssignment = {
   /** 치수상 가능한 목표 적층단. 제조 강도 검증 전에는 작업지시용 값이 아니다. */
   recommendedStackLayers: number;
   maxTopLoadKg?: number;
+  strengthUnverified?: boolean;
   requiredTopLoadKg: number;
   strengthStatus: PackagingStrengthStatus;
   score: number;
@@ -184,7 +186,7 @@ function tileEfficiency(container: ContainerSpec, l: number, w: number, h: numbe
 export function cartonStackLimits(container: ContainerSpec, box: BoxCatalogItem, grossWeightKg: number) {
   const declared = box.maxStackLayers == null ? 7 : Math.max(1, Math.floor(box.maxStackLayers));
   const geometryStack = Math.max(1, Math.min(declared, Math.floor((container.height + EPS) / box.outerHeight)));
-  const maxStackLayers = box.maxTopLoadKg == null ? geometryStack
+  const maxStackLayers = box.strengthUnverified ? 1 : box.maxTopLoadKg == null ? geometryStack
     : Math.max(1, Math.min(geometryStack, 1 + Math.floor((box.maxTopLoadKg + EPS) / Math.max(EPS, grossWeightKg))));
   return { geometryStack, maxStackLayers };
 }
@@ -211,7 +213,7 @@ function assignmentFromBox(container: ContainerSpec, product: ProductItem, box: 
   const { geometryStack, maxStackLayers: declaredStack } = cartonStackLimits(container, box, grossWeightKg);
   const requiredTopLoadKg = Math.max(0, grossWeightKg * (geometryStack - 1));
   const operationalStack = source === 'generated' ? 1 : declaredStack;
-  const operationalTopLoad = source === 'generated' ? 0 : box.maxTopLoadKg;
+  const operationalTopLoad = source === 'generated' || box.strengthUnverified ? 0 : box.maxTopLoadKg;
 
   // 자동설계 규격의 강도는 아직 검증되지 않았으므로 후보 비교만 목표 강도를 가정해 수행한다.
   // 실제 메인 적재로 넘기는 assignment는 1단/0kg로 fail-closed 된다.
@@ -254,7 +256,8 @@ function assignmentFromBox(container: ContainerSpec, product: ProductItem, box: 
     recommendedStackLayers: geometryStack,
     maxTopLoadKg: operationalTopLoad,
     requiredTopLoadKg,
-    strengthStatus: source === 'generated' ? 'design-target' : 'catalog',
+    strengthStatus: source === 'generated' || box.strengthUnverified ? 'design-target' : 'catalog',
+    strengthUnverified: source === 'generated' || box.strengthUnverified === true,
     score,
     boxUnitCost: box.unitCost,
   };
@@ -358,6 +361,7 @@ export function optimizeProductPackaging(
     quantity: item.boxesNeeded,
     maxStackLayers: item.maxStackLayers,
     maxTopLoadKg: item.maxTopLoadKg,
+    strengthUnverified: item.strengthUnverified,
     stackLimitOrigin: { kind: item.strengthStatus === 'design-target' ? 'unverified-carton' : 'box-catalog', maxStackLayers: item.maxStackLayers, maxTopLoadKg: item.maxTopLoadKg },
     allowRotation: true,
   } satisfies CargoItem));
