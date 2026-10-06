@@ -227,7 +227,7 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
   for (const p of centered) { const level = Math.round(p.z * 1000); tiers.set(level, (tiers.get(level) ?? 0) + 1); }
   const top = Math.max(0, ...tiers.keys());
   const sparseTop = tiers.size >= SPARSE_TOP_MIN_LEVELS && (tiers.get(top) ?? 0) <= Math.max(...tiers.values()) * SPARSE_TOP_LAYER_RATIO;
-  const errors = validateOperationalWeightAndCog(container, centered).filter(f => f.severity === 'error');
+  const errors = validateOperationalWeightAndCog(container, centered, { legacyDirectBox: true }).filter(f => f.severity === 'error');
   return { output: { placements: centered, remaining, loadedWeightKg, usedVolumeM3 }, voids, counts: ordered.map(item => item.quantity - (stock.get(item.id) ?? 0)),
     cgErrors: errors.length, sparseTop, cgExcess: errors.reduce((sum, f) => sum + Math.max(0, (f.value ?? 0) - (f.limit ?? 0)), 0),
     heightMoment: centered.reduce((sum, p) => sum + (p.z + p.height / 2) * p.weightKg, 0) / Math.max(EPS, loadedWeightKg),
@@ -277,7 +277,7 @@ export function packByHeavyInnerBlocks(container: ContainerSpec, cargo: CargoIte
     const output = packByLevelBlocks(container, ordered, strategy, cap, variant);
     const counted = new Map<string, number>();
     for (const p of output.placements) counted.set(p.cargoId, (counted.get(p.cargoId) ?? 0) + 1);
-    const errors = validateOperationalWeightAndCog(container, output.placements).filter(f => f.severity === 'error');
+    const errors = validateOperationalWeightAndCog(container, output.placements, { legacyDirectBox: true }).filter(f => f.severity === 'error');
     levels.push({ output, mode: 1, voids: 0, counts: ordered.map(item => counted.get(item.id) ?? 0), cgErrors: errors.length,
       cgExcess: errors.reduce((sum, f) => sum + Math.max(0, (f.value ?? 0) - (f.limit ?? 0)), 0), sparseTop: false,
       heightMoment: output.placements.reduce((sum, p) => sum + (p.z + p.height / 2) * p.weightKg, 0) / Math.max(EPS, output.loadedWeightKg),
