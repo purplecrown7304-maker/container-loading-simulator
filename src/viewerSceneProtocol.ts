@@ -26,7 +26,7 @@ export function viewerPlan(container: ContainerSpec, result: LoadingResult, revi
         labelSize: `${Math.round(p.length * 1000)} × ${Math.round(p.width * 1000)} × ${Math.round(p.height * 1000)} mm`,
       };
     }),
-    supports: options.supports ?? [], decorations: securingGeometry(container, result.placements, options.supports ?? [], options.securing),
+    supports: options.supports ?? [], decorations: securingGeometry(container, result.placements, options.supports ?? [], options.securing, result.voidFillPlan),
     cells: analysis.floor.cells, centerOfGravity,
   };
 }
