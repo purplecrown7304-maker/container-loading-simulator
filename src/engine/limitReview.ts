@@ -103,21 +103,47 @@ export function reviewPlacementBlockers(container:ContainerSpec,cargo:CargoItem[
   if (resolution.status==='invalid' || resolution.status==='unsupported') return resolution.errors;
   const scenario=resolution.container;
   const threshold=resolution.minimumSupportRatio;
+
+  if (resolution.status!=='active') {
+    const issues=auditLoading(scenario,resolution.cargo,placements);
+    const findings=validateOperationalLoading(scenario,resolution.cargo,placements,[],{legacyDirectBox:true}).filter(f=>f.severity==='error');
+    const errors=[...issues.map(i=>i.message),...findings.map(f=>f.message)];
+    if (totalTransportWeightKg!==undefined && (!Number.isFinite(totalTransportWeightKg) || totalTransportWeightKg>scenario.maxPayloadKg+EPS)) {
+      errors.push('화물과 필수 고정·메움재 합계가 허용 총중량을 초과합니다.');
+    }
+    return [...new Set(errors)];
+  }
+
+  // Section 7: selected numerical limits remain hard for the scenario, but
+  // unrelated operational verdicts (for example longitudinal CG) must be shown
+  // with the placement instead of preventing the WHAT-IF calculation.
   const issues=auditLoading(scenario,resolution.cargo,placements).filter(issue=>{
-    if (resolution.status!=='active' || container.limitReview?.minimumSupportRatio===undefined || issue.type!=='UNSUPPORTED') return true;
-    return issue.placementIndexes.some(index=>!assessPlacementSupport(placements[index],placements,undefined,threshold).supported);
+    if (issue.type!=='UNSUPPORTED') return true;
+    if (container.limitReview?.minimumSupportRatio===undefined) return true;
+    return issue.placementIndexes.some(index=>{
+      const assessment=assessPlacementSupport(placements[index],placements,undefined,threshold);
+      return !assessment.supported;
+    });
   });
-  // Preserve door/equipment identity: raising a payload scenario must not make a
-  // registered door constraint disappear through equipment matching.
-  const findings=validateOperationalLoading({...scenario,maxPayloadKg:container.maxPayloadKg},resolution.cargo,placements).filter(f=>{
-    if (f.severity!=='error') return false;
-    if (resolution.status!=='active') return true;
-    if (f.code==='PAYLOAD_EXCEEDED') return placements.reduce((sum,p)=>sum+p.weightKg,0)>scenario.maxPayloadKg+EPS;
-    if (f.code==='INSUFFICIENT_SUPPORT' && container.limitReview?.minimumSupportRatio!==undefined) return placements.some(p=>!assessPlacementSupport(p,placements,undefined,threshold).supported);
+
+  const nonWaivableOperational = new Set(['FLOATING','CG_OUTSIDE_SUPPORT','UNLOAD_BLOCKED','UNLOAD_BLOCKED_ABOVE']);
+  const findings=validateOperationalLoading(
+    {...scenario,maxPayloadKg:container.maxPayloadKg},
+    resolution.cargo,
+    placements,
+    [],
+    {legacyDirectBox:true},
+  ).filter(f=>{
+    if (f.severity!=='error' || !nonWaivableOperational.has(f.code)) return false;
+    if ((f.code==='UNLOAD_BLOCKED' || f.code==='UNLOAD_BLOCKED_ABOVE') && container.unloadingPolicy!=='strict') return false;
     return true;
   });
+
   const errors=[...issues.map(i=>i.message),...findings.map(f=>f.message)];
-  if (totalTransportWeightKg!==undefined && (!Number.isFinite(totalTransportWeightKg) || totalTransportWeightKg>scenario.maxPayloadKg+EPS)) errors.push('화물과 필수 고정재 합계가 선택한 검토 총중량 한도를 초과합니다.');
+  if (totalTransportWeightKg!==undefined) {
+    if (!Number.isFinite(totalTransportWeightKg)) errors.push('고정·메움재 포함 총중량 계산값이 유효한 숫자가 아닙니다.');
+    else if (totalTransportWeightKg>scenario.maxPayloadKg+EPS) errors.push('화물과 필수 고정·메움재 합계가 선택한 검토 총중량 한도를 초과합니다.');
+  }
   return [...new Set(errors)];
 }
 
