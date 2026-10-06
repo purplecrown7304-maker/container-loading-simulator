@@ -29,11 +29,13 @@ describe('group placement', () => {
 
   it('moves a whole row while preserving relative spacing', () => {
     const source = baseResult();
+    // The final gate includes the existing ±5% operational CG limits.
+    source.placements = source.placements.map(p => ({...p, x:p.x+1, y:p.y+.3}));
     const indices = selectPlacementGroup(source,container,0,'row');
     const assessment = assessGroupMove(container,cargo,source,indices,{x:2,y:0,z:0});
     expect(assessment.valid).toBe(true);
-    expect(assessment.result.placements[0].x).toBeCloseTo(2);
-    expect(assessment.result.placements[1].x).toBeCloseTo(2);
+    expect(assessment.result.placements[0].x).toBeCloseTo(3);
+    expect(assessment.result.placements[1].x).toBeCloseTo(3);
     expect(assessment.result.placements[1].y - assessment.result.placements[0].y).toBeCloseTo(1);
   });
 
@@ -51,5 +53,41 @@ describe('group placement', () => {
     const assessment = assessGroupMove(container,cargo,source,[2],{x:-0.95,y:0,z:0});
     expect(assessment.delta.x).toBeCloseTo(-0.95);
     expect(assessment.result.placements[2].x).toBeCloseTo(0.05);
+  });
+
+  it('rejects a group movement that blocks strict unloading', () => {
+    const stops = [{ ...cargo[0], id:'FIRST', unloadPriority:1 }, { ...cargo[1], id:'LATER', unloadPriority:2 }];
+    const source = baseResult();
+    source.placements = [
+      { ...source.placements[0], cargoId:'FIRST', x:3 },
+      { ...source.placements[0], cargoId:'LATER', x:1, weightKg:80 },
+    ];
+    const assessment = assessGroupMove({...container,unloadingPolicy:'strict'},stops,source,[0],{x:-3,y:0,z:0});
+    expect(assessment.valid).toBe(false);
+    expect(assessment.reasons.join(' ')).toContain('BLOCKS_UNLOAD_PATH');
+    expect(source.placements[0].x).toBe(3);
+  });
+
+  it('rejects a fully supported group move above the configured floor limit', () => {
+    const source = baseResult();
+    const assessment = assessGroupMove({...container,floorLoadLimitKgPerM2:150},cargo,source,[2],{x:-1,y:0,z:1});
+    expect(assessment.valid).toBe(false);
+    expect(assessment.reasons.join(' ')).toContain('FLOOR_LOAD_LIMIT');
+    expect(source.placements[2]).toMatchObject({x:1,z:0});
+  });
+
+  it('preserves level 3 securing weight and reserve for a no-op group edit', () => {
+    const current = baseResult();
+    current.placements = [
+      {...current.placements[0],x:2,y:.3},
+      {...current.placements[1],x:2,y:1.3},
+      {...current.placements[2],x:3,y:.3},
+    ];
+    current.securingBudget = {level:3,reservedWeightKg:30,requiredWeightKg:14.2,totalTransportWeightKg:314.2};
+    const assessment = assessGroupMove({...container,maxPayloadKg:310},cargo,current,[0,1,2],{x:0,y:0,z:0});
+    expect(assessment.valid).toBe(false);
+    expect(assessment.result.validationIssues.some(issue => issue.type === 'PAYLOAD')).toBe(true);
+    expect(assessment.result.securingBudget).toMatchObject({level:3,reservedWeightKg:30});
+    expect(assessment.result.securingBudget?.totalTransportWeightKg).toBeCloseTo(314.2);
   });
 });

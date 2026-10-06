@@ -13,13 +13,15 @@ exports[`legacy versus A: identical cargo differential contract > door-height 1`
     "warnings": [],
   },
   "legacy": {
-    "allRequestedAccepted": true,
+    "allRequestedAccepted": false,
     "audit": [],
     "elevated": 0,
-    "errors": [],
+    "errors": [
+      "CG_LONGITUDINAL",
+    ],
     "placed": 1,
     "remaining": 0,
-    "valid": true,
+    "valid": false,
     "warnings": [
       "REAR_GAP",
       "SECURING_FORCE",
@@ -42,13 +44,15 @@ exports[`legacy versus A: identical cargo differential contract > exact-height 1
     "warnings": [],
   },
   "legacy": {
-    "allRequestedAccepted": true,
+    "allRequestedAccepted": false,
     "audit": [],
     "elevated": 0,
-    "errors": [],
+    "errors": [
+      "CG_LONGITUDINAL",
+    ],
     "placed": 1,
     "remaining": 0,
-    "valid": true,
+    "valid": false,
     "warnings": [
       "REAR_GAP",
       "SECURING_FORCE",
@@ -71,13 +75,15 @@ exports[`legacy versus A: identical cargo differential contract > exact-width 1`
     "warnings": [],
   },
   "legacy": {
-    "allRequestedAccepted": true,
+    "allRequestedAccepted": false,
     "audit": [],
     "elevated": 0,
-    "errors": [],
+    "errors": [
+      "CG_LONGITUDINAL",
+    ],
     "placed": 1,
     "remaining": 0,
-    "valid": true,
+    "valid": false,
     "warnings": [
       "REAR_GAP",
       "SECURING_FORCE",
@@ -103,12 +109,12 @@ exports[`legacy versus A: identical cargo differential contract > floor-only 1`]
     ],
   },
   "legacy": {
-    "allRequestedAccepted": true,
+    "allRequestedAccepted": false,
     "audit": [],
-    "elevated": 8,
+    "elevated": 0,
     "errors": [],
-    "placed": 16,
-    "remaining": 0,
+    "placed": 12,
+    "remaining": 4,
     "valid": true,
     "warnings": [
       "SECURING_FORCE",
@@ -130,13 +136,15 @@ exports[`legacy versus A: identical cargo differential contract > line-load 1`] 
     "warnings": [],
   },
   "legacy": {
-    "allRequestedAccepted": true,
+    "allRequestedAccepted": false,
     "audit": [],
     "elevated": 0,
-    "errors": [],
+    "errors": [
+      "CG_LONGITUDINAL",
+    ],
     "placed": 1,
     "remaining": 0,
-    "valid": true,
+    "valid": false,
     "warnings": [
       "REAR_GAP",
       "SECURING_FORCE",
@@ -164,13 +172,15 @@ exports[`legacy versus A: identical cargo differential contract > missing-truck-
     ],
   },
   "legacy": {
-    "allRequestedAccepted": true,
+    "allRequestedAccepted": false,
     "audit": [],
     "elevated": 0,
-    "errors": [],
+    "errors": [
+      "CG_LONGITUDINAL",
+    ],
     "placed": 1,
     "remaining": 0,
-    "valid": true,
+    "valid": false,
     "warnings": [
       "REAR_GAP",
       "SECURING_FORCE",
@@ -196,14 +206,17 @@ exports[`legacy versus A: identical cargo differential contract > ordinary 1`] =
     ],
   },
   "legacy": {
-    "allRequestedAccepted": true,
+    "allRequestedAccepted": false,
     "audit": [],
     "elevated": 0,
-    "errors": [],
+    "errors": [
+      "CG_LONGITUDINAL",
+    ],
     "placed": 4,
     "remaining": 0,
-    "valid": true,
+    "valid": false,
     "warnings": [
+      "REAR_GAP",
       "SECURING_FORCE",
     ],
   },
@@ -328,10 +341,12 @@ exports[`legacy versus A: identical cargo differential contract > payload 1`] = 
     "allRequestedAccepted": false,
     "audit": [],
     "elevated": 0,
-    "errors": [],
+    "errors": [
+      "CG_LONGITUDINAL",
+    ],
     "placed": 2,
     "remaining": 2,
-    "valid": true,
+    "valid": false,
     "warnings": [
       "REAR_GAP",
       "SECURING_FORCE",
@@ -386,13 +401,15 @@ exports[`legacy versus A: identical cargo differential contract > segregation 1`
     ],
   },
   "legacy": {
-    "allRequestedAccepted": true,
+    "allRequestedAccepted": false,
     "audit": [],
     "elevated": 0,
-    "errors": [],
+    "errors": [
+      "CG_LONGITUDINAL",
+    ],
     "placed": 2,
     "remaining": 0,
-    "valid": true,
+    "valid": false,
     "warnings": [
       "REAR_GAP",
       "SECURING_FORCE",
@@ -483,13 +500,15 @@ exports[`legacy versus A: identical cargo differential contract > temperature 1`
     ],
   },
   "legacy": {
-    "allRequestedAccepted": true,
+    "allRequestedAccepted": false,
     "audit": [],
     "elevated": 0,
-    "errors": [],
+    "errors": [
+      "CG_LONGITUDINAL",
+    ],
     "placed": 2,
     "remaining": 0,
-    "valid": true,
+    "valid": false,
     "warnings": [
       "REAR_GAP",
       "SECURING_FORCE",
@@ -599,7 +618,9 @@ exports[`legacy versus A: identical cargo differential contract > validation/sup
     ],
   },
   "legacy": {
-    "audit": [],
+    "audit": [
+      "UNSUPPORTED",
+    ],
     "errors": [
       "INSUFFICIENT_SUPPORT",
     ],
@@ -661,7 +682,9 @@ exports[`legacy versus A: identical cargo differential contract > validation/ver
     "audit": [
       "UNSUPPORTED",
     ],
-    "errors": [],
+    "errors": [
+      "FLOATING",
+    ],
     "valid": false,
     "warnings": [
       "REAR_GAP",

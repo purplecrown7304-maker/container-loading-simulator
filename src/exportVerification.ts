@@ -1,36 +1,41 @@
 import { createPhysicsTargetSignature, readLatestInertiaCertification } from './inertiaCertification';
-import { assessWorkOrderCertification, canCreateWorkOrder } from './inertiaWorkOrderPolicy';
+import { canCreateWorkOrder, isInertiaCertificationComplete, isPhysicsTargetVerified } from './inertiaWorkOrderPolicy';
 import { readPhysicsTarget } from './physicsTarget';
 
-export function hasCurrentInertiaVerification(): boolean {
-  if (typeof window === 'undefined') return false;
+function currentCertification() {
+  if (typeof window === 'undefined') return undefined;
   const target = readPhysicsTarget();
   const certification = readLatestInertiaCertification();
-  if (!target || !certification) return false;
-  if (certification.targetSignature !== createPhysicsTargetSignature(target)) return false;
-  return canCreateWorkOrder(certification);
+  if (!target || !certification || target.mode !== certification.mode) return undefined;
+  return certification.targetSignature === createPhysicsTargetSignature(target) ? certification : undefined;
 }
 
-/**
- * The exact current target must complete all three inertia scenarios. Strict PASS
- * and CAUTION (below DANGER thresholds) are accepted for an operational work
- * order; DANGER or incomplete testing remains fail-closed.
- */
+/** All three scenarios ran for this exact target; this does not imply a PASS. */
+export function hasCurrentInertiaCompletion(): boolean {
+  const certification = currentCertification();
+  return Boolean(certification && isInertiaCertificationComplete(certification));
+}
+
+/** Only a complete, payload-compliant, strict PASS verifies the current target. */
+export function hasCurrentInertiaVerification(): boolean {
+  const certification = currentCertification();
+  return isPhysicsTargetVerified(readPhysicsTarget(), certification);
+}
+
 export function hasCurrentPhysicsVerification(): boolean {
   return hasCurrentInertiaVerification();
 }
 
+/** Warning-bearing review output is permitted independently of completion/PASS. */
+export function hasCurrentWorkOrderResult(): boolean {
+  const certification = currentCertification();
+  return Boolean(certification && canCreateWorkOrder(certification));
+}
+
 export function confirmUnverifiedExport(kind: string): boolean {
-  if (hasCurrentInertiaVerification()) return true;
+  if (hasCurrentWorkOrderResult()) return true;
   if (typeof window !== 'undefined') {
-    const target = readPhysicsTarget();
-    const certification = readLatestInertiaCertification();
-    const matches = Boolean(target && certification && certification.targetSignature === createPhysicsTargetSignature(target));
-    const level = matches && certification ? assessWorkOrderCertification(certification) : 'incomplete';
-    const reason = level === 'danger'
-      ? '관성 테스트에서 위험 기준을 초과했습니다. 재배치 또는 보강 후 다시 검사하세요.'
-      : '현재 적재안의 출발·급정거·급회전 3종 검사가 완료되지 않았거나 최신 적재안과 일치하지 않습니다.';
-    window.alert(`${kind} 출력은 현재 차단되어 있습니다.\n\n${reason}`);
+    window.alert(`${kind} 출력은 현재 차단되어 있습니다.\n\n검증 결과가 없거나 최신 적재안과 일치하지 않습니다. 현재 적재안으로 다시 검사하세요.`);
   }
   return false;
 }

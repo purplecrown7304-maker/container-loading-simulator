@@ -23,6 +23,23 @@ describe('asynchronous loading lifecycle', () => {
     expect(await loadContainerAsync(container, cargo, 'capacity')).toEqual(loadContainer(container, cargo, { strategy: 'capacity', publish: false }));
   });
 
+  it('keeps the previous same-input layout when a stored move fails final acceptance', () => {
+    const final = loadContainer(container,cargo,{strategy:'capacity',publish:false});
+    const rejected = {...final,placements:final.placements.map((p,i) => i === 0 ? {...p,x:container.length+1} : p)};
+    writeManualOverride(container,cargo,rejected);
+    const restored = restoreLoadingResult(container,cargo,final);
+    expect(restored).toEqual(final);
+    expect(restored.placements.length).toBeGreaterThan(0);
+    expect((window as Window & {__containerLoadingLatestResult?:{result:unknown}}).__containerLoadingLatestResult?.result).toEqual(final);
+  });
+
+  it('does not restore a stale previous layout that fails the current input audit', () => {
+    const final = loadContainer(container,cargo,{strategy:'capacity',publish:false});
+    const changedCargo = [{...cargo[0],quantity:1}];
+    writeManualOverride(container,changedCargo,final);
+    expect(restoreLoadingResult(container,changedCargo,final).placements).toEqual([]);
+  });
+
   it('terminates a cancelled worker instead of accepting a stale layout', async () => {
     let worker: { terminate: ReturnType<typeof vi.fn> };
     vi.stubGlobal('Worker', class {

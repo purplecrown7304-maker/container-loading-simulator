@@ -1,5 +1,7 @@
 import { centerPalletCargo, setNextPalletCenteredResultOverride } from './palletCentering';
 import { validatePlacements } from './constraints';
+import { validateOperationalLoading } from './operationalValidator';
+import { palletSupportBodies } from './palletPlanValidation';
 import { packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
 import { unloadingObstructions } from './operationalQuality';
@@ -67,11 +69,13 @@ function sameLoadedCargo(a: LoadingResult | OptimizedPalletPackingResult, b: Loa
 
 function toTarget(container: ContainerSpec, cargo: CargoItem[], result: OptimizedPalletPackingResult): PhysicsTarget {
   const loadingResult: LoadingResult = {
+    ruleset: container.rules?.version,
     placements: result.placements,
     remaining: result.remaining,
     loadedWeightKg: result.totalPalletizedWeightKg,
     usedVolumeM3: result.placements.reduce((sum, item) => sum + item.length * item.width * item.height, 0),
     validationIssues: validatePlacements(container, result.placements),
+    operationalFindings: validateOperationalLoading(container, cargo, result.placements, palletSupportBodies(result)),
   };
   const supports = result.pallets.map(pallet => ({
     id: `PALLET-${String(pallet.palletIndex).padStart(2, '0')}`,

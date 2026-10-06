@@ -3,6 +3,7 @@ import { validateAPlan } from './loadSimAdapter';
 import { centerPalletPlan } from './palletCentering';
 import {
   absorbSparsePallets,
+  unsupportedReviewPalletResult,
   applyTopLayerFillPolicy,
   defaultPalletSpec,
   packOnPallets as packOnPalletsBase,
@@ -606,6 +607,7 @@ export function packOnPallets(
   pallet: PalletSpec = defaultPalletSpec,
   strategy: LoadingStrategy = 'capacity',
 ): OptimizedPalletPackingResult {
+  if (container.limitReview !== undefined) return {...unsupportedReviewPalletResult(container,cargo),optimization:{strategy,selectedStackTarget:1,candidateCount:0,floorPositions:0,redistributedForLowUtilization:false,consolidationPasses:0}};
   const originalContainer=container;
   const buildStrategy = palletBuildStrategy(container, strategy);
   const preflight = preflightCargoInput(cargo);

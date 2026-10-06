@@ -3,6 +3,7 @@ import { INSPECTIONS } from './manualInspection';
 import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
 import StudioIcon from './StudioIcon';
 import ViewerBackgroundSelector from './ViewerBackgroundSelector';
+import LoadingRulesSelector from './LoadingRulesSelector';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { ADMIN_ACCESS_EVENT, isAdminSession, loginAdmin, logoutAdmin } from './adminAccess';
 import { exportLoadingDiagnostics } from './diagnosticExport';
@@ -186,6 +187,7 @@ export default function ReferenceWorkspaceBar() {
           <span aria-hidden="true">⌄</span>
         </button>
         <ViewerBackgroundSelector />
+        <LoadingRulesSelector />
       </div>
 
       <div className="header-right-actions">

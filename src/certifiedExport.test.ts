@@ -18,14 +18,15 @@ const cargo: CargoItem[] = [{
 }];
 
 function result(): OptimizedPalletPackingResult {
-  const placement = { cargoId: 'A', x: 0.3, y: 0.35, z: 0.15, length: 0.5, width: 0.4, height: 0.3, weightKg: 10 };
+  const x = (container.length - 1.1) / 2, y = (container.width - 1.1) / 2;
+  const placement = { cargoId: 'A', x: x + 0.3, y: y + 0.35, z: 0.15, length: 0.5, width: 0.4, height: 0.3, weightKg: 10 };
   return {
     pallets: [{
-      palletIndex: 1, x: 0, y: 0, z: 0, stackLevel: 1, stackColumn: 1,
+      palletIndex: 1, x, y, z: 0, stackLevel: 1, stackColumn: 1,
       length: 1.1, width: 1.1, height: 0.15,
       cargoPlacements: [placement], cargoWeightKg: 10, packagingWeightKg: 0,
       packagingExtraHeightM: 0, cornerGuardsUsed: false, wrappingUsed: false,
-      totalWeightKg: 35, centerOfGravity: { x: 0.55, y: 0.55, z: 0.2 },
+      totalWeightKg: 35, centerOfGravity: { x: x + 0.55, y: y + 0.55, z: 0.2 },
     }],
     placements: [placement], remaining: [], palletCount: 1, loadedCargoWeightKg: 10,
     totalPackagingWeightKg: 0, avoidedPackagingWeightKg: 0, packagedPalletCount: 0,
@@ -57,7 +58,7 @@ function certification(signature: string, mode: PhysicsTarget['mode'] = 'pallets
     status: 'passed', mode, targetSignature: signature, testedAt: '2026-08-27T00:00:00.000Z',
     securing, testedScenarios: 3, passedScenarios: 3, failedScenarios: [],
     maxHorizontalShiftM: 0.001, maxTiltDeg: 0.1, maxCargoRelativeSlipM: 0.001,
-    maxSupportShiftM: 0.001, results: {}, payloadWithinLimit: true,
+    maxSupportShiftM: 0.001, results: Object.fromEntries(['acceleration', 'braking', 'cornering'].map(scenario => [scenario, { scenario, fps: 30, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: .001, maxTiltDeg: .1 }])), payloadWithinLimit: true,
   };
 }
 

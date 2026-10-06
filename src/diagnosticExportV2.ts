@@ -1,3 +1,5 @@
+import { isLimitReviewTarget, limitReviewRows, LIMIT_REVIEW_WARNING, LIMIT_REVIEW_PROVENANCE } from './limitReviewPresentation';
+import { readLatestInertiaCertification } from './inertiaCertification';
 import { buildBlackboxSnapshots } from './diagnosticBlackbox';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import type { PalletWorkSnapshot } from './palletWorkerReportV2';
@@ -41,7 +43,8 @@ function csvCell(value: unknown) {
   return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
-function toCsv(rows: Array<Record<string, unknown>>) {
+export function diagnosticCsv(rows: Array<Record<string, unknown>>, review = false) {
+  if (review) rows = rows.length ? rows.map(row => ({ documentPurpose: LIMIT_REVIEW_WARNING, ratingProvenance: LIMIT_REVIEW_PROVENANCE, ...row })) : [{ documentPurpose: LIMIT_REVIEW_WARNING, ratingProvenance: LIMIT_REVIEW_PROVENANCE }];
   if (!rows.length) return '\uFEFF';
   const headers = [...new Set(rows.flatMap(row => Object.keys(row)))];
   return `\uFEFF${[
@@ -259,10 +262,15 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
   const equipment = readTransportEquipment();
   const snapshots = buildBlackboxSnapshots(container, cargo, result);
   const mode = target?.mode ?? 'boxes';
+  const reviewTarget = { container, cargo, result, mode, supports: target?.supports };
+  const review = isLimitReviewTarget(reviewTarget);
+  const reviewMetadata = review ? { documentPurpose: LIMIT_REVIEW_WARNING, ratingProvenance: LIMIT_REVIEW_PROVENANCE, comparisons: limitReviewRows(reviewTarget, readLatestInertiaCertification()), dispatchApproved: false } : undefined;
+  const toCsv = (rows: Array<Record<string, unknown>>) => diagnosticCsv(rows, review);
   const appResultSnapshot = latest ? decycle({ container: latest.container, cargo: latest.cargo, result: latest.result }) : null;
 
   const inspection = {
     schema: 'container-loading-diagnostics-v2',
+    limitReview: reviewMetadata,
     generatedAt: generatedAt.toISOString(),
     mode,
     selectedEquipment: equipment,
@@ -310,6 +318,15 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
     { name: 'floor-load.csv', data: textBytes(toCsv(floorRows(snapshots.floorLoad))), modifiedAt: generatedAt },
     { name: 'stack-analysis.csv', data: textBytes(toCsv(stackRows(snapshots.stackAnalysis))), modifiedAt: generatedAt },
   ];
+  if (reviewMetadata) {
+    entries.push({ name: 'WHAT-IF-REVIEW.json', data: textBytes(safeJson(reviewMetadata)), modifiedAt: generatedAt });
+    entries.push({ name: 'WHAT-IF-REVIEW.csv', data: textBytes(toCsv(reviewMetadata.comparisons)), modifiedAt: generatedAt });
+    // A JSON extracted on its own must retain the warning as well.
+    for (const entry of entries) if (entry.name.endsWith('.json')) {
+      const parsed = JSON.parse(new TextDecoder().decode(entry.data));
+      entry.data = textBytes(safeJson({ ...parsed, limitReview: reviewMetadata }));
+    }
+  }
   if (palletSnapshot) entries.push({ name: 'pallets.csv', data: textBytes(toCsv(palletRows(palletSnapshot))), modifiedAt: generatedAt });
 
   const packagingPreview = await captureCanvasPng('.product-packaging-canvas canvas');
@@ -321,6 +338,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
 
   const readme = [
     'Container Loading Simulator 블랙박스 점검 파일 v2',
+    ...(review ? [LIMIT_REVIEW_WARNING, LIMIT_REVIEW_PROVENANCE] : []),
     '',
     `생성 시각: ${generatedAt.toLocaleString()}`,
     `적재공간: ${equipment.shortName} (${equipment.geometry})`,
@@ -351,6 +369,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
   })));
   const manifest = {
     schema: 'container-loading-blackbox-manifest-v2',
+    limitReview: reviewMetadata,
     generatedAt: generatedAt.toISOString(),
     appVersion: APP_VERSION,
     gitCommit: system.build.gitCommit,

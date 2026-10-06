@@ -18,6 +18,7 @@ export function reportTable(label: string, table: string) {
 export const REPORT_SIGNOFF = `<div class="report-signoff"><div><span>작업 담당</span><b>성명 / 서명</b></div><div><span>검토 담당</span><b>성명 / 서명</b></div><div><span>확인 일시</span><b>년　　 월　　 일　　 시</b></div></div>`;
 
 export const REPORT_CSS = `
+.limit-review-warning{margin:14px 0;padding:16px;border:3px solid #a62924;background:#fff1ef;color:#8a1c18;break-inside:avoid;font-size:12px}.limit-review-warning b{display:block;font-size:16px}.limit-review-warning p{margin-top:8px}@media print{.limit-review-warning{display:block!important;border:2pt solid #a62924;font-size:9pt}.limit-review-warning b{font-size:11pt}}
 @page{size:A4 portrait;margin:12mm}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f5f5f7;color:#1d1d1f;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}h1,h2,h3,p{margin:0}a{color:inherit}button{font:inherit}b,strong{font-weight:650}svg{max-width:100%}
 .report-toolbar{max-width:1000px;margin:20px auto 12px;padding:0 8px;display:flex;justify-content:space-between;align-items:center;gap:12px;color:#6e6e73;font-size:12px}.report-toolbar div{display:flex;gap:8px}.report-toolbar button{border:1px solid #d2d2d7;border-radius:10px;background:#fff;padding:9px 16px;cursor:pointer;color:#1d1d1f}.report-toolbar .print{background:#0071e3;border-color:#0071e3;color:#fff}.report-toolbar button:hover{filter:brightness(.96)}:focus-visible{outline:3px solid #0071e3;outline-offset:3px}

@@ -16,6 +16,48 @@ Build and maintain a web-based 3D container loading simulator that optimizes box
 - Hard safety constraints always outrank optimization preferences.
 - Mobile usability must be considered for all major UI changes.
 
+## 2A. Owner-approved scoped rule repair (2026-10-06)
+
+For legacy **direct-box** loading, the owner's latest work sequence supersedes older
+conflicting optimization preferences below: load continuously from the inner X=0
+end toward the +X door, by **individual gross package weight descending**. Keep
+SKU/height blocks contiguous. Explicit strict unloading constraints take priority;
+when they conflict with the weight order, retain strict stops and disclose the
+conflict. Hard geometry, support, cumulative compression, stacking, floor load,
+payload including required securing, and the existing operational CG acceptance
+range remain unchanged or more conservative. Exact 50:50 is not a reason to reorder
+working blocks. Do not apply X-centering, wall swaps, residual back-filling or
+sparse-top postpasses that undo this sequence. The order-preserving solver may
+compare safe tier/orientation profiles instead.
+
+This scoped policy does **not** remove the independent A-rules or pallet/MIXED
+planners. Shared legacy final acceptance uses at least 80% support and 1 mm contact;
+manual/residual insertion may be more conservative. Failed/incomplete results may
+be exported only as clearly marked review documents. Export permission, completed
+scenario execution, and a current static-plus-physics PASS are distinct states.
+See `docs/engine/LOADING_RULES.md` for the consolidated acceptance contract.
+
+## 2B. Owner-approved numerical review scenarios (2026-10-06)
+
+The owner explicitly requested selecting ranges above normal limits with warnings.
+Implement this only as an opt-in **WHAT-IF REVIEW** for legacy direct boxes; the
+strict default, original equipment/catalog values and original cargo strength
+metadata remain unchanged. A-rules, pallet and MIXED planners do not silently
+inherit numerical exceptions. Selected finite, bounded scenario values may allow
+continued calculation for payload (including securing), floor load, support ratio,
+stack depth and top load. Unselected limits, geometry, collision, positive physical
+contact/center support, valid input, and explicit strict unloading remain blocking.
+
+Every review output is exploratory and never dispatch approval or safety PASS.
+Preserve all actual-limit findings and their severity, original/scenario/actual
+values, excess amounts and unknown provenance. Internal inertia comparison values
+are separate from equipment ratings; changing a scenario threshold does not erase
+baseline failures. The review designation must survive 3D/result UI, manual edits,
+save/restore, JSON/CSV/Excel and printable reports. Any scenario/input change
+invalidates old certification; returning to strict requires original checks again.
+Computational input bounds are not safety margins. See the review section in
+`docs/engine/LOADING_RULES.md` for scope and UI behavior.
+
 ## 3. DIRECT BOX baseline algorithm
 The legacy fixed sequence of `CBM/weight sort -> full vertical stacks -> x shelf progression -> door-side tail mixing` is retired.
 

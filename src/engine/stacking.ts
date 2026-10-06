@@ -1,23 +1,10 @@
 import type { CargoItem, Placement } from './types';
+import { CONTACT_TOLERANCE_M, supportContactArea } from './support';
 
 const EPSILON = 0.001;
 
-function overlapArea(a: Placement, b: Placement): number {
-  const xOverlap = Math.max(
-    0,
-    Math.min(a.x + a.length, b.x + b.length) - Math.max(a.x, b.x),
-  );
-  const yOverlap = Math.max(
-    0,
-    Math.min(a.y + a.width, b.y + b.width) - Math.max(a.y, b.y),
-  );
-  return xOverlap * yOverlap;
-}
-
 function directlySupports(lower: Placement, upper: Placement): boolean {
-  const lowerTop = lower.z + lower.height;
-  if (Math.abs(lowerTop - upper.z) > EPSILON) return false;
-  return overlapArea(lower, upper) > EPSILON;
+  return supportContactArea(lower, upper) > 0;
 }
 
 function directlySupportedBy(upper: Placement, lower: Placement): boolean {
@@ -28,7 +15,7 @@ export function countStackLayersBelow(
   candidate: Placement,
   placements: Placement[],
 ): number {
-  if (candidate.z <= EPSILON) return 1;
+  if (candidate.z <= CONTACT_TOLERANCE_M) return 1;
 
   let depth = 1;
   let frontier = placements.filter((placement) => directlySupportedBy(candidate, placement));
@@ -82,7 +69,7 @@ export function projectedTopLoadKg(
   placements: Placement[],
 ): number {
   const above = [...placements, candidate].filter(
-    (placement) => placement !== base && placement.z >= base.z + base.height - EPSILON,
+    (placement) => placement !== base && placement.z >= base.z + base.height - CONTACT_TOLERANCE_M,
   );
 
   let total = 0;
@@ -110,9 +97,10 @@ export function canPlaceByStackingRules(
   placements: Placement[],
   cargoById: Map<string, CargoItem>,
 ): boolean {
-  if (item.maxStackLayers !== undefined) {
+  const maxLayers = item.strengthUnverified ? Math.min(1,item.maxStackLayers ?? 1) : item.maxStackLayers;
+  if (maxLayers !== undefined) {
     const resultingLayer = countStackLayersBelow(candidate, placements);
-    if (resultingLayer > item.maxStackLayers) return false;
+    if (resultingLayer > maxLayers) return false;
   }
 
   // 혼합 SKU 적재에서도 아래 박스의 최대 적층단을 존중한다.
@@ -120,16 +108,18 @@ export function canPlaceByStackingRules(
   const ancestors = supportingAncestorsWithDepth(candidate, placements);
   for (const [base, resultingDepth] of ancestors) {
     const baseItem = cargoById.get(base.cargoId);
+    if (baseItem?.strengthUnverified) return false;
     if (baseItem?.maxStackLayers !== undefined && resultingDepth > baseItem.maxStackLayers) return false;
   }
 
   // Only these bases gain load from the candidate. Existing layouts are validated separately.
   for (const base of ancestors.keys()) {
     const baseItem = cargoById.get(base.cargoId);
-    if (baseItem?.maxTopLoadKg === undefined) continue;
+    if (baseItem?.maxTopLoadKg === undefined && baseItem?.maxTopPressureKgPerM2 === undefined) continue;
 
     const projected = projectedTopLoadKg(base, candidate, placements);
-    if (projected > baseItem.maxTopLoadKg + EPSILON) return false;
+    if (baseItem.maxTopLoadKg !== undefined && projected > baseItem.maxTopLoadKg + EPSILON) return false;
+    if (baseItem.maxTopPressureKgPerM2 !== undefined && projected > baseItem.maxTopPressureKgPerM2 * base.length * base.width + EPSILON) return false;
   }
 
   return true;

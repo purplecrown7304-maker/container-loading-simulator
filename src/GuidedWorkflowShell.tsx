@@ -12,7 +12,9 @@ import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { LOADING_RESULT_EVENT, type LoadingStrategy } from './engine/loadingEngine';
 import { publishGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingUnitState';
 import { publishGuidedWorkflowState } from './guidedWorkflowState';
-import { INERTIA_CERTIFICATION_EVENT, type InertiaCertification } from './inertiaCertification';
+import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
+import { readPhysicsTarget } from './physicsTarget';
+import { certificationVerificationState, failedVerificationState, verificationEventMatchesTarget, verificationStatusLabel, WORKFLOW_VERIFICATION_CANCELLED_EVENT, WORKFLOW_VERIFICATION_ERROR_EVENT, type VerificationEventDetail, type WorkflowVerificationState } from './workflowVerificationState';
 import { usePalletSnapshot } from './palletSnapshotStore';
 import { OPEN_RESULTS_MODAL_EVENT } from './resultsModalEvents';
 import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState } from './storage';
@@ -151,13 +153,13 @@ function EquipmentSelectionStage() {
   </section>;
 }
 
-function StepRail({ step, furthest, selectionCount, packagedReady, strategy, running, finalReady, onStep }: {
+function StepRail({ step, furthest, selectionCount, packagedReady, strategy, verification, finalReady, onStep }: {
   step: StepId;
   furthest: StepId;
   selectionCount: number;
   packagedReady: boolean;
   strategy: LoadingStrategy | null;
-  running: boolean;
+  verification: WorkflowVerificationState;
   finalReady: boolean;
   onStep: (step: StepId) => void;
 }) {
@@ -175,7 +177,7 @@ function StepRail({ step, furthest, selectionCount, packagedReady, strategy, run
           : item.id === 2 ? (selectionCount ? `${selectionCount}종 선택` : '미선택')
           : item.id === 3 ? (packagedReady ? '포장안 준비' : '대기')
           : item.id === 4 ? (strategy ? strategyLabel(strategy) : '미선택')
-          : item.id === 5 ? (finalReady ? '검사 완료' : running ? '검사 중' : '대기')
+          : item.id === 5 ? (finalReady && verification.status !== 'passed' ? '적재 불가' : verificationStatusLabel(verification))
           : finalReady ? '확인 가능' : '-';
         return <button key={item.id} data-workspace-step={item.id} type="button" aria-haspopup="dialog" aria-current={current ? 'step' : undefined} className={`${current ? 'current' : ''} ${complete ? 'complete' : ''}`} disabled={!enabled} onClick={() => enabled && onStep(item.id)}>
           <span className="guided-step-dot">{complete ? '✓' : <StudioIcon name={stepIcons[item.id - 1]}/>}</span>
@@ -371,12 +373,12 @@ function StagePanel({ step, live, selection, strategy, onSelection, onBundle, on
 
 const RetainedStagePanel = memo(StagePanel);
 
-function JobSummary({ step, live, mode, finalReady, running, selection, strategy }: {
+function JobSummary({ step, live, mode, finalReady, verification, selection, strategy }: {
   step: StepId;
   live: LiveDetail;
   mode: 'boxes' | 'pallets' | 'mixed';
   finalReady: boolean;
-  running: boolean;
+  verification: WorkflowVerificationState;
   selection: ProductSelectionMap;
   strategy: LoadingStrategy | null;
 }) {
@@ -402,7 +404,8 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
   const maxVolume = live.container.length * live.container.width * live.container.height;
   const usedVolume = boxResult?.usedVolumeM3 ?? 0;
   const fillRate = maxVolume > 0 && usedVolume > 0 ? usedVolume / maxVolume * 100 : 0;
-  const status = finalReady ? (!loaded && remaining ? '적재 불가' : '작업 가능') : running ? '검사 중' : loaded ? '검증 대기' : '대기';
+  const running = verification.status === 'running';
+  const status = finalReady && !loaded && remaining ? '적재 불가' : verificationStatusLabel(verification);
   return <details className="guided-job-summary" open={summaryOpen} onToggle={event => setSummaryOpen(event.currentTarget.open)}><summary className="studio-summary-toggle">현재 작업 요약</summary>
     <div className="studio-summary-heading"><h2>현재 작업</h2><span>OVERVIEW</span></div>
     <div className="studio-summary-equipment"><StudioIcon /><b>{equipment.shortName}</b><span>{live.container.length.toFixed(2)} × {live.container.width.toFixed(2)} × {live.container.height.toFixed(2)} m</span></div>
@@ -417,8 +420,9 @@ function JobSummary({ step, live, mode, finalReady, running, selection, strategy
       <div><dt>미적재</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div>
       <div><dt>총 중량</dt><dd>{weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div>
 
-      <div className="guided-status-row"><dt>상태</dt><dd><i className={finalReady ? 'good' : running ? 'running' : ''}/>{status}</dd></div>
+      <div className="guided-status-row" data-verification-status={verification.status}><dt>상태</dt><dd><i className={verification.status === 'passed' ? 'good' : running ? 'running' : ''}/>{status}</dd></div>
     </dl>
+    {verification.reason && <p className="guided-stage-help" role={verification.status === 'failed' ? 'alert' : 'status'}>{verification.reason}</p>}
     <div className="studio-capacity"><span>공간 사용률<b>{mode === 'boxes' ? `${fillRate.toFixed(1)}%` : '팔레트 결과 참고'}</b></span><meter aria-label="공간 사용률" min="0" max="100" value={mode === 'boxes' ? Math.min(100, fillRate) : 0}/><small>전체 공간 {maxVolume.toFixed(1)} m³</small></div>
     {step === 5 && !running && !finalReady && <div className="guided-loading-run-confirmation" aria-label="자동 적재 실행 설정 확인">
       <b>실행 설정 확인</b>
@@ -485,9 +489,10 @@ export default function GuidedWorkflowShell() {
   const [modalOpen, setModalOpen] = useState(false);
   const [packagingVisited, setPackagingVisited] = useState(false);
   const [packagingConfirmed, setPackagingConfirmed] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [finalReady, setFinalReady] = useState(false);
+  const [verification, setVerification] = useState<WorkflowVerificationState>({ status: 'unrun' });
   const [noLoadComplete, setNoLoadComplete] = useState(false);
+  const running = verification.status === 'running';
+  const finalReady = verification.status === 'passed' || noLoadComplete;
   const completedEmpty = useRef<LiveDetail | null>(null);
   const previewActivated = useRef(false);
   const emptyInputsUnchanged = () => {
@@ -507,13 +512,14 @@ export default function GuidedWorkflowShell() {
   const applyPackaging = () => {
     if (!packaging.ready) return;
     completedEmpty.current = null;
+    setNoLoadComplete(false);
     setPackagingConfirmed(true);
     writeShipmentInstructionSnapshot(packaging.products, packaging.assignments, packaging.cargo);
     writeStoredState({ container: live.container, cargo: packaging.cargo }, true);
     publishGuidedLoadingUnit('boxes');
     setStrategy(null);
     writeLoadingStrategyPreference(null);
-    setFinalReady(false);
+    setVerification({ status: 'unrun' });
     advance(4);
   };
   // Handling/destination choices do not change the confirmed carton design.
@@ -523,8 +529,7 @@ export default function GuidedWorkflowShell() {
     setPackagingConfirmed(false);
     setStrategy(null);
     writeLoadingStrategyPreference(null);
-    setFinalReady(false);
-    setRunning(false);
+    setVerification({ status: 'unrun' });
     setNoLoadComplete(false);
     completedEmpty.current = null;
     setFurthest(previous => Math.min(previous, 3) as StepId);
@@ -533,7 +538,6 @@ export default function GuidedWorkflowShell() {
     if (next === strategy) return;
     completedEmpty.current = null;
     setNoLoadComplete(false);
-    setRunning(false);
     const source = readStoredState() ?? live;
     const multipleStops = new Set(source.cargo.map(item => item.unloadPriority ?? 1)).size > 1;
     if (next === 'unloading' || (multipleStops && !source.container.unloadingPolicy)) {
@@ -542,7 +546,7 @@ export default function GuidedWorkflowShell() {
     }
     setStrategy(next);
     writeLoadingStrategyPreference(next);
-    setFinalReady(false);
+    setVerification({ status: 'unrun' });
     setFurthest(previous => previous > 5 ? 5 : previous);
   }, [strategy, live]);
 
@@ -601,20 +605,11 @@ export default function GuidedWorkflowShell() {
     const refresh = () => {
       if (completedEmpty.current && emptyInputsUnchanged()) { setLive(completedEmpty.current); return; }
       if (completedEmpty.current) {
-        completedEmpty.current = null; setNoLoadComplete(false); setFinalReady(false);
+        completedEmpty.current = null; setNoLoadComplete(false); setVerification({ status: 'unrun' });
         setFurthest(previous => Math.min(previous, 5) as StepId);
         setStep(previous => previous === 6 ? 5 : previous);
       }
       setLive(readLive());
-    };
-    const onCertificationInvalidated = (event: Event) => {
-      if ((event as CustomEvent<InertiaCertification | undefined>).detail) return;
-      // Empty results carry no certification. Unmounting the pallet viewer clears
-      // its physics target, but must not close the completed reasons-only view.
-      if (completedEmpty.current && emptyInputsUnchanged()) return;
-      setFinalReady(false);
-      setFurthest(previous => Math.min(previous, 5) as StepId);
-      setStep(previous => previous === 6 ? 5 : previous);
     };
     const refreshSelection = () => setSelection(readProductSelection());
     const refreshIdentity = () => {
@@ -631,13 +626,12 @@ export default function GuidedWorkflowShell() {
       setPackagingVisited(false);
       setPackagingConfirmed(false);
       setFurthest(1);
-      setRunning(false);
-      setFinalReady(false);
+      setVerification({ status: 'unrun' });
+      setNoLoadComplete(false);
     };
     window.addEventListener(LOADING_RESULT_EVENT, refresh);
     window.addEventListener(STORAGE_UPDATED_EVENT, refresh);
     window.addEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
-    window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertificationInvalidated);
     window.addEventListener(PRODUCT_SELECTION_EVENT, refreshSelection);
     window.addEventListener(LOCAL_OPERATOR_EVENT, refreshIdentity);
     window.addEventListener(ADMIN_ACCESS_EVENT, refreshIdentity);
@@ -647,7 +641,6 @@ export default function GuidedWorkflowShell() {
       window.removeEventListener(LOADING_RESULT_EVENT, refresh);
       window.removeEventListener(STORAGE_UPDATED_EVENT, refresh);
       window.removeEventListener(TRANSPORT_EQUIPMENT_EVENT, refresh);
-      window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertificationInvalidated);
       window.removeEventListener(PRODUCT_SELECTION_EVENT, refreshSelection);
       window.removeEventListener(LOCAL_OPERATOR_EVENT, refreshIdentity);
       window.removeEventListener(ADMIN_ACCESS_EVENT, refreshIdentity);
@@ -656,17 +649,17 @@ export default function GuidedWorkflowShell() {
   }, []);
 
   useEffect(() => {
-    const markRunning = () => {
+    const lockResults = () => {
+      setFurthest(previous => Math.min(previous, 5) as StepId);
+      setStep(previous => previous === 6 ? 5 : previous);
+    };
+    const markRunning = (event?: Event) => {
+      const detail = event ? (event as CustomEvent<VerificationEventDetail>).detail : undefined;
+      if (!verificationEventMatchesTarget(detail, readPhysicsTarget())) return;
       completedEmpty.current = null;
       setNoLoadComplete(false);
-      setRunning(true);
-      setFinalReady(false);
-    };
-    const markReady = () => {
-      setRunning(false);
-      setFinalReady(true);
-      setFurthest(previous => Math.max(previous, 6) as StepId);
-      setLive(readLive());
+      setVerification({ status: 'running' });
+      lockResults();
     };
     const onAppAction = (event: Event) => {
       if ((event as CustomEvent<AppActionDetail>).detail?.action === 'run-loading') { setModalOpen(false); markRunning(); }
@@ -675,53 +668,64 @@ export default function GuidedWorkflowShell() {
       const detail = (event as CustomEvent<LiveDetail>).detail;
       if (!detail?.result || detail.result.placements.length || !detail.result.remaining.length) return;
       completedEmpty.current = detail;
-      setRunning(false); setNoLoadComplete(true); setFinalReady(true); setLive(detail);
+      setVerification({ status: 'unrun' }); setNoLoadComplete(true); setLive(detail);
       setFurthest(previous => Math.max(previous, 6) as StepId);
     };
-    const onPhysicsError = () => setRunning(false);
+    const onPhysicsError = (event: Event) => {
+      const detail = (event as CustomEvent<VerificationEventDetail>).detail;
+      if (!verificationEventMatchesTarget(detail, readPhysicsTarget())) return;
+      setVerification(failedVerificationState(detail?.error));
+      setNoLoadComplete(false);
+      lockResults();
+    };
     const onInputInvalidated = () => {
-      setRunning(false); setFinalReady(false); setNoLoadComplete(false); completedEmpty.current = null;
-      setFurthest(previous => Math.min(previous, 5) as StepId);
+      setVerification({ status: 'unrun' }); setNoLoadComplete(false); completedEmpty.current = null;
+      lockResults();
     };
-    const onCertification = (event: Event) => {
-      const certification = (event as CustomEvent<InertiaCertification | undefined>).detail;
+    const applyCertification = (certification: InertiaCertification | undefined) => {
       if (!certification) {
-        setFinalReady(false);
+        if (completedEmpty.current && emptyInputsUnchanged()) return;
+        // Target publication during an active run clears its old certification.
+        setVerification(previous => previous.status === 'running' ? previous : { status: 'unrun' });
+        lockResults();
         return;
       }
-      // A completed certification object is not the same as a passed plan.
-      // Keep STEP 06 locked until the exact loading target passes all inertia checks.
-      if (certification.status === 'passed') {
-        markReady();
-        return;
-      }
-      setRunning(false);
-      setFinalReady(false);
-      setFurthest(previous => Math.min(previous, 5) as StepId);
-      setStep(previous => previous === 6 ? 5 : previous);
+      const next = certificationVerificationState(certification, readPhysicsTarget());
+      setVerification(next);
+      setNoLoadComplete(false);
+      setLive(readLive());
+      if (next.status === 'passed') setFurthest(previous => Math.max(previous, 6) as StepId);
+      else lockResults();
     };
+    const onCertification = (event: Event) => applyCertification((event as CustomEvent<InertiaCertification | undefined>).detail);
+    // Opening a modal is not evidence that the current plan passed.
+    const onResultsOpened = () => applyCertification(readLatestInertiaCertification());
 
     window.addEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, onInputInvalidated);
     window.addEventListener(NO_LOAD_RESULT_EVENT, onNoLoad);
     window.addEventListener(APP_ACTION_EVENT, onAppAction);
     window.addEventListener(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, markRunning);
     window.addEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
+    window.addEventListener(WORKFLOW_VERIFICATION_CANCELLED_EVENT, onPhysicsError);
+    window.addEventListener(WORKFLOW_VERIFICATION_ERROR_EVENT, onPhysicsError);
     window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
-    window.addEventListener(OPEN_RESULTS_MODAL_EVENT, markReady);
+    window.addEventListener(OPEN_RESULTS_MODAL_EVENT, onResultsOpened);
     return () => {
       window.removeEventListener(WORKFLOW_INPUT_INVALIDATED_EVENT, onInputInvalidated);
       window.removeEventListener(NO_LOAD_RESULT_EVENT, onNoLoad);
       window.removeEventListener(APP_ACTION_EVENT, onAppAction);
       window.removeEventListener(FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, markRunning);
       window.removeEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
+      window.removeEventListener(WORKFLOW_VERIFICATION_CANCELLED_EVENT, onPhysicsError);
+      window.removeEventListener(WORKFLOW_VERIFICATION_ERROR_EVENT, onPhysicsError);
       window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
-      window.removeEventListener(OPEN_RESULTS_MODAL_EVENT, markReady);
+      window.removeEventListener(OPEN_RESULTS_MODAL_EVENT, onResultsOpened);
     };
   }, []);
 
   const selectionCount = Object.keys(selection).length;
-  const rail = hosts.left ? createPortal(<StepRail step={step} furthest={furthest} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onStep={openWorkspace}/>, hosts.left) : null;
-  const summary = hosts.right ? createPortal(<JobSummary step={step} live={live} mode={mode} finalReady={finalReady} running={running} selection={selection} strategy={strategy}/>, hosts.right) : null;
+  const rail = hosts.left ? createPortal(<StepRail step={step} furthest={furthest} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} verification={verification} finalReady={finalReady} onStep={openWorkspace}/>, hosts.left) : null;
+  const summary = hosts.right ? createPortal(<JobSummary step={step} live={live} mode={mode} finalReady={finalReady} verification={verification} selection={selection} strategy={strategy}/>, hosts.right) : null;
   const blockReason = loadingMethodBlockReason(packagingConfirmed,strategy,mode,live,methodPalletSelection);
   const footer = <BottomBar blockReason={blockReason} packagingConfirmed={packagingConfirmed} canReport={!noLoadComplete} step={step} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>;
   return <>{rail}{summary}{typeof document !== 'undefined' ? createPortal(<>

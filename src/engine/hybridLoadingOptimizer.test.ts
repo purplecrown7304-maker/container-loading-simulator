@@ -45,11 +45,11 @@ function signature(placements: Placement[]) {
 }
 
 describe('hybrid loading optimizer', () => {
-  it('compares strict-wall and EMS beam plans with hard-safety gating', () => {
+  it('keeps direct-box candidates inside the heavy-inner policy and hard-safety gate', () => {
     const candidates = compareHybridCandidates(container, cargo, 'capacity');
-    expect(candidates.map((candidate) => candidate.engine).sort()).toEqual(['ems-beam-v2', 'strict-wall']);
+    expect(candidates.map((candidate) => candidate.engine).sort()).toEqual(['heavy-inner-block']);
     expect(candidates.every((candidate) => candidate.validationIssueCount === 0)).toBe(true);
-    expect(candidates[0].score).toBeGreaterThanOrEqual(candidates[1].score);
+    expect(Number.isFinite(candidates[0].score)).toBe(true);
   });
 
   it('returns a deterministic best plan for identical inputs', () => {

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { findBestSmartSnap } from './smartSnap';
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 
-const container: ContainerSpec = { length: 6, width: 2.4, height: 2.6, maxPayloadKg: 28000 };
+// The two-box layout is centered under the same operational limits as apply/restore.
+const container: ContainerSpec = { length: 2, width: 1, height: 2.6, maxPayloadKg: 28000 };
 const cargo: CargoItem[] = [{ id:'A', name:'A', length:1, width:1, height:1, weightKg:100, quantity:2, maxStackLayers:3, maxTopLoadKg:500 }];
 
 function result(): LoadingResult {

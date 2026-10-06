@@ -11,7 +11,7 @@ const result:LoadingResult={placements:[
 
 describe('group move suggestions',()=>{
   it('returns at most three safe ranked candidates',()=>{
-    const list=suggestGroupMoves(container,cargo,result,[0,1],{x:1,y:0,z:0},3);
+    const list=suggestGroupMoves(container,cargo,result,[0,1],{x:2,y:.7,z:0},3);
     expect(list.length).toBeGreaterThan(0);
     expect(list.length).toBeLessThanOrEqual(3);
     expect(list.every((item,i)=>i===0||list[i-1].score>=item.score)).toBe(true);

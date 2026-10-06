@@ -44,7 +44,7 @@ function certification(overrides: Partial<InertiaCertification> = {}): InertiaCe
     failedScenarios: [],
     maxHorizontalShiftM: 0.005,
     maxTiltDeg: 0.5,
-    results: {},
+    results: Object.fromEntries(['acceleration', 'braking', 'cornering'].map(scenario => [scenario, { scenario, fps: 30, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: .001, maxTiltDeg: .1 }])),
     payloadWithinLimit: true,
     ...overrides,
   };
@@ -67,4 +67,13 @@ describe('final results certification gate', () => {
     expect(certificationMatchesTarget(certification(), undefined)).toBe(false);
     expect(certificationMatchesTarget(certification({ status: 'failed' }), target)).toBe(false);
   });
+});
+
+it('rejects a claimed PASS without all three actual scenarios', () => {
+  expect(certificationMatchesTarget(certification({ results: {} }), target)).toBe(false);
+});
+
+it('keeps results locked for operational hard errors even if inertia passed', () => {
+  const invalidTarget: PhysicsTarget = { ...target, result: { ...target.result, operationalFindings: [{ code: 'CG_LATERAL', severity: 'error', message: '좌우 무게중심 초과', placementIndexes: [] }] } };
+  expect(certificationMatchesTarget(certification({ targetSignature: createPhysicsTargetSignature(invalidTarget) }), invalidTarget)).toBe(false);
 });

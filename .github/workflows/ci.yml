@@ -47,6 +47,17 @@ jobs:
       - name: Browser smoke tests
         run: npm run test:e2e
 
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: browser-diagnostics-${{ github.run_id }}
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload production build
         uses: actions/upload-artifact@v6
         with:

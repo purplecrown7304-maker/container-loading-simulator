@@ -1,6 +1,36 @@
 import type { RulesContext, LoadingRuleset } from './loadingRuleset';
 import type { Orientation, Dims } from './loadSimA/types';
+/** Explicit numerical scenarios never amend equipment ratings or certify transport. */
+export type LimitReviewConfig = {
+  mode: 'what-if';
+  maxPayloadKg?: number;
+  floorLoadLimitKgPerM2?: number;
+  minimumSupportRatio?: number;
+  cargoLimits?: Record<string, { maxStackLayers?: number; maxTopLoadKg?: number }>;
+  simulation?: { maxDisplacementMm?: number; maxRotationDeg?: number };
+};
+export type LimitReviewMetric = {
+  key: 'payload' | 'floor-load' | 'support' | 'stack-layers' | 'top-load' | 'displacement' | 'rotation';
+  cargoId?: string;
+  unit: 'kg' | 'kg/m²' | 'ratio' | 'layers' | 'mm' | 'deg';
+  originalLimit: number | null;
+  scenarioLimit: number;
+  actual: number;
+  excess: number | null;
+  excessPercent: number | null;
+  provenance: 'configured' | 'app-default' | 'unverified' | 'unknown';
+  direction: 'maximum' | 'minimum';
+};
+export type LimitReviewMetadata = {
+  mode: 'what-if';
+  label: 'WHAT-IF REVIEW';
+  status: 'active' | 'invalid' | 'unsupported';
+  config: LimitReviewConfig;
+  metrics: LimitReviewMetric[];
+  errors: string[];
+};
 export type ContainerSpec = {
+  limitReview?: LimitReviewConfig;
   /** Independent from the optimization objective. Omitted preserves historical behavior. */
   unloadingPolicy?: 'strict' | 'soft';
   palletDestination?: {
@@ -120,6 +150,9 @@ export type AutoCorrectionRecord = {
 };
 
 export type LoadingResult = {
+  limitReview?: LimitReviewMetadata;
+  /** Planning budget only; this does not assert physics certification. */
+  securingBudget?: { level: 1 | 2 | 3; reservedWeightKg: number; requiredWeightKg: number; totalTransportWeightKg: number };
   ruleset?: LoadingRuleset;
   placements: Placement[];
   remaining: Array<{ cargoId: string; quantity: number; reason: string; reasonCode?: string }>;

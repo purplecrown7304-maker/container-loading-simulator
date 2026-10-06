@@ -61,4 +61,73 @@ describe('load-sim operational validator adapter', () => {
     const codes = operationalErrors(validateOperationalLoading(hc, [tallItem], [placement])).map(finding => finding.code);
     expect(codes).toContain('DOOR_NOT_PASSABLE');
   });
+
+  it('rejects 70% support and a 1.4 mm vertical gap like the final audit', () => {
+    const supportCodes = operationalErrors(validateOperationalLoading(container,[item],[box(),box({x:1.8,z:.5})])).map(f => f.code);
+    expect(supportCodes).toContain('INSUFFICIENT_SUPPORT');
+    const gapCodes = operationalErrors(validateOperationalLoading(container,[item],[box(),box({z:.5014})])).map(f => f.code);
+    expect(gapCodes).toContain('FLOATING');
+  });
+
+  it('uses the same conservative full transmitted load as candidate and final checks', () => {
+    const cargo = [{...item,id:'BASE',length:.5,weightKg:10,maxTopLoadKg:60}, {...item,id:'BRIDGE',weightKg:100}];
+    const placements = [
+      box({cargoId:'BASE',length:.5,weightKg:10}),
+      box({cargoId:'BASE',x:2,length:.5,weightKg:10}),
+      box({cargoId:'BRIDGE',z:.5,weightKg:100}),
+    ];
+    const topLoad = validateOperationalLoading(container,cargo,placements).filter(f => f.code === 'TOP_LOAD_EXCEEDED');
+    expect(topLoad).toHaveLength(2);
+    expect(topLoad.map(f => f.value)).toEqual([100,100]);
+  });
+
+  it('counts shared descendants once per supporting box', () => {
+    const cargo = [{...item,id:'BASE',weightKg:10,maxTopLoadKg:25},
+      {...item,id:'MID',length:.5,weightKg:10,maxTopLoadKg:20}, {...item,id:'TOP',weightKg:10}];
+    const placements = [
+      box({cargoId:'BASE',weightKg:10}),
+      box({cargoId:'MID',z:.5,length:.5,weightKg:10}),
+      box({cargoId:'MID',x:2,z:.5,length:.5,weightKg:10}),
+      box({cargoId:'TOP',z:1,weightKg:10}),
+    ];
+    const topLoad = validateOperationalLoading(container,cargo,placements).filter(f => f.code === 'TOP_LOAD_EXCEEDED');
+    expect(topLoad).toHaveLength(1);
+    expect(topLoad[0].value).toBe(30);
+  });
+
+  it('enforces a lower SKU maximum layer count across mixed stacks', () => {
+    const cargo = [{...item,id:'BASE',maxStackLayers:2},{...item,id:'UPPER'}];
+    const placements = [box({cargoId:'BASE'}),box({cargoId:'UPPER',z:.5}),box({cargoId:'UPPER',z:1})];
+    expect(validateOperationalLoading(container,cargo,placements).some(f => f.code === 'STACK_LIMIT' && f.placementIndexes.includes(0))).toBe(true);
+  });
+
+  it('also enforces 80% support for an elevated pallet deck', () => {
+    const cargo = [{...item,length:.7}];
+    const placements = [box({length:.7,z:.1})];
+    const supports = [
+      {id:'LOWER-PALLET',x:1.5,y:.5,z:0,length:1,width:1,height:.1,weightKg:5},
+      {id:'UPPER-PALLET',x:1.5,y:.5,z:.6,length:1,width:1,height:.1,weightKg:5},
+    ];
+    const failures = operationalErrors(validateOperationalLoading(container,cargo,placements,supports));
+    expect(failures.some(f => f.code === 'INSUFFICIENT_SUPPORT' && f.message.includes('UPPER-PALLET') && Math.abs((f.value ?? 0)-.7)<1e-9)).toBe(true);
+  });
+
+  it('unloads empty early-stop pallet decks with their cargo instead of flagging them as floating', () => {
+    const space = {...container,width:1,unloadingPolicy:'strict' as const};
+    const cargo = [{...item,id:'EARLY',unloadPriority:1},{...item,id:'LATE',unloadPriority:2}];
+    const placements = [box({cargoId:'EARLY',x:2,y:0,z:.1}),box({cargoId:'EARLY',x:2,y:0,z:.7}),
+      box({cargoId:'LATE',x:0,y:0,z:.1})];
+    const support = (id:string,x:number,z:number)=>({id,x,y:0,z,length:1,width:1,height:.1,weightKg:5});
+    const findings = validateOperationalLoading(space,cargo,placements,[support('EARLY-LOWER',2,0),support('EARLY-UPPER',2,.6),support('LATE-DECK',0,0)]);
+    expect(findings.filter(f=>f.code.startsWith('AFTER_STOP_'))).toEqual([]);
+  });
+
+  it('still rejects later-stop pallet cargo stranded above an unloaded early-stop carton', () => {
+    const space = {...container,width:1,unloadingPolicy:'soft' as const};
+    const cargo = [{...item,id:'EARLY',unloadPriority:1},{...item,id:'LATE',unloadPriority:2}];
+    const placements = [box({cargoId:'EARLY',x:1.5,y:0,z:0}),box({cargoId:'LATE',x:1.5,y:0,z:.6})];
+    const supports = [{id:'LATE-DECK',x:1.5,y:0,z:.5,length:1,width:1,height:.1,weightKg:5}];
+    const findings = validateOperationalLoading(space,cargo,placements,supports);
+    expect(findings.some(f=>f.code==='AFTER_STOP_FLOATING' && f.message.includes('LATE-DECK'))).toBe(true);
+  });
 });

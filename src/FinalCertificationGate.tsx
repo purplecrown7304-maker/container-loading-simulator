@@ -1,6 +1,7 @@
+import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { buildDirectResultReoptimizationCandidatesAsync, type DirectResultReoptimizationCandidate, type DirectSearchProgress } from './engine/finalResultOptimization';
+import { buildDirectResultReoptimizationCandidatesAsync, buildSecuringPayloadAdjustmentCandidateAsync, type DirectResultReoptimizationCandidate, type DirectSearchProgress } from './engine/finalResultOptimization';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import { writeManualOverride } from './engine/manualOverride';
 import {
@@ -24,6 +25,8 @@ import { publishPhysicsTarget, readPhysicsTarget, type PhysicsTarget } from './p
 import { openResultsModal } from './resultsModalEvents';
 import { STORAGE_UPDATED_EVENT, type StoredState } from './storage';
 import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
+import { isInertiaCertificationComplete, isPhysicsTargetVerified } from './inertiaWorkOrderPolicy';
+import { publishVerificationCancelled, publishVerificationFailure } from './workflowVerificationState';
 
 const SCENARIO_LABEL = {
   acceleration: '출발 가속',
@@ -76,6 +79,11 @@ function certificationRisk(result: InertiaCertification) {
 }
 
 function betterCandidate(a: EvaluatedDirectCandidate, b: EvaluatedDirectCandidate) {
+  if (a.certification.payloadWithinLimit !== b.certification.payloadWithinLimit) return a.certification.payloadWithinLimit;
+  const aComplete = isInertiaCertificationComplete(a.certification), bComplete = isInertiaCertificationComplete(b.certification);
+  if (aComplete !== bComplete) return aComplete;
+  const aPassed = isPhysicsTargetVerified(a.target, a.certification), bPassed = isPhysicsTargetVerified(b.target, b.certification);
+  if (aPassed !== bPassed) return aPassed;
   if (Math.abs(a.risk - b.risk) > 1e-6) return a.risk < b.risk;
   if (a.certification.securing.level !== b.certification.securing.level) return a.certification.securing.level < b.certification.securing.level;
   return a.staticPenalty < b.staticPenalty;
@@ -170,7 +178,15 @@ export default function FinalCertificationGate() {
 
       setCertification(result);
       setUsage(result.securing);
-      if (result.status === 'passed') {
+      if (isLimitReviewTarget(nextTarget)) {
+        cache.current = { signature: requestedSignature, certification: result };
+        setRunning(false);
+        setError(LIMIT_REVIEW_WARNING);
+        if (!detail.automatic) openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: result });
+        else setOpen(false);
+        return;
+      }
+      if (isPhysicsTargetVerified(nextTarget, result)) {
         cache.current = { signature: requestedSignature, certification: result };
         setRunning(false);
         setOpen(false);
@@ -178,7 +194,7 @@ export default function FinalCertificationGate() {
         return;
       }
 
-      if (!result.payloadWithinLimit) {
+      if (!result.payloadWithinLimit && nextTarget.mode !== 'boxes') {
         setRunning(false);
         setError('보강 자재 중량까지 포함하면 컨테이너 최대 허용중량을 초과합니다. 적재량 또는 보강안을 조정해야 합니다.');
         return;
@@ -191,24 +207,28 @@ export default function FinalCertificationGate() {
       }
 
       setProgress(null);
-      const searchResult = await buildDirectResultReoptimizationCandidatesAsync(nextTarget, MAX_DIRECT_REPOSITION_CANDIDATES, cancelled, {
-        strategy: readLoadingStrategyPreference() ?? undefined,
-        signal: controller.signal,
-        onProgress: next => { if (!cancelled()) setSearch(next); },
-      });
+      const payloadAdjustment = !result.payloadWithinLimit;
+      const adjusted = payloadAdjustment ? await buildSecuringPayloadAdjustmentCandidateAsync(nextTarget, readLoadingStrategyPreference() ?? 'capacity', controller.signal) : null;
+      const searchResult = payloadAdjustment
+        ? { candidates: adjusted ? [adjusted] : [], timedOut: false }
+        : await buildDirectResultReoptimizationCandidatesAsync(nextTarget, MAX_DIRECT_REPOSITION_CANDIDATES, cancelled, {
+          strategy: readLoadingStrategyPreference() ?? undefined,
+          signal: controller.signal,
+          onProgress: next => { if (!cancelled()) setSearch(next); },
+        });
       if (cancelled()) return;
       setSearch(null);
       checkCurrent();
       const candidates = searchResult.candidates;
       if (!candidates.length) {
         setRunning(false);
-        setError(searchResult.timedOut
+        setError(payloadAdjustment ? '보강 자재 중량을 포함하는 안전한 적재량 조정안을 만들지 못했습니다. 적재량 또는 보강안을 변경한 뒤 다시 검사하세요.' : searchResult.timedOut
           ? '추가 배치 계산 시간 제한에 도달했습니다. 현재 적재안은 관성 기준을 통과하지 못했습니다. 적재량 또는 화물 조건을 조정한 뒤 다시 검증하세요.'
           : '보강재만으로 통과하지 못했고, 같은 화물 수량을 유지하면서 만들 수 있는 추가 고유 재배치안이 없습니다. 적재량 또는 화물 조건을 조정해야 합니다.');
         return;
       }
 
-      let bestFailed: EvaluatedDirectCandidate | null = null;
+      let bestFailed: EvaluatedDirectCandidate | null = { label: '현재 적재안', result: nextTarget.result, target: nextTarget, staticPenalty: 0, certification: result, risk: certificationRisk(result) };
       let attempted = 0;
 
       for (const candidate of candidates) {
@@ -220,7 +240,7 @@ export default function FinalCertificationGate() {
         setUsage(buildSecuringUsage(candidate.target, 1));
         setLatestResult(null);
 
-        const candidateCertification = await runInertiaCertification(
+        let candidateCertification = await runInertiaCertification(
           candidate.target,
           nextProgress => {
             if (cancelled()) return;
@@ -237,6 +257,11 @@ export default function FinalCertificationGate() {
         if (cancelled()) return;
         checkCurrent();
 
+        if (payloadAdjustment) {
+          const removed = Math.max(0, nextTarget.result.placements.length - candidate.target.result.placements.length);
+          candidateCertification = { ...candidateCertification, searchNotice: `보강재 중량 확보를 위한 적재량 조정: 기존 적재 화물 ${removed}개를 미적재 수량에 포함했습니다. 출하 수량을 확인하세요.` };
+        }
+
         setCertification(candidateCertification);
         setUsage(candidateCertification.securing);
         const evaluated: EvaluatedDirectCandidate = {
@@ -245,7 +270,7 @@ export default function FinalCertificationGate() {
           risk: certificationRisk(candidateCertification),
         };
 
-        if (candidateCertification.status === 'passed') {
+        if (isPhysicsTargetVerified(candidate.target, candidateCertification)) {
           applyDirectCandidate(evaluated);
           cache.current = { signature: evaluated.certification.targetSignature, certification: evaluated.certification };
           setTarget(evaluated.target);
@@ -277,6 +302,7 @@ export default function FinalCertificationGate() {
       console.error('Final inertia certification failed', reason);
       setRunning(false);
       setError('최종 관성 검증 또는 자동 재배치를 완료하지 못했습니다. 현재 적재안을 유지한 채 다시 실행할 수 있습니다.');
+      publishVerificationFailure(reason, nextTarget);
     }
   }, []);
 
@@ -294,7 +320,7 @@ export default function FinalCertificationGate() {
         return;
       }
       const signature = createPhysicsTargetSignature(nextTarget);
-      if (cache.current?.signature === signature && cache.current.certification.status === 'passed') {
+      if (cache.current?.signature === signature && isPhysicsTargetVerified(nextTarget, cache.current.certification)) {
         if (!detail.automatic) openResultsModal({ ...resultDetailFromTarget(nextTarget), certification: cache.current.certification });
         return;
       }
@@ -316,18 +342,20 @@ export default function FinalCertificationGate() {
   const scenarioLabel = progress ? SCENARIO_LABEL[progress.scenario] : '-';
   const progressPercent = progress ? Math.round(progress.physicsProgress * 100) : 0;
   const palletMode = target?.mode === 'pallets';
+  const review = isLimitReviewTarget(target ?? undefined);
 
   return <div className="final-cert-backdrop">
     <section className="final-cert-modal" role="dialog" aria-modal="true" aria-labelledby="final-cert-title">
       <header>
         <div>
-          <span>FINAL SAFETY GATE · RAPIER 3D · {palletMode ? 'PALLET' : 'DIRECT BOX'}</span>
+          <span>{review ? 'WHAT-IF REVIEW' : 'FINAL SAFETY GATE'} · RAPIER 3D · {palletMode ? 'PALLET' : 'DIRECT BOX'}</span>
           <h2 id="final-cert-title">최종 적재 결과 전 관성 검증</h2>
           <p>출발 가속 · 급정거 · 급회전을 모두 검증합니다. 기본 적재안이 실패하면 DIRECT BOX는 정적 안전점수가 높은 상위 {MAX_DIRECT_REPOSITION_CANDIDATES}개 재배치만 추가 비교해 브라우저가 장시간 멈추는 것을 방지합니다.</p>
         </div>
-        <button type="button" onClick={cancel}>{running ? '계산 취소' : '닫기'}</button>
+        <button type="button" onClick={() => { if (running) publishVerificationCancelled(); cancel(); }}>{running ? '계산 취소' : '닫기'}</button>
       </header>
 
+      {review && <p className="final-cert-error" role="alert">{LIMIT_REVIEW_WARNING}</p>}
       <div className="final-cert-flow">
         <div className={progress?.scenarioIndex === 1 ? 'active' : certification?.testedScenarios ? 'done' : ''}><b>1</b><span>출발 가속</span></div>
         <i />
@@ -335,7 +363,7 @@ export default function FinalCertificationGate() {
         <i />
         <div className={progress?.scenarioIndex === 3 ? 'active' : certification?.passedScenarios === 3 ? 'done' : ''}><b>3</b><span>급회전</span></div>
         <i />
-        <div className={certification?.status === 'passed' ? 'done' : ''}><b>✓</b><span>결과 공개</span></div>
+        <div className={isPhysicsTargetVerified(target ?? undefined, certification ?? undefined) ? 'done' : ''}><b>✓</b><span>결과 공개</span></div>
       </div>
 
       {running && <div className="final-cert-running">

@@ -13,4 +13,21 @@ describe('independent loading rule audit', () => {
   it('rejects forbidden rotations and excess quantities', () => { expect(types([{ ...item, allowRotation: false }], [box(0, { rotated: true })])).toContain('INVALID_CARGO'); expect(types([{ ...item, quantity: 1 }], [box(), box(1)])).toContain('QUANTITY'); });
   it('detects payload from actual placements', () => expect(auditLoading({ ...container, maxPayloadKg: 15 }, [item], [box(), box(1)]).map(i => i.type)).toContain('PAYLOAD'));
   it('rejects invalid geometry and wall penetration', () => { expect(types([item], [box(0, { length: -1 })])).toContain('INVALID_CARGO'); expect(types([item], [box(0, { x: 4 })])).toContain('OUT_OF_BOUNDS'); });
+  it('rejects 70% support under the shared 80% minimum', () => {
+    expect(types([item], [box(),box(1,{x:.3})])).toContain('UNSUPPORTED');
+    expect(types([item], [box(),box(1,{x:.2})])).toEqual([]);
+  });
+  it('rejects a vertical support gap beyond the shared 1 mm contact tolerance', () => {
+    expect(types([item], [box(),box(1.0014)])).toContain('UNSUPPORTED');
+  });
+  it('does not let a manual move elevate floor-only cargo', () => {
+    expect(types([{...item,floorOnly:true}], [box(),box(1)])).toContain('INVALID_CARGO');
+  });
+  it('enforces cumulative top pressure even without a kilogram top-load cap', () => {
+    const issues = auditLoading(container,[{...item,maxTopPressureKgPerM2:15}],[box(),box(1),box(2)]);
+    expect(issues.some(issue=>issue.message.includes('TOP_PRESSURE_LIMIT'))).toBe(true);
+  });
+  it('keeps unverified cartons to one layer and no top load without explicit caps', () => {
+    expect(types([{...item,strengthUnverified:true}],[box(),box(1)])).toEqual(expect.arrayContaining(['STACK_LIMIT','TOP_LOAD']));
+  });
 });

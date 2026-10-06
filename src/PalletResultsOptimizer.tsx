@@ -10,6 +10,7 @@ import {
 } from './engine/palletAdaptiveSearch';
 import { createPhysicsTargetSignature, runInertiaCertification, type CertificationProgress } from './inertiaCertification';
 import { readPhysicsTarget } from './physicsTarget';
+import { isPhysicsTargetVerified, physicsTargetHardFailureReasons } from './inertiaWorkOrderPolicy';
 import {
   REQUEST_PALLET_RESULTS_OPTIMIZATION_EVENT,
   openResultsModal,
@@ -64,7 +65,7 @@ export default function PalletResultsOptimizer() {
       if (runId.current !== id) return;
 
       const evaluated: EvaluatedPalletCandidate = { ...candidate, certification, risk: palletCertificationRisk(certification) };
-      if (certification.status === 'passed') {
+      if (isPhysicsTargetVerified(candidate.target, certification)) {
         applyPalletAdaptiveCandidate(candidate, certification);
         setRunning(false);
         setMessage(`최종 PASS · ${candidate.label}`);
@@ -77,7 +78,9 @@ export default function PalletResultsOptimizer() {
         });
         return;
       }
-      if (!bestFailed || betterPalletEvaluation(evaluated, bestFailed)) bestFailed = evaluated;
+      const staticallyValid = physicsTargetHardFailureReasons(evaluated.target).length === 0;
+      const bestStaticallyValid = bestFailed && physicsTargetHardFailureReasons(bestFailed.target).length === 0;
+      if (!bestFailed || (staticallyValid !== bestStaticallyValid ? staticallyValid : betterPalletEvaluation(evaluated, bestFailed))) bestFailed = evaluated;
     }
 
     if (runId.current !== id) return;

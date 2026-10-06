@@ -1,12 +1,12 @@
 import { isARules } from './loadingRuleset';
 import { validateAPlan } from './loadSimAdapter';
 import { cargoWithUnloadingPolicy } from './unloadingPolicy';
+import { CONTACT_TOLERANCE_M, MIN_SUPPORT_RATIO, supportContactArea } from './support';
 import { findMatchingEquipment } from '../transportEquipment';
 import type { CargoItem, ContainerSpec, OperationalRuleFinding, Placement } from './types';
 
 const EPS = 1e-6;
-const HEIGHT_TOLERANCE_M = 0.005;
-const MIN_SUPPORT_RATIO = 0.8;
+const HEIGHT_TOLERANCE_M = CONTACT_TOLERANCE_M;
 const CG_LONG_TOLERANCE = 0.05;
 const CG_LAT_TOLERANCE = 0.05;
 const CG_HEIGHT_RATIO = 0.5;
@@ -36,11 +36,6 @@ type SupportLink = { bodyIndex: number; area: number };
 
 function overlap1d(a0: number, a1: number, b0: number, b1: number) {
   return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
-}
-
-function overlapXY(a: Placement, b: Placement) {
-  return overlap1d(a.x, a.x + a.length, b.x, b.x + b.length)
-    * overlap1d(a.y, a.y + a.width, b.y, b.y + b.width);
 }
 
 function overlapsVolume(a: Placement, b: Placement) {
@@ -102,9 +97,8 @@ function supportersOf(bodies: Body[]) {
     for (let j = 0; j < bodies.length; j += 1) {
       if (j === index) continue;
       const below = bodies[j].placement;
-      if (Math.abs(below.z + below.height - p.z) > HEIGHT_TOLERANCE_M) continue;
-      const area = overlapXY(p, below);
-      if (area > EPS) links.push({ bodyIndex: j, area });
+      const area = supportContactArea(below, p);
+      if (area > 0) links.push({ bodyIndex: j, area });
     }
     return links;
   });
@@ -171,7 +165,8 @@ function checkDoor(container: ContainerSpec, bodies: Body[]) {
 function checkSupport(bodies: Body[], supporters: SupportLink[][]) {
   const out: OperationalRuleFinding[] = [];
   bodies.forEach((body, index) => {
-    if (body.kind !== 'cargo') return;
+    // Elevated pallet decks are physical loads too. Treating them as unconditional
+    // supports would hide an unsafe deck even when its own cartons are supported.
     const p = body.placement;
     if (p.z <= HEIGHT_TOLERANCE_M) return;
 
@@ -215,33 +210,56 @@ function checkSupport(bodies: Body[], supporters: SupportLink[][]) {
 
 function checkStacking(bodies: Body[], supporters: SupportLink[][]) {
   const out: OperationalRuleFinding[] = [];
-  const carried = bodies.map(() => 0);
+  const upper = bodies.map(() => [] as number[]);
+  supporters.forEach((links, index) => links.forEach(link => upper[link.bodyIndex].push(index)));
+  const depth = bodies.map(() => 1);
+  const height = bodies.map(() => 1);
   const order = bodies.map((_, index) => index)
-    .sort((a, b) => bodies[b].placement.z - bodies[a].placement.z);
-
-  for (const index of order) {
-    const body = bodies[index];
-    const total = body.placement.weightKg + carried[index];
-    const links = supporters[index];
-    if (!links.length) continue;
-    const area = links.reduce((sum, link) => sum + link.area, 0);
-    if (area <= EPS) continue;
-    for (const link of links) carried[link.bodyIndex] += total * link.area / area;
+    .sort((a, b) => bodies[a].placement.z - bodies[b].placement.z);
+  // A physical pallet/deck is a support surface, not another carton layer.
+  for (const index of order) for (const link of supporters[index]) {
+    if (bodies[link.bodyIndex].kind === 'cargo') depth[index] = Math.max(depth[index], depth[link.bodyIndex] + 1);
+  }
+  for (const index of [...order].reverse()) for (const next of upper[index]) {
+    if (bodies[next].kind === 'cargo') height[index] = Math.max(height[index], height[next] + 1);
   }
 
   bodies.forEach((body, index) => {
     if (body.kind !== 'cargo') return;
-    const maxTop = body.cargo?.maxTopLoadKg;
-    if (maxTop == null) return;
-    if (carried[index] > maxTop + EPS) {
+    const layers = Math.max(depth[index], height[index]);
+    const maxLayers = body.cargo?.strengthUnverified ? Math.min(1,body.cargo.maxStackLayers ?? 1) : body.cargo?.maxStackLayers;
+    if (maxLayers != null && layers > maxLayers) {
+      out.push(finding('STACK_LIMIT', 'error', `${body.placement.cargoId}: 혼합 화물을 포함한 최대 적층단을 초과했습니다.`,
+        cargoIndexes(bodies, [index]), layers, maxLayers));
+    }
+    const maxTop = body.cargo?.strengthUnverified ? 0 : body.cargo?.maxTopLoadKg;
+    const maxPressure = body.cargo?.maxTopPressureKgPerM2;
+    if (maxTop == null && maxPressure == null) return;
+    // Match candidate/final legacy safety: each supporting box carries the full
+    // load of every reachable descendant, counted once. Area-based sharing
+    // assumes a load-distribution model that this engine does not establish.
+    const descendants = new Set<number>();
+    const queue = [...upper[index]];
+    while (queue.length) {
+      const next = queue.pop()!;
+      if (descendants.has(next)) continue;
+      descendants.add(next);
+      queue.push(...upper[next]);
+    }
+    const carried = [...descendants].reduce((sum, next) => sum + bodies[next].placement.weightKg, 0);
+    if (maxTop != null && carried > maxTop + EPS) {
       out.push(finding(
         maxTop <= EPS ? 'NO_STACK_ON_TOP' : 'TOP_LOAD_EXCEEDED',
         'error',
-        `${body.placement.cargoId}: 누적 상부하중 ${carried[index].toFixed(1)}kg이 허용 ${maxTop}kg을 초과했습니다.`,
+        `${body.placement.cargoId}: 누적 상부하중 ${carried.toFixed(1)}kg이 허용 ${maxTop}kg을 초과했습니다.`,
         cargoIndexes(bodies, [index]),
-        carried[index],
+        carried,
         maxTop,
       ));
+    }
+    if (maxPressure != null && carried > maxPressure * body.placement.length * body.placement.width + EPS) {
+      out.push(finding('TOP_PRESSURE_LIMIT','error',`${body.placement.cargoId}: 누적 상부 압력이 허용 면적하중을 초과했습니다.`,
+        cargoIndexes(bodies,[index]),carried / (body.placement.length * body.placement.width),maxPressure));
     }
   });
   return out;
@@ -359,6 +377,11 @@ function checkWeightAndCog(container: ContainerSpec, bodies: Body[]) {
   return out;
 }
 
+/** Exact legacy operational weight/CG checks without rebuilding support graphs. */
+export function validateOperationalWeightAndCog(container: ContainerSpec, placements: Placement[]): OperationalRuleFinding[] {
+  return checkWeightAndCog(container, placements.map((placement, cargoIndex) => ({ kind: 'cargo', placement, cargoIndex })));
+}
+
 function checkSecuring(container: ContainerSpec, bodies: Body[], supporters: SupportLink[][]) {
   const out: OperationalRuleFinding[] = [];
   const cargoBodies = cargoOnly(bodies);
@@ -403,7 +426,7 @@ function checkSecuring(container: ContainerSpec, bodies: Body[], supporters: Sup
   return out;
 }
 
-function checkAfterStops(bodies: Body[]) {
+function checkAfterStops(bodies: Body[], initialSupporters: SupportLink[][]) {
   const priorities = [...new Set(
     bodies.flatMap(body => body.kind === 'cargo' && (body.cargo?.unloadPriority ?? 0) > 0
       ? [body.cargo!.unloadPriority!]
@@ -411,10 +434,33 @@ function checkAfterStops(bodies: Body[]) {
   )].sort((a, b) => a - b);
   if (priorities.length < 2) return [] as OperationalRuleFinding[];
 
+  const upper = bodies.map(() => [] as number[]);
+  initialSupporters.forEach((links,index)=>links.forEach(link=>upper[link.bodyIndex].push(index)));
+  const cargoAboveSupport = new Map<Body, Set<number>>();
+  bodies.forEach((body,index)=>{
+    if (body.kind !== 'support') return;
+    const visited = new Set<number>();
+    const cargo = new Set<number>();
+    const queue = [...upper[index]];
+    while (queue.length) {
+      const next = queue.pop()!;
+      if (visited.has(next)) continue;
+      visited.add(next);
+      if (bodies[next].kind === 'cargo') cargo.add(next);
+      queue.push(...upper[next]);
+    }
+    cargoAboveSupport.set(body,cargo);
+  });
+
   const out: OperationalRuleFinding[] = [];
   for (const priority of priorities.slice(0, -1)) {
-    const remaining = bodies.filter(body => body.kind === 'support'
-      || (body.cargo?.unloadPriority == null || body.cargo.unloadPriority > priority));
+    const remainingCargo = new Set(bodies.flatMap((body,index)=>body.kind === 'cargo'
+      && (body.cargo?.unloadPriority == null || body.cargo.unloadPriority > priority) ? [index] : []));
+    // Pallets with no remaining supported cargo leave with their unloaded cargo.
+    // Retain every support in a remaining cargo chain so removing early-stop
+    // cartons cannot conceal an unsupported later-stop pallet above them.
+    const remaining = bodies.filter((body,index)=>body.kind === 'cargo' ? remainingCargo.has(index)
+      : [...(cargoAboveSupport.get(body) ?? [])].some(cargoIndex=>remainingCargo.has(cargoIndex)));
     const supporters = supportersOf(remaining);
     for (const issue of checkSupport(remaining, supporters)) {
       if (issue.severity !== 'error') continue;
@@ -444,7 +490,7 @@ export function validateOperationalLoading(
       ? { ...issue, severity: 'warning' as const, message: `${issue.message} 완화 모드: 현장 재취급이 필요합니다.` } : issue),
     ...checkWeightAndCog(container, bodies),
     ...checkSecuring(container, bodies, supporters),
-    ...checkAfterStops(bodies),
+    ...checkAfterStops(bodies, supporters),
   ];
 }
 

@@ -1,13 +1,17 @@
+import { buildLimitReviewHtml, isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 import { buildReportDocument, REPORT_SIGNOFF } from './reportLayout';
 import { boxResultMatchesWorkOrderCertification } from './certifiedExport';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
-import { confirmUnverifiedExport, hasCurrentPhysicsVerification } from './exportVerification';
+import { confirmUnverifiedExport } from './exportVerification';
 import { readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
 import {
   assessWorkOrderCertification,
   buildWorkOrderRecommendations,
   canCreateWorkOrder,
-  workOrderApprovalLabel,
+  isInertiaCertificationComplete,
+  isPhysicsTargetVerified,
+  physicsTargetHardFailureReasons,
+  workOrderTargetApprovalLabel,
 } from './inertiaWorkOrderPolicy';
 import { readPhysicsTarget } from './physicsTarget';
 import { requestDirectWorkOrder } from './directWorkOrderEvents';
@@ -36,10 +40,14 @@ function matchingBoxCertification(container: ContainerSpec, cargo: CargoItem[], 
 export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult): string {
   const certification = matchingBoxCertification(container, cargo, result);
   const securing = certification?.securing;
-  const approval = certification ? assessWorkOrderCertification(certification) : 'incomplete';
-  const approvalLabel = certification ? workOrderApprovalLabel(certification) : '확인 필요';
-  const workOrderApproved = Boolean(certification && canCreateWorkOrder(certification));
-  const physicsVerified = typeof window !== 'undefined' && hasCurrentPhysicsVerification();
+  const reportTarget = { mode: 'boxes' as const, container, cargo, result };
+  const hardFailures = physicsTargetHardFailureReasons(reportTarget);
+  const approval = hardFailures.length ? 'danger' : certification ? assessWorkOrderCertification(certification) : 'incomplete';
+  const review = isLimitReviewTarget(reportTarget);
+  const approvalLabel = certification ? workOrderTargetApprovalLabel(reportTarget, certification) : review ? LIMIT_REVIEW_WARNING : hardFailures.length ? '적재 제약 실패' : '확인 필요';
+  // Use this document's matching certification, never another live result's PASS.
+  const physicsVerified = isPhysicsTargetVerified(reportTarget, certification);
+  const physicsComplete = Boolean(certification && isInertiaCertificationComplete(certification));
   const equipment = readTransportEquipment();
   const equipmentKind = equipment.category === 'truck' ? '트럭' : '컨테이너';
   const title = `${equipmentKind} 통합 출하·적재 작업지시서`;
@@ -68,7 +76,7 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
     ? materialItems.map(([name, value]) => `<div><span>${escapeHtml(name)}</span><b>${escapeHtml(value)}</b><i>□ 설치 확인</i></div>`).join('')
     : `<div><span>추가 보강재</span><b>${securing ? '없음' : '미확인'}</b><i>${securing ? '기본 적재안' : '보강 계획을 확인하세요'}</i></div>`;
 
-  const recommendations = certification
+  const recommendations = hardFailures.length ? ['적재 제약 위반이 있어 출고할 수 없습니다. 이 문서는 검토용입니다.', ...hardFailures] : certification
     ? buildWorkOrderRecommendations(certification)
     : ['관성 3종 검증을 완료하고 위험 여부를 확인한 뒤 작업을 진행하세요.'];
   const actions = [
@@ -93,10 +101,10 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
     title,
     shipmentFields: true, compact: true,
     subtitle: `${generatedAt} · 출하지시 수량과 실제 적재 결과를 대조하는 현장 작업용 문서`,
-    status: `출고 전 확인 ${actions.length}건${approval === 'danger' ? ' · 위험' : approval === 'incomplete' ? ' · 검증 미완료' : ''}`,
-    tone: approval === 'caution' ? 'caution' : approval === 'danger' ? 'danger' : approval === 'incomplete' ? 'neutral' : 'good',
-    watermark: physicsVerified && workOrderApproved ? undefined : '검증 확인 필요',
-    summary: `<section class="summary" aria-label="적재 요약"><div class="text-metric"><span>운송 장비</span><b>${escapeHtml(equipment.shortName)}</b><small>${container.length} × ${container.width} × ${container.height} m</small></div><div><span>실제 적재단위</span><b>${result.placements.length} EA</b></div><div><span>화물 중량</span><b>${result.loadedWeightKg.toLocaleString()} kg</b></div><div class="text-metric"><span>미적재 · 별도 확인</span><b>${escapeHtml(remainingText)}</b></div></section>`,
+    status: `${review ? 'WHAT-IF REVIEW · 출고 승인 아님 · ' : ''}출고 전 확인 ${actions.length}건${approval === 'danger' ? ' · 위험' : approval === 'incomplete' ? ' · 검증 미완료' : ''}`,
+    tone: review && approval !== 'danger' ? 'caution' : approval === 'caution' ? 'caution' : approval === 'danger' ? 'danger' : approval === 'incomplete' ? 'neutral' : 'good',
+    watermark: review ? 'WHAT-IF REVIEW · 출고 승인 아님' : physicsVerified ? undefined : '검토용 · 검증 확인 필요',
+    summary: `${buildLimitReviewHtml(reportTarget, certification)}<section class="summary" aria-label="적재 요약"><div class="text-metric"><span>운송 장비</span><b>${escapeHtml(equipment.shortName)}</b><small>${container.length} × ${container.width} × ${container.height} m</small></div><div><span>실제 적재단위</span><b>${result.placements.length} EA</b></div><div><span>화물 중량</span><b>${result.loadedWeightKg.toLocaleString()} kg</b></div><div class="text-metric"><span>미적재 · 별도 확인</span><b>${escapeHtml(remainingText)}</b></div></section>`,
     sections: [
       {
         title: '한눈에 보는 적재 배치', description: '안쪽부터 구역 번호순으로, 한 구역 안에서는 바닥부터 위로 쌓으세요. 위치는 안쪽 벽 기준입니다.',
@@ -116,10 +124,10 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
       },
       {
         title: '출고 전 최종 확인', description: '아래 3개 작업을 확인한 뒤 담당자가 서명하세요.',
-        content: `<ol class="recommendations">${recommendationItems}</ol><div class="final-check"><div>${openingCheck}</div><div>□ 흔들림/빈 공간 보강 확인</div><div>□ 출하지시 수량과 실물 수량 일치</div></div>${REPORT_SIGNOFF}<aside class="technical-note"><b>검증 판정: ${escapeHtml(approvalLabel)}</b><p>${recommendations.map(item => escapeHtml(item)).join('<br>')}</p><p>관성 판정은 시뮬레이터 내부 비교 결과이며 실제 운송 안전 인증을 의미하지 않습니다. ‘주의 승인’은 내부 PASS 기준 일부 초과·위험 기준 이내입니다. 장비 기준: ${escapeHtml(equipment.sourceLabel)}.</p></aside>`,
+        content: `<ol class="recommendations">${recommendationItems}</ol><div class="final-check"><div>${openingCheck}</div><div>□ 흔들림/빈 공간 보강 확인</div><div>□ 출하지시 수량과 실물 수량 일치</div></div>${REPORT_SIGNOFF}<aside class="technical-note"><b>검증 판정: ${escapeHtml(approvalLabel)}</b><p>${recommendations.map(item => escapeHtml(item)).join('<br>')}</p><p>관성 판정은 시뮬레이터 내부 비교 결과이며 실제 운송 안전 인증을 의미하지 않습니다. ‘주의 · 검토용’은 내부 PASS 기준 일부 초과·위험 기준 이내인 결과이며 출고 승인을 의미하지 않습니다. 장비 기준: ${escapeHtml(equipment.sourceLabel)}.</p></aside>`,
       },
     ],
-    footer: `<span>장비: ${escapeHtml(equipment.shortName)}</span><span>물리검증: ${physicsVerified ? '완료' : '미검증'}</span><span>관성 최종검증: ${escapeHtml(approvalLabel)}</span><span>보조재 추정중량: ${securing ? `${securing.estimatedAddedWeightKg.toFixed(1)} kg` : '0 kg'}</span>`,
+    footer: `<span>장비: ${escapeHtml(equipment.shortName)}</span><span>물리검증: ${physicsVerified ? '완료 · PASS' : physicsComplete ? '검사 완료 · 미통과' : '미완료'}</span><span>관성 최종검증: ${escapeHtml(approvalLabel)}</span><span>보조재 추정중량: ${securing ? `${securing.estimatedAddedWeightKg.toFixed(1)} kg` : '0 kg'}</span>`,
   });
 }
 

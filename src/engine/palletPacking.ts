@@ -1,4 +1,4 @@
-import type { CargoItem, ContainerSpec, Placement } from './types';
+import type { CargoItem, ContainerSpec, Placement, LimitReviewMetadata } from './types';
 import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules, projectedTopLoadKg } from './stacking';
 import { packByBlockSpaceBeamV2 } from './blockSpaceBeamPackerV2';
@@ -49,6 +49,7 @@ export type PalletLoad = {
 };
 
 export type PalletPackingResult = {
+  limitReview?: LimitReviewMetadata;
   pallets: PalletLoad[];
   placements: Placement[];
   remaining: Array<{ cargoId: string; quantity: number; reason: string }>;
@@ -822,7 +823,16 @@ export function absorbSparsePallets(
   return { pallets, removed };
 }
 
+export function unsupportedReviewPalletResult(container: ContainerSpec, cargo: CargoItem[]): PalletPackingResult {
+  const reason='WHAT-IF REVIEW는 팔레트·MIXED 적재를 지원하지 않습니다. 엄격 모드로 전환하세요.';
+  return {pallets:[],placements:[],remaining:cargo.filter(c=>c.quantity>0).map(c=>({cargoId:c.id,quantity:c.quantity,reason})),
+    palletCount:0,loadedCargoWeightKg:0,totalPackagingWeightKg:0,avoidedPackagingWeightKg:0,packagedPalletCount:0,totalPalletizedWeightKg:0,consolidatedPallets:0,lateralImbalanceKg:0,stackedPallets:0,maxUsedStackLevel:0,
+    ...(container.limitReview!==undefined?{limitReview:{mode:'what-if' as const,label:'WHAT-IF REVIEW' as const,status:'unsupported' as const,config:container.limitReview,metrics:[],errors:[reason]}}:{}),
+  };
+}
+
 export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pallet: PalletSpec = defaultPalletSpec, strategy: Strategy = 'capacity'): PalletPackingResult {
+  if (container.limitReview !== undefined) return unsupportedReviewPalletResult(container,cargo);
   const { pallets, remaining, consolidated, cargoMap } = buildInitialPallets(cargo, pallet, container, strategy);
   return finishPalletPacking(pallets, remaining, consolidated, cargoMap, container, pallet, strategy);
 }
