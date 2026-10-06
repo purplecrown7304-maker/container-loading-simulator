@@ -1,18 +1,21 @@
 import { openWorkspace } from './helpers/workspace';
 import { expect, test } from '@playwright/test';
+import { directLoadingFixtures } from './helpers/loadingFixtures';
+import { expectVerifiedLoading } from './helpers/certification';
 
 async function registerDirectProduct(page: import('@playwright/test').Page, id: string) {
   await page.evaluate(() => {
     window.dispatchEvent(new CustomEvent('container-loading:open-product-tool', { detail: 'products' }));
   });
+  const fixture = directLoadingFixtures.twelveBox40ft;
   const dialog = page.getByRole('dialog', { name: '회사 제품 관리' });
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('제품코드').fill(id);
   await dialog.getByLabel('제품명').fill('가이드 스모크 제품');
-  await dialog.getByLabel('길이 mm').fill('800');
-  await dialog.getByLabel('폭 mm').fill('600');
-  await dialog.getByLabel('높이 mm').fill('500');
-  await dialog.getByLabel('중량 kg').fill('1');
+  await dialog.getByLabel('길이 mm').fill(String(fixture.length * 1000));
+  await dialog.getByLabel('폭 mm').fill(String(fixture.width * 1000));
+  await dialog.getByLabel('높이 mm').fill(String(fixture.height * 1000));
+  await dialog.getByLabel('중량 kg').fill(String(fixture.weightKg));
   await dialog.getByLabel('박스 적재').selectOption('no');
   await dialog.getByRole('button', { name: '제품 등록' }).click();
   await dialog.locator('header button').click();
@@ -52,7 +55,8 @@ test('Three renders the real loading plan and preserves certification during vie
   await expect(viewer.locator('.unity-summary')).toContainText('12 EA', { timeout: 60_000 });
   await expect(viewer).toHaveAttribute('data-three-applied', 'true');
   await page.getByRole('slider', { name: 'Three.js 높이 단면', exact: true }).fill('70');
-  await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 60_000 });
+  await expectVerifiedLoading(page);
+  await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled();
   await expect(page.locator('.transport-recalc-notice')).toHaveCount(0);
   expect((await page.locator('.viewer-card').boundingBox())!.height).toBeGreaterThan(280);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1 && document.getElementById('root')!.scrollHeight <= innerHeight + 1)).toBe(true);

@@ -1,7 +1,6 @@
 name: CI
 
-# September 2026 release-candidate validation.
-# Pull requests into main must pass the same checks required immediately before deployment.
+# Every release must pass source checks and both real Chromium projects.
 on:
   pull_request:
     branches:
@@ -13,51 +12,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
+  predeploy:
+    name: Source verification
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: 22
           package-manager-cache: false
-
-      # This repository intentionally has no package-lock.json yet. Exact direct
-      # dependency versions are pinned in package.json. legacy-peer-deps avoids an
-      # npm 10 Arborist peer-graph crash observed on the hosted runner.
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-fund --no-audit
-
       - name: Record dependency versions
         run: npm ls --depth=0 --legacy-peer-deps
-
       - name: Security audit
         run: npm audit --audit-level=high
-
       - name: Predeploy verification
         run: npm run verify:predeploy
-
-      - name: Install Chromium for E2E
-        run: npx playwright install --with-deps chromium
-
-      - name: Browser smoke tests
-        run: npm run test:e2e
-
-      - name: Upload browser diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v6
-        with:
-          name: browser-diagnostics-${{ github.run_id }}
-          path: |
-            test-results
-            playwright-report
-          if-no-files-found: ignore
-          retention-days: 7
-
       - name: Upload production build
         uses: actions/upload-artifact@v6
         with:
@@ -65,3 +39,57 @@ jobs:
           path: dist
           if-no-files-found: error
           retention-days: 14
+
+  browser:
+    needs: predeploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      # Separate machines prevent desktop/mobile WebGL and physics competing for CPU.
+      fail-fast: false
+      matrix:
+        project: [chromium-desktop, chromium-mobile]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-fund --no-audit
+      - name: Install Chromium for E2E
+        run: npx playwright install --with-deps chromium
+      - name: Browser smoke tests
+        # Leave time to upload logs when a test hangs. Three failures stop a bad
+        # run early; a successful run still executes every test in this project.
+        timeout-minutes: 25
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/results.json
+        run: npm run test:e2e -- --project=${{ matrix.project }} --max-failures=3 --reporter=line,json
+      - name: Upload browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: browser-diagnostics-${{ matrix.project }}-${{ github.run_id }}
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: warn
+          retention-days: 7
+
+  verify:
+    # Keep the established final check name gated on every source/browser job.
+    needs: [predeploy, browser]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require all verification jobs
+        env:
+          SOURCE_RESULT: ${{ needs.predeploy.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+        run: |
+          test "$SOURCE_RESULT" = success
+          test "$BROWSER_RESULT" = success

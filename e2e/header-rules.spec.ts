@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { expectHeaderSceneControlsFit } from './helpers/viewer';
+import { openWorkspace } from './helpers/workspace';
 
 for (const width of [320, 480, 481, 761, 1280]) {
   test(`rules stay beside the background control and review settings remain reachable at ${width}px`, async ({ page }) => {
@@ -31,14 +32,29 @@ for (const width of [320, 480, 481, 761, 1280]) {
   });
 }
 
-test('header rules work with the keyboard and preserve custom equipment and selection after reload', async ({ page }) => {
+test('header rules preserve explicitly entered custom equipment and honor guest reset after reload', async ({ page }) => {
   const equipmentKey = 'container-loading:transport-equipment-v1';
   const equipment = {
     id: 'custom-container', category: 'container', name: 'CUSTOM CONTAINER', shortName: 'Custom Container', geometry: 'custom',
     length: 8, width: 2.35, height: 2.7, maxPayloadKg: 15000, floorLoadLimitKgPerM2: 1500, sourceLabel: '사용자 입력값',
   };
-  await page.addInitScript(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), { key: equipmentKey, value: equipment });
   await page.goto('/');
+  // Guest bootstrap intentionally discards disk-backed business data. Enter the
+  // custom equipment through the real UI so the safety guard also records intent.
+  const workspace = await openWorkspace(page, 1);
+  await page.getByRole('button', { name: '선택한 장비 변경', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
+  await dialog.locator('.transport-equipment-card[data-equipment-id="custom-container"]').click();
+  await dialog.getByLabel('내부 길이(m)').fill(String(equipment.length));
+  await dialog.getByLabel('내부 폭(m)').fill(String(equipment.width));
+  await dialog.getByLabel('내부 높이(m)').fill(String(equipment.height));
+  await dialog.getByLabel('최대 적재중량(kg)').fill(String(equipment.maxPayloadKg));
+  await dialog.getByLabel('바닥 허용하중(kg/m²)').fill(String(equipment.floorLoadLimitKgPerM2));
+  await dialog.getByRole('button', { name: '사용자 규격 적용', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '선택한 장비 변경', exact: true })).toContainText('Custom Container');
+  await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key)!), equipmentKey)).toEqual(equipment);
+  await workspace.getByRole('button', { name: '설정 닫기', exact: true }).click();
   const rules = page.getByRole('combobox', { name: '적재 규칙', exact: true });
   const background = page.getByRole('combobox', { name: '3D 배경', exact: true });
   await expect(rules).toHaveValue('legacy');
@@ -56,7 +72,11 @@ test('header rules work with the keyboard and preserve custom equipment and sele
     await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key)!), equipmentKey)).toEqual(equipment);
   }
   await page.reload();
-  await expect(rules).toHaveValue('a-v1');
+  // Rules and equipment are guest business state; only the display background
+  // uses sessionStorage and survives a full reload without an authenticated save.
+  await expect(rules).toHaveValue('legacy');
+  await expect(page.getByRole('button', { name: '현재 장비 변경', exact: true })).toContainText('40FT High Cube');
+  await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null')?.id, equipmentKey)).not.toBe(equipment.id);
   await expect(background).toHaveValue('space');
   await expectHeaderSceneControlsFit(page);
 });

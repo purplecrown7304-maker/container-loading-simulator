@@ -15,10 +15,17 @@ test('review controls preserve actual limits and warning through cancel, save/lo
   await panel.getByRole('spinbutton', { name: '수평 이동 검토 범위', exact: true }).fill('20');
   await panel.getByRole('button', { name: '검토 범위 적용', exact: true }).click();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:app-action', { detail: { action: 'save-local' } })));
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('container-loading-simulator-v1') ?? 'null')?.container.limitReview)).toEqual({ mode: 'what-if', simulation: { maxDisplacementMm: 20 } });
   await panel.getByRole('button', { name: '엄격 모드로 전환', exact: true }).click();
   await expect(panel).toContainText('기본 엄격 모드');
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:app-action', { detail: { action: 'load-local' } })));
   await expect(panel).toContainText('출고 승인 불가');
+  await expect(panel.locator('.limit-review-persistent-warning')).toBeVisible();
+  // Strict mode unmounts the disclosure. Restoring review starts it collapsed;
+  // open it as a user would before checking the restored accessible controls.
+  await expect(panel.locator('details')).toHaveJSProperty('open', false);
+  await panel.locator('summary').click();
+  await expect(panel.getByRole('checkbox', { name: '수평 이동', exact: true })).toBeChecked();
   await expect(panel.getByRole('spinbutton', { name: '수평 이동 검토 범위', exact: true })).toHaveValue('20');
   await expect(panel).toContainText('원 기준 12 mm');
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);

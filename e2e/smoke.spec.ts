@@ -1,7 +1,9 @@
 import { openWorkspace } from './helpers/workspace';
 import { expect, test } from '@playwright/test';
+import { directLoadingFixtures, type DirectLoadingFixture } from './helpers/loadingFixtures';
+import { expectVerifiedLoading } from './helpers/certification';
 
-async function registerDirectProduct(page: import('@playwright/test').Page, id: string) {
+async function registerDirectProduct(page: import('@playwright/test').Page, id: string, fixture: DirectLoadingFixture = directLoadingFixtures.threeBox40ft) {
   await page.evaluate(() => {
     window.dispatchEvent(new CustomEvent('container-loading:open-product-tool', { detail: 'products' }));
   });
@@ -9,17 +11,17 @@ async function registerDirectProduct(page: import('@playwright/test').Page, id: 
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('제품코드').fill(id);
   await dialog.getByLabel('제품명').fill('가이드 스모크 제품');
-  await dialog.getByLabel('길이 mm').fill('200');
-  await dialog.getByLabel('폭 mm').fill('150');
-  await dialog.getByLabel('높이 mm').fill('100');
-  await dialog.getByLabel('중량 kg').fill('1');
+  await dialog.getByLabel('길이 mm').fill(String(fixture.length * 1000));
+  await dialog.getByLabel('폭 mm').fill(String(fixture.width * 1000));
+  await dialog.getByLabel('높이 mm').fill(String(fixture.height * 1000));
+  await dialog.getByLabel('중량 kg').fill(String(fixture.weightKg));
   await dialog.getByLabel('박스 적재').selectOption('no');
   await dialog.getByRole('button', { name: '제품 등록' }).click();
   await dialog.locator('header button').click();
 }
 
-async function advanceToStrategy(page: import('@playwright/test').Page, id: string) {
-  await registerDirectProduct(page, id);
+async function advanceToStrategy(page: import('@playwright/test').Page, id: string, fixture?: Parameters<typeof registerDirectProduct>[2]) {
+  await registerDirectProduct(page, id, fixture);
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
   await page.getByPlaceholder('제품명 또는 제품코드 검색').fill(id);
   await page.locator('.guided-product-table article').filter({ hasText: id }).locator('input[type="number"]').fill('3');
@@ -97,13 +99,14 @@ test('completed loading keeps result quantities visible after switching result t
   test.setTimeout(90_000);
   await page.goto('/');
   await advanceToStrategy(page, 'E2E-FINAL-RESULT');
-  // This success-path fixture must satisfy the existing lateral-CG gate.
+  // Full-depth cargo satisfies the unchanged CG gate without shifting off X=0.
   await page.getByRole('radio', { name: /공간효율 우선/ }).click();
   await page.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
 
   const showResults = page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ });
-  await expect(showResults).toBeEnabled({ timeout: 60_000 });
+  await expectVerifiedLoading(page);
+  await expect(showResults).toBeEnabled();
   await showResults.click();
 
   const stage = page.locator('.guided-result-stage');
@@ -148,15 +151,17 @@ test('mobile guided dashboard remains usable without horizontal body overflow', 
   await expect(page.locator('.equipment-selected-strip')).toContainText('용적');
 });
 
-test('a lateral-CG error does not unlock the final result step', async ({ page }) => {
+test('a compact inner-wall load fails longitudinal CG and cannot unlock the final result step', async ({ page }) => {
   test.setTimeout(90_000);
   await page.goto('/');
-  await advanceToStrategy(page, 'E2E-BLOCKED-CG');
+  await advanceToStrategy(page, 'E2E-BLOCKED-CG', directLoadingFixtures.blockedSmallLoad);
   await page.getByRole('radio', { name: /안정성 우선/ }).click();
   await page.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
 
-  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.result.operationalFindings?.filter((f: any) => f.severity === 'error').map((f: any) => f.code) ?? []), { timeout: 60_000 }).toContain('CG_LATERAL');
+  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.result.operationalFindings?.filter((f: any) => f.severity === 'error').map((f: any) => f.code) ?? []), { timeout: 60_000 }).toContain('CG_LONGITUDINAL');
+  await expect(page.locator('.guided-status-row')).toHaveAttribute('data-verification-status', 'failed');
+  await expect(page.locator('.guided-primary-cta:visible')).toContainText('최종 적재 진행');
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification?.status)).not.toBe('passed');
 });
