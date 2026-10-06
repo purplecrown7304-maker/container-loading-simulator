@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import type { ProductOrientationPolicy } from './engine/productPackagingOptimizer';
-import type { CompanyProductItem } from './companyProduct';
+import { requiresBoxPackaging, type CompanyProductItem } from './companyProduct';
 
 export type ProductImportIssue = { row: number; code?: string; message: string };
 export type ProductImportResult = { items: CompanyProductItem[]; issues: ProductImportIssue[]; totalRows: number };
@@ -45,7 +45,7 @@ function parseYesNo(value: unknown): { value: boolean; valid: boolean } {
 export async function parseProductWorkbook(file: File): Promise<ProductImportResult> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
-  const sheetName = workbook.SheetNames[0];
+  const sheetName = workbook.SheetNames.find(name => name.trim().toLowerCase() === 'products') ?? workbook.SheetNames[0];
   if (!sheetName) return { items: [], issues: [{ row: 1, message: '엑셀 시트가 없습니다.' }], totalRows: 0 };
 
   const sheet = workbook.Sheets[sheetName];
@@ -55,7 +55,7 @@ export async function parseProductWorkbook(file: File): Promise<ProductImportRes
   const issues: ProductImportIssue[] = [];
 
   rows.forEach((row, index) => {
-    const excelRow = index + 2;
+    const excelRow = typeof row.__rowNum__ === 'number' ? row.__rowNum__ + 1 : index + 2;
     const id = String(first(row, ['제품코드', '코드', 'ProductCode', 'Code', 'ID'])).trim();
     const name = String(first(row, ['제품명', '이름', 'ProductName', 'Name'])).trim();
     const lengthMm = toNumber(first(row, ['길이(mm)', '길이', 'L(mm)', 'Length(mm)', 'Length']));
@@ -119,4 +119,53 @@ export function downloadProductTemplate() {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Products');
   XLSX.writeFile(workbook, 'company-product-base-template.xlsx');
+}
+
+/** The same seven master fields accepted by parseProductWorkbook; shipment data stays separate. */
+export function createProductCatalogWorkbook(products: CompanyProductItem[]) {
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    HEADERS,
+    ...products.map(product => [
+      product.id, product.name,
+      product.length * 1000, product.width * 1000, product.height * 1000,
+      product.weightKg, requiresBoxPackaging(product) ? 'Y' : 'N',
+    ]),
+  ]);
+  worksheet['!cols'] = [20, 32, 15, 15, 15, 15, 18].map(wch => ({ wch }));
+  products.forEach((_, index) => { worksheet[`A${index + 2}`].z = '@'; });
+  worksheet['!autofilter'] = { ref: worksheet['!ref']! };
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Products');
+  const instructions = XLSX.utils.aoa_to_sheet([
+    ['등록 제품 수정 안내'],
+    ['Products 시트에서 제품명, 치수(mm), 중량(kg), 박스적재필요(Y/N)를 수정한 뒤 제품 엑셀 업로드로 불러오세요.'],
+    ['기존 제품 수정 시 제품코드를 유지하세요. 새로운 제품코드는 신규 제품으로 추가됩니다.'],
+    ['파일에서 행을 지워도 등록 제품은 삭제되지 않습니다. 삭제는 회사 제품 관리에서 진행하세요.'],
+    ['제품코드는 텍스트로 입력해 앞자리 0을 유지하세요. 치수와 중량은 0보다 큰 숫자로 입력하세요.'],
+    ['출하 수량과 기존 회전·완충·포장 조건은 이 파일의 수정 대상이 아니며 기존 값을 유지합니다.'],
+  ]);
+  instructions['!cols'] = [{ wch: 115 }];
+  XLSX.utils.book_append_sheet(workbook, instructions, '수정 안내');
+  return workbook;
+}
+
+export function downloadProductCatalog(products: CompanyProductItem[]) {
+  XLSX.writeFile(createProductCatalogWorkbook(products), 'company-products.xlsx');
+}
+
+export function mergeProductCatalog(current: CompanyProductItem[], imported: CompanyProductItem[]) {
+  const map = new Map(current.map(product => [product.id, product]));
+  let added = 0, updated = 0;
+  for (const item of imported) {
+    const previous = map.get(item.id);
+    if (previous) updated += 1;
+    else added += 1;
+    // Only the exported master fields may overwrite an existing product's packing conditions.
+    const next = previous ? { ...previous, name: item.name, length: item.length,
+      width: item.width, height: item.height, weightKg: item.weightKg,
+      requiresBoxPackaging: item.requiresBoxPackaging } : { ...item };
+    delete next.maxUnitsPerBox;
+    map.set(item.id, next);
+  }
+  return { products: [...map.values()], added, updated };
 }
