@@ -371,7 +371,6 @@ function loadStrictContainer(container: ContainerSpec, cargo: CargoItem[], optio
       type: 'PAYLOAD', message: '화물과 필수 고정·메움재의 합계가 최대 허용중량을 초과합니다.', placementIndexes: [],
     });
   }
-  }
   if (options.publish !== false) publishLoadingResult(container, cargo, result);
   return result;
 }
