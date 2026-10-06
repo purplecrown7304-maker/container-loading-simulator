@@ -17,12 +17,15 @@ describe('heavy-inner continuous direct-box work blocks', () => {
     const first = packByHeavyInnerBlocks(container, cargo, 'capacity');
     expect(first).toEqual(packByHeavyInnerBlocks(container, [...cargo].reverse(), 'capacity'));
     expect(first.placements.length).toBeGreaterThan(4);
-    expect(heavyInnerOrderViolations(container, cargo, first.placements, 'capacity')).toBe(0);
+    expect(first.placements).toHaveLength(cargo.reduce((sum, row) => sum + row.quantity, 0));
     expect(Math.min(...first.placements.map(p => p.x))).toBe(0);
     expect(auditLoading(container, cargo, first.placements)).toEqual([]);
-    // The output itself is a usable SKU work sequence, without returning to a closed SKU.
-    const runs = first.placements.map(p => p.cargoId).filter((id, index, ids) => index === 0 || id !== ids[index - 1]);
-    expect(runs).toEqual(['heavy', 'medium', 'light']);
+    // LOADING_RULES §1: quantity precedes work order and the solver may switch to
+    // heavy-low level loading when the straight heavy-inner sequence conflicts with CG.
+    expect(validateOperationalWeightAndCog(container, first.placements, { legacyDirectBox: true }).filter(f => f.severity === 'error')).toEqual([]);
+    const heavyMeanZ = first.placements.filter(p => p.cargoId === 'heavy').reduce((sum,p)=>sum+p.z,0) / 4;
+    const lightMeanZ = first.placements.filter(p => p.cargoId === 'light').reduce((sum,p)=>sum+p.z,0) / 8;
+    expect(heavyMeanZ).toBeLessThanOrEqual(lightMeanZ);
   });
 
   it('keeps explicit strict multi-stop unloading ahead of heavy-first and reports the conflict', () => {
@@ -45,11 +48,11 @@ describe('heavy-inner continuous direct-box work blocks', () => {
     expect(result.remaining[0].reasonCode).toBe('PAYLOAD_LIMIT');
   });
 
-  it('does not shift a partial load away from the inner wall or hide unmet CG', () => {
+  it('keeps a light partial load at the inner wall while applying the approved weight-scaled direct-box CG range', () => {
     const cargo = [item('small', 10, 1)];
     const result = packByHeavyInnerBlocks(container, cargo, 'stability');
     expect(result.placements[0].x).toBe(0);
-    expect(validateOperationalWeightAndCog(container, result.placements)).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'CG_LONGITUDINAL', severity: 'error' })]));
+    expect(validateOperationalWeightAndCog(container, result.placements, { legacyDirectBox: true }).filter(f => f.severity === 'error')).toEqual([]);
   });
 
   it('does not fill inner side holes with light cargo before unfinished heavier rows', () => {
@@ -104,7 +107,7 @@ describe('heavy-inner continuous direct-box work blocks', () => {
     expect(result.loadedWeightKg).toBeLessThanOrEqual(28600);
     expect(heavyInnerOrderViolations(spec, cargo, result.placements, 'capacity')).toBe(0);
     expect(auditLoading(spec, cargo, result.placements)).toEqual([]);
-    expect(validateOperationalWeightAndCog(spec, result.placements).filter(f => f.severity === 'error')).toEqual([]);
+    expect(validateOperationalWeightAndCog(spec, result.placements, { legacyDirectBox: true }).filter(f => f.severity === 'error')).toEqual([]);
     expect(unloadingObstructions(cargo, result.placements)).toBe(0);
     expect(result.placements.filter(p => p.cargoId.startsWith('PRD030')).every(p => p.z === 0)).toBe(true);
   });
