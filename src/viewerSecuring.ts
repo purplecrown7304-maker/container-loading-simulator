@@ -1,11 +1,11 @@
-import type { ContainerSpec, Placement } from './engine/types';
+import type { ContainerSpec, Placement, VoidFillPlan } from './engine/types';
 import type { PhysicsSupport } from './engine/physicsValidation';
 import type { SecuringUsage } from './inertiaCertification';
 import { palletBandingSegments } from './palletBanding';
 
 // Visual geometry only. Restraint forces and certification remain owned by the engine.
 export type ViewerDecoration = { x: number; y: number; z: number; length: number; width: number; height: number; color: string; supportIndex: number; wire?: boolean; modelKey?: string };
-export function securingGeometry(container: ContainerSpec, boxes: Placement[], supports: PhysicsSupport[], usage?: SecuringUsage | null): ViewerDecoration[] {
+export function securingGeometry(container: ContainerSpec, boxes: Placement[], supports: PhysicsSupport[], usage?: SecuringUsage | null, voidFillPlan?: VoidFillPlan): ViewerDecoration[] {
   const output: ViewerDecoration[] = [];
   if (!usage || !usage.level || !boxes.length) return output;
   const add = (x: number, y: number, z: number, length: number, width: number, height: number, color: string, supportIndex = -1, wire = false, modelKey?: string) => output.push({ x, y, z, length, width, height, color, supportIndex, wire, ...(modelKey ? { modelKey } : {}) });
@@ -35,5 +35,8 @@ export function securingGeometry(container: ContainerSpec, boxes: Placement[], s
     for (let i = 0; i < usage.dunnageBlocks; i++) add(minX + (maxX - minX) * (Math.floor(i / 2) + 1) / (Math.ceil(usage.dunnageBlocks / 2) + 1), i % 2 ? Math.min(container.width - .09, maxY) : Math.max(0, minY - .09), 0, .22, .09, .22, '#b78650', -1, false, 'dunnage-block');
   }
   for (let i = 0; i < usage.loadBars; i++) add(i === 0 && usage.loadBars > 1 ? Math.max(0, minX - .06) : Math.min(container.length - .06, maxX), .02 * container.width, Math.min(container.height * .72, Math.max(.55, maxTop * .62)), .06, container.width * .96, .08, '#e87924');
+  for (const fill of voidFillPlan?.fills ?? []) {
+    add(fill.x, fill.y, fill.z, fill.length, fill.width, fill.height, fill.applicable ? '#22c55e' : '#ef4444', -1, true, fill.materialId);
+  }
   return output;
 }
