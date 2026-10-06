@@ -2,7 +2,7 @@ import { decorateLimitReview, resolveLimitReview, reviewPlacementBlockers } from
 import { isARules } from './loadingRuleset';
 import { packWithARules, validateAPlan, auditAIdentity } from './loadSimAdapter';
 import { fillUnloadingTrenches } from './trenchFilling';
-import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
+import type { AutoCorrectionRecord, CargoItem, ContainerSpec, LoadingResult, Placement, VoidFillPlan } from './types';
 import { auditLoading } from './loadingAudit';
 import { validateOperationalLoading } from './operationalValidator';
 import { centerPlacementsOnContainer } from './containerCentering';
@@ -28,6 +28,48 @@ type CorrectionWindow = Window & {
   __containerLoadingAutoCorrections?: AutoCorrectionRecord[];
   __containerLoadingLatestResult?: { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 };
+
+function voidFillFor(
+  container: ContainerSpec,
+  cargo: CargoItem[],
+  placements: Placement[],
+  materials: SecuringMaterialSettings,
+): VoidFillPlan | undefined {
+  return usesHeavyInnerLoading(container, cargo) ? gapSecuringPlan(container, placements, materials) : undefined;
+}
+
+function addVoidFindings(result: LoadingResult, plan?: VoidFillPlan) {
+  if (!plan?.fills.length) return;
+  result.operationalFindings ??= [];
+  result.operationalFindings.push({
+    code: 'VOID_FILL_REQUIRED',
+    severity: 'warning',
+    placementIndexes: [],
+    value: plan.volumeM3,
+    message: `빈 공간 ${plan.fills.length}곳(${plan.volumeM3.toFixed(2)}m³)에 메움/버팀이 필요합니다. 계획 중량 ${plan.weightKg.toFixed(2)}kg. ${plan.disclaimer}`,
+  });
+  if (plan.unresolvedCount > 0) result.operationalFindings.push({
+    code: 'VOID_FILL_MATERIAL_OUT_OF_RANGE',
+    severity: 'warning',
+    placementIndexes: [],
+    value: plan.unresolvedCount,
+    message: `메움재 적용범위를 벗어난 빈 공간이 ${plan.unresolvedCount}곳 있습니다. 관성 검증에서 해당 자재를 고정 지지물로 처리하지 않습니다. ${plan.disclaimer}`,
+  });
+}
+
+function securingEvidence(
+  container: ContainerSpec,
+  cargo: CargoItem[],
+  placements: Placement[],
+  level: BoxSecuringLevel,
+  materials: SecuringMaterialSettings,
+) {
+  const requiredWeightKg = boxSecuringRequirements(placements.length, level, materials).weightKg;
+  const voidFillPlan = voidFillFor(container, cargo, placements, materials);
+  const voidFillWeightKg = voidFillPlan?.weightKg ?? 0;
+  const transportSecuringWeightKg = Math.max(requiredWeightKg, voidFillWeightKg);
+  return { requiredWeightKg, voidFillPlan, voidFillWeightKg, transportSecuringWeightKg };
+}
 
 function browserStrategy(): LoadingStrategy {
   if (typeof window === 'undefined') return 'capacity';
@@ -64,17 +106,21 @@ function revalidateRestoredResult(container: ContainerSpec, cargo: CargoItem[], 
   const loadedWeightKg = saved.placements.reduce((sum, p) => sum + p.weightKg, 0);
   const level = saved.securingBudget?.level ?? 1;
   const materials = readSecuringMaterialSettings();
-  const required = boxSecuringRequirements(saved.placements.length, level, materials).weightKg;
+  const securing = securingEvidence(container, cargo, saved.placements, level, materials);
   const result: LoadingResult = { ...saved, loadedWeightKg,
     usedVolumeM3: saved.placements.reduce((sum,p)=>sum+p.length*p.width*p.height,0),
     validationIssues: auditLoading(container, container.limitReview === undefined ? cargo : preflightCargoInput(cargo).cargo, saved.placements),
     operationalFindings: [ ...validateOperationalLoading(container, cargo, saved.placements, [], { legacyDirectBox: usesHeavyInnerLoading(container, cargo) }),
       ...heavyInnerConflictFindings(container, cargo, saved.placements, browserStrategy()) ],
-    securingBudget: { level, reservedWeightKg: required,
-      requiredWeightKg: required, totalTransportWeightKg: loadedWeightKg + required },
+    voidFillPlan: securing.voidFillPlan,
+    securingBudget: { level, reservedWeightKg: securing.transportSecuringWeightKg,
+      requiredWeightKg: securing.requiredWeightKg, voidFillWeightKg: securing.voidFillWeightKg,
+      transportSecuringWeightKg: securing.transportSecuringWeightKg,
+      totalTransportWeightKg: loadedWeightKg + securing.transportSecuringWeightKg },
   };
-  if (loadedWeightKg + required > container.maxPayloadKg + 1e-6) result.validationIssues.push({
-    type: 'PAYLOAD', message: '화물과 현재 고정재의 합계가 최대 허용중량을 초과합니다. 검토용 배치이며 다시 적재해야 합니다.', placementIndexes: [],
+  addVoidFindings(result, securing.voidFillPlan);
+  if (result.securingBudget!.totalTransportWeightKg > container.maxPayloadKg + 1e-6) result.validationIssues.push({
+    type: 'PAYLOAD', message: '화물과 현재 고정·메움재의 합계가 최대 허용중량을 초과합니다. 검토용 배치이며 다시 적재해야 합니다.', placementIndexes: [],
   });
   return decorateLimitReview(container, cargo, result);
 }
@@ -274,12 +320,13 @@ function loadStrictContainer(container: ContainerSpec, cargo: CargoItem[], optio
   // Repack only when necessary; later passes can never silently exceed the original limit.
   if (useBudget && !containerInputError(container)) {
     for (;;) {
-      const required = boxSecuringRequirements(packed.placements.length, level, materials).weightKg;
+      const securing = securingEvidence(container, cargo, packed.placements, level, materials);
+      const required = securing.transportSecuringWeightKg;
       if (packed.loadedWeightKg + required <= container.maxPayloadKg + 1e-6) { reserve = Math.max(reserve, required); break; }
-      const nextReserve = reserve === 0 ? Math.min(maximumReserve, required) : Math.max(reserve, required);
+      const nextReserve = reserve === 0 ? Math.max(Math.min(maximumReserve, required), required) : Math.max(reserve, required);
       if (nextReserve <= reserve + 1e-9 || container.maxPayloadKg - nextReserve <= 0) {
         packed = { placements: [], remaining: [...preflight.rejected, ...preflight.cargo.map(c=>({ cargoId:c.id, quantity:c.quantity,
-          reason:'필수 고정재를 포함하면 최대 허용중량을 초과합니다.', reasonCode:'PAYLOAD_LIMIT' }))],
+          reason:'필수 고정·메움재를 포함하면 최대 허용중량을 초과합니다.', reasonCode:'PAYLOAD_LIMIT' }))],
           loadedWeightKg:0, usedVolumeM3:0, validationIssues:[], operationalFindings:[], autoCorrections:[] };
         break;
       }
@@ -307,18 +354,23 @@ function loadStrictContainer(container: ContainerSpec, cargo: CargoItem[], optio
     ],
   };
   if (useBudget) {
-    // Securing follows actual voids. The count-based reserve stays as the conservative floor.
-    const voidPlan = isARules(container) ? undefined : gapSecuringPlan(container, result.placements);
-    if (voidPlan?.fills.length) result.operationalFindings!.push({ code: 'VOID_FILL_REQUIRED', severity: 'warning', placementIndexes: [], value: voidPlan.volumeM3,
-      message: `빈 공간 ${voidPlan.fills.length}곳(${voidPlan.volumeM3.toFixed(2)}m³)을 메우거나 버팀재로 막아야 합니다. 옆 틈 최대 ${(voidPlan.sideGapM * 100).toFixed(0)}cm, 문 쪽 ${(voidPlan.rearGapM * 100).toFixed(0)}cm.` });
-    const required = Math.max(boxSecuringRequirements(result.placements.length, level, materials).weightKg, voidPlan?.weightKg ?? 0);
-    result.securingBudget = { level, reservedWeightKg: reserve, requiredWeightKg: required,
-      totalTransportWeightKg: result.loadedWeightKg + required };
+    const securing = securingEvidence(container, cargo, result.placements, level, materials);
+    result.voidFillPlan = securing.voidFillPlan;
+    addVoidFindings(result, securing.voidFillPlan);
+    result.securingBudget = {
+      level,
+      reservedWeightKg: Math.max(reserve, securing.transportSecuringWeightKg),
+      requiredWeightKg: securing.requiredWeightKg,
+      voidFillWeightKg: securing.voidFillWeightKg,
+      transportSecuringWeightKg: securing.transportSecuringWeightKg,
+      totalTransportWeightKg: result.loadedWeightKg + securing.transportSecuringWeightKg,
+    };
     result.remaining = result.remaining.map(row => row.reasonCode === 'PAYLOAD_LIMIT'
-      ? { ...row, reason: `${row.reason} (필수 고정재 중량 ${required.toFixed(2)}kg 포함)` } : row);
+      ? { ...row, reason: `${row.reason} (필수 고정·메움재 계획중량 ${securing.transportSecuringWeightKg.toFixed(2)}kg 포함)` } : row);
     if (result.securingBudget.totalTransportWeightKg > container.maxPayloadKg + 1e-6) result.validationIssues.push({
-      type: 'PAYLOAD', message: '화물과 필수 고정재의 합계가 최대 허용중량을 초과합니다.', placementIndexes: [],
+      type: 'PAYLOAD', message: '화물과 필수 고정·메움재의 합계가 최대 허용중량을 초과합니다.', placementIndexes: [],
     });
+  }
   }
   if (options.publish !== false) publishLoadingResult(container, cargo, result);
   return result;
