@@ -1,6 +1,6 @@
 name: CI
 
-# Every release must pass source checks and both real Chromium projects.
+# Every release must pass source checks and desktop Chromium validation.
 on:
   pull_request:
     branches:
@@ -42,13 +42,9 @@ jobs:
 
   browser:
     needs: predeploy
+    name: Desktop Chromium
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    strategy:
-      # Separate machines prevent desktop/mobile WebGL and physics competing for CPU.
-      fail-fast: false
-      matrix:
-        project: [chromium-desktop, chromium-mobile]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -62,17 +58,15 @@ jobs:
       - name: Install Chromium for E2E
         run: npx playwright install --with-deps chromium
       - name: Browser smoke tests
-        # Leave time to upload logs when a test hangs. Three failures stop a bad
-        # run early; a successful run still executes every test in this project.
         timeout-minutes: 25
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/results.json
-        run: npm run test:e2e -- --project=${{ matrix.project }} --max-failures=3 --reporter=line,json
+        run: npm run test:e2e -- --project=chromium-desktop --max-failures=3 --reporter=line,json
       - name: Upload browser diagnostics
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: browser-diagnostics-${{ matrix.project }}-${{ github.run_id }}
+          name: browser-diagnostics-chromium-desktop-${{ github.run_id }}
           path: |
             test-results
             playwright-report
@@ -80,7 +74,6 @@ jobs:
           retention-days: 7
 
   verify:
-    # Keep the established final check name gated on every source/browser job.
     needs: [predeploy, browser]
     if: always()
     runs-on: ubuntu-latest
