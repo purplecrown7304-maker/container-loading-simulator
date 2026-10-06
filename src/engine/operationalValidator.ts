@@ -338,7 +338,8 @@ function checkWeightAndCog(container: ContainerSpec, bodies: Body[]) {
   cg.x /= weight; cg.y /= weight; cg.z /= weight;
 
   const longDev = Math.abs(cg.x - container.length / 2);
-  const longLimit = container.length * CG_LONG_TOLERANCE;
+  // Weight-proportional: identical to the legacy limit at full payload, wider for light loads.
+  const longLimit = Math.min(container.length / 2, container.length * CG_LONG_TOLERANCE * Math.max(1, container.maxPayloadKg / weight));
   if (longDev > longLimit + EPS) {
     out.push(finding(
       'CG_LONGITUDINAL',
@@ -401,9 +402,26 @@ function checkSecuring(container: ContainerSpec, bodies: Body[], supporters: Sup
   bodies.forEach((body, bodyIndex) => {
     if (body.kind !== 'cargo' || supporters[bodyIndex].length > 0 || body.placement.z > HEIGHT_TOLERANCE_M) return;
     const p = body.placement;
+    // Contact restraint: a face within 30 mm of a wall or neighbouring cargo is blocked.
+    const near = 0.03;
+    const blocked = (axis: 'x' | 'y', positive: boolean) => {
+      const face = axis === 'x' ? (positive ? p.x + p.length : p.x) : (positive ? p.y + p.width : p.y);
+      const wall = positive ? (axis === 'x' ? container.length : container.width) : 0;
+      if (Math.abs(wall - face) <= near) return true;
+      return cargoBodies.some(other => {
+        const q = other.placement;
+        if (q === p || overlap1d(p.z, p.z + p.height, q.z, q.z + q.height) <= EPS) return false;
+        const gap = axis === 'x' ? (positive ? q.x - face : face - (q.x + q.length)) : (positive ? q.y - face : face - (q.y + q.width));
+        const lateral = axis === 'x' ? overlap1d(p.y, p.y + p.width, q.y, q.y + q.width) : overlap1d(p.x, p.x + p.length, q.x, q.x + q.length);
+        return gap >= -EPS && gap <= near && lateral > EPS;
+      });
+    };
+    const xOpen = !blocked('x', true) || !blocked('x', false);
+    const yOpen = !blocked('y', true) || !blocked('y', false);
+    if (!xOpen && !yOpen) return;
     const hcg = p.height / 2;
-    const forwardTip = ACCEL.forward * hcg > p.length / 2;
-    const sideTip = ACCEL.sideways * hcg > p.width / 2;
+    const forwardTip = xOpen && ACCEL.forward * hcg > p.length / 2;
+    const sideTip = yOpen && ACCEL.sideways * hcg > p.width / 2;
     if (forwardTip || sideTip) {
       out.push(finding(
         'TIPPING_RISK',
@@ -413,7 +431,7 @@ function checkSecuring(container: ContainerSpec, bodies: Body[], supporters: Sup
       ));
     }
     const requiredForwardDaN = Math.max(0, (ACCEL.forward - DEFAULT_FRICTION) * p.weightKg * 9.81 / 10);
-    if (requiredForwardDaN > EPS) {
+    if (xOpen && requiredForwardDaN > EPS) {
       out.push(finding(
         'SECURING_FORCE',
         'warning',
