@@ -7,6 +7,7 @@ import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { readSecuringMaterialSettings, type SecuringMaterialSettings } from './securingMaterialSettings';
 import { palletBandingLengthM } from './palletBanding';
 import { boxSecuringRequirements } from './engine/securingBudget';
+import { gapSecuringPhysicsSupports } from './engine/gapSecuring';
 
 export type InertiaScenario = Exclude<PhysicsScenario, 'settle'>;
 export type CertificationStatus = 'passed' | 'failed' | 'review';
@@ -26,6 +27,11 @@ export type SecuringUsage = {
   dunnageBlocks: number;
   loadBars: number;
   estimatedAddedWeightKg: number;
+  /** Actual-void plan is separate from the legacy count-based securing floor. */
+  voidFillCount?: number;
+  voidFillWeightKg?: number;
+  transportSecuringWeightKg?: number;
+  voidFillUnresolvedCount?: number;
   estimatedNonCargoWeightKg: number;
   materialUnitWeights?: SecuringMaterialSettings;
 };
@@ -172,6 +178,7 @@ export function createPhysicsTargetSignature(target: PhysicsTarget) {
     placements: target.result.placements.map(item => [item.cargoId, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg, item.rotated === true]),
     remaining,
     supports: (target.supports ?? []).map(item => [item.id, item.x, item.y, item.z, item.length, item.width, item.height, item.weightKg, item.dynamic !== false]),
+    voidFillPlan: target.result.voidFillPlan?.fills.map(fill => [fill.id, fill.kind, fill.x, fill.y, fill.z, fill.length, fill.width, fill.height, fill.materialId, fill.quantity, fill.totalWeightKg, fill.applicable]),
     materialUnitWeights: readSecuringMaterialSettings(),
   });
 }
@@ -300,6 +307,10 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     antiSlipMats * unitWeights.antiSlipKgPerEa +
     dunnageBlocks * unitWeights.dunnageKgPerEa +
     loadBars * unitWeights.loadBarKgPerEa;
+  const voidFillCount = target.mode === 'boxes' ? target.result.voidFillPlan?.fills.length ?? 0 : 0;
+  const voidFillWeightKg = target.mode === 'boxes' ? target.result.voidFillPlan?.weightKg ?? 0 : 0;
+  const transportSecuringWeightKg = Math.max(estimatedAddedWeightKg, voidFillWeightKg);
+  const voidFillUnresolvedCount = target.mode === 'boxes' ? target.result.voidFillPlan?.unresolvedCount ?? 0 : 0;
 
   return {
     level,
@@ -319,13 +330,17 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     dunnageBlocks,
     loadBars,
     estimatedAddedWeightKg,
-    estimatedNonCargoWeightKg: palletWeightKg + estimatedAddedWeightKg,
+    voidFillCount,
+    voidFillWeightKg,
+    transportSecuringWeightKg,
+    voidFillUnresolvedCount,
+    estimatedNonCargoWeightKg: palletWeightKg + transportSecuringWeightKg,
     materialUnitWeights: unitWeights,
   };
 }
 
 function payloadWithinLimit(target: PhysicsTarget, usage: SecuringUsage) {
-  return target.result.loadedWeightKg + usage.estimatedAddedWeightKg <= target.container.maxPayloadKg + 1e-9;
+  return target.result.loadedWeightKg + (usage.transportSecuringWeightKg ?? usage.estimatedAddedWeightKg) <= target.container.maxPayloadKg + 1e-9;
 }
 
 /** Numerical review is allowed only for a valid, scenario-feasible direct-box layout. */
@@ -346,13 +361,18 @@ export async function runInertiaCertification(
   const minimumLevel = minimumSecuringLevelForMode(target.mode);
   let finalLevel: SecuringLevel = minimumLevel;
   const attempts: InertiaReinforcementAttempt[] = [];
+  const voidFillSupports = target.mode === 'boxes' ? gapSecuringPhysicsSupports(target.result.voidFillPlan) : [];
+  const simulationSupports = target.mode === 'boxes'
+    ? [...(target.supports ?? []), ...voidFillSupports]
+    : (target.supports ?? []);
+  const unresolvedVoidFill = target.mode === 'boxes' && (target.result.voidFillPlan?.unresolvedCount ?? 0) > 0;
 
   for (let rawLevel = minimumLevel; rawLevel <= 3; rawLevel += 1) {
     if (shouldCancel?.()) throw new Error('INERTIA_CERTIFICATION_CANCELLED');
     if (limitReview && !numericalReview) break;
     const level = rawLevel as SecuringLevel;
     const securing = buildSecuringUsage(target, level);
-    const scenarioPayloadOk = !numericalReview || target.result.loadedWeightKg + securing.estimatedAddedWeightKg
+    const scenarioPayloadOk = !numericalReview || target.result.loadedWeightKg + (securing.transportSecuringWeightKg ?? securing.estimatedAddedWeightKg)
       <= (limitReview?.maxPayloadKg ?? target.container.maxPayloadKg) + 1e-9;
     if (!scenarioPayloadOk) {
       attempts.push({ level, levelLabel: securing.levelLabel, payloadWithinLimit: payloadWithinLimit(target, securing), passed: false, scenarios: [] });
@@ -377,7 +397,7 @@ export async function runInertiaCertification(
         target.container,
         target.result.placements,
         scenario,
-        target.supports ?? [],
+        simulationSupports,
         value => onProgress?.({
           level,
           levelLabel: securing.levelLabel,
@@ -429,7 +449,7 @@ export async function runInertiaCertification(
   });
   const results = Object.values(finalResults).filter((result): result is InertiaAnimationResult => Boolean(result));
   const payloadOk = payloadWithinLimit(target, usage);
-  const passed = failedScenarios.length === 0 && results.length === SCENARIOS.length && payloadOk;
+  const passed = failedScenarios.length === 0 && results.length === SCENARIOS.length && payloadOk && !unresolvedVoidFill;
 
   const certification: InertiaCertification = {
     status: passed ? (limitReview ? 'review' : 'passed') : 'failed',
