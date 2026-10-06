@@ -7,9 +7,9 @@ import { canPlaceByStackingRules } from './stacking';
 import { auditLoading } from './loadingAudit';
 import { validateOperationalLoading } from './operationalValidator';
 import { hasAdequateSupport, supportContactArea } from './support';
-import { boxSecuringRequirements } from './securingBudget';
+import { editedSecuringEvidence, editRegressionReasons, voidFillFindings } from './directBoxEditPolicy';
 import { readSecuringMaterialSettings } from '../securingMaterialSettings';
-import { heavyInnerConflictFindings } from './heavyInnerPolicy';
+import { heavyInnerConflictFindings, usesHeavyInnerLoading } from './heavyInnerPolicy';
 import { analyzeFloorLoad } from './floorLoad';
 import { assessWeightBalance } from './weightBalance';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
@@ -91,21 +91,29 @@ export function assessManualMove(
   placements.splice(Math.min(placementIndex, placements.length),0,candidate);
   const validationIssues = auditLoading(container,container.limitReview === undefined ? cargo : preflightCargoInput(cargo).cargo,placements);
   const securingLevel = source.securingBudget?.level ?? 1;
-  const requiredWeightKg = boxSecuringRequirements(placements.length,securingLevel,readSecuringMaterialSettings()).weightKg;
+  const materials = readSecuringMaterialSettings();
+  const securing = editedSecuringEvidence(container,cargo,placements,securingLevel,materials);
   const loadedWeightKg = placements.reduce((sum, placement) => sum + placement.weightKg,0);
-  if (loadedWeightKg + requiredWeightKg > container.maxPayloadKg + 1e-6) validationIssues.push({
-    type:'PAYLOAD',message:'필수 고정 자재를 포함한 운송 중량이 허용 적재 중량을 초과합니다.',placementIndexes:[],
+  if (container.limitReview === undefined && securing.totalTransportWeightKg > container.maxPayloadKg + 1e-6) validationIssues.push({
+    type:'PAYLOAD',message:'필수 고정·메움재를 포함한 운송 중량이 허용 적재 중량을 초과합니다.',placementIndexes:[],
   });
-  if (container.limitReview === undefined) reasons.push(...validationIssues.map(issue => issue.message));
   // A prior conflict records that the source used the unloading strategy even
   // when no explicit container policy was saved. Edits preserve that provenance.
   const conflictStrategy = source.operationalFindings?.some(f => f.code === 'HEAVY_INNER_UNLOAD_CONFLICT') ? 'unloading' : 'capacity';
-  const operationalFindings = [...validateOperationalLoading(container,cargo,placements),
-    ...heavyInnerConflictFindings(container,cargo,placements,conflictStrategy)];
-  if (container.limitReview === undefined) reasons.push(...operationalFindings.filter(finding => finding.severity === 'error').map(finding => finding.message));
-  else reasons.push(...reviewPlacementBlockers(container,cargo,placements,loadedWeightKg+requiredWeightKg));
-  const result: LoadingResult = decorateLimitReview(container,cargo,{ ...source, placements, validationIssues, operationalFindings, loadedWeightKg,
-    securingBudget:{level:securingLevel,reservedWeightKg:Math.max(source.securingBudget?.reservedWeightKg ?? 0,requiredWeightKg),requiredWeightKg,totalTransportWeightKg:loadedWeightKg+requiredWeightKg} });
+  const operationalFindings = [
+    ...validateOperationalLoading(container,cargo,placements,[],{legacyDirectBox:usesHeavyInnerLoading(container,cargo)}),
+    ...heavyInnerConflictFindings(container,cargo,placements,conflictStrategy),
+    ...voidFillFindings(securing.voidFillPlan),
+  ];
+  const candidateResult: LoadingResult = { ...source, placements, validationIssues, operationalFindings, loadedWeightKg,
+    voidFillPlan:securing.voidFillPlan,
+    securingBudget:{level:securingLevel,
+      reservedWeightKg:Math.max(source.securingBudget?.reservedWeightKg ?? 0,securing.transportSecuringWeightKg),
+      requiredWeightKg:securing.requiredWeightKg,voidFillWeightKg:securing.voidFillWeightKg,
+      transportSecuringWeightKg:securing.transportSecuringWeightKg,totalTransportWeightKg:securing.totalTransportWeightKg} };
+  if (container.limitReview === undefined) reasons.push(...editRegressionReasons(source,candidateResult));
+  else reasons.push(...reviewPlacementBlockers(container,cargo,placements,securing.totalTransportWeightKg));
+  const result: LoadingResult = decorateLimitReview(container,cargo,candidateResult);
   const beforeQuality = assessWeightBalance(container,source);
   const afterQuality = assessWeightBalance(container,result);
   const beforeFloor = analyzeFloorLoad(container,source,12,4);
