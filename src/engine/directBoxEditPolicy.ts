@@ -2,7 +2,7 @@ import { gapSecuringPlan } from './gapSecuring';
 import { usesHeavyInnerLoading } from './heavyInnerPolicy';
 import { boxSecuringRequirements, type BoxSecuringLevel } from './securingBudget';
 import type { SecuringMaterialSettings } from '../securingMaterialSettings';
-import type { CargoItem, ContainerSpec, LoadingResult, OperationalRuleFinding, Placement, ValidationIssue } from './types';
+import type { CargoItem, ContainerSpec, LoadingResult, OperationalRuleFinding, Placement, ValidationIssue, VoidFillPlan } from './types';
 
 const EPS = 1e-6;
 
@@ -92,4 +92,23 @@ export function editRegressionReasons(source: LoadingResult, candidate: LoadingR
       code => code,
     ),
   ];
+}
+
+export function voidFillFindings(plan?: VoidFillPlan): OperationalRuleFinding[] {
+  if (!plan?.fills.length) return [];
+  const findings: OperationalRuleFinding[] = [{
+    code: 'VOID_FILL_REQUIRED',
+    severity: 'warning',
+    placementIndexes: [],
+    value: plan.volumeM3,
+    message: `빈 공간 ${plan.fills.length}곳(${plan.volumeM3.toFixed(2)}m³)에 메움/버팀이 필요합니다. 계획 중량 ${plan.weightKg.toFixed(2)}kg. ${plan.disclaimer}`,
+  }];
+  if (plan.unresolvedCount > 0) findings.push({
+    code: 'VOID_FILL_MATERIAL_OUT_OF_RANGE',
+    severity: 'warning',
+    placementIndexes: [],
+    value: plan.unresolvedCount,
+    message: `메움재 적용범위를 벗어난 빈 공간이 ${plan.unresolvedCount}곳 있습니다. 해당 자재는 관성 고정 지지물로 인정하지 않습니다. ${plan.disclaimer}`,
+  });
+  return findings;
 }
