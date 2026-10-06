@@ -491,21 +491,23 @@ function checkAfterStops(bodies: Body[], initialSupporters: SupportLink[][]) {
   return out;
 }
 
+export type OperationalValidationOptions = { approvedDirectBox?: boolean };
+
 export function validateOperationalLoading(
   container: ContainerSpec,
   cargo: CargoItem[],
   placements: Placement[],
   supports: OperationalSupport[] = [],
+  options: OperationalValidationOptions = {},
 ): OperationalRuleFinding[] {
   if (isARules(container)) return validateAPlan(container, cargo, placements, supports);
   if (!placements.length && !supports.length) return [];
   const normalizedCargo = cargoWithUnloadingPolicy(container,cargo);
   const bodies = buildBodies(normalizedCargo, placements, supports);
   const supporters = supportersOf(bodies);
-  // Only ordinary legacy direct-box input receives the 2026-10-06 proportional CG and
-  // contact-aware securing warning rules. Internal MIXED units are explicitly tagged.
-  const approvedDirectBox = supports.length === 0
-    && normalizedCargo.every(item => item.unitKind == null && item.sourcePalletIndex == null);
+  // Callers opt in only from the approved legacy direct-box packing path. This keeps
+  // pallet, MIXED and deferred manual-edit behavior byte-for-byte on the old rule.
+  const approvedDirectBox = options.approvedDirectBox === true;
   return [
     ...checkBounds(container, bodies),
     ...checkOverlap(bodies),
