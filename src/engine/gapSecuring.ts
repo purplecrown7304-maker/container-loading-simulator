@@ -3,6 +3,7 @@ import {
   type SecuringMaterialSettings,
   type VoidFillMaterialRule,
 } from '../securingMaterialSettings';
+import type { PhysicsSupport } from './physicsValidation';
 import type { ContainerSpec, Placement, VoidFillKind, VoidFillPlan, VoidFillPlanItem } from './types';
 
 type RawFill = { id: string; x: number; y: number; z: number; length: number; width: number; height: number; kind: VoidFillKind };
@@ -136,4 +137,20 @@ export function gapSecuringPlan(
   const applicableWeightKg = fills.filter(fill => fill.applicable).reduce((sum, fill) => sum + fill.totalWeightKg, 0);
   const unresolvedCount = fills.filter(fill => !fill.applicable).length;
   return { fills, sideGapM, rearGapM, volumeM3, weightKg, applicableWeightKg, unresolvedCount, disclaimer: VOID_FILL_DISCLAIMER };
+}
+
+/** Only configured in-range materials become immovable physics obstacles. */
+export function gapSecuringPhysicsSupports(plan?: VoidFillPlan): PhysicsSupport[] {
+  if (!plan) return [];
+  return plan.fills.filter(fill => fill.applicable).map(fill => ({
+    id: `void-fill:${fill.id}:${fill.materialId}`,
+    x: fill.x,
+    y: fill.y,
+    z: fill.z,
+    length: fill.length,
+    width: fill.width,
+    height: fill.height,
+    weightKg: Math.max(0.01, fill.totalWeightKg),
+    dynamic: false,
+  }));
 }
