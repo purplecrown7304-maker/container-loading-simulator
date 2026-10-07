@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { withWorkerParityPage } from './helpers/workerParityHarness';
 
 const storedState = {
   container: {
@@ -96,19 +97,6 @@ async function installInput(page: Page, disableWorker: boolean, state = storedSt
     window.dispatchEvent(new CustomEvent('container-loading:securing-material-settings', { detail: materials }));
   }, { state, materials });
 }
-async function runWorkerResponse(page: Page, cargoId: string) {
-  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.cargo?.[0]?.id)).toBe(cargoId);
-  await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:app-action', { detail: { action: 'run-loading' } })));
-  await expect.poll(
-    () => page.evaluate(() => (window as any).__loadingWorkerParity?.responses?.length ?? 0),
-    { timeout: 30_000 },
-  ).toBeGreaterThan(0);
-  return page.evaluate(() => {
-    const trace = structuredClone((window as any).__loadingWorkerParity);
-    return { trace, result: trace.responses.at(-1).result };
-  });
-}
-
 async function runLoading(page: Page, cargoId = 'WORKER-PARITY') {
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.cargo?.[0]?.id)).toBe(cargoId);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:app-action', { detail: { action: 'run-loading' } })));
@@ -123,7 +111,7 @@ async function runLoading(page: Page, cargoId = 'WORKER-PARITY') {
   return page.evaluate(() => structuredClone((window as any).__containerLoadingLatestResult.result));
 }
 
-test.only('real loading.worker matches the synchronous loadContainer fallback bit-for-bit', async ({ browser }, testInfo) => {
+test('real loading.worker matches the synchronous loadContainer fallback bit-for-bit', async ({ browser }, testInfo) => {
   test.skip(testInfo.project.name === 'chromium-mobile', 'Desktop service verification only.');
   test.setTimeout(180_000);
 
@@ -162,8 +150,7 @@ test.only('real loading.worker matches the synchronous loadContainer fallback bi
 });
 
 
-test.only('real worker materializes custom securing profiles pinned by sync parity regressions', async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name === 'chromium-mobile', 'Desktop service verification only.');
+test('real worker and synchronous fallback preserve custom material plans and bounds', async ({ browser }, testInfo) => {
   test.setTimeout(300_000);
 
   const scenarios = [
@@ -175,7 +162,7 @@ test.only('real worker materializes custom securing profiles pinned by sync pari
       },
       materials: securingSettings,
       check: (result:any) => {
-        expect(result.voidFillPlan?.fills.some((fill:any)=>fill.material==='dunnage-airbag')).toBe(true);
+        expect(result.voidFillPlan?.fills.filter((fill: any) => fill.material === 'dunnage-airbag')).toHaveLength(2);
         expect(result.voidFillPlan?.fills.some((fill:any)=>fill.kind==='door-face'&&fill.material==='load-bar')).toBe(true);
       },
     },
@@ -187,7 +174,7 @@ test.only('real worker materializes custom securing profiles pinned by sync pari
       },
       materials: securingSettings,
       check: (result:any) => {
-        expect(result.voidFillPlan?.fills.some((fill:any)=>fill.material==='paper-honeycomb')).toBe(true);
+        expect(result.voidFillPlan?.fills.filter((fill: any) => fill.material === 'paper-honeycomb')).toHaveLength(2);
         expect(result.voidFillPlan?.fills.some((fill:any)=>fill.kind==='door-face'&&fill.material==='load-bar')).toBe(true);
       },
     },
@@ -205,29 +192,81 @@ test.only('real worker materializes custom securing profiles pinned by sync pari
     },
   ];
 
-  const report:any[] = [];
-  for (const scenario of scenarios) {
-    const workerContext = await browser.newContext();
-    const workerPage = await workerContext.newPage();
-    await installInput(workerPage, false, scenario.state, scenario.materials);
-    const { result: workerResult, trace } = await runWorkerResponse(workerPage, scenario.state.cargo[0].id);
-    expect(trace.requests.length).toBeGreaterThan(0);
-    expect(trace.responses.length).toBeGreaterThan(0);
-    expect(trace.requests.every((row:any)=>JSON.stringify(row.securingMaterials)===JSON.stringify(scenario.materials))).toBe(true);
-    scenario.check(workerResult);
-    await workerContext.close();
-    report.push({
-      scenario: scenario.name,
-      fills: workerResult.voidFillPlan?.fills.map((fill:any)=>({
-        kind:fill.kind, material:fill.material, quantity:fill.quantity, weightKg:fill.weightKg,
-        fixedSupportEligible:fill.fixedSupportEligible, gapM:fill.gapM,
-      })),
-      securingBudget: workerResult.securingBudget,
+  const report: unknown[] = [];
+  try {
+    // Exact inclusive limits and immediately out-of-range profiles use the same
+    // geometry, so settings transport and range application are both exercised.
+    const air = scenarios[0];
+    const honey = scenarios[1];
+    const unresolvedSides = (result: any) => {
+      const sides = result.voidFillPlan.fills.filter((fill: any) => fill.kind === 'side-gap');
+      expect(sides).toHaveLength(2);
+      for (const fill of sides) expect(fill).toMatchObject({ material: 'unresolved', quantity: 0, weightKg: 0, fixedSupportEligible: false });
+    };
+    const unresolvedDoor = (result: any) => {
+      expect(result.voidFillPlan.fills.find((fill: any) => fill.kind === 'door-face')).toMatchObject({ material: 'unresolved', quantity: 0, weightKg: 0, fixedSupportEligible: false });
+    };
+    scenarios.push(
+      { ...air, name: 'airbag-inclusive-limits', materials: { ...securingSettings, voidAirBagMinGapM: .15, voidAirBagMaxGapM: .15 } },
+      { ...honey, name: 'honeycomb-inclusive-limits', materials: { ...securingSettings, voidHoneycombMinGapM: .05, voidHoneycombMaxGapM: .05 } },
+      { ...air, name: 'airbag-below-minimum', materials: { ...securingSettings, voidAirBagMinGapM: .151 }, check: unresolvedSides },
+      { ...honey, name: 'honeycomb-below-minimum', materials: { ...securingSettings, voidHoneycombMinGapM: .051 }, check: unresolvedSides },
+      { ...honey, name: 'honeycomb-above-maximum', materials: { ...securingSettings, voidHoneycombMaxGapM: .049 }, check: unresolvedSides },
+      { ...air, name: 'doorbar-above-maximum', materials: { ...securingSettings, voidDoorBarMaxSpanM: 2.349 }, check: unresolvedDoor },
+      { ...air, name: 'custom-quantity-rounding', materials: { ...securingSettings, voidAirBagFaceAreaM2: .05, voidDoorBarCoverageHeightM: .09 } },
+      { ...honey, name: 'custom-honeycomb-modules', materials: { ...securingSettings, voidHoneycombModuleVolumeM3: .004 } },
+      { ...air, name: 'doorbar-inclusive-limits', materials: { ...securingSettings, voidDoorBarMinSpanM: 2.35, voidDoorBarMaxSpanM: 2.35 } },
+      { ...air, name: 'doorbar-out-of-range', materials: { ...securingSettings, voidDoorBarMinSpanM: 2.351 }, check: result => {
+        expect(result.voidFillPlan.fills.find((fill: any) => fill.kind === 'door-face')).toMatchObject({ material: 'unresolved', quantity: 0, weightKg: 0, fixedSupportEligible: false });
+      } },
+    );
+
+    for (const scenario of scenarios) {
+      await withWorkerParityPage(browser, async page => {
+        const { workerResult, fallbackResult, syncResult, requests, responses, errors } = await page.evaluate(
+          input => (window as any).runLoadingWorkerParity(input),
+          { ...scenario.state, materials: scenario.materials },
+        );
+        expect(errors, scenario.name).toEqual([]);
+        expect(requests, scenario.name).toHaveLength(1);
+        expect(responses, scenario.name).toHaveLength(1);
+        expect(requests[0].securingOptions.securingMaterials, scenario.name).toEqual(scenario.materials);
+        expect(responses[0].result, scenario.name).toEqual(workerResult);
+        expect(workerResult, scenario.name).toEqual(syncResult);
+        expect(fallbackResult, scenario.name).toEqual(syncResult);
+        scenario.check(workerResult);
+        expect(workerResult.voidFillPlan.fills, scenario.name).toHaveLength(3);
+        expect(workerResult.operationalFindings.some((finding: any) => finding.code === 'VOID_FILL_REQUIRED')).toBe(true);
+        expect(workerResult.voidFillPlan.weightKg).toBeCloseTo(workerResult.voidFillPlan.fills.reduce((sum: number, fill: any) => sum + fill.weightKg, 0), 10);
+        expect(workerResult.securingBudget.totalTransportWeightKg).toBeCloseTo(workerResult.loadedWeightKg + workerResult.securingBudget.requiredWeightKg, 10);
+        expect(workerResult.voidFillPlan.unresolvedCount).toBe(workerResult.voidFillPlan.fills.filter((fill: any) => fill.material === 'unresolved').length);
+        const pinnedTotals: Record<string, number> = { 'airbag-doorbar': 7.12, 'honeycomb-doorbar': 6.64, 'custom-quantity-rounding': 21.36, 'custom-honeycomb-modules': 6.452 };
+        if (scenario.name in pinnedTotals) expect(workerResult.voidFillPlan.weightKg, scenario.name).toBeCloseTo(pinnedTotals[scenario.name], 10);
+
+        for (const fill of workerResult.voidFillPlan.fills) {
+          if (fill.material === 'dunnage-airbag') {
+            expect(fill.quantity).toBe(Math.ceil(fill.length * fill.height / scenario.materials.voidAirBagFaceAreaM2));
+            expect(fill.weightKg).toBeCloseTo(fill.quantity * scenario.materials.voidAirBagKgPerEa, 10);
+            expect(fill.gapM + 1e-6).toBeGreaterThanOrEqual(scenario.materials.voidAirBagMinGapM);
+            expect(fill.gapM).toBeLessThanOrEqual(scenario.materials.voidAirBagMaxGapM + 1e-6);
+          } else if (fill.material === 'paper-honeycomb') {
+            expect(fill.quantity).toBe(Math.ceil(fill.voidVolumeM3 / scenario.materials.voidHoneycombModuleVolumeM3));
+            expect(fill.weightKg).toBeCloseTo(fill.quantity * scenario.materials.voidHoneycombModuleVolumeM3 * scenario.materials.voidHoneycombKgPerM3, 10);
+            expect(fill.gapM + 1e-6).toBeGreaterThanOrEqual(scenario.materials.voidHoneycombMinGapM);
+            expect(fill.gapM).toBeLessThanOrEqual(scenario.materials.voidHoneycombMaxGapM + 1e-6);
+          } else if (fill.material === 'load-bar') {
+            expect(fill.quantity).toBe(Math.ceil(fill.height / scenario.materials.voidDoorBarCoverageHeightM));
+            expect(fill.weightKg).toBeCloseTo(fill.quantity * scenario.materials.voidDoorBarKgPerEa, 10);
+          }
+          expect(fill.fixedSupportEligible).toBe(fill.material !== 'unresolved');
+        }
+        report.push({ scenario: scenario.name, voidFillPlan: workerResult.voidFillPlan, securingBudget: workerResult.securingBudget });
+      });
+    }
+  } finally {
+    await testInfo.attach('loading-worker-material-parity', {
+      body: JSON.stringify(report, null, 2),
+      contentType: 'application/json',
     });
   }
-
-  await testInfo.attach('loading-worker-material-parity', {
-    body: JSON.stringify(report, null, 2),
-    contentType: 'application/json',
-  });
 });
