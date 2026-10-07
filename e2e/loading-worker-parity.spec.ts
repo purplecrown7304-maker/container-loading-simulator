@@ -44,7 +44,7 @@ const securingSettings = {
   voidDoorBarCoverageHeightM: 1.20,
 };
 
-async function installInput(page: Page, disableWorker: boolean) {
+async function installInput(page: Page, disableWorker: boolean, state = storedState, materials = securingSettings) {
   await page.addInitScript(({ disable }) => {
     if (disable) {
       Object.defineProperty(window, 'Worker', { configurable: true, writable: true, value: undefined });
@@ -94,10 +94,10 @@ async function installInput(page: Page, disableWorker: boolean) {
     window.dispatchEvent(new CustomEvent('container-loading:guided-loading-strategy-updated', { detail: 'capacity' }));
     window.dispatchEvent(new CustomEvent('container-loading:guided-loading-unit-updated', { detail: 'boxes' }));
     window.dispatchEvent(new CustomEvent('container-loading:securing-material-settings', { detail: materials }));
-  }, { state: storedState, materials: securingSettings });
+  }, { state, materials });
 }
-async function runLoading(page: Page) {
-  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.cargo?.[0]?.id)).toBe('WORKER-PARITY');
+async function runLoading(page: Page, cargoId = 'WORKER-PARITY') {
+  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.cargo?.[0]?.id)).toBe(cargoId);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:app-action', { detail: { action: 'run-loading' } })));
   await expect.poll(
     () => page.evaluate(() => (window as any).__containerLoadingLatestResult?.result?.placements?.length ?? 0),
@@ -144,6 +144,87 @@ test.only('real loading.worker matches the synchronous loadContainer fallback bi
       securingBudget: workerFinal.securingBudget,
       voidFillPlan: workerFinal.voidFillPlan,
     }, null, 2),
+    contentType: 'application/json',
+  });
+});
+
+
+test.only('custom securing profiles materialize identical worker and sync void-fill plans', async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name === 'chromium-mobile', 'Desktop service verification only.');
+  test.setTimeout(300_000);
+
+  const scenarios = [
+    {
+      name: 'airbag-doorbar',
+      state: {
+        container: { length:4,width:2.35,height:2,maxPayloadKg:2000,floorLoadLimitKgPerM2:1500 },
+        cargo: [{ id:'AIR',name:'AIR',length:.6,width:2.05,height:.8,weightKg:120,quantity:1,maxStackLayers:1,maxTopLoadKg:0,allowRotation:false }],
+      },
+      materials: securingSettings,
+      check: (result:any) => {
+        expect(result.voidFillPlan?.fills.some((fill:any)=>fill.material==='dunnage-airbag')).toBe(true);
+        expect(result.voidFillPlan?.fills.some((fill:any)=>fill.kind==='door-face'&&fill.material==='load-bar')).toBe(true);
+      },
+    },
+    {
+      name: 'honeycomb-doorbar',
+      state: {
+        container: { length:4,width:2.35,height:2,maxPayloadKg:2000,floorLoadLimitKgPerM2:1500 },
+        cargo: [{ id:'HONEY',name:'HONEY',length:.6,width:2.25,height:.8,weightKg:120,quantity:1,maxStackLayers:1,maxTopLoadKg:0,allowRotation:false }],
+      },
+      materials: securingSettings,
+      check: (result:any) => {
+        expect(result.voidFillPlan?.fills.some((fill:any)=>fill.material==='paper-honeycomb')).toBe(true);
+        expect(result.voidFillPlan?.fills.some((fill:any)=>fill.kind==='door-face'&&fill.material==='load-bar')).toBe(true);
+      },
+    },
+    {
+      name: 'unresolved-range',
+      state: {
+        container: { length:4,width:2.35,height:2,maxPayloadKg:2000,floorLoadLimitKgPerM2:1500 },
+        cargo: [{ id:'UNRESOLVED',name:'UNRESOLVED',length:.6,width:2.05,height:.8,weightKg:120,quantity:1,maxStackLayers:1,maxTopLoadKg:0,allowRotation:false }],
+      },
+      materials: { ...securingSettings, voidAirBagMaxGapM:.12, voidHoneycombMaxGapM:.08 },
+      check: (result:any) => {
+        expect(result.voidFillPlan?.fills.some((fill:any)=>fill.kind==='side-gap'&&fill.material==='unresolved'&&fill.fixedSupportEligible===false)).toBe(true);
+        expect(result.voidFillPlan?.unresolvedCount).toBeGreaterThan(0);
+      },
+    },
+  ];
+
+  const report:any[] = [];
+  for (const scenario of scenarios) {
+    const workerContext = await browser.newContext();
+    const workerPage = await workerContext.newPage();
+    await installInput(workerPage, false, scenario.state, scenario.materials);
+    const workerResult = await runLoading(workerPage, scenario.state.cargo[0].id);
+    const trace = await workerPage.evaluate(() => structuredClone((window as any).__loadingWorkerParity));
+    expect(trace.requests.length).toBeGreaterThan(0);
+    expect(trace.requests.every((row:any)=>JSON.stringify(row.securingMaterials)===JSON.stringify(scenario.materials))).toBe(true);
+    await workerContext.close();
+
+    const syncContext = await browser.newContext();
+    const syncPage = await syncContext.newPage();
+    await installInput(syncPage, true, scenario.state, scenario.materials);
+    const syncResult = await runLoading(syncPage, scenario.state.cargo[0].id);
+    await syncContext.close();
+
+    expect(workerResult.voidFillPlan).toEqual(syncResult.voidFillPlan);
+    expect(workerResult.securingBudget).toEqual(syncResult.securingBudget);
+    expect(workerResult.operationalFindings).toEqual(syncResult.operationalFindings);
+    scenario.check(workerResult);
+    report.push({
+      scenario: scenario.name,
+      fills: workerResult.voidFillPlan?.fills.map((fill:any)=>({
+        kind:fill.kind, material:fill.material, quantity:fill.quantity, weightKg:fill.weightKg,
+        fixedSupportEligible:fill.fixedSupportEligible, gapM:fill.gapM,
+      })),
+      securingBudget: workerResult.securingBudget,
+    });
+  }
+
+  await testInfo.attach('loading-worker-material-parity', {
+    body: JSON.stringify(report, null, 2),
     contentType: 'application/json',
   });
 });
