@@ -138,6 +138,33 @@ export type OperationalRuleFinding = {
   limit?: number;
 };
 
+export type VoidFillKind = 'side-gap' | 'door-face' | 'height-step' | 'row-gap' | 'top-void';
+export type VoidFillMaterial = 'dunnage-airbag' | 'paper-honeycomb' | 'load-bar' | 'unresolved';
+export type VoidFill = {
+  id: string;
+  kind: VoidFillKind;
+  material: VoidFillMaterial;
+  quantity: number;
+  weightKg: number;
+  fixedSupportEligible: boolean;
+  gapM: number;
+  voidVolumeM3: number;
+  x: number;
+  y: number;
+  z: number;
+  length: number;
+  width: number;
+  height: number;
+};
+export type VoidFillPlan = {
+  fills: VoidFill[];
+  sideGapM: number;
+  rearGapM: number;
+  volumeM3: number;
+  weightKg: number;
+  unresolvedCount: number;
+};
+
 export type AutoCorrectionRecord = {
   kind: 'SHAPE' | 'LOW_ROW' | 'ZONE_HEIGHT';
   label: string;
@@ -153,6 +180,8 @@ export type LoadingResult = {
   limitReview?: LimitReviewMetadata;
   /** Planning budget only; this does not assert physics certification. */
   securingBudget?: { level: 1 | 2 | 3; reservedWeightKg: number; requiredWeightKg: number; totalTransportWeightKg: number };
+  /** Actual direct-box gap plan used for payload, 3D, exports and restore. Planning data only, not a material rating. */
+  voidFillPlan?: VoidFillPlan;
   ruleset?: LoadingRuleset;
   placements: Placement[];
   remaining: Array<{ cargoId: string; quantity: number; reason: string; reasonCode?: string }>;
