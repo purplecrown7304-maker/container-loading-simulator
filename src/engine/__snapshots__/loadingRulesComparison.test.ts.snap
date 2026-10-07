@@ -23,6 +23,7 @@ exports[`legacy versus A: identical cargo differential contract > door-height 1`
     "remaining": 0,
     "valid": false,
     "warnings": [
+      "HALF_WEIGHT_CONCENTRATION",
       "REAR_GAP",
       "SECURING_FORCE",
       "TIPPING_RISK",
@@ -54,6 +55,7 @@ exports[`legacy versus A: identical cargo differential contract > exact-height 1
     "remaining": 0,
     "valid": false,
     "warnings": [
+      "HALF_WEIGHT_CONCENTRATION",
       "REAR_GAP",
       "SECURING_FORCE",
       "TIPPING_RISK",
@@ -85,6 +87,7 @@ exports[`legacy versus A: identical cargo differential contract > exact-width 1`
     "remaining": 0,
     "valid": false,
     "warnings": [
+      "HALF_WEIGHT_CONCENTRATION",
       "REAR_GAP",
       "SECURING_FORCE",
     ],
@@ -146,6 +149,7 @@ exports[`legacy versus A: identical cargo differential contract > line-load 1`] 
     "remaining": 0,
     "valid": false,
     "warnings": [
+      "HALF_WEIGHT_CONCENTRATION",
       "REAR_GAP",
       "SECURING_FORCE",
     ],
@@ -182,6 +186,7 @@ exports[`legacy versus A: identical cargo differential contract > missing-truck-
     "remaining": 0,
     "valid": false,
     "warnings": [
+      "HALF_WEIGHT_CONCENTRATION",
       "REAR_GAP",
       "SECURING_FORCE",
     ],
@@ -216,6 +221,7 @@ exports[`legacy versus A: identical cargo differential contract > ordinary 1`] =
     "remaining": 0,
     "valid": false,
     "warnings": [
+      "HALF_WEIGHT_CONCENTRATION",
       "REAR_GAP",
       "SECURING_FORCE",
     ],
@@ -348,6 +354,7 @@ exports[`legacy versus A: identical cargo differential contract > payload 1`] = 
     "remaining": 2,
     "valid": false,
     "warnings": [
+      "HALF_WEIGHT_CONCENTRATION",
       "REAR_GAP",
       "SECURING_FORCE",
     ],
@@ -411,6 +418,7 @@ exports[`legacy versus A: identical cargo differential contract > segregation 1`
     "remaining": 0,
     "valid": false,
     "warnings": [
+      "HALF_WEIGHT_CONCENTRATION",
       "REAR_GAP",
       "SECURING_FORCE",
     ],
@@ -510,6 +518,7 @@ exports[`legacy versus A: identical cargo differential contract > temperature 1`
     "remaining": 0,
     "valid": false,
     "warnings": [
+      "HALF_WEIGHT_CONCENTRATION",
       "REAR_GAP",
       "SECURING_FORCE",
     ],
@@ -566,6 +575,7 @@ exports[`legacy versus A: identical cargo differential contract > validation/off
     ],
     "valid": false,
     "warnings": [
+      "HALF_WEIGHT_CONCENTRATION",
       "REAR_GAP",
       "SECURING_FORCE",
     ],
@@ -626,6 +636,7 @@ exports[`legacy versus A: identical cargo differential contract > validation/sup
     ],
     "valid": false,
     "warnings": [
+      "HALF_WEIGHT_CONCENTRATION",
       "REAR_GAP",
       "SECURING_FORCE",
     ],
