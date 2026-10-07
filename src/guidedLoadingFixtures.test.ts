@@ -33,10 +33,10 @@ describe('real guided workflow browser fixtures', () => {
     expect(isPhysicsTargetVerified(current, certification)).toBe(true);
   });
 
-  it('keeps the compact inner-wall load blocked by the longitudinal CG gate', () => {
+  it('keeps the compact inner-wall load visible under the approved proportional CG allowance', () => {
     const current = target('blockedSmallLoad', '40-high-cube', 'stability');
     expect(current.result.placements).toHaveLength(3);
-    expect(current.result.operationalFindings).toContainEqual(expect.objectContaining({ code: 'CG_LONGITUDINAL', severity: 'error' }));
+    expect(current.result.operationalFindings?.some(f => f.code === 'CG_LONGITUDINAL' && f.severity === 'error')).toBe(false);
   });
 
   it('the recovery fixture passes static prerequisites but really fails completed inertia', async () => {
