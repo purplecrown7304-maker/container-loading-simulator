@@ -76,6 +76,23 @@ describe('group placement', () => {
     expect(source.placements[2]).toMatchObject({x:1,z:0});
   });
 
+  it('allows a group move that improves an existing CG error and rejects a worse one', () => {
+    const spec: ContainerSpec = { length:6,width:2.4,height:2.6,maxPayloadKg:400 };
+    const items: CargoItem[] = [{ id:'CG',name:'CG',length:1,width:1,height:1,weightKg:100,quantity:2,maxStackLayers:1,maxTopLoadKg:0 }];
+    const current: LoadingResult = {
+      placements:[
+        {cargoId:'CG',x:1,y:0,z:0,length:1,width:1,height:1,weightKg:100},
+        {cargoId:'CG',x:1,y:1,z:0,length:1,width:1,height:1,weightKg:100},
+      ],
+      remaining:[],loadedWeightKg:200,usedVolumeM3:2,validationIssues:[],
+    };
+    const improved=assessGroupMove(spec,items,current,[0,1],{x:.5,y:0,z:0});
+    expect(improved.valid).toBe(true);
+    const worsened=assessGroupMove(spec,items,current,[0,1],{x:-.5,y:0,z:0});
+    expect(worsened.valid).toBe(false);
+    expect(worsened.reasons.join(' ')).toContain('기존 운영 오류가 악화');
+  });
+
   it('preserves level 3 securing weight and reserve for a no-op group edit', () => {
     const current = baseResult();
     current.placements = [
