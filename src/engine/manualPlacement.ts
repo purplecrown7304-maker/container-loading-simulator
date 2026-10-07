@@ -94,7 +94,7 @@ export function assessManualMove(
   } else {
     reasons.push(...reviewPlacementBlockers(container, cargo, placements, result.securingBudget?.totalTransportWeightKg));
     reasons.push(...manualEditRegressionReasons(sourceEvidence, result)
-      .filter(reason => reason.includes('운영 오류')));
+      .filter(reason => reason.includes('기존 운영 오류')));
   }
   const beforeQuality = assessWeightBalance(container,source);
   const afterQuality = assessWeightBalance(container,result);
