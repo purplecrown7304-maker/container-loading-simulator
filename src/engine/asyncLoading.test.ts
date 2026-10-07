@@ -77,6 +77,68 @@ describe('asynchronous loading lifecycle', () => {
     expect(asyncResult).toEqual(syncResult);
   });
 
+  it.each([
+    {
+      name: 'airbag plus door bar',
+      container: { length:4,width:2.35,height:2,maxPayloadKg:2000,floorLoadLimitKgPerM2:1500 },
+      cargo: [{ id:'AIR',name:'AIR',length:.6,width:2.05,height:.8,weightKg:120,quantity:1,maxStackLayers:1,maxTopLoadKg:0,allowRotation:false }],
+      assertPlan: (result:any) => {
+        expect(result.voidFillPlan?.fills.some((fill:any)=>fill.material==='dunnage-airbag')).toBe(true);
+        expect(result.voidFillPlan?.fills.some((fill:any)=>fill.kind==='door-face'&&fill.material==='load-bar')).toBe(true);
+      },
+    },
+    {
+      name: 'honeycomb plus door bar',
+      container: { length:4,width:2.35,height:2,maxPayloadKg:2000,floorLoadLimitKgPerM2:1500 },
+      cargo: [{ id:'HONEY',name:'HONEY',length:.6,width:2.25,height:.8,weightKg:120,quantity:1,maxStackLayers:1,maxTopLoadKg:0,allowRotation:false }],
+      assertPlan: (result:any) => {
+        expect(result.voidFillPlan?.fills.some((fill:any)=>fill.material==='paper-honeycomb')).toBe(true);
+        expect(result.voidFillPlan?.fills.some((fill:any)=>fill.kind==='door-face'&&fill.material==='load-bar')).toBe(true);
+      },
+    },
+    {
+      name: 'unresolved side gap',
+      container: { length:4,width:2.35,height:2,maxPayloadKg:2000,floorLoadLimitKgPerM2:1500 },
+      cargo: [{ id:'UNRESOLVED',name:'UNRESOLVED',length:.6,width:2.05,height:.8,weightKg:120,quantity:1,maxStackLayers:1,maxTopLoadKg:0,allowRotation:false }],
+      override: { voidAirBagMaxGapM:.12, voidHoneycombMaxGapM:.08 },
+      assertPlan: (result:any) => {
+        expect(result.voidFillPlan?.fills.some((fill:any)=>fill.kind==='side-gap'&&fill.material==='unresolved'&&!fill.fixedSupportEligible)).toBe(true);
+      },
+    },
+  ])('matches worker and sync void-fill materialization for $name', async ({ container: spec, cargo: items, override, assertPlan }) => {
+    const baseMaterials = {
+      bandingKgPerM:.03, cornerGuardKgPerM:.13, wrappingKgPerM:.02,
+      antiSlipKgPerEa:.4, dunnageKgPerEa:.8, loadBarKgPerEa:4.8,
+      voidAirBagKgPerEa:.7, voidAirBagFaceAreaM2:1.08, voidAirBagMinGapM:.1, voidAirBagMaxGapM:.45,
+      voidHoneycombKgPerM3:46, voidHoneycombModuleVolumeM3:.01, voidHoneycombMinGapM:.012, voidHoneycombMaxGapM:.1,
+      voidDoorBarKgPerEa:5.6, voidDoorBarMinSpanM:2.261, voidDoorBarMaxSpanM:2.642, voidDoorBarCoverageHeightM:1.2,
+    };
+    const materials = { ...baseMaterials, ...(override ?? {}) };
+    let posted:any;
+    vi.stubGlobal('Worker', class {
+      onmessage?: (event:MessageEvent<any>)=>void;
+      onerror?: ()=>void;
+      terminate=vi.fn();
+      postMessage(message:any){
+        posted=structuredClone(message);
+        queueMicrotask(()=>{
+          try{
+            const req=structuredClone(message);
+            const result=loadContainer(req.container,req.cargo,{strategy:req.strategy,publish:false,...req.securingOptions});
+            this.onmessage?.({data:{result:structuredClone(result)}} as MessageEvent<any>);
+          }catch{this.onerror?.();}
+        });
+      }
+    });
+    const workerResult=await loadContainerAsync(spec,items,'capacity',undefined,{securingMaterials:materials});
+    const syncResult=loadContainer(spec,items,{strategy:'capacity',publish:false,securingMaterials:materials});
+    expect(posted.securingOptions.securingMaterials).toEqual(materials);
+    expect(workerResult.voidFillPlan).toEqual(syncResult.voidFillPlan);
+    expect(workerResult.securingBudget).toEqual(syncResult.securingBudget);
+    expect(workerResult.operationalFindings).toEqual(syncResult.operationalFindings);
+    assertPlan(workerResult);
+  });
+
   it('terminates a cancelled worker instead of accepting a stale layout', async () => {
     let worker: { terminate: ReturnType<typeof vi.fn> };
     vi.stubGlobal('Worker', class {
