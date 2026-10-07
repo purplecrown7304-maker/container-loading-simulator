@@ -27,7 +27,6 @@ import { openLoadingReport } from './report';
 import { openResultsModal } from './resultsModalEvents';
 import { normalizeCargo, readStoredState, STORAGE_KEY, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
 import WorkspaceTools from './WorkspaceTools';
-import CgPlanChoice from './CgPlanChoice';
 import VoidFillSummary from './VoidFillSummary';
 import './loading-plan-choice.css';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
@@ -564,7 +563,6 @@ export default function App() {
           </div>
           {isPreview && <div className="workflow-preview-status" role="status" data-preview-kind={workflowPreview?.kind ?? 'cargo'}>{floorPreview.requested === 0 ? '적재공간을 확인하고 제품을 선택하세요' : `미리보기 · ${floorPreview.shown.toLocaleString()} / ${floorPreview.requested.toLocaleString()}개 표시 · 실제 크기의 바닥 배치이며 최종 적재·안전 검증 전입니다`}</div>}
           {mode === 'boxes' && !isPreview && <>
-            <CgPlanChoice container={container} cargo={cargo} result={result} />
             <VoidFillSummary result={result} compact />
           </>}
           <div className={`viewer-bottom-actions ${mode !== 'boxes' ? 'pallet-summary-active' : ''}`}>
