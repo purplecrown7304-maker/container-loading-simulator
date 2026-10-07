@@ -8,12 +8,8 @@ const hasCgError = (result: LoadingResult) => (result.operationalFindings ?? [])
  * that passes, removing cartons from the heavy end. The removed quantity is reported as
  * CG_LIMIT instead of being hidden behind a space reason.
  */
-export function cgCompliantAlternativeForResult(
-  container: ContainerSpec,
-  cargo: CargoItem[],
-  full: LoadingResult,
-  options: LoadingOptions = {},
-) {
+export function cgCompliantAlternative(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}) {
+  const full = loadContainer(container, cargo, { ...options, publish: false });
   if (!hasCgError(full) || !full.placements.length) return null;
   const weight = full.placements.reduce((s, p) => s + p.weightKg, 0);
   const cg = full.placements.reduce((s, p) => s + (p.x + p.length / 2) * p.weightKg, 0) / weight;
@@ -41,9 +37,3 @@ export function cgCompliantAlternativeForResult(
   return { result: { ...best.result, remaining: [...best.result.remaining, ...removed] }, removed };
 }
 
-
-
-export function cgCompliantAlternative(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}) {
-  const full = loadContainer(container, cargo, { ...options, publish: false });
-  return cgCompliantAlternativeForResult(container, cargo, full, options);
-}
