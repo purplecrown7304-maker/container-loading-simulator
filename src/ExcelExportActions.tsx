@@ -15,6 +15,7 @@ import { buildPalletSecuringPlan } from './palletSecuringPlan';
 import { palletBandingLabel } from './palletBanding';
 import { readPhysicsTarget } from './physicsTarget';
 import { defaultSecuringMaterialSettings } from './securingMaterialSettings';
+import { VOID_FILL_DISCLAIMER, voidFillRows, voidFillTotal } from './voidFillPresentation';
 
 type Detail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type PalletSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult };
@@ -127,6 +128,8 @@ function exportBoxWorkbook(detail: Detail, certification: InertiaCertification) 
   const physicsVerified = isPhysicsTargetVerified(target, certification);
   const approvalLabel = workOrderTargetApprovalLabel(target, certification);
   const securing = certification.securing;
+  const voidRows = voidFillRows(result);
+  const voidTotal = voidFillTotal(result);
 
   const summary = [
     ['항목', '값'], ['적재모드', '박스 직접 적재'],
@@ -140,6 +143,7 @@ function exportBoxWorkbook(detail: Detail, certification: InertiaCertification) 
     ['최종 관성검증', `${approvalLabel} · 전체 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)}mm · 기울기 ${certification.maxTiltDeg.toFixed(1)}°`],
     ['내부 최대 화물 구속력(kN)', Number(((certification.maxCargoRestraintForceN ?? 0) / 1000).toFixed(3))],
     ['보강 단계', securing.levelLabel], ['박스 제외 보조자재 중량(kg)', Number(securing.estimatedNonCargoWeightKg.toFixed(2))],
+    ['메움재 수량(EA)', voidTotal.quantity], ['메움재 중량(kg)', Number(voidTotal.weightKg.toFixed(2))], ['메움재 미확정 위치', voidTotal.unresolvedCount],
   ];
   const cargoRows = cargo.map(item => ({ 코드: item.id, 품명: item.name, 요청수량: item.quantity, 적재수량: loadedByCargo.get(item.id) ?? 0, 잔량: Math.max(0, item.quantity - (loadedByCargo.get(item.id) ?? 0)), 길이_m: item.length, 폭_m: item.width, 높이_m: item.height, 개당중량_kg: item.weightKg, 최대적층단: item.maxStackLayers ?? '', 상부허용중량_kg: item.maxTopLoadKg ?? '', 회전허용: item.allowRotation !== false ? 'Y' : 'N', 하역순서: item.unloadPriority ?? '' }));
   const placementRows = result.placements.map((p, index) => ({ No: index + 1, 코드: p.cargoId, X_m: p.x, Y_m: p.y, Z_m: p.z, 길이_m: p.length, 폭_m: p.width, 높이_m: p.height, 중량_kg: p.weightKg, 회전: p.rotated ? '90도' : '기본' }));
@@ -156,6 +160,23 @@ function exportBoxWorkbook(detail: Detail, certification: InertiaCertification) 
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(floorRows), '바닥하중');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(checkRows), '제약조건');
   appendMaterialSheet(wb, securing);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(voidRows.length ? voidRows.map(row => ({
+    ID: row.id,
+    틈유형: row.gapType,
+    자재: row.material,
+    수량_EA: row.quantity,
+    중량_kg: row.weightKg,
+    틈_m: row.gapM,
+    빈공간_m3: row.voidVolumeM3,
+    X_m: row.xM,
+    Y_m: row.yM,
+    Z_m: row.zM,
+    길이_m: row.lengthM,
+    폭_m: row.widthM,
+    높이_m: row.heightM,
+    관성고정지지: row.fixedSupportEligible,
+    비고: VOID_FILL_DISCLAIMER,
+  })) : [{ ID: '메움재 없음', 틈유형: '', 자재: '', 수량_EA: 0, 중량_kg: 0, 비고: VOID_FILL_DISCLAIMER }]), '메움재상세');
   appendInertiaMetricsSheet(wb, certification, target);
   appendInertiaHistorySheet(wb, certification, isLimitReviewTarget(target));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(remainingRows), '미적재');
