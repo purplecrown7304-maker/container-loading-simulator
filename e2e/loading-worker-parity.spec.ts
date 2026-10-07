@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 const storedState = {
   container: {
@@ -44,7 +44,7 @@ const securingSettings = {
   voidDoorBarCoverageHeightM: 1.20,
 };
 
-async function installInput(page: Parameters<typeof test>[0] extends never ? never : any, disableWorker: boolean) {
+async function installInput(page: Page, disableWorker: boolean) {
   await page.addInitScript(({ state, materials, disable }) => {
     localStorage.clear();
     localStorage.setItem('container-loading-simulator-v1', JSON.stringify(state));
@@ -85,7 +85,7 @@ async function installInput(page: Parameters<typeof test>[0] extends never ? nev
   }, { state: storedState, materials: securingSettings, disable: disableWorker });
 }
 
-async function runLoading(page: Parameters<typeof test>[0] extends never ? never : any) {
+async function runLoading(page: Page) {
   await page.goto('/');
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.cargo?.[0]?.id)).toBe('WORKER-PARITY');
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:app-action', { detail: { action: 'run-loading' } })));
@@ -100,7 +100,7 @@ async function runLoading(page: Parameters<typeof test>[0] extends never ? never
   return page.evaluate(() => structuredClone((window as any).__containerLoadingLatestResult.result));
 }
 
-test('real loading.worker matches the synchronous loadContainer fallback bit-for-bit', async ({ browser, baseURL }, testInfo) => {
+test('real loading.worker matches the synchronous loadContainer fallback bit-for-bit', async ({ browser }, testInfo) => {
   test.skip(testInfo.project.name === 'chromium-mobile', 'Desktop service verification only.');
   test.setTimeout(180_000);
 
