@@ -1,20 +1,10 @@
 import { Html } from '@react-three/drei';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import type { ContainerSpec } from './engine/types';
 import type { WeightDistributionAnalysis } from './engine/weightDistribution';
 
-const BLUE = new THREE.Color('#2563eb');
-const GREEN = new THREE.Color('#22c55e');
-const YELLOW = new THREE.Color('#f59e0b');
-const RED = new THREE.Color('#ef4444');
-
-function weightColor(ratio: number) {
-  const t = Math.max(0, Math.min(1, ratio));
-  if (t <= 0.34) return BLUE.clone().lerp(GREEN, t / 0.34);
-  if (t <= 0.67) return GREEN.clone().lerp(YELLOW, (t - 0.34) / 0.33);
-  return YELLOW.clone().lerp(RED, (t - 0.67) / 0.33);
-}
+import { buildWeightSurfaceGeometry, weightSurfaceCellIndex } from './weightSurfaceGeometry';
 
 export default function WeightDistribution3D({
   container,
@@ -28,60 +18,35 @@ export default function WeightDistribution3D({
   showCenterOfGravity: boolean;
 }) {
   const [hoveredCellIndex, setHoveredCellIndex] = useState<number | null>(null);
-  const maxLoadKg = Math.max(0, ...analysis.floor.cells.map(cell => cell.loadKg));
-  const maxGraphHeight = Math.max(0.22, container.height * scale * 0.72);
+  const maxGraphHeight = container.height * scale * 0.72;
   const cog = analysis.centerOfGravity;
   const hovered = hoveredCellIndex === null ? null : analysis.floor.cells[hoveredCellIndex] ?? null;
 
-  const barData = useMemo(() => analysis.floor.cells.map((cell, index) => {
-    if (cell.loadKg <= 0 || maxLoadKg <= 0) return null;
-    const intensity = Math.max(0.025, cell.loadKg / maxLoadKg);
-    const height = Math.max(0.035, intensity * maxGraphHeight);
-    return {
-      cell,
-      index,
-      intensity,
-      height,
-      color: weightColor(intensity),
-      position: [
-        (cell.x + cell.length / 2) * scale - container.length * scale / 2,
-        0.035 + height / 2,
-        (cell.y + cell.width / 2) * scale - container.width * scale / 2,
-      ] as [number, number, number],
-    };
-  }).filter(Boolean), [analysis.floor.cells, container.length, container.width, maxGraphHeight, maxLoadKg, scale]);
+  const geometry = useMemo(() => {
+    const surface = buildWeightSurfaceGeometry(analysis.floor.cells, analysis.floor.columns, analysis.floor.rows, container, container.height * .72);
+    const result = new THREE.BufferGeometry();
+    result.setAttribute('position', new THREE.BufferAttribute(surface.positions, 3));
+    result.setAttribute('color', new THREE.BufferAttribute(surface.colors, 3));
+    result.setIndex(new THREE.BufferAttribute(surface.indices, 1));
+    result.computeVertexNormals();
+    return result;
+  }, [analysis.floor, container]);
+  useEffect(() => () => { geometry.dispose(); document.body.style.cursor = ''; }, [geometry]);
 
   return <group>
-    {barData.map(data => data && <mesh
-      key={`weight-cell-${data.index}`}
-      position={data.position}
-      renderOrder={30}
-      onPointerOver={(event) => {
+    <mesh geometry={geometry} scale={scale} renderOrder={30}
+      onPointerMove={event => {
         event.stopPropagation();
-        setHoveredCellIndex(data.index);
+        const point = event.object.worldToLocal(event.point.clone());
+        setHoveredCellIndex(weightSurfaceCellIndex(analysis.floor.cells, container, point.x, point.z));
         document.body.style.cursor = 'help';
       }}
-      onPointerOut={() => {
-        setHoveredCellIndex(current => current === data.index ? null : current);
-        document.body.style.cursor = '';
-      }}
+      onPointerOut={() => { setHoveredCellIndex(null); document.body.style.cursor = ''; }}
     >
-      <boxGeometry args={[
-        data.cell.length * scale * 0.88,
-        data.height,
-        data.cell.width * scale * 0.82,
-      ]} />
-      <meshStandardMaterial
-        color={data.color}
-        transparent
-        opacity={0.68}
-        roughness={0.42}
-        metalness={0.02}
-        depthWrite={false}
-        emissive={data.color}
-        emissiveIntensity={data.intensity > 0.82 ? 0.14 : 0.03}
-      />
-    </mesh>)}
+      <meshStandardMaterial vertexColors side={THREE.DoubleSide} transparent opacity={0.68}
+        roughness={0.42} metalness={0.02} depthWrite={false}
+        polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} />
+    </mesh>
 
     {hovered && <Html
       center
