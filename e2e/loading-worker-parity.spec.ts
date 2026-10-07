@@ -157,8 +157,8 @@ test.only('custom securing profiles materialize identical worker and sync void-f
     {
       name: 'airbag-doorbar',
       state: {
-        container: { length:4,width:2.35,height:2,maxPayloadKg:2000,floorLoadLimitKgPerM2:1500 },
-        cargo: [{ id:'AIR',name:'AIR',length:.6,width:2.05,height:.8,weightKg:120,quantity:1,maxStackLayers:1,maxTopLoadKg:0,allowRotation:false }],
+        container: { length:12.03,width:2.35,height:2.69,maxPayloadKg:26500,floorLoadLimitKgPerM2:1500 },
+        cargo: [{ id:'AIR',name:'AIR',length:.6,width:.41,height:.2,weightKg:20,quantity:5,maxStackLayers:1,maxTopLoadKg:0,allowRotation:false }],
       },
       materials: securingSettings,
       check: (result:any) => {
@@ -169,8 +169,8 @@ test.only('custom securing profiles materialize identical worker and sync void-f
     {
       name: 'honeycomb-doorbar',
       state: {
-        container: { length:4,width:2.35,height:2,maxPayloadKg:2000,floorLoadLimitKgPerM2:1500 },
-        cargo: [{ id:'HONEY',name:'HONEY',length:.6,width:2.25,height:.8,weightKg:120,quantity:1,maxStackLayers:1,maxTopLoadKg:0,allowRotation:false }],
+        container: { length:12.03,width:2.35,height:2.69,maxPayloadKg:26500,floorLoadLimitKgPerM2:1500 },
+        cargo: [{ id:'HONEY',name:'HONEY',length:.6,width:.45,height:.2,weightKg:20,quantity:5,maxStackLayers:1,maxTopLoadKg:0,allowRotation:false }],
       },
       materials: securingSettings,
       check: (result:any) => {
@@ -181,8 +181,8 @@ test.only('custom securing profiles materialize identical worker and sync void-f
     {
       name: 'unresolved-range',
       state: {
-        container: { length:4,width:2.35,height:2,maxPayloadKg:2000,floorLoadLimitKgPerM2:1500 },
-        cargo: [{ id:'UNRESOLVED',name:'UNRESOLVED',length:.6,width:2.05,height:.8,weightKg:120,quantity:1,maxStackLayers:1,maxTopLoadKg:0,allowRotation:false }],
+        container: { length:12.03,width:2.35,height:2.69,maxPayloadKg:26500,floorLoadLimitKgPerM2:1500 },
+        cargo: [{ id:'UNRESOLVED',name:'UNRESOLVED',length:.6,width:.41,height:.2,weightKg:20,quantity:5,maxStackLayers:1,maxTopLoadKg:0,allowRotation:false }],
       },
       materials: { ...securingSettings, voidAirBagMaxGapM:.12, voidHoneycombMaxGapM:.08 },
       check: (result:any) => {
