@@ -13,6 +13,8 @@ const CG_HEIGHT_RATIO = 0.5;
 const GAP_WARNING_M = 0.15;
 const DEFAULT_FRICTION = 0.45;
 const ACCEL = { forward: 0.8, rearward: 0.5, sideways: 0.5 };
+/** LOADING_RULES R-7 default. `ContainerSpec.halfWeightWarningRatio` overrides it. */
+export const DEFAULT_HALF_WEIGHT_WARNING_RATIO = 0.6;
 
 export type OperationalSupport = {
   id: string;
@@ -491,6 +493,72 @@ function checkAfterStops(bodies: Body[], initialSupporters: SupportLink[][]) {
   return out;
 }
 
+/**
+ * LOADING_RULES R-7. Warning only: one half of the length or width carries more than the
+ * configured share of the cargo weight. Uses the same vertical projection split as the
+ * weight-distribution panel, so the panel and every export disclose the same condition.
+ */
+function checkHalfWeight(container: ContainerSpec, bodies: Body[]) {
+  const out: OperationalRuleFinding[] = [];
+  const configured = container.halfWeightWarningRatio;
+  const limit = configured !== undefined && Number.isFinite(configured) && configured >= 0.5 && configured < 1
+    ? configured : DEFAULT_HALF_WEIGHT_WARNING_RATIO;
+  const cargoBodies = cargoOnly(bodies);
+  const weight = cargoBodies.reduce((sum, body) => sum + body.placement.weightKg, 0);
+  if (weight <= EPS) return out;
+  let inner = 0, left = 0;
+  for (const { placement: p } of cargoBodies) {
+    inner += p.weightKg * overlap1d(p.x, p.x + p.length, 0, container.length / 2) / Math.max(EPS, p.length);
+    left += p.weightKg * overlap1d(p.y, p.y + p.width, 0, container.width / 2) / Math.max(EPS, p.width);
+  }
+  const rows: Array<[number, string, string]> = [
+    [inner / weight, '안쪽', '문 쪽'],
+    [left / weight, '좌측', '우측'],
+  ];
+  for (const [first, firstLabel, secondLabel] of rows) {
+    const ratio = Math.max(first, 1 - first);
+    if (ratio <= limit + EPS) continue;
+    out.push(finding(
+      'HALF_WEIGHT_CONCENTRATION',
+      'warning',
+      `${first >= 0.5 ? firstLabel : secondLabel} 절반에 화물 중량의 ${(ratio * 100).toFixed(1)}%가 실려 기준 ${(limit * 100).toFixed(0)}%를 넘습니다. 중량 배분을 확인하세요.`,
+      [],
+      ratio,
+      limit,
+    ));
+  }
+  return out;
+}
+
+/**
+ * LOADING_RULES R-8. Warning only: a package rests directly on a lighter package of another
+ * cargo type. Compression limits stay with STACK_LIMIT/TOP_LOAD; this discloses the order.
+ * One finding per (upper, lower) cargo pair keeps large loads readable.
+ */
+function checkHeavyOnLight(bodies: Body[], supporters: SupportLink[][]) {
+  const pairs = new Map<string, { upper: Body; lower: Body; indexes: number[] }>();
+  bodies.forEach((body, index) => {
+    if (body.kind !== 'cargo') return;
+    for (const link of supporters[index]) {
+      const lower = bodies[link.bodyIndex];
+      if (lower.kind !== 'cargo' || lower.placement.cargoId === body.placement.cargoId) continue;
+      if (body.placement.weightKg <= lower.placement.weightKg + EPS) continue;
+      const key = `${body.placement.cargoId}\u0000${lower.placement.cargoId}`;
+      const row = pairs.get(key) ?? { upper: body, lower, indexes: [] };
+      row.indexes.push(index, link.bodyIndex);
+      pairs.set(key, row);
+    }
+  });
+  return [...pairs.values()].map(({ upper, lower, indexes }) => finding(
+    'HEAVY_ON_LIGHT',
+    'warning',
+    `${upper.placement.cargoId}(${upper.placement.weightKg.toFixed(1)}kg)가 더 가벼운 ${lower.placement.cargoId}(${lower.placement.weightKg.toFixed(1)}kg) 위에 놓였습니다. 무거운 화물을 아래에 두는지 확인하세요.`,
+    cargoIndexes(bodies, indexes),
+    upper.placement.weightKg,
+    lower.placement.weightKg,
+  ));
+}
+
 export type OperationalValidationOptions = { approvedDirectBox?: boolean };
 
 export function validateOperationalLoading(
@@ -521,6 +589,9 @@ export function validateOperationalLoading(
     ...checkAfterStops(bodies, supporters).map(issue => container.unloadingPolicy === 'soft'
       ? { ...issue, severity: 'warning' as const, message: `${issue.message} 완화 모드: 해당 하역 단계에서 재지지·재취급 확인이 필요합니다.` }
       : issue),
+    // Disclosure-only warnings stay last so existing finding order is unchanged.
+    ...checkHalfWeight(container, bodies),
+    ...checkHeavyOnLight(bodies, supporters),
   ];
 }
 
