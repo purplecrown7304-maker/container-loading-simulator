@@ -1,25 +1,9 @@
 import { readSecuringMaterialSettings, type SecuringMaterialSettings } from '../securingMaterialSettings';
-import type { ContainerSpec, Placement } from './types';
+import type { ContainerSpec, Placement, VoidFill, VoidFillKind, VoidFillMaterial, VoidFillPlan } from './types';
 
-export type GapFillKind = 'side-gap' | 'door-face' | 'height-step' | 'row-gap' | 'top-void';
-export type GapFillMaterial = 'dunnage-airbag' | 'paper-honeycomb' | 'load-bar' | 'unresolved';
-
-export type GapFill = {
-  id: string;
-  kind: GapFillKind;
-  material: GapFillMaterial;
-  quantity: number;
-  weightKg: number;
-  fixedSupportEligible: boolean;
-  gapM: number;
-  voidVolumeM3: number;
-  x: number;
-  y: number;
-  z: number;
-  length: number;
-  width: number;
-  height: number;
-};
+export type GapFillKind = VoidFillKind;
+export type GapFillMaterial = VoidFillMaterial;
+export type GapFill = VoidFill;
 
 const EPS = 1e-6;
 const MIN_GAP = 0.012;
@@ -67,7 +51,7 @@ export function gapSecuringPlan(
   container: ContainerSpec,
   placements: Placement[],
   settings: SecuringMaterialSettings = readSecuringMaterialSettings(),
-) {
+): VoidFillPlan {
   const fills: GapFill[] = [];
   const empty = { fills, sideGapM: 0, rearGapM: 0, volumeM3: 0, weightKg: 0, unresolvedCount: 0 };
   if (!placements.length) return empty;
