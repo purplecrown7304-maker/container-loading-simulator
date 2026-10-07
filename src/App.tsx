@@ -8,7 +8,7 @@ import { analyzeFloorLoad } from './engine/floorLoad';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import { containerInputError, preflightCargoInput } from './engine/inputPreflight';
 import { pendingLoadingResult, publishLoadingResult, restoreLoadingResult, type LoadingStrategy } from './engine/loadingEngine';
-import { readManualOverride } from './engine/manualOverride';
+import { readManualOverride, writeManualOverride } from './engine/manualOverride';
 import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
@@ -391,7 +391,11 @@ export default function App() {
       : openLoadingReport(container, cargo, result);
     if (!opened) announce('error', '팝업이 차단되어 작업지시서를 열지 못했습니다.');
   };
-  const saveLocal = () => { writeStoredState({ container, cargo }); announce('success', '현재 작업을 저장했습니다.'); };
+  const saveLocal = () => {
+    if (mode === 'boxes' && !isPreview) writeManualOverride(container, cargo, result);
+    writeStoredState({ container, cargo });
+    announce('success', mode === 'boxes' && !isPreview ? '현재 입력과 최종 적재 결과를 저장했습니다.' : '현재 작업 입력을 저장했습니다.');
+  };
   const loadLocal = () => {
     const state = readStoredState();
     if (!state) return announce('warning', '저장된 데이터가 없습니다.');
