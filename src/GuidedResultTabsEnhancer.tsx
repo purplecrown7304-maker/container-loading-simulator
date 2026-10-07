@@ -13,7 +13,6 @@ import { usePalletSnapshot } from './palletSnapshotStore';
 import { readStoredState, STORAGE_UPDATED_EVENT } from './storage';
 import { isPhysicsTargetVerified } from './inertiaWorkOrderPolicy';
 import { physicsTargetFromPalletSnapshot } from './certifiedExport';
-import CgPlanChoice from './CgPlanChoice';
 import VoidFillSummary from './VoidFillSummary';
 import './loading-plan-choice.css';
 
@@ -160,7 +159,6 @@ export default function GuidedResultTabsEnhancer() {
       </div>
 
       {tab === 'result' && <section className="guided-result-tab-panel">
-        {result && detail && loadingUnit !== 'pallets' && <CgPlanChoice container={detail.container} cargo={detail.cargo} result={result} />}
         {result && loadingUnit !== 'pallets' && <VoidFillSummary result={result} compact />}
         {result && detail ? <div className="guided-result-grid enhanced">
           <div><span>요청</span><b>{requested.toLocaleString()} EA</b></div>
