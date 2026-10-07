@@ -7,7 +7,7 @@ import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { readSecuringMaterialSettings, type SecuringMaterialSettings } from './securingMaterialSettings';
 import { palletBandingLengthM } from './palletBanding';
 import { boxSecuringRequirements } from './engine/securingBudget';
-import { gapSecuringPlan } from './engine/gapSecuring';
+import { fixedGapSupports, gapSecuringPlan } from './engine/gapSecuring';
 import { usesHeavyInnerLoading } from './engine/heavyInnerPolicy';
 
 export type InertiaScenario = Exclude<PhysicsScenario, 'settle'>;
@@ -374,6 +374,13 @@ export async function runInertiaCertification(
     }
 
     const profile = securingProfileForUsage(target.mode, securing);
+    const approvedDirectBox = target.mode === 'boxes' && usesHeavyInnerLoading(target.container, target.cargo);
+    const gapPlan = approvedDirectBox
+      ? gapSecuringPlan(target.container, target.result.placements, securing.materialUnitWeights)
+      : undefined;
+    const simulationSupports = gapPlan
+      ? [...(target.supports ?? []), ...fixedGapSupports(gapPlan)]
+      : (target.supports ?? []);
     const levelResults: Partial<Record<InertiaScenario, InertiaAnimationResult>> = {};
     let allPassed = true;
 
@@ -384,7 +391,7 @@ export async function runInertiaCertification(
         target.container,
         target.result.placements,
         scenario,
-        target.supports ?? [],
+        simulationSupports,
         value => onProgress?.({
           level,
           levelLabel: securing.levelLabel,
