@@ -13,7 +13,6 @@ import type { LoadingResult } from './engine/types';
 import { cargoColor } from './cargoColors';
 import { publishPalletSnapshot, type PalletSnapshot, usePalletSnapshot } from './palletSnapshotStore';
 import { OPEN_RESULTS_MODAL_EVENT, type ResultsModalDetail } from './resultsModalEvents';
-import CgPlanChoice from './CgPlanChoice';
 import VoidFillSummary from './VoidFillSummary';
 import './loading-plan-choice.css';
 
@@ -125,7 +124,6 @@ export default function ResultsOverlay() {
       </header>
 
       <LimitReviewBanner container={detail.container} cargo={detail.cargo} result={effectiveResult} />
-      {!palletSnapshot && <CgPlanChoice container={detail.container} cargo={detail.cargo} result={effectiveResult} onApplied={() => setOpen(false)} />}
       {!palletSnapshot && <VoidFillSummary result={effectiveResult} />}
       <article className="results-panel results-preview-info">
         <div className="results-panel-title"><b>미리보기 정보</b><span>{palletSnapshot ? '팔레트 모드' : '박스 모드'}</span></div>
