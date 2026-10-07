@@ -1,5 +1,4 @@
-import { preflightCargoInput } from './inputPreflight';
-import { decorateLimitReview, resolveLimitReview, reviewPlacementBlockers } from './limitReview';
+import { resolveLimitReview, reviewPlacementBlockers } from './limitReview';
 import { isARules, placementOrientation, rotateHorizontal, aConfig } from './loadingRuleset';
 import { aCandidateAllowed } from './loadSimAdapter';
 import { isInsideContainer, overlaps } from './constraints';
