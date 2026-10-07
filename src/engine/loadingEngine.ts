@@ -64,12 +64,19 @@ function revalidateRestoredResult(container: ContainerSpec, cargo: CargoItem[], 
   const loadedWeightKg = saved.placements.reduce((sum, p) => sum + p.weightKg, 0);
   const level = saved.securingBudget?.level ?? 1;
   const materials = readSecuringMaterialSettings();
-  const required = boxSecuringRequirements(saved.placements.length, level, materials).weightKg;
+  const approvedDirectBox = usesHeavyInnerLoading(container, preflightCargoInput(cargo).cargo);
+  const countWeightKg = boxSecuringRequirements(saved.placements.length, level, materials).weightKg;
+  const voidFillPlan = approvedDirectBox ? gapSecuringPlan(container, saved.placements, materials) : undefined;
+  const required = Math.max(countWeightKg, voidFillPlan?.weightKg ?? 0);
+  const operationalFindings = [ ...validateOperationalLoading(container, cargo, saved.placements, [], { approvedDirectBox }),
+      ...heavyInnerConflictFindings(container, cargo, saved.placements, browserStrategy()) ];
+  if (voidFillPlan?.fills.length) operationalFindings.push({ code: 'VOID_FILL_REQUIRED', severity: 'warning' as const, placementIndexes: [], value: voidFillPlan.volumeM3,
+    message: `빈 공간 ${voidFillPlan.fills.length}곳(${voidFillPlan.volumeM3.toFixed(2)}m³)에 메움·버팀 계획이 필요합니다. 자재 ${voidFillPlan.weightKg.toFixed(2)}kg, 적용범위 밖 ${voidFillPlan.unresolvedCount}곳. 앱 기본값이며 현장 자재로 확인 필요합니다.` });
   const result: LoadingResult = { ...saved, loadedWeightKg,
     usedVolumeM3: saved.placements.reduce((sum,p)=>sum+p.length*p.width*p.height,0),
     validationIssues: auditLoading(container, container.limitReview === undefined ? cargo : preflightCargoInput(cargo).cargo, saved.placements),
-    operationalFindings: [ ...validateOperationalLoading(container, cargo, saved.placements, [], { approvedDirectBox: usesHeavyInnerLoading(container, preflightCargoInput(cargo).cargo) }),
-      ...heavyInnerConflictFindings(container, cargo, saved.placements, browserStrategy()) ],
+    operationalFindings,
+    voidFillPlan,
     securingBudget: { level, reservedWeightKg: required,
       requiredWeightKg: required, totalTransportWeightKg: loadedWeightKg + required },
   };
@@ -330,6 +337,7 @@ function loadStrictContainer(container: ContainerSpec, cargo: CargoItem[], optio
     // Securing follows actual voids. The count-based reservation remains a lower bound.
     const actualSecuring = requiredSecuring(result.placements);
     const voidPlan = actualSecuring.voidPlan;
+    result.voidFillPlan = voidPlan;
     if (voidPlan?.fills.length) result.operationalFindings!.push({ code: 'VOID_FILL_REQUIRED', severity: 'warning', placementIndexes: [], value: voidPlan.volumeM3,
       message: `빈 공간 ${voidPlan.fills.length}곳(${voidPlan.volumeM3.toFixed(2)}m³)에 메움·버팀 계획이 필요합니다. 자재 ${voidPlan.weightKg.toFixed(2)}kg, 적용범위 밖 ${voidPlan.unresolvedCount}곳. 앱 기본값이며 현장 자재로 확인 필요합니다.` });
     const required = actualSecuring.weightKg;
