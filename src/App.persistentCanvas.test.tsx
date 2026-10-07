@@ -24,6 +24,7 @@ const cargo = [{ id: 'A', name: 'A', length: .5, width: .4, height: .3, weightKg
 vi.mock('./WorkspaceTools', () => ({ default: () => null }));
 vi.mock('./PalletFooterSummary', () => ({ default: () => null }));
 vi.mock('./PalletModePanel', () => ({ default: () => null }));
+vi.mock('./CgPlanChoice', () => ({ default: () => <section>길이 방향 무게중심 선택 필요 · 전체 적재안 · CG 충족안</section> }));
 vi.mock('./memberAuth', async importOriginal => ({ ...await importOriginal<typeof import('./memberAuth')>(), restoreMemberSession: async () => null, readSupabaseMember: () => null }));
 vi.mock('./LoadingViewer', () => ({ default: (props: LoadingViewerProps) => {
   captured.props = props;
