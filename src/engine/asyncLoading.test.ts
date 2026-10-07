@@ -40,6 +40,43 @@ describe('asynchronous loading lifecycle', () => {
     expect(restoreLoadingResult(container,changedCargo,final).placements).toEqual([]);
   });
 
+  it('matches the synchronous solver through the worker message contract including custom securing materials', async () => {
+    const materials = {
+      bandingKgPerM:.03, cornerGuardKgPerM:.13, wrappingKgPerM:.02,
+      antiSlipKgPerEa:.4, dunnageKgPerEa:.8, loadBarKgPerEa:4.8,
+      voidAirBagKgPerEa:.7, voidAirBagFaceAreaM2:1.08, voidAirBagMinGapM:.1, voidAirBagMaxGapM:.45,
+      voidHoneycombKgPerM3:46, voidHoneycombModuleVolumeM3:.01, voidHoneycombMinGapM:.012, voidHoneycombMaxGapM:.1,
+      voidDoorBarKgPerEa:5.6, voidDoorBarMinSpanM:2.261, voidDoorBarMaxSpanM:2.642, voidDoorBarCoverageHeightM:1.2,
+    };
+    let posted: any;
+    vi.stubGlobal('Worker', class {
+      onmessage?: (event: MessageEvent<any>) => void;
+      onerror?: () => void;
+      onmessageerror?: () => void;
+      terminate = vi.fn();
+      postMessage(message: any) {
+        posted = structuredClone(message);
+        queueMicrotask(() => {
+          try {
+            const request = structuredClone(message);
+            const result = loadContainer(request.container, request.cargo, {
+              strategy: request.strategy,
+              publish: false,
+              ...request.securingOptions,
+            });
+            this.onmessage?.({ data: { result: structuredClone(result) } } as MessageEvent<any>);
+          } catch {
+            this.onerror?.();
+          }
+        });
+      }
+    });
+    const asyncResult = await loadContainerAsync(container, cargo, 'capacity', undefined, { securingLevel: 2, securingMaterials: materials });
+    const syncResult = loadContainer(container, cargo, { strategy:'capacity', publish:false, securingLevel:2, securingMaterials:materials });
+    expect(posted.securingOptions).toEqual({ securingLevel:2, securingMaterials:materials });
+    expect(asyncResult).toEqual(syncResult);
+  });
+
   it('terminates a cancelled worker instead of accepting a stale layout', async () => {
     let worker: { terminate: ReturnType<typeof vi.fn> };
     vi.stubGlobal('Worker', class {
