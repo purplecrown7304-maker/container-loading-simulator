@@ -118,6 +118,15 @@ export function recomputeManualEditResult(
     ...validateOperationalLoading(container, cargo, placements, [], { approvedDirectBox }),
     ...heavyInnerConflictFindings(container, cargo, placements, conflictStrategy),
   ];
+  if (voidFillPlan?.fills.length) {
+    operationalFindings.push({
+      code: 'VOID_FILL_REQUIRED',
+      severity: 'warning',
+      placementIndexes: [],
+      value: voidFillPlan.volumeM3,
+      message: `빈 공간 ${voidFillPlan.fills.length}곳(${voidFillPlan.volumeM3.toFixed(2)}m³)에 메움·버팀 계획이 필요합니다. 자재 ${voidFillPlan.weightKg.toFixed(2)}kg, 적용범위 밖 ${voidFillPlan.unresolvedCount}곳. 앱 기본값이며 현장 자재로 확인 필요합니다.`,
+    });
+  }
   const result: LoadingResult = decorateLimitReview(container, cargo, {
     ...source,
     placements,
