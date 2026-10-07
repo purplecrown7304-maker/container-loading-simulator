@@ -49,6 +49,8 @@ async function installInput(page: Page, disableWorker: boolean) {
     localStorage.clear();
     localStorage.setItem('container-loading-simulator-v1', JSON.stringify(state));
     localStorage.setItem('container-loading-securing-material-settings', JSON.stringify(materials));
+    localStorage.setItem('container-loading:guided-loading-strategy', 'capacity');
+    localStorage.setItem('container-loading:guided-loading-unit', 'boxes');
     if (disable) {
       Object.defineProperty(window, 'Worker', { configurable: true, writable: true, value: undefined });
       (window as any).__loadingWorkerDisabledForParity = true;
