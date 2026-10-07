@@ -93,7 +93,7 @@ describe('group placement', () => {
     expect(worsened.reasons.join(' ')).toContain('기존 운영 오류가 악화');
   });
 
-  it('preserves level 3 securing weight and reserve for a no-op group edit', () => {
+  it('preserves level 3 securing weight and reserve for a non-worsening no-op group edit', () => {
     const current = baseResult();
     current.placements = [
       {...current.placements[0],x:2,y:.3},
@@ -102,7 +102,7 @@ describe('group placement', () => {
     ];
     current.securingBudget = {level:3,reservedWeightKg:30,requiredWeightKg:14.2,totalTransportWeightKg:314.2};
     const assessment = assessGroupMove({...container,maxPayloadKg:310},cargo,current,[0,1,2],{x:0,y:0,z:0});
-    expect(assessment.valid).toBe(false);
+    expect(assessment.valid).toBe(true);
     expect(assessment.result.validationIssues.some(issue => issue.type === 'PAYLOAD')).toBe(true);
     expect(assessment.result.securingBudget).toMatchObject({level:3,reservedWeightKg:30});
     expect(assessment.result.securingBudget?.totalTransportWeightKg).toBeCloseTo(314.2);
