@@ -518,7 +518,9 @@ export function validateOperationalLoading(
       ? { ...issue, severity: 'warning' as const, message: `${issue.message} 완화 모드: 현장 재취급이 필요합니다.` } : issue),
     ...checkWeightAndCog(container, bodies, approvedDirectBox),
     ...checkSecuring(container, bodies, supporters, approvedDirectBox),
-    ...checkAfterStops(bodies, supporters),
+    ...checkAfterStops(bodies, supporters).map(issue => container.unloadingPolicy === 'soft'
+      ? { ...issue, severity: 'warning' as const, message: `${issue.message} 완화 모드: 해당 하역 단계에서 재지지·재취급 확인이 필요합니다.` }
+      : issue),
   ];
 }
 
