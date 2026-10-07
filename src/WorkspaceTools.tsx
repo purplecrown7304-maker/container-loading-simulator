@@ -58,7 +58,7 @@ function todayKey() { return new Date().toISOString().slice(0, 10); }
 
 function currentState(): StoredState | null {
   const latest = (window as LoadingWindow).__containerLoadingLatestResult;
-  return latest ? { container: latest.container, cargo: latest.cargo } : readStoredState();
+  return latest ? { container: latest.container, cargo: latest.cargo, result: latest.result } : readStoredState();
 }
 
 function viewTitle(view: Exclude<View, null>) {
