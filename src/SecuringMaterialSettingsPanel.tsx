@@ -23,6 +23,7 @@ const fields: Array<{ key: keyof SecuringMaterialSettings; label: string; unit: 
   { key: 'voidHoneycombModuleVolumeM3', label: '허니컴 계획 모듈', unit: 'm³/EA' },
   { key: 'voidHoneycombMinGapM', label: '허니컴 최소 틈', unit: 'm' },
   { key: 'voidHoneycombMaxGapM', label: '허니컴 최대 틈', unit: 'm' },
+  { key: 'voidDoorBarKgPerEa', label: '문쪽 로드바', unit: 'kg/EA' },
   { key: 'voidDoorBarMinSpanM', label: '문쪽 로드바 최소 폭', unit: 'm' },
   { key: 'voidDoorBarMaxSpanM', label: '문쪽 로드바 최대 폭', unit: 'm' },
   { key: 'voidDoorBarCoverageHeightM', label: '로드바 계획 높이 간격', unit: 'm' },
