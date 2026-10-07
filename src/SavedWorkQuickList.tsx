@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ContainerSpec } from './engine/types';
+import type { ContainerSpec, LoadingResult } from './engine/types';
+import { writeManualOverride } from './engine/manualOverride';
 import type { StoredState } from './storage';
 import { writeStoredState } from './storage';
 import { openWorkspace } from './uiEvents';
@@ -13,6 +14,7 @@ type SavedWork = {
   name: string;
   savedAt: string;
   state: StoredState;
+  result?: LoadingResult;
 };
 
 const knownEquipment = [
@@ -120,6 +122,7 @@ export default function SavedWorkQuickList() {
   const visible = works.slice(0, 12);
 
   const restore = (work: SavedWork) => {
+    if (work.result) writeManualOverride(work.state.container, work.state.cargo, work.result);
     writeStoredState(work.state, true);
     setMessage(`${work.name} 계획을 불러왔습니다.`);
   };
