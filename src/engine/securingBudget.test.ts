@@ -66,11 +66,12 @@ it('keeps rejected-edit coordinates for review but refreshes overweight evidence
 });
 
 it('does not charge securing weight for impossible or invalid requested cargo',()=>{
+  const baseline=loadContainer(container,[{...cargo[0],quantity:1}],{publish:false});
   for (const extra of [ {...cargo[0],id:'invalid',length:-1,weightKg:.01,quantity:10000},
     {...cargo[0],id:'oversize',length:400,width:200,height:200,weightKg:.01,quantity:10000} ]) {
     const result=loadContainer(container,[{...cargo[0],quantity:1},extra],{publish:false});
     expect(result.placements).toHaveLength(1);
-    expect(result.securingBudget!.requiredWeightKg).toBe(2.2);
+    expect(result.securingBudget!.requiredWeightKg).toBeCloseTo(baseline.securingBudget!.requiredWeightKg,10);
     expect(result.remaining.find(row=>row.cargoId===extra.id)?.reason).not.toMatch(/필수 고정재/);
   }
 });
