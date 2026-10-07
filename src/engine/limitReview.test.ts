@@ -119,14 +119,23 @@ describe('explicit numerical WHAT-IF REVIEW',()=>{
     expect(packOnPallets(spec,[box]).limitReview?.status).toBe('unsupported');
     expect(packMixedMode(spec,[box]).limitReview?.status).toBe('unsupported');
   });
-  it('does not lose the registered door when selected payload changes equipment matching',()=>{
+  it('keeps non-section-7 door errors visible with the WHAT-IF layout instead of suppressing it',()=>{
     const equipment:ContainerSpec={length:5.9,width:2.352,height:2.395,maxPayloadKg:28130};
     const items=[{...box,length:5.9,width:2.35,height:2.3,weightKg:100,quantity:1}];
     const result=run(review(equipment,{maxPayloadKg:50000}),items);
-    expect(result.placements).toEqual([]);
-    expect(result.remaining[0].reasonCode).toBe('LIMIT_REVIEW_BLOCKED');
-    expect(result.remaining[0].reason).toContain('도어');
-    expect(result.operationalFindings?.some(f=>f.code==='LIMIT_REVIEW_BLOCKED'&&f.severity==='error')).toBe(true);
+    expect(result.placements).toHaveLength(1);
+    expect(result.operationalFindings?.some(f=>f.code==='DOOR_NOT_PASSABLE'&&f.severity==='error')).toBe(true);
+    expect(result.operationalFindings?.some(f=>f.code==='LIMIT_REVIEW_BLOCKED')).toBe(false);
+    expect(reviewPlacementBlockers(review(equipment,{maxPayloadKg:50000}),items,result.placements,result.securingBudget?.totalTransportWeightKg)).toEqual([]);
+  });
+  it('still blocks a strict unload conflict in WHAT-IF review',()=>{
+    const stops=[{...box,id:'FIRST',quantity:1,unloadPriority:1},{...box,id:'LATER',quantity:1,unloadPriority:2}];
+    const spec=review({...container,length:4,width:1,unloadingPolicy:'strict'},{maxPayloadKg:2000});
+    const placements:Placement[]=[
+      {cargoId:'FIRST',x:0,y:0,z:0,length:1,width:1,height:.5,weightKg:60},
+      {cargoId:'LATER',x:2,y:0,z:0,length:1,width:1,height:.5,weightKg:60},
+    ];
+    expect(reviewPlacementBlockers(spec,stops,placements,130).some(message=>message.includes('하역'))).toBe(true);
   });
   it('round trips all metadata through JSON without Infinity or NaN',()=>{
     const result=run(review(container,{cargoLimits:{box:{maxTopLoadKg:1100}},simulation:{maxDisplacementMm:15,maxRotationDeg:2}}));
