@@ -10,6 +10,8 @@ const DEFAULT_RESTITUTION = 0.01;
 const START_ACCELERATION_G = 0.30;
 const BRAKING_G = 0.50;
 const CORNERING_G = 0.35;
+/** Read-only disclosure of the scenario accelerations used by this simulation (LOADING_RULES 10.2). */
+export const INERTIA_SCENARIO_ACCELERATION_G = Object.freeze({ acceleration: START_ACCELERATION_G, braking: BRAKING_G, cornering: CORNERING_G });
 const METRIC_SAMPLE_EVERY_STEPS = 2;
 const SIMULATION_HZ = 60;
 

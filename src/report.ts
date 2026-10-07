@@ -22,6 +22,8 @@ import { buildZoneOverview, buildZoneTable, buildReportLegend, buildZone3d, buil
 import { reportCargoCatalog } from './reportCargo';
 import { buildWorkOrderCargoSummary, loadedCargoCounts } from './workOrderCargoSummary';
 import { VOID_FILL_DISCLAIMER, voidFillRows, voidFillTotal } from './voidFillPresentation';
+import { buildFieldChecklistHtml } from './reportFieldChecklist';
+import { INERTIA_SCENARIO_ACCELERATION_G } from './engine/inertiaSimulation';
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -127,11 +129,15 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
         content: `${shipmentInstruction}${cargoIntake}<div class="section-title"><h3>필요 보조자재</h3><span>${escapeHtml(securing?.levelLabel ?? '보조 고정 미확인')}</span></div><section class="materials">${materialCards}</section>${buildSecuringLocationGuide(container, result.placements, securing)}${voidFillTable}`,
       },
       {
+        title: '현장 작업 체크리스트', description: '계산으로 확인할 수 없는 현장 항목입니다. 작업자가 직접 확인하고 표시하세요.',
+        content: buildFieldChecklistHtml(equipment.category),
+      },
+      {
         title: '출고 전 최종 확인', description: '아래 3개 작업을 확인한 뒤 담당자가 서명하세요.',
         content: `<ol class="recommendations">${recommendationItems}</ol><div class="final-check"><div>${openingCheck}</div><div>□ 흔들림/빈 공간 보강 확인</div><div>□ 출하지시 수량과 실물 수량 일치</div></div>${REPORT_SIGNOFF}<aside class="technical-note"><b>검증 판정: ${escapeHtml(approvalLabel)}</b><p>${recommendations.map(item => escapeHtml(item)).join('<br>')}</p><p>관성 판정은 시뮬레이터 내부 비교 결과이며 실제 운송 안전 인증을 의미하지 않습니다. ‘주의 · 검토용’은 내부 PASS 기준 일부 초과·위험 기준 이내인 결과이며 출고 승인을 의미하지 않습니다. 장비 기준: ${escapeHtml(equipment.sourceLabel)}.</p></aside>`,
       },
     ],
-    footer: `<span>장비: ${escapeHtml(equipment.shortName)}</span><span>물리검증: ${physicsVerified ? '완료 · PASS' : physicsComplete ? '검사 완료 · 미통과' : '미완료'}</span><span>관성 최종검증: ${escapeHtml(approvalLabel)}</span><span>보조재 추정중량: ${securing ? `${securing.estimatedAddedWeightKg.toFixed(1)} kg` : '0 kg'}</span>`,
+    footer: `<span>장비: ${escapeHtml(equipment.shortName)}</span><span>관성 검증 조건: 출발 ${INERTIA_SCENARIO_ACCELERATION_G.acceleration.toFixed(2)}g · 제동 ${INERTIA_SCENARIO_ACCELERATION_G.braking.toFixed(2)}g · 회전 ${INERTIA_SCENARIO_ACCELERATION_G.cornering.toFixed(2)}g (앱 내부 비교 기준)</span><span>물리검증: ${physicsVerified ? '완료 · PASS' : physicsComplete ? '검사 완료 · 미통과' : '미완료'}</span><span>관성 최종검증: ${escapeHtml(approvalLabel)}</span><span>보조재 추정중량: ${securing ? `${securing.estimatedAddedWeightKg.toFixed(1)} kg` : '0 kg'}</span>`,
   });
 }
 
