@@ -67,10 +67,21 @@ describe('manual placement', () => {
     expect(assessment.reasons.join(' ')).toContain('전체 바닥면');
   });
 
-  it('rejects an operational CG error as the final acceptance gate does', () => {
-    const assessment = assessManualMove(container,cargo,source,1,{x:2,y:0,z:0});
-    expect(assessment.valid).toBe(false);
-    expect(assessment.result.operationalFindings?.some(f => f.code === 'CG_LONGITUDINAL' && f.severity === 'error')).toBe(true);
+  it('allows an existing CG verdict to persist or improve, but rejects worsening it', () => {
+    const spec: ContainerSpec = { length:4,width:2,height:2,maxPayloadKg:100 };
+    const items: CargoItem[] = [{ id:'CG',name:'CG',length:1,width:1,height:.5,weightKg:80,quantity:1,maxStackLayers:1,maxTopLoadKg:0 }];
+    const current: LoadingResult = {
+      placements:[{cargoId:'CG',x:.5,y:.5,z:0,length:1,width:1,height:.5,weightKg:80}],
+      remaining:[],loadedWeightKg:80,usedVolumeM3:.5,validationIssues:[],
+    };
+    const same = assessManualMove(spec,items,current,0,{x:.5,y:.5,z:0});
+    expect(same.valid).toBe(true);
+    expect(same.result.operationalFindings?.some(f=>f.code==='CG_LONGITUDINAL'&&f.severity==='error')).toBe(true);
+    const improved = assessManualMove(spec,items,current,0,{x:1,y:.5,z:0});
+    expect(improved.valid).toBe(true);
+    const worsened = assessManualMove(spec,items,current,0,{x:0,y:.5,z:0});
+    expect(worsened.valid).toBe(false);
+    expect(worsened.reasons.join(' ')).toContain('기존 운영 오류가 악화');
   });
 
   it('includes mandatory securing materials in final payload acceptance', () => {
