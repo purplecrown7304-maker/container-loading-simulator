@@ -96,7 +96,7 @@ export default function App() {
   const currentInputKey = useRef(inputKey);
   currentInputKey.current = inputKey;
   const previousInputKey = useRef<string | null>(null);
-  const restoreInput = useRef<StoredState | null>(null);
+  const restoreInput = useRef<StoredState | null>(stored?.result ? stored : null);
   const liveInputs = useRef({ container, cargo, result });
   liveInputs.current = { container, cargo, result };
   const floorPreview = useMemo(() => createWorkflowFloorPreview(container, workflowPreview?.cargo ?? cargo), [container, workflowPreview, cargo]);
@@ -186,7 +186,7 @@ export default function App() {
     setPalletScene(null);
     const restored = restoreInput.current;
     restoreInput.current = null;
-    setResult(restored ? restoreLoadingResult(container, cargo.filter(item => item.quantity > 0)) : pendingLoadingResult(container, cargo));
+    setResult(restored ? restoreLoadingResult(container, cargo.filter(item => item.quantity > 0), restored.result) : pendingLoadingResult(container, cargo));
     window.dispatchEvent(new CustomEvent(WORKFLOW_INPUT_INVALIDATED_EVENT));
   }, [inputKey]);
 
@@ -392,9 +392,10 @@ export default function App() {
     if (!opened) announce('error', '팝업이 차단되어 작업지시서를 열지 못했습니다.');
   };
   const saveLocal = () => {
-    if (mode === 'boxes' && !isPreview) writeManualOverride(container, cargo, result);
-    writeStoredState({ container, cargo });
-    announce('success', mode === 'boxes' && !isPreview ? '현재 입력과 최종 적재 결과를 저장했습니다.' : '현재 작업 입력을 저장했습니다.');
+    const savedResult = mode === 'boxes' && !isPreview ? result : undefined;
+    if (savedResult) writeManualOverride(container, cargo, savedResult);
+    writeStoredState({ container, cargo, ...(savedResult ? { result: savedResult } : {}) });
+    announce('success', savedResult ? '현재 입력과 최종 적재 결과를 저장했습니다.' : '현재 작업 입력을 저장했습니다.');
   };
   const loadLocal = () => {
     const state = readStoredState();
@@ -403,8 +404,8 @@ export default function App() {
     const sameInput = JSON.stringify({ container: state.container, cargo: normalized }) === JSON.stringify({ container, cargo });
     setContainer(state.container);
     setCargo(normalized);
-    restoreInput.current = sameInput ? null : { container: state.container, cargo: normalized };
-    if (sameInput) setResult(restoreLoadingResult(state.container, normalized.filter(item => item.quantity > 0), result));
+    restoreInput.current = sameInput ? null : { ...state, cargo: normalized };
+    if (sameInput) setResult(restoreLoadingResult(state.container, normalized.filter(item => item.quantity > 0), state.result ?? result));
     invalidatePhysics();
     announce('success', '저장된 데이터를 불러왔습니다.');
   };
