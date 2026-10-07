@@ -185,3 +185,19 @@ export function gapSecuringPlan(
   };
 }
 
+
+export function fixedGapSupports(plan: ReturnType<typeof gapSecuringPlan>) {
+  return plan.fills
+    .filter(fill => fill.fixedSupportEligible)
+    .map(fill => ({
+      id: fill.id,
+      x: fill.x,
+      y: fill.y,
+      z: fill.z,
+      length: fill.length,
+      width: fill.width,
+      height: fill.height,
+      weightKg: Math.max(0.01, fill.weightKg),
+      dynamic: false as const,
+    }));
+}
