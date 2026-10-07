@@ -8,6 +8,7 @@ import { writePersonalBoxCatalog } from './personalBoxCatalog';
 import { readStoredState, writeStoredState, type StoredState } from './storage';
 import { OPEN_WORKSPACE_EVENT, type WorkspaceOpenDetail } from './uiEvents';
 import { applyPersonalStackPolicyToCargo } from './boxStackingPolicy';
+import { writeManualOverride } from './engine/manualOverride';
 
 const BOX_KEY = 'container-loading-workspace-boxes-v1';
 const VEHICLE_KEY = 'container-loading-workspace-vehicles-v1';
@@ -17,7 +18,7 @@ const USER_CATALOG_KEY = 'container-loading-user-box-catalog-v1';
 
 type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type LoadingWindow = Window & { __containerLoadingLatestResult?: LoadingDetail };
-type DataBox = { id: string; name: string; savedAt: string; state: StoredState };
+type DataBox = { id: string; name: string; savedAt: string; state: StoredState; result?: LoadingResult };
 type VehiclePreset = { id: string; name: string; spec: ContainerSpec };
 type View = null | 'boxes' | 'vehicles' | 'safety' | 'data';
 type CatalogDraft = CargoItem & { originalId?: string };
@@ -298,12 +299,18 @@ export default function WorkspaceTools({ showNav = true }: Props) {
     const state = currentState();
     if (!state) return setMessage('저장할 현재 작업 데이터가 없습니다.');
     const name = boxName.trim() || `작업 ${boxes.length + 1}`;
-    setBoxes(previous => [{ id: crypto.randomUUID(), name, savedAt: new Date().toISOString(), state }, ...previous].slice(0, 30));
+    const currentResult = (window as LoadingWindow).__containerLoadingLatestResult;
+    const result = currentResult
+      && JSON.stringify({ container: currentResult.container, cargo: currentResult.cargo }) === JSON.stringify(state)
+      ? currentResult.result
+      : undefined;
+    setBoxes(previous => [{ id: crypto.randomUUID(), name, savedAt: new Date().toISOString(), state, ...(result ? { result } : {}) }, ...previous].slice(0, 30));
     setBoxName('');
     setMessage(`${name} 계획을 저장했습니다.`);
   };
 
   const restoreBox = (box: DataBox) => {
+    if (box.result) writeManualOverride(box.state.container, box.state.cargo, box.result);
     writeStoredState(box.state, true);
     setMessage(`${box.name} 계획을 불러왔습니다.`);
     setView(null);
