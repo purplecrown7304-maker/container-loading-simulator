@@ -14,6 +14,7 @@ export type SecuringMaterialSettings = {
   voidHoneycombModuleVolumeM3: number;
   voidHoneycombMinGapM: number;
   voidHoneycombMaxGapM: number;
+  voidDoorBarKgPerEa: number;
   voidDoorBarMinSpanM: number;
   voidDoorBarMaxSpanM: number;
   voidDoorBarCoverageHeightM: number;
@@ -29,18 +30,22 @@ export const defaultSecuringMaterialSettings: SecuringMaterialSettings = {
   antiSlipKgPerEa: 0.35,
   dunnageKgPerEa: 0.75,
   loadBarKgPerEa: 4.5,
-  // AW-0912 planning reference: 0.59 kg, 0.9 x 1.2 m face, 0.10-0.45 m void.
+  // AW Packaging AW-0912 product data: 0.59 kg, 900 x 1200 mm face, 100-450 mm void.
+  // Planning defaults only; actual pressure/strength follows the material manufacturer.
   voidAirBagKgPerEa: 0.59,
   voidAirBagFaceAreaM2: 1.08,
   voidAirBagMinGapM: 0.10,
   voidAirBagMaxGapM: 0.45,
-  // Paper honeycomb is modeled as cut-to-fit planning modules. Density is an app
-  // default and must be replaced by the actual site material before dispatch.
-  voidHoneycombKgPerM3: 25,
-  voidHoneycombModuleVolumeM3: 0.05,
+  // Kraft-paper honeycomb is a cut-to-fit planning fallback. A measured hollow kraft
+  // honeycomb reference is about 40 kg/m3; the app limits the default to 12-100 mm gaps.
+  // Module volume is only quantity rounding, not a certified product size.
+  voidHoneycombKgPerM3: 40,
+  voidHoneycombModuleVolumeM3: 0.01,
   voidHoneycombMinGapM: 0.012,
-  voidHoneycombMaxGapM: 1.20,
-  // Door-face load bar geometry is a planning constraint, not a strength rating.
+  voidHoneycombMaxGapM: 0.10,
+  // JahooPak JPCBS103 product data: 2261-2642 mm adjustable span, 5.1 kg net weight.
+  // Coverage height is an app planning spacing, not a load rating.
+  voidDoorBarKgPerEa: 5.1,
   voidDoorBarMinSpanM: 2.261,
   voidDoorBarMaxSpanM: 2.642,
   voidDoorBarCoverageHeightM: 1.20,
@@ -67,6 +72,7 @@ export function normalizeSecuringMaterialSettings(value?: Partial<SecuringMateri
     voidHoneycombModuleVolumeM3: positiveOr(value?.voidHoneycombModuleVolumeM3, defaultSecuringMaterialSettings.voidHoneycombModuleVolumeM3),
     voidHoneycombMinGapM: positiveOr(value?.voidHoneycombMinGapM, defaultSecuringMaterialSettings.voidHoneycombMinGapM),
     voidHoneycombMaxGapM: positiveOr(value?.voidHoneycombMaxGapM, defaultSecuringMaterialSettings.voidHoneycombMaxGapM),
+    voidDoorBarKgPerEa: positiveOr(value?.voidDoorBarKgPerEa, defaultSecuringMaterialSettings.voidDoorBarKgPerEa),
     voidDoorBarMinSpanM: positiveOr(value?.voidDoorBarMinSpanM, defaultSecuringMaterialSettings.voidDoorBarMinSpanM),
     voidDoorBarMaxSpanM: positiveOr(value?.voidDoorBarMaxSpanM, defaultSecuringMaterialSettings.voidDoorBarMaxSpanM),
     voidDoorBarCoverageHeightM: positiveOr(value?.voidDoorBarCoverageHeightM, defaultSecuringMaterialSettings.voidDoorBarCoverageHeightM),
