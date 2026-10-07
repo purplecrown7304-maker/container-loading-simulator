@@ -1,16 +1,20 @@
 import { loadContainer, type LoadingOptions } from './loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 
-const hasCgError = (result: LoadingResult) => (result.operationalFindings ?? []).some(f => f.code === 'CG_LONGITUDINAL' && f.severity === 'error');
+export const hasLongitudinalCgError = (result: LoadingResult) => (result.operationalFindings ?? []).some(f => f.code === 'CG_LONGITUDINAL' && f.severity === 'error');
 
 /**
  * Alternative offered next to a full load that fails longitudinal CG: the largest quantity
  * that passes, removing cartons from the heavy end. The removed quantity is reported as
  * CG_LIMIT instead of being hidden behind a space reason.
  */
-export function cgCompliantAlternative(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}) {
-  const full = loadContainer(container, cargo, { ...options, publish: false });
-  if (!hasCgError(full) || !full.placements.length) return null;
+export function cgCompliantAlternativeForResult(
+  container: ContainerSpec,
+  cargo: CargoItem[],
+  full: LoadingResult,
+  options: LoadingOptions = {},
+) {
+  if (!hasLongitudinalCgError(full) || !full.placements.length) return null;
   const weight = full.placements.reduce((s, p) => s + p.weightKg, 0);
   const cg = full.placements.reduce((s, p) => s + (p.x + p.length / 2) * p.weightKg, 0) / weight;
   const doorHeavy = cg > container.length / 2;
@@ -30,10 +34,16 @@ export function cgCompliantAlternative(container: ContainerSpec, cargo: CargoIte
     const mid = (lo + hi) >> 1;
     const trial = reduce(mid);
     const result = trial.cargo.length ? loadContainer(container, trial.cargo, { ...options, publish: false }) : full;
-    if (trial.cargo.length && !hasCgError(result)) { best = { result, cut: trial.cut }; hi = mid - 1; } else lo = mid + 1;
+    if (trial.cargo.length && !hasLongitudinalCgError(result)) { best = { result, cut: trial.cut }; hi = mid - 1; } else lo = mid + 1;
   }
   if (!best) return null;
   const removed = [...best.cut.entries()].filter(([, n]) => n > 0).map(([cargoId, quantity]) => ({ cargoId, quantity, reasonCode: 'CG_LIMIT', reason: '길이 방향 무게중심 허용범위를 지키기 위해 제외' }));
   return { result: { ...best.result, remaining: [...best.result.remaining, ...removed] }, removed };
 }
 
+
+
+export function cgCompliantAlternative(container: ContainerSpec, cargo: CargoItem[], options: LoadingOptions = {}) {
+  const full = loadContainer(container, cargo, { ...options, publish: false });
+  return cgCompliantAlternativeForResult(container, cargo, full, options);
+}
