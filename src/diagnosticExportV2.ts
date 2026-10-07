@@ -54,6 +54,14 @@ export function diagnosticCsv(rows: Array<Record<string, unknown>>, review = fal
   ].join('\r\n')}`;
 }
 
+export function voidFillDiagnosticPayloads(result: LoadingResult, review = false) {
+  const rows: Array<Record<string, unknown>> = voidFillRows(result).map(row => ({ ...row }));
+  return {
+    json: safeJson({ schema: 'container-loading-void-fill-v1', plan: result.voidFillPlan ?? null, disclaimer: VOID_FILL_DISCLAIMER }),
+    csv: diagnosticCsv(rows, review),
+  };
+}
+
 function cargoRows(cargo: CargoItem[], result: LoadingResult) {
   const loaded = new Map<string, number>();
   result.placements.forEach(item => loaded.set(item.cargoId, (loaded.get(item.cargoId) ?? 0) + 1));
@@ -267,7 +275,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
   const review = isLimitReviewTarget(reviewTarget);
   const reviewMetadata = review ? { documentPurpose: LIMIT_REVIEW_WARNING, ratingProvenance: LIMIT_REVIEW_PROVENANCE, comparisons: limitReviewRows(reviewTarget, readLatestInertiaCertification()), dispatchApproved: false } : undefined;
   const toCsv = (rows: Array<Record<string, unknown>>) => diagnosticCsv(rows, review);
-  const voidFill = voidFillRows(result);
+  const voidFillPayloads = voidFillDiagnosticPayloads(result, review);
   const appResultSnapshot = latest ? decycle({ container: latest.container, cargo: latest.cargo, result: latest.result }) : null;
 
   const inspection = {
@@ -306,7 +314,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
     { name: 'packaging.json', data: textBytes(safeJson(snapshots.packaging)), modifiedAt: generatedAt },
     { name: 'loading-input.json', data: textBytes(safeJson(snapshots.loadingInput)), modifiedAt: generatedAt },
     { name: 'placements.json', data: textBytes(safeJson(snapshots.placements)), modifiedAt: generatedAt },
-    { name: 'void-fill.json', data: textBytes(safeJson({ schema: 'container-loading-void-fill-v1', plan: result.voidFillPlan ?? null, disclaimer: VOID_FILL_DISCLAIMER })), modifiedAt: generatedAt },
+    { name: 'void-fill.json', data: textBytes(voidFillPayloads.json), modifiedAt: generatedAt },
     { name: 'constraint-checks.json', data: textBytes(safeJson(snapshots.constraints)), modifiedAt: generatedAt },
     { name: 'weight-balance.json', data: textBytes(safeJson(snapshots.weightBalance)), modifiedAt: generatedAt },
     { name: 'floor-load.json', data: textBytes(safeJson(snapshots.floorLoad)), modifiedAt: generatedAt },
@@ -318,7 +326,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
     { name: 'runtime.json', data: textBytes(safeJson(snapshots.runtime)), modifiedAt: generatedAt },
     { name: 'cargo.csv', data: textBytes(toCsv(cargoRows(cargo, result))), modifiedAt: generatedAt },
     { name: 'placements.csv', data: textBytes(toCsv(placementRows(result, cargo))), modifiedAt: generatedAt },
-    { name: 'void-fill.csv', data: textBytes(toCsv(voidFill)), modifiedAt: generatedAt },
+    { name: 'void-fill.csv', data: textBytes(voidFillPayloads.csv), modifiedAt: generatedAt },
     { name: 'floor-load.csv', data: textBytes(toCsv(floorRows(snapshots.floorLoad))), modifiedAt: generatedAt },
     { name: 'stack-analysis.csv', data: textBytes(toCsv(stackRows(snapshots.stackAnalysis))), modifiedAt: generatedAt },
   ];
