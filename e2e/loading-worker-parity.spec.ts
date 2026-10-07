@@ -105,7 +105,7 @@ async function runLoading(page: Page) {
   return page.evaluate(() => structuredClone((window as any).__containerLoadingLatestResult.result));
 }
 
-test('real loading.worker matches the synchronous loadContainer fallback bit-for-bit', async ({ browser }, testInfo) => {
+test.only('real loading.worker matches the synchronous loadContainer fallback bit-for-bit', async ({ browser }, testInfo) => {
   test.skip(testInfo.project.name === 'chromium-mobile', 'Desktop service verification only.');
   test.setTimeout(180_000);
 
