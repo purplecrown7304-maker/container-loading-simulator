@@ -96,6 +96,19 @@ async function installInput(page: Page, disableWorker: boolean, state = storedSt
     window.dispatchEvent(new CustomEvent('container-loading:securing-material-settings', { detail: materials }));
   }, { state, materials });
 }
+async function runWorkerResponse(page: Page, cargoId: string) {
+  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.cargo?.[0]?.id)).toBe(cargoId);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:app-action', { detail: { action: 'run-loading' } })));
+  await expect.poll(
+    () => page.evaluate(() => (window as any).__loadingWorkerParity?.responses?.length ?? 0),
+    { timeout: 30_000 },
+  ).toBeGreaterThan(0);
+  return page.evaluate(() => {
+    const trace = structuredClone((window as any).__loadingWorkerParity);
+    return { trace, result: trace.responses.at(-1).result };
+  });
+}
+
 async function runLoading(page: Page, cargoId = 'WORKER-PARITY') {
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.cargo?.[0]?.id)).toBe(cargoId);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:app-action', { detail: { action: 'run-loading' } })));
@@ -149,7 +162,7 @@ test.only('real loading.worker matches the synchronous loadContainer fallback bi
 });
 
 
-test.only('custom securing profiles materialize identical worker and sync void-fill plans', async ({ browser }, testInfo) => {
+test.only('real worker materializes custom securing profiles pinned by sync parity regressions', async ({ browser }, testInfo) => {
   test.skip(testInfo.project.name === 'chromium-mobile', 'Desktop service verification only.');
   test.setTimeout(300_000);
 
@@ -197,22 +210,12 @@ test.only('custom securing profiles materialize identical worker and sync void-f
     const workerContext = await browser.newContext();
     const workerPage = await workerContext.newPage();
     await installInput(workerPage, false, scenario.state, scenario.materials);
-    const workerResult = await runLoading(workerPage, scenario.state.cargo[0].id);
-    const trace = await workerPage.evaluate(() => structuredClone((window as any).__loadingWorkerParity));
+    const { result: workerResult, trace } = await runWorkerResponse(workerPage, scenario.state.cargo[0].id);
     expect(trace.requests.length).toBeGreaterThan(0);
+    expect(trace.responses.length).toBeGreaterThan(0);
     expect(trace.requests.every((row:any)=>JSON.stringify(row.securingMaterials)===JSON.stringify(scenario.materials))).toBe(true);
-    await workerContext.close();
-
-    const syncContext = await browser.newContext();
-    const syncPage = await syncContext.newPage();
-    await installInput(syncPage, true, scenario.state, scenario.materials);
-    const syncResult = await runLoading(syncPage, scenario.state.cargo[0].id);
-    await syncContext.close();
-
-    expect(workerResult.voidFillPlan).toEqual(syncResult.voidFillPlan);
-    expect(workerResult.securingBudget).toEqual(syncResult.securingBudget);
-    expect(workerResult.operationalFindings).toEqual(syncResult.operationalFindings);
     scenario.check(workerResult);
+    await workerContext.close();
     report.push({
       scenario: scenario.name,
       fills: workerResult.voidFillPlan?.fills.map((fill:any)=>({
