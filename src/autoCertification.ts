@@ -63,7 +63,12 @@ export function readFinalPhysicsValidation() {
   };
 }
 
-async function validateThenCertify(target: PhysicsTarget) {
+type ExactCertificationOptions = {
+  preserveSelectedPlan?: boolean;
+  allowCgVerdictError?: boolean;
+};
+
+async function validateThenCertify(target: PhysicsTarget, options: ExactCertificationOptions = {}) {
   if (typeof window === 'undefined') return;
   if (!target.result.placements.length && !(target.supports?.length)) {
     if (target.result.remaining.some(item => item.quantity > 0)) {
@@ -79,15 +84,18 @@ async function validateThenCertify(target: PhysicsTarget) {
   const signature = createPhysicsTargetSignature(target);
   const physicsWindow = window as FinalPhysicsWindow;
   const hardFindings = operationalErrors(target.result.operationalFindings ?? []);
-  if (hardFindings.length && !isNumericalLimitReviewTarget(target)) {
+  const blockingFindings = options.allowCgVerdictError
+    ? hardFindings.filter(finding => finding.code !== 'CG_LONGITUDINAL')
+    : hardFindings;
+  if (blockingFindings.length && !isNumericalLimitReviewTarget(target)) {
     physicsWindow.__containerLoadingFinalPhysicsRunning = false;
     clearFinalPhysicsRecord();
     window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, {
       detail: {
         mode: target.mode,
         signature,
-        error: `운영 규칙 검증 실패 ${hardFindings.length}건`,
-        findings: hardFindings,
+        error: `운영 규칙 검증 실패 ${blockingFindings.length}건`,
+        findings: blockingFindings,
       },
     }));
     return;
@@ -129,7 +137,10 @@ async function validateThenCertify(target: PhysicsTarget) {
     // 박스 모드는 사용자가 '작업지시서 발급'을 눌렀을 때와 같은 검증 엔진을 자동 호출한다.
     // 보고서는 열지 않고, 관성 3종 + 누락 시나리오 보완 + 제한된 안전 후보 비교까지만 끝낸다.
     if (target.mode === 'boxes') {
-      requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false });
+      requestDirectWorkOrder(target.container, target.cargo, target.result, {
+        openReport: false,
+        preserveSelectedPlan: options.preserveSelectedPlan,
+      });
       return;
     }
 
@@ -157,10 +168,10 @@ subscribePhysicsTarget(() => {
   queueMicrotask(() => { if (validationRunId === scheduledRunId && readPhysicsTarget() === target) void validateThenCertify(target); });
 });
 
-export function requestExactCertification(target: PhysicsTarget) {
+export function requestExactCertification(target: PhysicsTarget, options: ExactCertificationOptions = {}) {
   if (typeof window === 'undefined') return;
   publishPhysicsTarget(target);
-  void validateThenCertify(target);
+  void validateThenCertify(target, options);
 }
 
 export function requestNextPalletCertification() {

@@ -113,8 +113,28 @@ export function reviewPlacementBlockers(container:ContainerSpec,cargo:CargoItem[
     if (f.severity!=='error') return false;
     if (resolution.status!=='active') return true;
     if (f.code==='PAYLOAD_EXCEEDED') return placements.reduce((sum,p)=>sum+p.weightKg,0)>scenario.maxPayloadKg+EPS;
-    if (f.code==='INSUFFICIENT_SUPPORT' && container.limitReview?.minimumSupportRatio!==undefined) return placements.some(p=>!assessPlacementSupport(p,placements,undefined,threshold).supported);
-    return true;
+    if (f.code==='INSUFFICIENT_SUPPORT' && container.limitReview?.minimumSupportRatio!==undefined) {
+      return placements.some(p=>!assessPlacementSupport(p,placements,undefined,threshold).supported);
+    }
+    if ((f.code==='UNLOAD_BLOCKED' || f.code==='UNLOAD_BLOCKED_ABOVE') && container.unloadingPolicy!=='strict') return false;
+    const explicitBlocker = new Set([
+      'OUT_OF_BOUNDS',
+      'OVERLAP',
+      'FLOATING',
+      'INSUFFICIENT_SUPPORT',
+      'CG_OUTSIDE_SUPPORT',
+      'STACK_LIMIT',
+      'NO_STACK_ON_TOP',
+      'TOP_LOAD_EXCEEDED',
+      'TOP_PRESSURE_LIMIT',
+      'PAYLOAD_EXCEEDED',
+      'UNLOAD_BLOCKED',
+      'UNLOAD_BLOCKED_ABOVE',
+      'AFTER_STOP_FLOATING',
+      'AFTER_STOP_INSUFFICIENT_SUPPORT',
+      'AFTER_STOP_CG_OUTSIDE_SUPPORT',
+    ]);
+    return explicitBlocker.has(f.code);
   });
   const errors=[...issues.map(i=>i.message),...findings.map(f=>f.message)];
   if (totalTransportWeightKg!==undefined && (!Number.isFinite(totalTransportWeightKg) || totalTransportWeightKg>scenario.maxPayloadKg+EPS)) errors.push('화물과 필수 고정재 합계가 선택한 검토 총중량 한도를 초과합니다.');

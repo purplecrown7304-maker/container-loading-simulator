@@ -1,14 +1,21 @@
-import type { ContainerSpec, Placement } from './engine/types';
+import type { ContainerSpec, LoadingResult, Placement } from './engine/types';
+import { voidFillMaterialColor } from './voidFillPresentation';
 import type { PhysicsSupport } from './engine/physicsValidation';
 import type { SecuringUsage } from './inertiaCertification';
 import { palletBandingSegments } from './palletBanding';
 
 // Visual geometry only. Restraint forces and certification remain owned by the engine.
 export type ViewerDecoration = { x: number; y: number; z: number; length: number; width: number; height: number; color: string; supportIndex: number; wire?: boolean; modelKey?: string };
-export function securingGeometry(container: ContainerSpec, boxes: Placement[], supports: PhysicsSupport[], usage?: SecuringUsage | null): ViewerDecoration[] {
+export function securingGeometry(container: ContainerSpec, source: LoadingResult | Placement[], supports: PhysicsSupport[], usage?: SecuringUsage | null): ViewerDecoration[] {
+  const result = Array.isArray(source) ? undefined : source;
+  const boxes = Array.isArray(source) ? source : source.placements;
   const output: ViewerDecoration[] = [];
-  if (!usage || !usage.level || !boxes.length) return output;
   const add = (x: number, y: number, z: number, length: number, width: number, height: number, color: string, supportIndex = -1, wire = false, modelKey?: string) => output.push({ x, y, z, length, width, height, color, supportIndex, wire, ...(modelKey ? { modelKey } : {}) });
+  for (const fill of result?.voidFillPlan?.fills ?? []) {
+    add(fill.x, fill.y, fill.z, fill.length, fill.width, fill.height, voidFillMaterialColor(fill), -1,
+      !fill.fixedSupportEligible, fill.material === 'dunnage-airbag' ? 'dunnage-airbag' : undefined);
+  }
+  if (!usage || !usage.level || !boxes.length) return output;
   const minX = Math.min(...boxes.map(p => p.x)), maxX = Math.max(...boxes.map(p => p.x + p.length));
   const minY = Math.min(...boxes.map(p => p.y)), maxY = Math.max(...boxes.map(p => p.y + p.width));
   const maxTop = Math.max(...boxes.map(p => p.z + p.height));

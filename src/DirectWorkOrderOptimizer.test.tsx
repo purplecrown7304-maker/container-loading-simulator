@@ -207,6 +207,22 @@ describe('work-order optimizer recovery', () => {
     expect(openLoadingReport).not.toHaveBeenCalled();
   });
 
+  it('keeps an explicitly selected plan fixed instead of running safer-layout replacement', async () => {
+    await act(async () => {
+      requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false, preserveSelectedPlan: true });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(runInertiaCertification).toHaveBeenCalledOnce();
+    expect(completeCertificationForWorkOrder).toHaveBeenCalledOnce();
+    expect(buildDirectResultReoptimizationCandidatesAsync).not.toHaveBeenCalled();
+    expect(buildSecuringPayloadAdjustmentCandidateAsync).not.toHaveBeenCalled();
+    expect(createPhysicsTargetSignature((window as any).__containerLoadingPhysicsTarget)).toBe(createPhysicsTargetSignature(target));
+    expect((window as any).__containerLoadingLatestCertification.searchNotice).toContain('사용자가 선택한 적재안');
+    expect(openLoadingReport).not.toHaveBeenCalled();
+  });
+
   it('closes immediately on cancel without issuing a report', async () => {
     const cancelled = vi.fn();
     window.addEventListener(WORKFLOW_VERIFICATION_CANCELLED_EVENT, cancelled, { once: true });

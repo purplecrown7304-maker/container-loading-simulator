@@ -1,18 +1,13 @@
-import { preflightCargoInput } from './inputPreflight';
-import { decorateLimitReview, resolveLimitReview, reviewPlacementBlockers } from './limitReview';
+import { resolveLimitReview, reviewPlacementBlockers } from './limitReview';
 import { isARules, aConfig } from './loadingRuleset';
 import { isInsideContainer, overlaps } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
-import { auditLoading } from './loadingAudit';
-import { validateOperationalLoading } from './operationalValidator';
 import { hasAdequateSupport, supportContactArea } from './support';
-import { boxSecuringRequirements } from './securingBudget';
-import { readSecuringMaterialSettings } from '../securingMaterialSettings';
-import { heavyInnerConflictFindings } from './heavyInnerPolicy';
 import { analyzeFloorLoad } from './floorLoad';
 import { assessWeightBalance } from './weightBalance';
 import { buildPlacementAddresses } from './locationGrid';
 import { snapManualCoordinate } from './manualPlacement';
+import { manualEditRegressionReasons, recomputeManualEditResult } from './manualEditPolicy';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
 
 const EPS = 0.001;
@@ -126,21 +121,16 @@ export function assessGroupMove(
     if (!isARules(container) && !canPlaceByStackingRules(item, candidate, others, cargoById)) reasons.push(`${candidate.cargoId}: 적층단 또는 상부 허용중량 조건을 만족하지 않습니다.`);
   }
 
-  const validationIssues = auditLoading(container, container.limitReview === undefined ? cargo : preflightCargoInput(cargo).cargo, finalPlacements);
-  const securingLevel = source.securingBudget?.level ?? 1;
-  const requiredWeightKg = boxSecuringRequirements(finalPlacements.length,securingLevel,readSecuringMaterialSettings()).weightKg;
-  const loadedWeightKg = finalPlacements.reduce((sum, placement) => sum + placement.weightKg,0);
-  if (loadedWeightKg + requiredWeightKg > container.maxPayloadKg + 1e-6) validationIssues.push({
-    type:'PAYLOAD',message:'필수 고정 자재를 포함한 운송 중량이 허용 적재 중량을 초과합니다.',placementIndexes:[],
-  });
-  if (container.limitReview === undefined) reasons.push(...validationIssues.map(issue => issue.message));
   const conflictStrategy = source.operationalFindings?.some(f => f.code === 'HEAVY_INNER_UNLOAD_CONFLICT') ? 'unloading' : 'capacity';
-  const operationalFindings = [...validateOperationalLoading(container,cargo,finalPlacements),
-    ...heavyInnerConflictFindings(container,cargo,finalPlacements,conflictStrategy)];
-  if (container.limitReview === undefined) reasons.push(...operationalFindings.filter(finding => finding.severity === 'error').map(finding => finding.message));
-  else reasons.push(...reviewPlacementBlockers(container,cargo,finalPlacements,loadedWeightKg+requiredWeightKg));
-  const result: LoadingResult = decorateLimitReview(container,cargo,{ ...source, placements: finalPlacements, validationIssues, operationalFindings, loadedWeightKg,
-    securingBudget:{level:securingLevel,reservedWeightKg:Math.max(source.securingBudget?.reservedWeightKg ?? 0,requiredWeightKg),requiredWeightKg,totalTransportWeightKg:loadedWeightKg+requiredWeightKg} });
+  const result = recomputeManualEditResult(container, cargo, source, finalPlacements, conflictStrategy);
+  const sourceEvidence = recomputeManualEditResult(container, cargo, source, source.placements, conflictStrategy);
+  if (container.limitReview === undefined) {
+    reasons.push(...manualEditRegressionReasons(sourceEvidence, result));
+  } else {
+    reasons.push(...reviewPlacementBlockers(container, cargo, finalPlacements, result.securingBudget?.totalTransportWeightKg));
+    reasons.push(...manualEditRegressionReasons(sourceEvidence, result)
+      .filter(reason => reason.includes('기존 운영 오류')));
+  }
   const beforeQuality = assessWeightBalance(container, source);
   const afterQuality = assessWeightBalance(container, result);
   const beforeFloor = analyzeFloorLoad(container, source, 12, 4);

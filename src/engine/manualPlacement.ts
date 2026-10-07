@@ -1,17 +1,12 @@
-import { preflightCargoInput } from './inputPreflight';
-import { decorateLimitReview, resolveLimitReview, reviewPlacementBlockers } from './limitReview';
+import { resolveLimitReview, reviewPlacementBlockers } from './limitReview';
 import { isARules, placementOrientation, rotateHorizontal, aConfig } from './loadingRuleset';
 import { aCandidateAllowed } from './loadSimAdapter';
 import { isInsideContainer, overlaps } from './constraints';
 import { canPlaceByStackingRules } from './stacking';
-import { auditLoading } from './loadingAudit';
-import { validateOperationalLoading } from './operationalValidator';
 import { hasAdequateSupport, supportContactArea } from './support';
-import { boxSecuringRequirements } from './securingBudget';
-import { readSecuringMaterialSettings } from '../securingMaterialSettings';
-import { heavyInnerConflictFindings } from './heavyInnerPolicy';
 import { analyzeFloorLoad } from './floorLoad';
 import { assessWeightBalance } from './weightBalance';
+import { manualEditRegressionReasons, recomputeManualEditResult } from './manualEditPolicy';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
 
 const EPS = 0.001;
@@ -89,23 +84,18 @@ export function assessManualMove(
 
   const placements = [...others];
   placements.splice(Math.min(placementIndex, placements.length),0,candidate);
-  const validationIssues = auditLoading(container,container.limitReview === undefined ? cargo : preflightCargoInput(cargo).cargo,placements);
-  const securingLevel = source.securingBudget?.level ?? 1;
-  const requiredWeightKg = boxSecuringRequirements(placements.length,securingLevel,readSecuringMaterialSettings()).weightKg;
-  const loadedWeightKg = placements.reduce((sum, placement) => sum + placement.weightKg,0);
-  if (loadedWeightKg + requiredWeightKg > container.maxPayloadKg + 1e-6) validationIssues.push({
-    type:'PAYLOAD',message:'필수 고정 자재를 포함한 운송 중량이 허용 적재 중량을 초과합니다.',placementIndexes:[],
-  });
-  if (container.limitReview === undefined) reasons.push(...validationIssues.map(issue => issue.message));
   // A prior conflict records that the source used the unloading strategy even
   // when no explicit container policy was saved. Edits preserve that provenance.
   const conflictStrategy = source.operationalFindings?.some(f => f.code === 'HEAVY_INNER_UNLOAD_CONFLICT') ? 'unloading' : 'capacity';
-  const operationalFindings = [...validateOperationalLoading(container,cargo,placements),
-    ...heavyInnerConflictFindings(container,cargo,placements,conflictStrategy)];
-  if (container.limitReview === undefined) reasons.push(...operationalFindings.filter(finding => finding.severity === 'error').map(finding => finding.message));
-  else reasons.push(...reviewPlacementBlockers(container,cargo,placements,loadedWeightKg+requiredWeightKg));
-  const result: LoadingResult = decorateLimitReview(container,cargo,{ ...source, placements, validationIssues, operationalFindings, loadedWeightKg,
-    securingBudget:{level:securingLevel,reservedWeightKg:Math.max(source.securingBudget?.reservedWeightKg ?? 0,requiredWeightKg),requiredWeightKg,totalTransportWeightKg:loadedWeightKg+requiredWeightKg} });
+  const result = recomputeManualEditResult(container, cargo, source, placements, conflictStrategy);
+  const sourceEvidence = recomputeManualEditResult(container, cargo, source, source.placements, conflictStrategy);
+  if (container.limitReview === undefined) {
+    reasons.push(...manualEditRegressionReasons(sourceEvidence, result));
+  } else {
+    reasons.push(...reviewPlacementBlockers(container, cargo, placements, result.securingBudget?.totalTransportWeightKg));
+    reasons.push(...manualEditRegressionReasons(sourceEvidence, result)
+      .filter(reason => reason.includes('기존 운영 오류')));
+  }
   const beforeQuality = assessWeightBalance(container,source);
   const afterQuality = assessWeightBalance(container,result);
   const beforeFloor = analyzeFloorLoad(container,source,12,4);

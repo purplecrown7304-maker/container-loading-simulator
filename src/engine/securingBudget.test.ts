@@ -35,7 +35,7 @@ describe('securing-inclusive payload budget', ()=>{
     const custom={...materials,antiSlipKgPerEa:4.5};
     localStorage.setItem(SECURING_MATERIAL_SETTINGS_STORAGE_KEY,JSON.stringify(custom));
     let sent: {securingOptions:{securingMaterials:typeof custom}} | undefined;
-    vi.stubGlobal('Worker',class { onmessage?: (event:unknown)=>void; terminate() {} postMessage(data:typeof sent) {sent=data; queueMicrotask(()=>this.onmessage?.({data:{result:{placements:[],remaining:[],loadedWeightKg:0,usedVolumeM3:0,validationIssues:[]}}}));} });
+    vi.stubGlobal('Worker',class extends EventTarget { onmessage?: (event:unknown)=>void; terminate() {} postMessage(data:typeof sent) {sent=data; queueMicrotask(()=>this.onmessage?.({data:{result:{placements:[],remaining:[],loadedWeightKg:0,usedVolumeM3:0,validationIssues:[]}}}));} });
     await loadContainerAsync(container,cargo,'capacity');
     expect(sent?.securingOptions.securingMaterials).toEqual(custom);
   });
@@ -66,11 +66,12 @@ it('keeps rejected-edit coordinates for review but refreshes overweight evidence
 });
 
 it('does not charge securing weight for impossible or invalid requested cargo',()=>{
+  const baseline=loadContainer(container,[{...cargo[0],quantity:1}],{publish:false});
   for (const extra of [ {...cargo[0],id:'invalid',length:-1,weightKg:.01,quantity:10000},
     {...cargo[0],id:'oversize',length:400,width:200,height:200,weightKg:.01,quantity:10000} ]) {
     const result=loadContainer(container,[{...cargo[0],quantity:1},extra],{publish:false});
     expect(result.placements).toHaveLength(1);
-    expect(result.securingBudget!.requiredWeightKg).toBe(2.2);
+    expect(result.securingBudget!.requiredWeightKg).toBeCloseTo(baseline.securingBudget!.requiredWeightKg,10);
     expect(result.remaining.find(row=>row.cargoId===extra.id)?.reason).not.toMatch(/필수 고정재/);
   }
 });

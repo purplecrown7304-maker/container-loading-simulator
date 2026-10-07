@@ -11,11 +11,11 @@ const current: PhysicsTarget = {
 const alternate = { ...current.result, placements: [{ ...current.result.placements[0], x: 0.3 }] };
 let workers: FakeWorker[];
 let respond: (worker: FakeWorker, index: number) => void;
-class FakeWorker {
+class FakeWorker extends EventTarget {
   onmessage?: (event: { data: { result: typeof current.result } }) => void;
   request?: { strategy: string };
   terminate = vi.fn();
-  constructor() { workers.push(this); }
+  constructor() { super(); workers.push(this); }
   postMessage(request: { strategy: string }) { this.request = request; respond(this, workers.length); }
 }
 

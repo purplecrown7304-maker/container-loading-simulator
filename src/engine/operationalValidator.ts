@@ -312,7 +312,7 @@ function cargoOnly(bodies: Body[]) {
   return bodies.filter(body => body.kind === 'cargo');
 }
 
-function checkWeightAndCog(container: ContainerSpec, bodies: Body[]) {
+function checkWeightAndCog(container: ContainerSpec, bodies: Body[], proportionalLongitudinal = false) {
   const out: OperationalRuleFinding[] = [];
   const cargoBodies = cargoOnly(bodies);
   const weight = cargoBodies.reduce((sum, body) => sum + body.placement.weightKg, 0);
@@ -338,7 +338,11 @@ function checkWeightAndCog(container: ContainerSpec, bodies: Body[]) {
   cg.x /= weight; cg.y /= weight; cg.z /= weight;
 
   const longDev = Math.abs(cg.x - container.length / 2);
-  const longLimit = container.length * CG_LONG_TOLERANCE;
+  // The 2026-10-06 proportional rule is isolated to legacy direct boxes. Pallet/MIXED
+  // retain their historical fixed ±5% contract.
+  const longLimit = proportionalLongitudinal
+    ? Math.min(container.length / 2, container.length * CG_LONG_TOLERANCE * Math.max(1, container.maxPayloadKg / weight))
+    : container.length * CG_LONG_TOLERANCE;
   if (longDev > longLimit + EPS) {
     out.push(finding(
       'CG_LONGITUDINAL',
@@ -379,10 +383,10 @@ function checkWeightAndCog(container: ContainerSpec, bodies: Body[]) {
 
 /** Exact legacy operational weight/CG checks without rebuilding support graphs. */
 export function validateOperationalWeightAndCog(container: ContainerSpec, placements: Placement[]): OperationalRuleFinding[] {
-  return checkWeightAndCog(container, placements.map((placement, cargoIndex) => ({ kind: 'cargo', placement, cargoIndex })));
+  return checkWeightAndCog(container, placements.map((placement, cargoIndex) => ({ kind: 'cargo', placement, cargoIndex })), true);
 }
 
-function checkSecuring(container: ContainerSpec, bodies: Body[], supporters: SupportLink[][]) {
+function checkSecuring(container: ContainerSpec, bodies: Body[], supporters: SupportLink[][], contactAware = false) {
   const out: OperationalRuleFinding[] = [];
   const cargoBodies = cargoOnly(bodies);
   const maxX = cargoBodies.reduce((max, body) => Math.max(max, body.placement.x + body.placement.length), 0);
@@ -401,9 +405,26 @@ function checkSecuring(container: ContainerSpec, bodies: Body[], supporters: Sup
   bodies.forEach((body, bodyIndex) => {
     if (body.kind !== 'cargo' || supporters[bodyIndex].length > 0 || body.placement.z > HEIGHT_TOLERANCE_M) return;
     const p = body.placement;
+    // Contact restraint is part of the approved legacy direct-box rule only.
+    const near = 0.03;
+    const blocked = (axis: 'x' | 'y', positive: boolean) => {
+      const face = axis === 'x' ? (positive ? p.x + p.length : p.x) : (positive ? p.y + p.width : p.y);
+      const wall = positive ? (axis === 'x' ? container.length : container.width) : 0;
+      if (Math.abs(wall - face) <= near) return true;
+      return cargoBodies.some(other => {
+        const q = other.placement;
+        if (q === p || overlap1d(p.z, p.z + p.height, q.z, q.z + q.height) <= EPS) return false;
+        const gap = axis === 'x' ? (positive ? q.x - face : face - (q.x + q.length)) : (positive ? q.y - face : face - (q.y + q.width));
+        const lateral = axis === 'x' ? overlap1d(p.y, p.y + p.width, q.y, q.y + q.width) : overlap1d(p.x, p.x + p.length, q.x, q.x + q.length);
+        return gap >= -EPS && gap <= near && lateral > EPS;
+      });
+    };
+    const xOpen = !contactAware || !blocked('x', true) || !blocked('x', false);
+    const yOpen = !contactAware || !blocked('y', true) || !blocked('y', false);
+    if (!xOpen && !yOpen) return;
     const hcg = p.height / 2;
-    const forwardTip = ACCEL.forward * hcg > p.length / 2;
-    const sideTip = ACCEL.sideways * hcg > p.width / 2;
+    const forwardTip = xOpen && ACCEL.forward * hcg > p.length / 2;
+    const sideTip = yOpen && ACCEL.sideways * hcg > p.width / 2;
     if (forwardTip || sideTip) {
       out.push(finding(
         'TIPPING_RISK',
@@ -413,7 +434,7 @@ function checkSecuring(container: ContainerSpec, bodies: Body[], supporters: Sup
       ));
     }
     const requiredForwardDaN = Math.max(0, (ACCEL.forward - DEFAULT_FRICTION) * p.weightKg * 9.81 / 10);
-    if (requiredForwardDaN > EPS) {
+    if (xOpen && requiredForwardDaN > EPS) {
       out.push(finding(
         'SECURING_FORCE',
         'warning',
@@ -470,16 +491,23 @@ function checkAfterStops(bodies: Body[], initialSupporters: SupportLink[][]) {
   return out;
 }
 
+export type OperationalValidationOptions = { approvedDirectBox?: boolean };
+
 export function validateOperationalLoading(
   container: ContainerSpec,
   cargo: CargoItem[],
   placements: Placement[],
   supports: OperationalSupport[] = [],
+  options: OperationalValidationOptions = {},
 ): OperationalRuleFinding[] {
   if (isARules(container)) return validateAPlan(container, cargo, placements, supports);
   if (!placements.length && !supports.length) return [];
-  const bodies = buildBodies(cargoWithUnloadingPolicy(container,cargo), placements, supports);
+  const normalizedCargo = cargoWithUnloadingPolicy(container,cargo);
+  const bodies = buildBodies(normalizedCargo, placements, supports);
   const supporters = supportersOf(bodies);
+  // Callers opt in only from the approved legacy direct-box packing path. This keeps
+  // pallet, MIXED and deferred manual-edit behavior byte-for-byte on the old rule.
+  const approvedDirectBox = options.approvedDirectBox === true;
   return [
     ...checkBounds(container, bodies),
     ...checkOverlap(bodies),
@@ -488,9 +516,11 @@ export function validateOperationalLoading(
     ...checkStacking(bodies, supporters),
     ...checkUnloadOrder(bodies).map(issue => container.unloadingPolicy === 'soft'
       ? { ...issue, severity: 'warning' as const, message: `${issue.message} 완화 모드: 현장 재취급이 필요합니다.` } : issue),
-    ...checkWeightAndCog(container, bodies),
-    ...checkSecuring(container, bodies, supporters),
-    ...checkAfterStops(bodies, supporters),
+    ...checkWeightAndCog(container, bodies, approvedDirectBox),
+    ...checkSecuring(container, bodies, supporters, approvedDirectBox),
+    ...checkAfterStops(bodies, supporters).map(issue => container.unloadingPolicy === 'soft'
+      ? { ...issue, severity: 'warning' as const, message: `${issue.message} 완화 모드: 해당 하역 단계에서 재지지·재취급 확인이 필요합니다.` }
+      : issue),
   ];
 }
 

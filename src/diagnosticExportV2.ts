@@ -5,6 +5,7 @@ import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engin
 import type { PalletWorkSnapshot } from './palletWorkerReportV2';
 import { readPhysicsTarget } from './physicsTarget';
 import { readTransportEquipment } from './transportEquipment';
+import { VOID_FILL_DISCLAIMER, voidFillRows } from './voidFillPresentation';
 
 const APP_VERSION = '2.7.0-diagnostics';
 
@@ -51,6 +52,14 @@ export function diagnosticCsv(rows: Array<Record<string, unknown>>, review = fal
     headers.map(csvCell).join(','),
     ...rows.map(row => headers.map(header => csvCell(row[header])).join(',')),
   ].join('\r\n')}`;
+}
+
+export function voidFillDiagnosticPayloads(result: LoadingResult, review = false) {
+  const rows: Array<Record<string, unknown>> = voidFillRows(result).map(row => ({ ...row }));
+  return {
+    json: safeJson({ schema: 'container-loading-void-fill-v1', plan: result.voidFillPlan ?? null, disclaimer: VOID_FILL_DISCLAIMER }),
+    csv: diagnosticCsv(rows, review),
+  };
 }
 
 function cargoRows(cargo: CargoItem[], result: LoadingResult) {
@@ -266,6 +275,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
   const review = isLimitReviewTarget(reviewTarget);
   const reviewMetadata = review ? { documentPurpose: LIMIT_REVIEW_WARNING, ratingProvenance: LIMIT_REVIEW_PROVENANCE, comparisons: limitReviewRows(reviewTarget, readLatestInertiaCertification()), dispatchApproved: false } : undefined;
   const toCsv = (rows: Array<Record<string, unknown>>) => diagnosticCsv(rows, review);
+  const voidFillPayloads = voidFillDiagnosticPayloads(result, review);
   const appResultSnapshot = latest ? decycle({ container: latest.container, cargo: latest.cargo, result: latest.result }) : null;
 
   const inspection = {
@@ -304,6 +314,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
     { name: 'packaging.json', data: textBytes(safeJson(snapshots.packaging)), modifiedAt: generatedAt },
     { name: 'loading-input.json', data: textBytes(safeJson(snapshots.loadingInput)), modifiedAt: generatedAt },
     { name: 'placements.json', data: textBytes(safeJson(snapshots.placements)), modifiedAt: generatedAt },
+    { name: 'void-fill.json', data: textBytes(voidFillPayloads.json), modifiedAt: generatedAt },
     { name: 'constraint-checks.json', data: textBytes(safeJson(snapshots.constraints)), modifiedAt: generatedAt },
     { name: 'weight-balance.json', data: textBytes(safeJson(snapshots.weightBalance)), modifiedAt: generatedAt },
     { name: 'floor-load.json', data: textBytes(safeJson(snapshots.floorLoad)), modifiedAt: generatedAt },
@@ -315,6 +326,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
     { name: 'runtime.json', data: textBytes(safeJson(snapshots.runtime)), modifiedAt: generatedAt },
     { name: 'cargo.csv', data: textBytes(toCsv(cargoRows(cargo, result))), modifiedAt: generatedAt },
     { name: 'placements.csv', data: textBytes(toCsv(placementRows(result, cargo))), modifiedAt: generatedAt },
+    { name: 'void-fill.csv', data: textBytes(voidFillPayloads.csv), modifiedAt: generatedAt },
     { name: 'floor-load.csv', data: textBytes(toCsv(floorRows(snapshots.floorLoad))), modifiedAt: generatedAt },
     { name: 'stack-analysis.csv', data: textBytes(toCsv(stackRows(snapshots.stackAnalysis))), modifiedAt: generatedAt },
   ];
@@ -353,6 +365,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
     '- packaging.json: 제품 포장 확정 스냅샷 및 등록 박스',
     '- loading-input.json: 자동 적재 엔진에 실제 전달된 CargoItem[]',
     '- placements.json/csv: 최종 개별 배치',
+    '- void-fill.json/csv: 메움재 위치·재질·수량·중량·적용범위 및 현장확인 고지',
     '- stack-analysis.json/csv: 적층단, 지지율, 중심지지, 돌출, 상부하중, 전도 위험',
     '- weight-balance.json / floor-load.json,csv / constraint-checks.json',
     '- physics-validation.json / inertia-validation.json: 현재 배치 signature 일치 및 STALE 여부',

@@ -128,6 +128,11 @@ describe('load-sim operational validator adapter', () => {
     const placements = [box({cargoId:'EARLY',x:1.5,y:0,z:0}),box({cargoId:'LATE',x:1.5,y:0,z:.6})];
     const supports = [{id:'LATE-DECK',x:1.5,y:0,z:.5,length:1,width:1,height:.1,weightKg:5}];
     const findings = validateOperationalLoading(space,cargo,placements,supports);
-    expect(findings.some(f=>f.code==='AFTER_STOP_FLOATING' && f.message.includes('LATE-DECK'))).toBe(true);
+    expect(findings).toContainEqual(expect.objectContaining({
+      code:'AFTER_STOP_FLOATING',
+      severity:'warning',
+      message:expect.stringContaining('LATE-DECK'),
+    }));
+    expect(operationalErrors(findings).some(f=>f.code.startsWith('AFTER_STOP_'))).toBe(false);
   });
 });

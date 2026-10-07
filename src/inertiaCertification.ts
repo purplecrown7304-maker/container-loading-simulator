@@ -7,6 +7,8 @@ import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { readSecuringMaterialSettings, type SecuringMaterialSettings } from './securingMaterialSettings';
 import { palletBandingLengthM } from './palletBanding';
 import { boxSecuringRequirements } from './engine/securingBudget';
+import { fixedGapSupports, gapSecuringPlan } from './engine/gapSecuring';
+import { usesHeavyInnerLoading } from './engine/heavyInnerPolicy';
 
 export type InertiaScenario = Exclude<PhysicsScenario, 'settle'>;
 export type CertificationStatus = 'passed' | 'failed' | 'review';
@@ -252,6 +254,15 @@ export function securingProfileForUsage(mode: PhysicsTarget['mode'], usage: Secu
   };
 }
 
+/** Use the same material snapshot for initial and work-order completion scenarios. */
+export function buildInertiaSimulationSupports(target: PhysicsTarget, usage: SecuringUsage): PhysicsSupport[] {
+  const supports = target.supports ?? [];
+  const approvedDirectBox = target.mode === 'boxes' && usesHeavyInnerLoading(target.container, target.cargo);
+  if (!approvedDirectBox) return supports;
+  const gapPlan = gapSecuringPlan(target.container, target.result.placements, usage.materialUnitWeights);
+  return [...supports, ...fixedGapSupports(gapPlan)];
+}
+
 export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel): SecuringUsage {
   const supports = target.mode === 'pallets' ? (target.supports ?? []) : [];
   const palletCount = supports.length;
@@ -293,13 +304,18 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     loadBars = required.loadBars;
   }
 
-  const estimatedAddedWeightKg =
+  const countBasedWeightKg =
     bandingLengthM * unitWeights.bandingKgPerM +
     cornerGuardLengthM * unitWeights.cornerGuardKgPerM +
     wrappingLengthM * unitWeights.wrappingKgPerM +
     antiSlipMats * unitWeights.antiSlipKgPerEa +
     dunnageBlocks * unitWeights.dunnageKgPerEa +
     loadBars * unitWeights.loadBarKgPerEa;
+  const approvedDirectBox = target.mode === 'boxes' && usesHeavyInnerLoading(target.container, target.cargo);
+  const voidPlan = approvedDirectBox && level > 0
+    ? gapSecuringPlan(target.container, target.result.placements, unitWeights)
+    : undefined;
+  const estimatedAddedWeightKg = Math.max(countBasedWeightKg, voidPlan?.weightKg ?? 0);
 
   return {
     level,
@@ -367,6 +383,7 @@ export async function runInertiaCertification(
     }
 
     const profile = securingProfileForUsage(target.mode, securing);
+    const simulationSupports = buildInertiaSimulationSupports(target, securing);
     const levelResults: Partial<Record<InertiaScenario, InertiaAnimationResult>> = {};
     let allPassed = true;
 
@@ -377,7 +394,7 @@ export async function runInertiaCertification(
         target.container,
         target.result.placements,
         scenario,
-        target.supports ?? [],
+        simulationSupports,
         value => onProgress?.({
           level,
           levelLabel: securing.levelLabel,

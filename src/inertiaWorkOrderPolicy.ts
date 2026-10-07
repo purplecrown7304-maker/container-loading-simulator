@@ -7,6 +7,7 @@ import {
   isInertiaStable,
   isNumericalLimitReviewTarget,
   createPhysicsTargetSignature,
+  buildInertiaSimulationSupports,
   securingProfileForUsage,
   type CertificationProgress,
   type InertiaAttemptScenario,
@@ -198,6 +199,7 @@ export async function completeCertificationForWorkOrder(
 
   const level = certification.securing.level;
   const profile = securingProfileForUsage(target.mode, certification.securing);
+  const simulationSupports = buildInertiaSimulationSupports(target, certification.securing);
   const results: Partial<Record<InertiaScenario, InertiaAnimationResult>> = { ...certification.results };
 
   for (let index = 0; index < SCENARIOS.length; index += 1) {
@@ -208,7 +210,7 @@ export async function completeCertificationForWorkOrder(
       target.container,
       target.result.placements,
       scenario,
-      target.supports ?? [],
+      simulationSupports,
       value => onProgress?.({
         level,
         levelLabel: certification.securing.levelLabel,

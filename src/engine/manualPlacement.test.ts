@@ -67,24 +67,47 @@ describe('manual placement', () => {
     expect(assessment.reasons.join(' ')).toContain('전체 바닥면');
   });
 
-  it('rejects an operational CG error as the final acceptance gate does', () => {
-    const assessment = assessManualMove(container,cargo,source,1,{x:2,y:0,z:0});
-    expect(assessment.valid).toBe(false);
-    expect(assessment.result.operationalFindings?.some(f => f.code === 'CG_LONGITUDINAL' && f.severity === 'error')).toBe(true);
+  it('allows an existing CG verdict to persist or improve, but rejects worsening it', () => {
+    const spec: ContainerSpec = { length:4,width:2,height:2,maxPayloadKg:100 };
+    const items: CargoItem[] = [{ id:'CG',name:'CG',length:1,width:1,height:.5,weightKg:80,quantity:1,maxStackLayers:1,maxTopLoadKg:0 }];
+    const current: LoadingResult = {
+      placements:[{cargoId:'CG',x:.5,y:.5,z:0,length:1,width:1,height:.5,weightKg:80}],
+      remaining:[],loadedWeightKg:80,usedVolumeM3:.5,validationIssues:[],
+    };
+    const same = assessManualMove(spec,items,current,0,{x:.5,y:.5,z:0});
+    expect(same.valid).toBe(true);
+    expect(same.result.operationalFindings?.some(f=>f.code==='CG_LONGITUDINAL'&&f.severity==='error')).toBe(true);
+    const improved = assessManualMove(spec,items,current,0,{x:1,y:.5,z:0});
+    expect(improved.valid).toBe(true);
+    const worsened = assessManualMove(spec,items,current,0,{x:0,y:.5,z:0});
+    expect(worsened.valid).toBe(false);
+    expect(worsened.reasons.join(' ')).toContain('기존 운영 오류가 악화');
   });
 
-  it('includes mandatory securing materials in final payload acceptance', () => {
+  it('keeps an existing securing-payload error visible when the manual move does not worsen it', () => {
     const assessment = assessManualMove({...container,maxPayloadKg:41},cargo,source,1,{x:3,y:1,z:0});
-    expect(assessment.valid).toBe(false);
-    expect(assessment.result.validationIssues.some(issue => issue.type === 'PAYLOAD' && issue.message.includes('고정 자재'))).toBe(true);
+    expect(assessment.valid).toBe(true);
+    expect(assessment.result.validationIssues.some(issue => issue.type === 'PAYLOAD')).toBe(true);
     expect(assessment.result.securingBudget?.totalTransportWeightKg).toBeGreaterThan(41);
   });
+  it('rejects a manual move that creates a new payload blocker through extra void-fill mass', () => {
+    const spec: ContainerSpec = { length:4,width:2.35,height:2,maxPayloadKg:100 };
+    const items: CargoItem[] = [{ id:'VOID',name:'VOID',length:.6,width:2.35,height:.8,weightKg:95,quantity:1,maxStackLayers:1,maxTopLoadKg:0,allowRotation:false }];
+    const current: LoadingResult = {
+      placements:[{cargoId:'VOID',x:3.4,y:0,z:0,length:.6,width:2.35,height:.8,weightKg:95}],
+      remaining:[],loadedWeightKg:95,usedVolumeM3:1.128,validationIssues:[],
+    };
+    const assessment=assessManualMove(spec,items,current,0,{x:0,y:0,z:0});
+    expect(assessment.valid).toBe(false);
+    expect(assessment.result.validationIssues.some(issue=>issue.type==='PAYLOAD')).toBe(true);
+    expect(assessment.reasons.join(' ')).toContain('새 안전 차단 오류');
+  });
 
-  it('preserves level 3 securing weight and reserve even for a no-op edit', () => {
+  it('preserves level 3 securing weight and reserve for a non-worsening no-op edit', () => {
     const current: LoadingResult = {...source,placements:[source.placements[0],{...source.placements[0],x:3,y:1}],
       securingBudget:{level:3,reservedWeightKg:30,requiredWeightKg:14.2,totalTransportWeightKg:54.2}};
     const assessment = assessManualMove({...container,maxPayloadKg:50},cargo,current,1,{x:3,y:1,z:0});
-    expect(assessment.valid).toBe(false);
+    expect(assessment.valid).toBe(true);
     expect(assessment.result.validationIssues.some(issue => issue.type === 'PAYLOAD')).toBe(true);
     expect(assessment.result.securingBudget).toMatchObject({level:3,reservedWeightKg:30});
     expect(assessment.result.securingBudget?.totalTransportWeightKg).toBeCloseTo(54.2);

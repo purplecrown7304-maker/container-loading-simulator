@@ -5,10 +5,11 @@ import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT, cancelPendingCertification, reque
 import { cargoColor, cargoTint, randomUniqueCargoColor } from './cargoColors';
 import { analyzeConstraints } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
+import { hasLongitudinalCgError } from './engine/cgCompliantPlan';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import { containerInputError, preflightCargoInput } from './engine/inputPreflight';
 import { pendingLoadingResult, publishLoadingResult, restoreLoadingResult, type LoadingStrategy } from './engine/loadingEngine';
-import { readManualOverride } from './engine/manualOverride';
+import { readManualOverride, writeManualOverride } from './engine/manualOverride';
 import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
@@ -22,11 +23,14 @@ import { resolvePalletType, usePalletTypeSelection } from './palletTypeSelection
 import type { PalletViewerScene } from './PalletModePanel';
 import { openPalletLoadingReport } from './palletWorkerReport';
 import PalletFooterSummary from './PalletFooterSummary';
-import { clearPhysicsTarget } from './physicsTarget';
+import { clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
 import { openLoadingReport } from './report';
 import { openResultsModal } from './resultsModalEvents';
 import { normalizeCargo, readStoredState, STORAGE_KEY, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
 import WorkspaceTools from './WorkspaceTools';
+import CgPlanChoice from './CgPlanChoice';
+import VoidFillSummary from './VoidFillSummary';
+import './loading-plan-choice.css';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 import { useTransportEquipment } from './transportEquipment';
 
@@ -73,6 +77,7 @@ export default function App() {
   const [navSection, setNavSection] = useState<NavSection>('dashboard');
   const [palletRunToken, setPalletRunToken] = useState(0);
   const [result, setResult] = useState<LoadingResult>(() => pendingLoadingResult(stored?.container ?? defaultContainer, startingCargo));
+  const [cgChoiceSelection, setCgChoiceSelection] = useState<'full' | 'cg' | null>(null);
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(
     stored ? null : { tone: 'info', text: '처음 시작합니다. 컨테이너를 확인한 뒤 본인이 사용할 화물을 등록하세요.' },
   );
@@ -93,7 +98,7 @@ export default function App() {
   const currentInputKey = useRef(inputKey);
   currentInputKey.current = inputKey;
   const previousInputKey = useRef<string | null>(null);
-  const restoreInput = useRef<StoredState | null>(null);
+  const restoreInput = useRef<StoredState | null>(stored?.result ? stored : null);
   const liveInputs = useRef({ container, cargo, result });
   liveInputs.current = { container, cargo, result };
   const floorPreview = useMemo(() => createWorkflowFloorPreview(container, workflowPreview?.cargo ?? cargo), [container, workflowPreview, cargo]);
@@ -128,6 +133,7 @@ export default function App() {
     setOptimizationMessage('');
     setOptimizationProgress(0);
     setOptimizationEtaSeconds(null);
+    setCgChoiceSelection(null);
     optimizationStartedAt.current = null;
     clearLatestInertiaCertification();
     clearPhysicsTarget();
@@ -183,7 +189,7 @@ export default function App() {
     setPalletScene(null);
     const restored = restoreInput.current;
     restoreInput.current = null;
-    setResult(restored ? restoreLoadingResult(container, cargo.filter(item => item.quantity > 0)) : pendingLoadingResult(container, cargo));
+    setResult(restored ? restoreLoadingResult(container, cargo.filter(item => item.quantity > 0), restored.result) : pendingLoadingResult(container, cargo));
     window.dispatchEvent(new CustomEvent(WORKFLOW_INPUT_INVALIDATED_EVENT));
   }, [inputKey]);
 
@@ -325,6 +331,7 @@ export default function App() {
       return;
     }
     setIsRunning(true);
+    setCgChoiceSelection(null);
     const runInputKey = inputKey;
     const controller = loadingRun.current.start();
     const ownsRun = () => loadingRun.current.owns(controller) && currentInputKey.current === runInputKey;
@@ -355,14 +362,19 @@ export default function App() {
       const published = optimized.result;
       publishLoadingResult(container, activeCargo, published);
       setResult(published);
-      requestExactCertification({ mode: 'boxes', container, cargo: activeCargo, result: published });
+      if (hasLongitudinalCgError(published)) {
+        clearLatestInertiaCertification();
+        publishPhysicsTarget({ mode: 'boxes', container, cargo: activeCargo, result: published });
+      } else {
+        requestExactCertification({ mode: 'boxes', container, cargo: activeCargo, result: published });
+      }
       setPhysicsScore(optimized.physics.score);
       setPhysicsStrategy(optimized.strategy);
       setOptimizationProgress(100);
       setOptimizationEtaSeconds(0);
       (window as Window & { __containerLoadingLatestPhysics?: unknown }).__containerLoadingLatestPhysics = optimized.physics;
       window.dispatchEvent(new CustomEvent('container-loading:physics-validation-result', { detail: { mode: 'boxes', result: optimized.physics } }));
-      announce(container.limitReview || !published.placements.length ? 'warning' : 'success', container.limitReview ? `검토용 계산 완료 · ${published.placements.length}EA · 원 기준의 초과·실패 경고를 유지합니다. 출고 승인 불가` : published.placements.length ? `자동 적재 계산 완료 · ${published.placements.length}EA · 관성 3종 최종검증 진행 중` : '계산 완료 · 적재 가능한 화물이 없습니다. 결과에서 미적재 사유를 확인하세요.');
+      announce(container.limitReview || !published.placements.length || hasLongitudinalCgError(published) ? 'warning' : 'success', container.limitReview ? `검토용 계산 완료 · ${published.placements.length}EA · 원 기준의 초과·실패 경고를 유지합니다. 출고 승인 불가` : hasLongitudinalCgError(published) ? `자동 적재 계산 완료 · ${published.placements.length}EA · 길이 CG 오류가 있어 전체안과 CG 충족안 중 하나를 선택하세요.` : published.placements.length ? `자동 적재 계산 완료 · ${published.placements.length}EA · 관성 3종 최종검증 진행 중` : '계산 완료 · 적재 가능한 화물이 없습니다. 결과에서 미적재 사유를 확인하세요.');
       setOptimizationMessage('');
     } catch (error) {
       if (!ownsRun()) return;
@@ -378,17 +390,49 @@ export default function App() {
     }
   };
 
+  const activeBoxCargo = preflightCargoInput(cargo).cargo;
+  const cgChoicePending = mode === 'boxes' && !isPreview && hasLongitudinalCgError(result) && cgChoiceSelection === null;
+
+  const chooseCgPlan = (choice: 'full' | 'cg', selectedResult: LoadingResult) => {
+    cancelPendingCertification();
+    clearLatestInertiaCertification();
+    clearPhysicsTarget('boxes');
+    writeManualOverride(container, activeBoxCargo, selectedResult);
+    publishLoadingResult(container, activeBoxCargo, selectedResult);
+    setResult(selectedResult);
+    setCgChoiceSelection(choice);
+    if (choice === 'cg') {
+      setPhysicsScore(null);
+      setPhysicsStrategy(null);
+    }
+    requestExactCertification(
+      { mode: 'boxes', container, cargo: activeBoxCargo, result: selectedResult },
+      { preserveSelectedPlan: true, allowCgVerdictError: choice === 'full' },
+    );
+    announce(choice === 'full' ? 'warning' : 'success',
+      choice === 'full'
+        ? `전체 적재안 ${selectedResult.placements.length}EA를 선택했습니다. CG 오류를 유지한 채 관성 검증합니다.`
+        : `CG 충족안 ${selectedResult.placements.length}EA를 선택했습니다. 선택한 배치를 유지한 채 관성 검증합니다.`);
+  };
+
   const showResults = () => {
     if (isPreview) { announce('info', '미리보기 단계입니다. 최종 적재를 실행한 뒤 결과를 확인하세요.'); return; }
+    if (cgChoicePending) { announce('warning', '전체 적재안과 CG 충족안 중 하나를 먼저 선택하세요.'); return; }
     openResultsModal({ container, cargo, result });
   };
   const printReport = () => {
+    if (cgChoicePending) { announce('warning', '작업지시서 발급 전에 전체 적재안과 CG 충족안 중 하나를 선택하세요.'); return; }
     const opened = mode === 'pallets'
       ? openPalletLoadingReport(container, cargo)
       : openLoadingReport(container, cargo, result);
     if (!opened) announce('error', '팝업이 차단되어 작업지시서를 열지 못했습니다.');
   };
-  const saveLocal = () => { writeStoredState({ container, cargo }); announce('success', '현재 작업을 저장했습니다.'); };
+  const saveLocal = () => {
+    const savedResult = mode === 'boxes' && !isPreview ? result : undefined;
+    if (savedResult) writeManualOverride(container, cargo, savedResult);
+    writeStoredState({ container, cargo, ...(savedResult ? { result: savedResult } : {}) });
+    announce('success', savedResult ? '현재 입력과 최종 적재 결과를 저장했습니다.' : '현재 작업 입력을 저장했습니다.');
+  };
   const loadLocal = () => {
     const state = readStoredState();
     if (!state) return announce('warning', '저장된 데이터가 없습니다.');
@@ -396,8 +440,8 @@ export default function App() {
     const sameInput = JSON.stringify({ container: state.container, cargo: normalized }) === JSON.stringify({ container, cargo });
     setContainer(state.container);
     setCargo(normalized);
-    restoreInput.current = sameInput ? null : { container: state.container, cargo: normalized };
-    if (sameInput) setResult(restoreLoadingResult(state.container, normalized.filter(item => item.quantity > 0), result));
+    restoreInput.current = sameInput ? null : { ...state, cargo: normalized };
+    if (sameInput) setResult(restoreLoadingResult(state.container, normalized.filter(item => item.quantity > 0), state.result ?? result));
     invalidatePhysics();
     announce('success', '저장된 데이터를 불러왔습니다.');
   };
@@ -442,7 +486,7 @@ export default function App() {
       <nav className="main-nav" aria-label="주요 메뉴">
         <button className={`nav-item ${navSection === 'dashboard' ? 'active' : ''}`} onClick={scrollToDashboard}>대시보드</button>
         <button className={`nav-item ${navSection === 'viewer' ? 'active' : ''}`} onClick={scrollToViewer}>3D 보기</button>
-        <button className="nav-item" disabled={isPreview} onClick={showResults}>결과 보기</button>
+        <button className="nav-item" disabled={isPreview || cgChoicePending} onClick={showResults}>결과 보기</button>
       </nav>
       <WorkspaceTools />
       <div className="top-actions compact">
@@ -555,8 +599,12 @@ export default function App() {
             </Suspense>
           </div>
           {isPreview && <div className="workflow-preview-status" role="status" data-preview-kind={workflowPreview?.kind ?? 'cargo'}>{floorPreview.requested === 0 ? '적재공간을 확인하고 제품을 선택하세요' : `미리보기 · ${floorPreview.shown.toLocaleString()} / ${floorPreview.requested.toLocaleString()}개 표시 · 실제 크기의 바닥 배치이며 최종 적재·안전 검증 전입니다`}</div>}
+          {mode === 'boxes' && !isPreview && <>
+            {hasLongitudinalCgError(result) && <CgPlanChoice container={container} cargo={activeBoxCargo} fullResult={result} onChoose={chooseCgPlan} />}
+            <VoidFillSummary result={result} compact />
+          </>}
           <div className={`viewer-bottom-actions ${mode !== 'boxes' ? 'pallet-summary-active' : ''}`}>
-            <button className="result-open-action" disabled={isPreview} onClick={showResults}>결과 보기</button>
+            <button className="result-open-action" disabled={isPreview || cgChoicePending} onClick={showResults}>결과 보기</button>
             <PalletFooterSummary active={mode !== 'boxes'} />
             <span>{physicsScore !== null ? `Rapier ${physicsScore}점 · ${physicsStrategy ? strategyLabel(physicsStrategy) : ''}` : '자동 적재 실행 시 후보를 물리 검증해 최종안을 선택합니다.'}</span>
           </div>

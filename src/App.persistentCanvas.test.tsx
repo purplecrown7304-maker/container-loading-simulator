@@ -24,6 +24,7 @@ const cargo = [{ id: 'A', name: 'A', length: .5, width: .4, height: .3, weightKg
 vi.mock('./WorkspaceTools', () => ({ default: () => null }));
 vi.mock('./PalletFooterSummary', () => ({ default: () => null }));
 vi.mock('./PalletModePanel', () => ({ default: () => null }));
+vi.mock('./CgPlanChoice', () => ({ default: () => <section>길이 방향 무게중심 선택 필요 · 전체 적재안 · CG 충족안</section> }));
 vi.mock('./memberAuth', async importOriginal => ({ ...await importOriginal<typeof import('./memberAuth')>(), restoreMemberSession: async () => null, readSupabaseMember: () => null }));
 vi.mock('./LoadingViewer', () => ({ default: (props: LoadingViewerProps) => {
   captured.props = props;
@@ -90,6 +91,26 @@ it('shows immediate preview without publishing it as calculated cargo, then pres
     await act(async () => publishGuidedWorkflowState({ active: true, step }));
     expect(captured.props?.result).toBe(result);
   }
+});
+
+it('holds a CG-error full plan for operator choice instead of auto-certifying it', async () => {
+  await run();
+  const value = optimized();
+  value.result.operationalFindings = [{
+    code: 'CG_LONGITUDINAL',
+    severity: 'error',
+    message: '길이 방향 무게중심 초과',
+    placementIndexes: [],
+    value: .8,
+    limit: .4,
+  }];
+  await act(async () => captured.runs[0].resolve(value));
+  expect(requestExactCertification).not.toHaveBeenCalled();
+  expect(captured.props?.result).toBe(value.result);
+  expect(host.querySelector<HTMLButtonElement>('.result-open-action')?.disabled).toBe(true);
+  expect(host.textContent).toContain('길이 방향 무게중심 선택 필요');
+  expect(host.textContent).toContain('전체 적재안');
+  expect(host.textContent).toContain('CG 충족안');
 });
 
 it.each(['strategy', 'loading-unit', 'preview-data', 'review-mode'] as const)('cancels obsolete optimization on %s change and never publishes its late result', async change => {
