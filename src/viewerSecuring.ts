@@ -6,11 +6,12 @@ import { palletBandingSegments } from './palletBanding';
 
 // Visual geometry only. Restraint forces and certification remain owned by the engine.
 export type ViewerDecoration = { x: number; y: number; z: number; length: number; width: number; height: number; color: string; supportIndex: number; wire?: boolean; modelKey?: string };
-export function securingGeometry(container: ContainerSpec, result: LoadingResult, supports: PhysicsSupport[], usage?: SecuringUsage | null): ViewerDecoration[] {
-  const boxes = result.placements;
+export function securingGeometry(container: ContainerSpec, source: LoadingResult | Placement[], supports: PhysicsSupport[], usage?: SecuringUsage | null): ViewerDecoration[] {
+  const result = Array.isArray(source) ? undefined : source;
+  const boxes = Array.isArray(source) ? source : source.placements;
   const output: ViewerDecoration[] = [];
   const add = (x: number, y: number, z: number, length: number, width: number, height: number, color: string, supportIndex = -1, wire = false, modelKey?: string) => output.push({ x, y, z, length, width, height, color, supportIndex, wire, ...(modelKey ? { modelKey } : {}) });
-  for (const fill of result.voidFillPlan?.fills ?? []) {
+  for (const fill of result?.voidFillPlan?.fills ?? []) {
     add(fill.x, fill.y, fill.z, fill.length, fill.width, fill.height, voidFillMaterialColor(fill), -1,
       !fill.fixedSupportEligible, fill.material === 'dunnage-airbag' ? 'dunnage-airbag' : undefined);
   }
