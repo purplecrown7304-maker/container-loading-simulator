@@ -35,7 +35,7 @@ describe('securing-inclusive payload budget', ()=>{
     const custom={...materials,antiSlipKgPerEa:4.5};
     localStorage.setItem(SECURING_MATERIAL_SETTINGS_STORAGE_KEY,JSON.stringify(custom));
     let sent: {securingOptions:{securingMaterials:typeof custom}} | undefined;
-    vi.stubGlobal('Worker',class { onmessage?: (event:unknown)=>void; terminate() {} postMessage(data:typeof sent) {sent=data; queueMicrotask(()=>this.onmessage?.({data:{result:{placements:[],remaining:[],loadedWeightKg:0,usedVolumeM3:0,validationIssues:[]}}}));} });
+    vi.stubGlobal('Worker',class extends EventTarget { onmessage?: (event:unknown)=>void; terminate() {} postMessage(data:typeof sent) {sent=data; queueMicrotask(()=>this.onmessage?.({data:{result:{placements:[],remaining:[],loadedWeightKg:0,usedVolumeM3:0,validationIssues:[]}}}));} });
     await loadContainerAsync(container,cargo,'capacity');
     expect(sent?.securingOptions.securingMaterials).toEqual(custom);
   });

@@ -49,7 +49,7 @@ describe('asynchronous loading lifecycle', () => {
       voidDoorBarKgPerEa:5.6, voidDoorBarMinSpanM:2.261, voidDoorBarMaxSpanM:2.642, voidDoorBarCoverageHeightM:1.2,
     };
     let posted: any;
-    vi.stubGlobal('Worker', class {
+    vi.stubGlobal('Worker', class extends EventTarget {
       onmessage?: (event: MessageEvent<any>) => void;
       onerror?: () => void;
       onmessageerror?: () => void;
@@ -115,7 +115,7 @@ describe('asynchronous loading lifecycle', () => {
     };
     const materials = { ...baseMaterials, ...(override ?? {}) };
     let posted:any;
-    vi.stubGlobal('Worker', class {
+    vi.stubGlobal('Worker', class extends EventTarget {
       onmessage?: (event:MessageEvent<any>)=>void;
       onerror?: ()=>void;
       terminate=vi.fn();
@@ -141,10 +141,10 @@ describe('asynchronous loading lifecycle', () => {
 
   it('terminates a cancelled worker instead of accepting a stale layout', async () => {
     let worker: { terminate: ReturnType<typeof vi.fn> };
-    vi.stubGlobal('Worker', class {
+    vi.stubGlobal('Worker', class extends EventTarget {
       terminate = vi.fn();
       postMessage = vi.fn();
-      constructor() { worker = this; }
+      constructor() { super(); worker = this; }
     });
     const controller = new AbortController();
     const result = loadContainerAsync(container, cargo, 'capacity', controller.signal);
@@ -154,8 +154,48 @@ describe('asynchronous loading lifecycle', () => {
     expect(worker!.terminate).toHaveBeenCalledOnce();
   });
 
+  it('rejects an EventTarget-dispatched messageerror without a result and cleans up', async () => {
+    let worker!: MessageErrorWorker;
+    class MessageErrorWorker extends EventTarget {
+      onmessage?: (event: MessageEvent<any>) => void;
+      terminate = vi.fn();
+      constructor() {
+        super();
+        worker = this;
+        // Happy DOM invokes arbitrary on* properties. Chromium Worker has no
+        // onmessageerror setter, so do not let that emulation hide the bug.
+        Object.defineProperty(this, 'onmessageerror', { get: () => undefined, set: () => {} });
+      }
+      postMessage() {
+        queueMicrotask(() => {
+          this.dispatchEvent(new MessageEvent('messageerror'));
+          // If messageerror was registered as an inert ordinary property, the
+          // underlying job can still finish. Make that regression fail promptly.
+          if (!this.terminate.mock.calls.length) {
+            this.onmessage?.({ data: { result: { placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0, validationIssues: [] } } } as MessageEvent<any>);
+          }
+        });
+      }
+    }
+    vi.stubGlobal('Worker', MessageErrorWorker);
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+    const fulfilled = vi.fn();
+    const pending = loadContainerAsync(container, cargo, 'capacity', controller.signal).then(result => {
+      fulfilled(result);
+      return result;
+    });
+    await expect(pending).rejects.toThrow('적재 계산 결과를 읽지 못했습니다.');
+    expect(fulfilled).not.toHaveBeenCalled();
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
+    controller.abort();
+    worker.dispatchEvent(new MessageEvent('messageerror'));
+    expect(worker.terminate).toHaveBeenCalledOnce();
+  });
+
   it('reports a worker failure instead of returning an empty success', async () => {
-    vi.stubGlobal('Worker', class {
+    vi.stubGlobal('Worker', class extends EventTarget {
       onerror?: () => void;
       terminate = vi.fn();
       postMessage() { queueMicrotask(() => this.onerror?.()); }

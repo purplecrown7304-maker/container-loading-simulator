@@ -18,7 +18,8 @@ export function loadContainerAsync(container: ContainerSpec, cargo: CargoItem[],
       else reject(new Error(event.data.error ?? '적재 계산 결과를 읽지 못했습니다.'));
     };
     worker.onerror = () => { clean(); reject(new Error('적재 계산 모듈을 실행하지 못했습니다. 다시 시도해 주세요.')); };
-    worker.onmessageerror = () => { clean(); reject(new Error('적재 계산 결과를 읽지 못했습니다.')); };
+    // Chromium does not expose a Worker.onmessageerror event-handler property.
+    worker.addEventListener('messageerror', () => { clean(); reject(new Error('적재 계산 결과를 읽지 못했습니다.')); }, { once: true });
     signal?.addEventListener('abort', abort, { once: true });
     try { worker.postMessage({ container, cargo, strategy, securingOptions }); }
     catch (error) { clean(); reject(error); }
