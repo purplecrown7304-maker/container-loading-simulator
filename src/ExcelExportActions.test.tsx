@@ -110,3 +110,34 @@ it('marks every workbook sheet WHAT-IF even when baseline physics is healthy', a
   expect(summary().find(row => row[0] === '최종 관성검증')?.[1]).toContain('WHAT-IF REVIEW');
   expect(summary().find(row => row[0] === '최종 관성검증')?.[1]).not.toContain('PASS');
 });
+
+
+it('exports structured void-fill location material quantity and weight', async () => {
+  const target: PhysicsTarget = {
+    ...base,
+    result: {
+      ...base.result,
+      voidFillPlan: {
+        fills: [{
+          id: 'fill-door-face', kind: 'door-face', material: 'load-bar', quantity: 2, weightKg: 10.2,
+          fixedSupportEligible: true, gapM: 1.2, voidVolumeM3: 1.8,
+          x: .3, y: 0, z: 0, length: .03, width: 2, height: .9,
+        }],
+        sideGapM: 0, rearGapM: 1.2, volumeM3: 1.8, weightKg: 10.2, unresolvedCount: 0,
+      },
+    },
+  };
+  await exportCurrent(target, certification(target));
+  expect(workbook().SheetNames).toContain('메움재상세');
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook().Sheets['메움재상세']);
+  expect(rows[0]).toMatchObject({
+    ID: 'fill-door-face',
+    틈유형: '문쪽 끝단',
+    자재: '카고 로드바',
+    수량_EA: 2,
+    중량_kg: 10.2,
+    X_m: .3,
+    관성고정지지: 'Y',
+  });
+  expect(summary()).toContainEqual(['메움재 중량(kg)', 10.2]);
+});
