@@ -128,9 +128,11 @@ export default function DirectWorkOrderOptimizer() {
     setSearch(null);
     setReadyReport(null);
     setNotice('');
-    setMessage(automatic
-      ? '최종 적재 진행 · 관성 3종과 안전 후보를 자동 검증합니다.'
-      : '현재 적재안과 안전성이 높은 소수 재배치 후보를 관성 검증합니다.');
+    setMessage(detail.preserveSelectedPlan
+      ? '사용자가 선택한 적재안을 유지하고 관성 3종을 검증합니다.'
+      : automatic
+        ? '최종 적재 진행 · 관성 3종과 안전 후보를 자동 검증합니다.'
+        : '현재 적재안과 안전성이 높은 소수 재배치 후보를 관성 검증합니다.');
     setError('');
 
     if (!current.result.placements.length) {
@@ -197,6 +199,10 @@ export default function DirectWorkOrderOptimizer() {
         checkCurrent();
 
         const evaluated: Evaluated = { ...candidate, certification, risk: certificationRisk(certification) };
+        if (detail.preserveSelectedPlan) {
+          finish({ ...evaluated, certification: { ...certification, searchNotice: '사용자가 선택한 적재안을 유지한 채 관성 검증했습니다.' } }, automatic);
+          return;
+        }
         if (isLimitReviewTarget(candidate.target)) {
           finish({ ...evaluated, certification: { ...certification, searchNotice: LIMIT_REVIEW_WARNING } }, automatic);
           return;
