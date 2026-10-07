@@ -81,15 +81,15 @@ async function installInput(page: Page, disableWorker: boolean) {
     };
   }, { disable: disableWorker });
 
-  // localStorage access in an init script can occur while the document still has an
-  // opaque origin. Seed it after the first navigation, then reload so App hydrates it.
+  // Enter a real origin first, then use the same storage-update event App listens to.
+  // This avoids depending on render-time hydration order while exercising the real UI state path.
   await page.goto('/');
   await page.evaluate(({ state, materials }) => {
-    localStorage.clear();
     localStorage.setItem('container-loading-simulator-v1', JSON.stringify(state));
     localStorage.setItem('container-loading-securing-material-settings', JSON.stringify(materials));
+    window.dispatchEvent(new CustomEvent('container-loading-simulator:storage-updated', { detail: state }));
+    window.dispatchEvent(new CustomEvent('container-loading:securing-material-settings', { detail: materials }));
   }, { state: storedState, materials: securingSettings });
-  await page.reload();
 }
 async function runLoading(page: Page) {
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.cargo?.[0]?.id)).toBe('WORKER-PARITY');
