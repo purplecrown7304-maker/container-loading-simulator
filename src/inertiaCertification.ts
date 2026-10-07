@@ -7,6 +7,8 @@ import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { readSecuringMaterialSettings, type SecuringMaterialSettings } from './securingMaterialSettings';
 import { palletBandingLengthM } from './palletBanding';
 import { boxSecuringRequirements } from './engine/securingBudget';
+import { gapSecuringPlan } from './engine/gapSecuring';
+import { usesHeavyInnerLoading } from './engine/heavyInnerPolicy';
 
 export type InertiaScenario = Exclude<PhysicsScenario, 'settle'>;
 export type CertificationStatus = 'passed' | 'failed' | 'review';
@@ -293,13 +295,18 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     loadBars = required.loadBars;
   }
 
-  const estimatedAddedWeightKg =
+  const countBasedWeightKg =
     bandingLengthM * unitWeights.bandingKgPerM +
     cornerGuardLengthM * unitWeights.cornerGuardKgPerM +
     wrappingLengthM * unitWeights.wrappingKgPerM +
     antiSlipMats * unitWeights.antiSlipKgPerEa +
     dunnageBlocks * unitWeights.dunnageKgPerEa +
     loadBars * unitWeights.loadBarKgPerEa;
+  const approvedDirectBox = target.mode === 'boxes' && usesHeavyInnerLoading(target.container, target.cargo);
+  const voidPlan = approvedDirectBox && level > 0
+    ? gapSecuringPlan(target.container, target.result.placements, unitWeights)
+    : undefined;
+  const estimatedAddedWeightKg = Math.max(countBasedWeightKg, voidPlan?.weightKg ?? 0);
 
   return {
     level,
