@@ -26,6 +26,12 @@ export async function withWorkerParityPage(browser: Browser, run: (page: Page) =
       }
     }
     await collect(outDir);
+    const workerAssets = [...files].filter(([path]) => /^assets\/loading\.worker-[^/]+\.js$/.test(path));
+    if (workerAssets.length !== 1) throw new Error('Parity fixture must emit exactly one real loading Worker');
+    for (const [path, contents] of workerAssets) {
+      const productionWorker = await readFile(new URL(`../../dist/${path}`, import.meta.url));
+      if (!contents.equals(productionWorker)) throw new Error('Parity Worker differs from the application production build');
+    }
     await context.route('**/__loading-worker-parity/**', async route => {
       const path = new URL(route.request().url()).pathname.replace('/__loading-worker-parity/', '');
       const body = files.get(path);

@@ -1,3 +1,4 @@
+import { runLoadingWorkerLifecycle } from './lifecycle';
 import { cgCompliantAlternativeForResult } from '../../../src/engine/cgCompliantPlan';
 import { loadContainerAsync } from '../../../src/engine/asyncLoading';
 import { loadContainer, type LoadingStrategy } from '../../../src/engine/loadingEngine';
@@ -9,6 +10,7 @@ type Input = { container: ContainerSpec; cargo: CargoItem[]; materials?: Securin
 // This entry is built only by the parity test, never included in the application build.
 // It uses the real production modules without App hydration or Rapier certification.
 (window as any).runLoadingWorkerParity = async ({ container, cargo, materials, strategy = 'capacity', includeCgAlternative = false }: Input) => {
+  const inputSnapshot = structuredClone({ container, cargo, materials, strategy });
   const NativeWorker = window.Worker;
   const requests: unknown[] = [];
   const responses: unknown[] = [];
@@ -51,5 +53,8 @@ type Input = { container: ContainerSpec; cargo: CargoItem[]; materials?: Securin
     fallback: cgCompliantAlternativeForResult(container, cargo, fallbackResult, cgOptions),
     sync: cgCompliantAlternativeForResult(container, cargo, syncResult, cgOptions),
   } : undefined;
-  return { cgAlternatives, timing, workerResult, fallbackResult, syncResult, requests, responses, errors };
+  const inputUnchanged = JSON.stringify(inputSnapshot) === JSON.stringify({ container, cargo, materials, strategy });
+  return { inputUnchanged, cgAlternatives, timing, workerResult, fallbackResult, syncResult, requests, responses, errors };
 };
+
+(window as any).runLoadingWorkerLifecycle = runLoadingWorkerLifecycle;

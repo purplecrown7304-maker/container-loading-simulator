@@ -223,10 +223,11 @@ test('real worker and synchronous fallback preserve custom material plans and bo
 
     for (const scenario of scenarios) {
       await withWorkerParityPage(browser, async page => {
-        const { workerResult, fallbackResult, syncResult, requests, responses, errors } = await page.evaluate(
+        const { workerResult, fallbackResult, syncResult, requests, responses, errors, inputUnchanged } = await page.evaluate(
           input => (window as any).runLoadingWorkerParity(input),
           { ...scenario.state, materials: scenario.materials },
         );
+        expect(inputUnchanged, scenario.name).toBe(true);
         expect(errors, scenario.name).toEqual([]);
         expect(requests, scenario.name).toHaveLength(1);
         expect(responses, scenario.name).toHaveLength(1);
