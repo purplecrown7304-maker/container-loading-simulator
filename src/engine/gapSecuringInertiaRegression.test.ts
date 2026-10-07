@@ -59,6 +59,12 @@ async function expectActualFillBlocksMotion(
     options,
   );
 
+  console.info('GAP_FILL_INERTIA', {
+    kind: expectedKind,
+    scenario,
+    withoutFill: { shiftM: withoutFill.maxHorizontalShiftM, tiltDeg: withoutFill.maxTiltDeg },
+    withFill: { shiftM: withFill.maxHorizontalShiftM, tiltDeg: withFill.maxTiltDeg },
+  });
   expect(isInertiaStable(withoutFill)).toBe(false);
   expect(isInertiaStable(withFill)).toBe(true);
   expect(withFill.maxHorizontalShiftM).toBeLessThanOrEqual(0.012);
@@ -89,6 +95,22 @@ describe('actual gap-fill inertia regressions', () => {
 
     await expectActualFillBlocksMotion(container, placements, 'cornering', 'side-gap');
   }, 30_000);
+
+  it('never treats an out-of-range gap as a fixed filled support', () => {
+    const container: ContainerSpec = {
+      length: 0.6,
+      width: 2.35,
+      height: 2,
+      maxPayloadKg: 2000,
+    };
+    const placements = [box('OUT-OF-RANGE', 0, 0, 0.6, 1.75)];
+    const plan = gapSecuringPlan(container, placements);
+    const sideGap = plan.fills.find(fill => fill.kind === 'side-gap');
+    expect(sideGap).toBeDefined();
+    expect(sideGap?.material).toBe('unresolved');
+    expect(sideGap?.fixedSupportEligible).toBe(false);
+    expect(fixedGapSupports(plan).some(support => support.id === sideGap!.id)).toBe(false);
+  });
 
   it('uses the computed in-row air bag while the far-side cargo remains wall-blocked', async () => {
     const container: ContainerSpec = {
