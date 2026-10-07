@@ -21,6 +21,7 @@ import { buildReportZones } from './reportZones';
 import { buildZoneOverview, buildZoneTable, buildReportLegend, buildZone3d, buildPartialLocations, buildSecuringLocationGuide } from './reportZoneGraphics';
 import { reportCargoCatalog } from './reportCargo';
 import { buildWorkOrderCargoSummary, loadedCargoCounts } from './workOrderCargoSummary';
+import { VOID_FILL_DISCLAIMER, voidFillRows, voidFillTotal } from './voidFillPresentation';
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -62,6 +63,9 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
   const generatedAt = new Date().toLocaleString('ko-KR');
   const cargoIntake = buildWorkOrderCargoSummary(cargo, loadedCargoCounts(result.placements), reportCargoCatalog(cargo));
   const shipmentInstruction = buildShipmentInstructionSection(cargo, result);
+  const voidRows = voidFillRows(result);
+  const voidTotal = voidFillTotal(result);
+  const voidFillTable = voidRows.length ? `<div class="section-title"><h3>메움재 상세</h3><span>총 ${voidTotal.quantity} EA · ${voidTotal.weightKg.toFixed(2)} kg</span></div><div class="report-table-scroll"><table><thead><tr><th>유형</th><th>자재</th><th>수량</th><th>중량</th><th>위치 X/Y/Z</th><th>크기 L/W/H</th><th>적용</th></tr></thead><tbody>${voidRows.map(row => `<tr><td>${escapeHtml(row.gapType)}</td><td>${escapeHtml(row.material)}</td><td>${row.quantity} EA</td><td>${row.weightKg.toFixed(2)} kg</td><td>${row.xM}/${row.yM}/${row.zM} m</td><td>${row.lengthM}/${row.widthM}/${row.heightM} m</td><td>${row.fixedSupportEligible === 'Y' ? '계획 적용' : '범위 밖 · 미확정'}</td></tr>`).join('')}</tbody></table></div><p class="technical-note">${escapeHtml(VOID_FILL_DISCLAIMER)}</p>` : '';
 
   const materialItems: Array<[string, string]> = [];
   if (securing) {
@@ -120,7 +124,7 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
       },
       {
         title: '출하 수량과 보조자재', description: '품목별 수량과 준비 자재를 대조하고 설치 대상 영역을 확인하세요.',
-        content: `${shipmentInstruction}${cargoIntake}<div class="section-title"><h3>필요 보조자재</h3><span>${escapeHtml(securing?.levelLabel ?? '보조 고정 미확인')}</span></div><section class="materials">${materialCards}</section>${buildSecuringLocationGuide(container, result.placements, securing)}`,
+        content: `${shipmentInstruction}${cargoIntake}<div class="section-title"><h3>필요 보조자재</h3><span>${escapeHtml(securing?.levelLabel ?? '보조 고정 미확인')}</span></div><section class="materials">${materialCards}</section>${buildSecuringLocationGuide(container, result.placements, securing)}${voidFillTable}`,
       },
       {
         title: '출고 전 최종 확인', description: '아래 3개 작업을 확인한 뒤 담당자가 서명하세요.',
