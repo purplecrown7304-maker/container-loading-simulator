@@ -254,6 +254,15 @@ export function securingProfileForUsage(mode: PhysicsTarget['mode'], usage: Secu
   };
 }
 
+/** Use the same material snapshot for initial and work-order completion scenarios. */
+export function buildInertiaSimulationSupports(target: PhysicsTarget, usage: SecuringUsage): PhysicsSupport[] {
+  const supports = target.supports ?? [];
+  const approvedDirectBox = target.mode === 'boxes' && usesHeavyInnerLoading(target.container, target.cargo);
+  if (!approvedDirectBox) return supports;
+  const gapPlan = gapSecuringPlan(target.container, target.result.placements, usage.materialUnitWeights);
+  return [...supports, ...fixedGapSupports(gapPlan)];
+}
+
 export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel): SecuringUsage {
   const supports = target.mode === 'pallets' ? (target.supports ?? []) : [];
   const palletCount = supports.length;
@@ -374,13 +383,7 @@ export async function runInertiaCertification(
     }
 
     const profile = securingProfileForUsage(target.mode, securing);
-    const approvedDirectBox = target.mode === 'boxes' && usesHeavyInnerLoading(target.container, target.cargo);
-    const gapPlan = approvedDirectBox
-      ? gapSecuringPlan(target.container, target.result.placements, securing.materialUnitWeights)
-      : undefined;
-    const simulationSupports = gapPlan
-      ? [...(target.supports ?? []), ...fixedGapSupports(gapPlan)]
-      : (target.supports ?? []);
+    const simulationSupports = buildInertiaSimulationSupports(target, securing);
     const levelResults: Partial<Record<InertiaScenario, InertiaAnimationResult>> = {};
     let allPassed = true;
 
