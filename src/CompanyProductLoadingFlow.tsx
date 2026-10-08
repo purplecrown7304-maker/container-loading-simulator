@@ -23,6 +23,7 @@ import { writeStoredState } from './storage';
 import { useTransportEquipment } from './transportEquipment';
 import { dispatchAppAction } from './uiEvents';
 import './company-product-flow.css';
+import { DEFAULT_CEILING_CLEARANCE_M } from './engine/constraints';
 
 type ProductDraft = {
   id: string;
@@ -59,6 +60,7 @@ function equipmentContainer(equipment: ReturnType<typeof useTransportEquipment>)
     maxPayloadKg: equipment.maxPayloadKg,
     floorLoadLimitKgPerM2: equipment.floorLoadLimitKgPerM2,
     floorLoadWarningMultiplier: 3,
+    ceilingClearanceM: DEFAULT_CEILING_CLEARANCE_M,
   };
 }
 

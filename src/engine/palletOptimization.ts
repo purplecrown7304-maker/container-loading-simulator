@@ -21,6 +21,7 @@ import type { LoadingStrategy } from './loadingEngine';
 import { operationalQuality, unloadingObstructions } from './operationalQuality';
 import { palletBuildStrategy, cargoWithUnloadingPolicy } from './unloadingPolicy';
 import { palletDestinationFit } from './palletDestination';
+import { planningContainer } from './constraints';
 
 export { defaultPalletSpec };
 export type { PalletLoad, PalletPackingResult, PalletSpec };
@@ -625,6 +626,9 @@ export function packOnPallets(
     const cfg=aConfig(container);
     // Vehicle clearances restrict the planning envelope, not the pallet's internal footprint.
     container={...container,length:container.length-cfg.margins.l/1000,width:container.width-cfg.margins.w/1000,height:container.height-(cfg.margins.h+cfg.forkliftClearance)/1000,rules:undefined};
+  } else {
+    // Legacy ceiling clearance (LOADING_RULES R-5): plan inside it, as A does with its own margins.
+    container=planningContainer(container);
   }
   const configuredMax = Math.max(1, Math.floor(pallet.maxStackLevels || 1));
   const physicalMax = Math.max(1, Math.floor((container.height + EPS) / Math.max(pallet.height, EPS)));

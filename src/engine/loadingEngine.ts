@@ -17,6 +17,7 @@ import { readSecuringMaterialSettings, type SecuringMaterialSettings } from '../
 import { usesHeavyInnerLoading, centerHeavyInnerLaterally, heavyInnerConflictFindings } from './heavyInnerPolicy';
 import { boxSecuringCapacity, boxSecuringRequirements, type BoxSecuringLevel } from './securingBudget';
 import { gapSecuringPlan } from './gapSecuring';
+import { planningContainer } from './constraints';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -214,16 +215,18 @@ function loadCargoOnly(container: ContainerSpec, cargo: CargoItem[], options: Lo
     return packed;
   }
 
+  // Packers read container.height directly: plan inside the ceiling clearance, audit on the original.
+  const planning = planningContainer(container);
   const sequential = usesHeavyInnerLoading(container, normalizedCargo);
-  const initial = packByHybridOptimizer(container, normalizedCargo, strategy);
+  const initial = packByHybridOptimizer(planning, normalizedCargo, strategy);
   // Sequential work fronts cannot be permuted by residual, top-tier or balance passes.
-  const packed = sequential ? initial : settleSparseTopLayer(container, normalizedCargo,
-    completeResidualPacking(container, normalizedCargo, initial, strategy), strategy);
-  const flattened = !sequential && strategy === 'unloading' ? fillUnloadingTrenches(container, normalizedCargo, packed.placements) : packed.placements;
-  const centered = sequential ? centerHeavyInnerLaterally(container, flattened)
-    : centerPlacementsOnContainer(container, balanceLongitudinalWalls(container, normalizedCargo, flattened));
+  const packed = sequential ? initial : settleSparseTopLayer(planning, normalizedCargo,
+    completeResidualPacking(planning, normalizedCargo, initial, strategy), strategy);
+  const flattened = !sequential && strategy === 'unloading' ? fillUnloadingTrenches(planning, normalizedCargo, packed.placements) : packed.placements;
+  const centered = sequential ? centerHeavyInnerLaterally(planning, flattened)
+    : centerPlacementsOnContainer(planning, balanceLongitudinalWalls(planning, normalizedCargo, flattened));
   const finalPlacements = !sequential && strategy === 'unloading'
-    ? orientForUnloading(container, normalizedCargo, centered) : centered;
+    ? orientForUnloading(planning, normalizedCargo, centered) : centered;
   const result: LoadingResult = {
     placements: finalPlacements,
     remaining: [

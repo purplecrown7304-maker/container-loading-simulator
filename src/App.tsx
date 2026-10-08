@@ -33,6 +33,7 @@ import VoidFillSummary from './VoidFillSummary';
 import './loading-plan-choice.css';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 import { useTransportEquipment } from './transportEquipment';
+import { withRecommendedCeilingClearance } from './containerDefaults';
 
 const BoxLoadingViewer = lazy(() => import('./BoxLoadingViewer'));
 const PalletModePanel = lazy(() => import('./PalletModePanel'));
@@ -67,9 +68,9 @@ export default function App() {
   const ruleset = useLoadingRuleset();
   const stored = useMemo(() => readStoredState(), []);
   const startingCargo = useMemo(() => normalizeCargo(stored?.cargo ?? []), [stored]);
-  const [containerInput, setContainer] = useState<ContainerSpec>(stored?.container ?? defaultContainer);
+  const [containerInput, setContainer] = useState<ContainerSpec>(() => withRecommendedCeilingClearance(stored?.container ?? defaultContainer));
   // Saved/packaging inputs may predate rules metadata. The active mode owns the computation context.
-  const container = useMemo<ContainerSpec>(()=>({...containerInput,rules:ruleset==='a-v1'?equipmentRules(equipment):undefined}),[containerInput,ruleset,equipment]);
+  const container = useMemo<ContainerSpec>(()=>({...withRecommendedCeilingClearance(containerInput),rules:ruleset==='a-v1'?equipmentRules(equipment):undefined}),[containerInput,ruleset,equipment]);
   const [cargo, setCargo] = useState<CargoItem[]>(startingCargo);
   const [draft, setDraft] = useState<CargoDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);

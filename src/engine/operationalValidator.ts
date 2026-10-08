@@ -1,4 +1,5 @@
 import { isARules } from './loadingRuleset';
+import { usableHeight } from './constraints';
 import { validateAPlan } from './loadSimAdapter';
 import { cargoWithUnloadingPolicy } from './unloadingPolicy';
 import { CONTACT_TOLERANCE_M, MIN_SUPPORT_RATIO, supportContactArea } from './support';
@@ -113,7 +114,7 @@ function checkBounds(container: ContainerSpec, bodies: Body[]) {
     const outside = p.x < -EPS || p.y < -EPS || p.z < -EPS
       || p.x + p.length > container.length + EPS
       || p.y + p.width > container.width + EPS
-      || p.z + p.height > container.height + EPS;
+      || p.z + p.height > usableHeight(container) + EPS;
     if (outside) {
       out.push(finding(
         'OUT_OF_BOUNDS',
