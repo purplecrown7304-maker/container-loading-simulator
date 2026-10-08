@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { cargoColor, randomUniqueCargoColor } from './cargoColors';
 import { downloadBoxCatalog, downloadBoxCatalogTemplate, parseBoxCatalogWorkbook } from './excel';
-import { operatorScopedStorageKey, readLocalOperator, type LocalOperator } from './localOperator';
-import { writePersonalBoxCatalog } from './personalBoxCatalog';
+import { readLocalOperator, type LocalOperator } from './localOperator';
+import { readPersonalBoxCatalog, removeExplicitPlannerRecommendation, restoreExplicitPlannerRecommendation, writePersonalBoxCatalog } from './personalBoxCatalog';
+import type { BoxCatalogItem } from './engine/productPackagingOptimizer';
 import { readStoredState, writeStoredState, type StoredState } from './storage';
 import { OPEN_WORKSPACE_EVENT, type WorkspaceOpenDetail } from './uiEvents';
 import { applyPersonalStackPolicyToCargo } from './boxStackingPolicy';
@@ -14,7 +15,6 @@ const BOX_KEY = 'container-loading-workspace-boxes-v1';
 const VEHICLE_KEY = 'container-loading-workspace-vehicles-v1';
 const SAFETY_KEY = 'container-loading-workspace-safety-v1';
 const LEGACY_CATALOG_KEY = 'container-loading-box-catalog-v1';
-const USER_CATALOG_KEY = 'container-loading-user-box-catalog-v1';
 
 type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type LoadingWindow = Window & { __containerLoadingLatestResult?: LoadingDetail };
@@ -46,12 +46,9 @@ function ensureCatalogColors(items: CargoItem[]): CargoItem[] {
   });
 }
 
-function catalogKey(operator: LocalOperator) {
-  return operatorScopedStorageKey(USER_CATALOG_KEY, operator);
-}
-
 function readCatalog(operator: LocalOperator | null): CargoItem[] {
-  return operator ? ensureCatalogColors(readJson<CargoItem[]>(catalogKey(operator), [])) : [];
+  // Same reader as the packaging step, so a registered recommendation found only there is listed too.
+  return operator ? ensureCatalogColors(readPersonalBoxCatalog(operator)) : [];
 }
 
 function todayKey() { return new Date().toISOString().slice(0, 10); }
@@ -105,6 +102,8 @@ export default function WorkspaceTools({ showNav = true }: Props) {
   const [registerOpen, setRegisterOpen] = useState(false);
   const [catalogDraft, setCatalogDraft] = useState<CatalogDraft | null>(null);
   const [catalogBackup, setCatalogBackup] = useState<CargoItem[] | null>(null);
+  // Planner copy removed with the last personal-list delete, restored by the same undo.
+  const [plannerBackup, setPlannerBackup] = useState<BoxCatalogItem | null>(null);
 
   const safetyDone = readJson<{ date?: string }>(SAFETY_KEY, {}).date === todayKey();
 
@@ -276,6 +275,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
     if (!requireLogin()) return;
     if (!window.confirm(`${item.id} ${item.name} 박스를 내 목록에서 삭제할까요?`)) return;
     setCatalogBackup(catalog.map(current => ({ ...current })));
+    setPlannerBackup((operator && removeExplicitPlannerRecommendation(operator, item.id)) || null);
     setCatalog(previous => previous.filter(current => current.id !== item.id));
     setSelected(current => {
       const next = { ...current };
@@ -289,6 +289,8 @@ export default function WorkspaceTools({ showNav = true }: Props) {
   const restoreCatalogBackup = () => {
     if (!catalogBackup || !requireLogin()) return;
     const current = catalog.map(item => ({ ...item }));
+    if (plannerBackup && operator && catalogBackup.some(item => item.id === plannerBackup.id)) restoreExplicitPlannerRecommendation(operator, plannerBackup);
+    setPlannerBackup(null);
     setCatalog(ensureCatalogColors(catalogBackup));
     setCatalogBackup(current);
     setCatalogDraft(null);

@@ -18,6 +18,7 @@ import { usesHeavyInnerLoading, centerHeavyInnerLaterally, heavyInnerConflictFin
 import { boxSecuringCapacity, boxSecuringRequirements, type BoxSecuringLevel } from './securingBudget';
 import { gapSecuringPlan } from './gapSecuring';
 import { planningContainer } from './constraints';
+import { explainStackLimitedRemaining } from './stackLimitReason';
 
 const AUTO_CORRECTION_EVENT = 'container-loading:auto-corrections';
 export const LOADING_RESULT_EVENT = 'container-loading:result';
@@ -231,7 +232,7 @@ function loadCargoOnly(container: ContainerSpec, cargo: CargoItem[], options: Lo
     placements: finalPlacements,
     remaining: [
       ...preflight.rejected,
-      ...packed.remaining,
+      ...explainStackLimitedRemaining(planning, normalizedCargo, packed.remaining),
     ],
     loadedWeightKg: packed.loadedWeightKg,
     usedVolumeM3: packed.usedVolumeM3,
