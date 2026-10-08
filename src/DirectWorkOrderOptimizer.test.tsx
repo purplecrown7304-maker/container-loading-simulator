@@ -207,6 +207,24 @@ describe('work-order optimizer recovery', () => {
     expect(openLoadingReport).not.toHaveBeenCalled();
   });
 
+  it.each([[4_000, 3], [12_001, 0]] as const)('automatic final loading of %i boxes compares at most %i alternatives and discloses the cap', async (count, limit) => {
+    const placements = Array.from({ length: count }, (_, index) => ({ cargoId: 'A', x: (index % 100) * 0.03, y: (Math.floor(index / 100) % 60) * 0.03,
+      z: Math.floor(index / 6000) * 0.03, length: 0.03, width: 0.03, height: 0.03, weightKg: 0.001 }));
+    const big: PhysicsTarget = { ...target, cargo: [{ ...target.cargo[0], quantity: count }], result: { ...target.result, placements } };
+    vi.mocked(buildDirectResultReoptimizationCandidatesAsync).mockResolvedValue({ candidates: [], timedOut: false });
+    await act(async () => {
+      requestDirectWorkOrder(big.container, big.cargo, big.result, { openReport: false });
+      for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    });
+    if (limit === 0) expect(buildDirectResultReoptimizationCandidatesAsync).not.toHaveBeenCalled();
+    else expect(vi.mocked(buildDirectResultReoptimizationCandidatesAsync).mock.calls[0][1]).toBe(limit);
+    // The baseline is still fully certified and published, with the cap stated on the work order.
+    expect(runInertiaCertification).toHaveBeenCalledOnce();
+    expect(completeCertificationForWorkOrder).toHaveBeenCalledOnce();
+    expect((window as any).__containerLoadingLatestCertification.searchNotice).toContain(`대량 적재(박스 ${count.toLocaleString()}개)`);
+    expect(createPhysicsTargetSignature((window as any).__containerLoadingPhysicsTarget)).toBe(createPhysicsTargetSignature(big));
+  });
+
   it('keeps an explicitly selected plan fixed instead of running safer-layout replacement', async () => {
     await act(async () => {
       requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false, preserveSelectedPlan: true });

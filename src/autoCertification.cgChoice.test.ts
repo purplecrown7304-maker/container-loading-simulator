@@ -1,11 +1,11 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { cancelPendingCertification, requestExactCertification } from './autoCertification';
 import { requestDirectWorkOrder } from './directWorkOrderEvents';
-import { runPhysicsValidationSuite } from './engine/physicsValidation';
+import { runPhysicsValidationSuiteParallel as runPhysicsValidationSuite } from './physicsParallel';
 import type { PhysicsTarget } from './physicsTarget';
 import { clearPhysicsTarget } from './physicsTarget';
 
-vi.mock('./engine/physicsValidation', () => ({ runPhysicsValidationSuite: vi.fn() }));
+vi.mock('./physicsParallel', () => ({ runPhysicsValidationSuiteParallel: vi.fn() }));
 vi.mock('./directWorkOrderEvents', () => ({ requestDirectWorkOrder: vi.fn() }));
 
 afterEach(() => {

@@ -1,6 +1,6 @@
 import { resolveLimitReview, reviewPlacementBlockers } from './engine/limitReview';
 import type { InertiaAnimationResult, InertiaSecuringProfile } from './engine/inertiaSimulation';
-import { runInertiaAnimation } from './engine/inertiaSimulation';
+import { createInertiaRunSession, inertiaTargetKey, waitForInertiaRun, type InertiaRunHandle } from './inertiaScenarioRuns';
 import type { PhysicsScenario, PhysicsSupport } from './engine/physicsValidation';
 import type { CargoItem, ContainerSpec, LimitReviewConfig, LoadingResult, Placement } from './engine/types';
 import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
@@ -350,8 +350,32 @@ export function isNumericalLimitReviewTarget(target: PhysicsTarget): boolean {
     && reviewPlacementBlockers(target.container, target.cargo, target.result.placements).length === 0;
 }
 
+
 export async function runInertiaCertification(
   target: PhysicsTarget,
+  onProgress?: (progress: CertificationProgress) => void,
+  onScenarioResult?: (result: InertiaAnimationResult, level: SecuringLevel) => void,
+  shouldCancel?: () => boolean,
+): Promise<InertiaCertification> {
+  // The three scenarios of a level are started together on the worker pool and read back in the
+  // fixed order below, so the recorded results, early stop and attempts are those of the old
+  // sequential loop. Runs of the last level are kept for the work-order completion step.
+  const session = createInertiaRunSession();
+  const targetKey = inertiaTargetKey(target.container, target.result.placements);
+  let completed = false;
+  try {
+    const certification = await certifyLevels(target, session, targetKey, onProgress, onScenarioResult, shouldCancel);
+    completed = true;
+    return certification;
+  } finally {
+    session.release({ abortAll: !completed });
+  }
+}
+
+async function certifyLevels(
+  target: PhysicsTarget,
+  session: ReturnType<typeof createInertiaRunSession>,
+  targetKey: string,
   onProgress?: (progress: CertificationProgress) => void,
   onScenarioResult?: (result: InertiaAnimationResult, level: SecuringLevel) => void,
   shouldCancel?: () => boolean,
@@ -387,25 +411,24 @@ export async function runInertiaCertification(
     const levelResults: Partial<Record<InertiaScenario, InertiaAnimationResult>> = {};
     let allPassed = true;
 
+    const runs: InertiaRunHandle[] = SCENARIOS.map(scenario => session.start(targetKey, {
+      container: target.container, placements: target.result.placements, scenario, supports: simulationSupports, securing: profile,
+    }));
+    // The last level is the one the work-order completion step fills in; keep its runs.
+    if (rawLevel === 3) runs.forEach(run => run.keep());
+    let consumed = 0;
     for (let index = 0; index < SCENARIOS.length; index += 1) {
       if (shouldCancel?.()) throw new Error('INERTIA_CERTIFICATION_CANCELLED');
       const scenario = SCENARIOS[index];
-      const result = await runInertiaAnimation(
-        target.container,
-        target.result.placements,
+      const result = await waitForInertiaRun(runs[index], value => onProgress?.({
+        level,
+        levelLabel: securing.levelLabel,
         scenario,
-        simulationSupports,
-        value => onProgress?.({
-          level,
-          levelLabel: securing.levelLabel,
-          scenario,
-          scenarioIndex: index + 1,
-          scenarioCount: SCENARIOS.length,
-          physicsProgress: value,
-        }),
-        profile,
-        { captureFrames: false, shouldCancel },
-      );
+        scenarioIndex: index + 1,
+        scenarioCount: SCENARIOS.length,
+        physicsProgress: value,
+      }), shouldCancel, 'INERTIA_CERTIFICATION_CANCELLED');
+      consumed = index + 1;
       levelResults[scenario] = result;
       onScenarioResult?.(result, level);
       if (!isInertiaStable(result, target.mode)) {
@@ -413,6 +436,8 @@ export async function runInertiaCertification(
         if (!numericalReview) break;
       }
     }
+    // Scenarios after an early stop are not recorded; free their workers unless kept.
+    for (const run of runs.slice(consumed)) run.drop();
 
     const scenarioAttempts = SCENARIOS.flatMap(scenario => {
       const result = levelResults[scenario];

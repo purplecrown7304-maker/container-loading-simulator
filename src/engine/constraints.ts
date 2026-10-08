@@ -1,5 +1,6 @@
 import { aConfig, isARules } from './loadingRuleset';
 import type { ContainerSpec, Placement, ValidationIssue } from './types';
+import { candidateIndexes, footprintGridFor } from './footprintGrid';
 
 const EPSILON = 1e-9;
 
@@ -72,9 +73,16 @@ export function validatePlacements(
     }
   });
 
+  const tolerance = isARules(container) ? aConfig(container).epsilon/1000 : EPSILON;
+  // A collision needs positive overlap on every axis, so only footprint neighbours can collide.
+  // Candidates are ascending, so issues keep the original (i, j) order.
+  const grid = footprintGridFor(placements);
   for (let i = 0; i < placements.length; i += 1) {
-    for (let j = i + 1; j < placements.length; j += 1) {
-      if (overlaps(placements[i], placements[j], isARules(container) ? aConfig(container).epsilon/1000 : EPSILON)) {
+    const p = placements[i];
+    const pad = Math.abs(tolerance);
+    for (const j of candidateIndexes(grid, placements.length, p.x - pad, p.y - pad, p.x + p.length + pad, p.y + p.width + pad)) {
+      if (j <= i) continue;
+      if (overlaps(placements[i], placements[j], tolerance)) {
         issues.push({
           type: 'COLLISION',
           message: `화물 ${placements[i].cargoId}와 ${placements[j].cargoId}가 겹칩니다.`,

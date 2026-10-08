@@ -2,6 +2,7 @@ import type { CargoItem, ContainerSpec, Placement } from './types';
 import { isInsideContainer, overlaps } from './constraints';
 import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules } from './stacking';
+import { createFootprintGrid, FOOTPRINT_GRID_MIN_ITEMS } from './footprintGrid';
 const EPS = 1e-9;
 export const FLOOR_LOAD_REASON = '바닥 허용하중(kg/m²) 초과 · 투영 국부하중을 만족하는 위치 부족';
 export function configuredFloorLoadLimit(container: ContainerSpec) {
@@ -57,9 +58,17 @@ export function floorLoadBlocksRemaining(container: ContainerSpec, item: CargoIt
 
 export function placementsWithinFloorLoadLimit(container: ContainerSpec, placements: Placement[]) {
   if (configuredFloorLoadLimit(container) === undefined) return true;
+  // Only staged boxes whose footprint overlaps the candidate add projected load. The grid hands
+  // them over in staging order, so the density sums run in the same order as the full scan.
+  const grid = placements.length >= FOOTPRINT_GRID_MIN_ITEMS
+    ? createFootprintGrid([], { minX: 0, minY: 0, maxX: container.length, maxY: container.width })
+    : null;
+  let indexed = grid !== null;
   const staged: Placement[] = [];
   for (const placement of placements) {
-    if (!withinFloorLoadLimit(container,placement,staged)) return false;
+    const near = indexed ? grid!.query(placement.x, placement.y, placement.x + placement.length, placement.y + placement.width) : null;
+    if (!withinFloorLoadLimit(container, placement, near ? near.map(index => staged[index]) : staged)) return false;
+    if (indexed && !grid!.insert(staged.length, placement)) indexed = false;
     staged.push(placement);
   }
   return true;

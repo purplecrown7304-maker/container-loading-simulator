@@ -4,6 +4,7 @@ import { validatePlacements } from './constraints';
 import { placementsWithinFloorLoadLimit } from './floorLoadLimit';
 import { assessPlacementSupport, CONTACT_TOLERANCE_M, supportContactArea } from './support';
 import { acceptsUnloadCandidate } from './unloadingPolicy';
+import { candidateIndexes, footprintGridFor } from './footprintGrid';
 import type { CargoItem, ContainerSpec, Placement, ValidationIssue } from './types';
 
 const EPS = 1e-6;
@@ -17,6 +18,9 @@ export function auditLoading(container: ContainerSpec, cargo: CargoItem[], place
   const upper = placements.map(() => [] as number[]);
   const lower = placements.map(() => [] as number[]);
   const add = (type: ValidationIssue['type'], message: string, indexes: number[]) => issues.push({ type, message, placementIndexes: indexes });
+  // Footprint index: support/contact links only exist between overlapping footprints.
+  // Candidates come back in ascending order, so every result below matches the full scan.
+  const grid = footprintGridFor(placements);
   placements.forEach((p, i) => {
     const item = byId.get(p.cargoId);
     if (!acceptsUnloadCandidate(container, byId, placements, p)) add('INVALID_CARGO', 'BLOCKS_UNLOAD_PATH: 먼저 내릴 화물의 반출 경로가 차단됩니다.', [i]);
@@ -34,10 +38,12 @@ export function auditLoading(container: ContainerSpec, cargo: CargoItem[], place
       add('INVALID_CARGO', 'ORIENTATION_RESTRICTED: 허용되지 않은 화물 방향입니다.', [i]);
     }
     if (item?.floorOnly && p.z > CONTACT_TOLERANCE_M) add('INVALID_CARGO', '바닥 전용 화물은 상부에 적층할 수 없습니다.', [i]);
-    if (!assessPlacementSupport(p, placements, undefined, options.minimumSupportRatio).supported) add('UNSUPPORTED', '화물의 지지 면적 또는 무게중심 지지가 부족합니다.', [i]);
-    placements.forEach((q, j) => {
-      if (i !== j && supportContactArea(p, q) > 0) { upper[i].push(j); lower[j].push(i); }
-    });
+    const near = candidateIndexes(grid, placements.length, p.x, p.y, p.x + p.length, p.y + p.width);
+    const nearPlacements = grid ? near.map(j => placements[j]) : placements;
+    if (!assessPlacementSupport(p, nearPlacements, undefined, options.minimumSupportRatio).supported) add('UNSUPPORTED', '화물의 지지 면적 또는 무게중심 지지가 부족합니다.', [i]);
+    for (const j of near) {
+      if (i !== j && supportContactArea(p, placements[j]) > 0) { upper[i].push(j); lower[j].push(i); }
+    }
   });
   for (const [id, count] of counts) if (count > (byId.get(id)?.quantity ?? 0)) add('QUANTITY', `화물 ${id}의 등록 수량을 초과했습니다.`, placements.flatMap((p, i) => p.cargoId === id ? [i] : []));
   const order = placements.map((_, i) => i).sort((a, b) => placements[a].z - placements[b].z);
