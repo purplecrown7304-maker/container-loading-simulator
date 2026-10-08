@@ -69,4 +69,49 @@ describe('editable registered box workbook', () => {
     expect(invalid.items).toEqual([]);
     expect(invalid.issues[0].message).toContain('적층단');
   });
+
+  it('round-trips the carton material and a material-estimated top load', async () => {
+    const items: CargoItem[] = [
+      { ...box, id: 'M1', cartonMaterial: 'b-flute', maxTopLoadKg: 32.3, strengthSource: 'material-estimate' },
+      { ...box, id: 'M2', cartonMaterial: 'wood', maxTopLoadKg: 250 },
+      { ...box, id: 'M3', cartonMaterial: undefined },
+    ];
+    const workbook = createBoxCatalogWorkbook(items);
+    expect(workbook.Sheets.Boxes.L1.v).toBe('재질');
+    expect(workbook.Sheets.Boxes.M1.v).toBe('상부허용하중 출처');
+    expect(workbook.Sheets.Boxes.L2.v).toBe('B골 단면');
+    expect(workbook.Sheets.Boxes.M2.v).toBe('재질 추정');
+    expect(workbook.Sheets.Boxes.M3.v).toBe('');
+    const parsed = await parseBoxCatalogWorkbook(file(workbook));
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.items.map(item => [item.id, item.cartonMaterial, item.maxTopLoadKg, item.strengthSource])).toEqual([
+      ['M1', 'b-flute', 32.3, 'material-estimate'], ['M2', 'wood', 250, undefined], ['M3', undefined, 0, undefined],
+    ]);
+  });
+
+  it('accepts the internal key, rejects an unknown material and drops the estimate mark without a value', async () => {
+    const workbook = createBoxCatalogWorkbook([box, { ...box, id: '002' }, { ...box, id: '003' }]);
+    workbook.Sheets.Boxes.L2 = { t: 's', v: 'double-wall' };
+    workbook.Sheets.Boxes.L3 = { t: 's', v: '골판지' };
+    workbook.Sheets.Boxes.I4 = { t: 's', v: '' };
+    workbook.Sheets.Boxes.M4 = { t: 's', v: '재질 추정' };
+    const result = await parseBoxCatalogWorkbook(file(workbook));
+    expect(result.items.find(item => item.id === '001')?.cartonMaterial).toBe('double-wall');
+    expect(result.items.some(item => item.id === '002')).toBe(false);
+    expect(result.issues[0]).toMatchObject({ code: '002' });
+    expect(result.issues[0].message).toContain('재질');
+    expect(result.items.find(item => item.id === '003')).toMatchObject({ strengthUnverified: true, strengthSource: undefined });
+  });
+
+  it('keeps a registered material when an older file has no material column', async () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ['코드', '이름', '길이(m)', '폭(m)', '높이(m)', '중량(kg)'],
+      ['001', '수정 이름', .235, .31, .265, 7.8],
+    ]), 'Boxes');
+    const result = await parseBoxCatalogWorkbook(file(workbook));
+    expect('cartonMaterial' in result.items[0]).toBe(false);
+    expect({ ...box, cartonMaterial: 'ac-flute' as const, ...result.items[0] }.cartonMaterial).toBe('ac-flute');
+  });
+
 });
