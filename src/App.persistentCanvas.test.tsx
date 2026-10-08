@@ -62,7 +62,9 @@ it('mounts the main canvas on entry and preserves it through every workspace sta
   const canvas = host.querySelector('canvas'); expect(canvas).not.toBeNull();
   expect(host.querySelector('.app-shell .loading-rules-selector')).toBeNull(); // Owned once by the global header.
   expect(host.querySelectorAll('.reference-utility .loading-rules-selector')).toHaveLength(1);
-  expect(host.querySelector('.limit-review-controls')).not.toBeNull();
+  // Strict mode is a header button beside the ruleset selector, not a page-wide bar.
+  expect(host.querySelector('.reference-utility .loading-rules-selector + .limit-review-header-slot .limit-review-header-button')?.textContent).toContain('기본 엄격 모드');
+  expect(host.querySelector('.limit-review-controls')).toBeNull();
   for (const step of [2, 3, 4, 5, 6, 1] as const) {
     await act(async () => publishGuidedWorkflowState({ active: true, step }));
     expect(host.querySelector('canvas')).toBe(canvas);
@@ -119,6 +121,9 @@ it.each(['strategy', 'loading-unit', 'preview-data', 'review-mode'] as const)('c
   await act(async () => {
     if (change === 'strategy') writeLoadingStrategyPreference('stability');
     if (change === 'loading-unit') publishGuidedLoadingUnit('pallets');
+    if (change === 'review-mode') host.querySelector<HTMLButtonElement>('.limit-review-header-button')!.click();
+  });
+  await act(async () => {
     if (change === 'review-mode') [...host.querySelectorAll('button')].find(b => b.textContent === '한도 초과 범위 선택')!.click();
     if (change === 'preview-data') publishWorkflowPreview({ kind: 'packaging', cargo: [{ ...cargo[0], quantity: 2 }] });
   });
@@ -187,6 +192,7 @@ it.each([['legacy', 'a-v1'], ['a-v1', 'legacy']] as const)('changing the header 
 
 
 it('saves review provenance and switching strict invalidates the current review run and unsafe acceptance', async () => {
+  await act(async () => host.querySelector<HTMLButtonElement>('.limit-review-header-button')!.click());
   await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent === '한도 초과 범위 선택')!.click());
   await act(async () => window.dispatchEvent(new CustomEvent(APP_ACTION_EVENT, { detail: { action: 'save-local' } })));
   expect(readStoredState()?.container.limitReview).toEqual({ mode: 'what-if' });

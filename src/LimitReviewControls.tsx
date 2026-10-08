@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { CargoItem, ContainerSpec, LimitReviewConfig, LoadingResult } from './engine/types';
 import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification } from './inertiaCertification';
 import { limitReviewMetrics } from './limitReviewPresentation';
@@ -24,6 +25,50 @@ function NumberChoice({ label, original, unit, choice, onChange, min = 0, max = 
     <label><input type="checkbox" checked={choice.selected} onChange={e => onChange({ ...choice, selected: e.target.checked })} />{label}</label>
     <span>원 기준 {original} {unit}</span>
     <label className="limit-review-value">검토 범위<input aria-label={`${label} 검토 범위`} type="number" min={min} max={max} step={step} disabled={!choice.selected} value={choice.value} onChange={e => onChange({ ...choice, value: e.target.value })} /><span>{unit}</span></label>
+  </div>;
+}
+
+/** The header slot lives in another component; follow it across remounts. */
+function useHeaderSlot() {
+  const [slot, setSlot] = useState<HTMLElement | null>(() => typeof document === 'undefined' ? null : document.querySelector<HTMLElement>('.limit-review-header-slot'));
+  useEffect(() => {
+    const locate = () => setSlot(current => {
+      const next = document.querySelector<HTMLElement>('.limit-review-header-slot');
+      return current === next ? current : next;
+    });
+    locate();
+    const observer = new MutationObserver(locate);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+  return slot;
+}
+
+/** Compact header button: strict mode is a status button; review entry stays one deliberate click away. */
+function LimitReviewHeaderButton({ active, supported, onChange }: { active: boolean; supported: boolean; onChange: (config?: LimitReviewConfig) => void }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent ? event.key === 'Escape' : !wrap.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close); document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close); };
+  }, [open]);
+  return <div className={`limit-review-header${active ? ' is-review' : ''}`} ref={wrap}>
+    <button type="button" className="limit-review-header-button" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen(v => !v)}
+      title={active ? '검토 전용 · 출고 승인 불가' : '등록 한도와 기존 규칙을 그대로 적용합니다'}>
+      <i aria-hidden="true" />{active ? 'WHAT-IF 검토' : '기본 엄격 모드'}<span aria-hidden="true">⌄</span>
+    </button>
+    {open && <div className="limit-review-header-popover" role="dialog" aria-label="적재 한도 모드">
+      <b>{active ? 'WHAT-IF REVIEW · 한도 초과 검토' : '기본 엄격 모드'}</b>
+      <p>{active ? '검토 전용 · 출고 승인 불가. 범위 설정은 화면 상단 검토 패널에서 바꿉니다.' : '등록 한도와 기존 규칙을 그대로 적용합니다.'}</p>
+      {!supported && !active && <p>한도 초과 검토는 기존 규칙의 박스 직접 적재에서 지원합니다. A 규칙·팔레트·혼합은 엄격 모드로 계산하세요.</p>}
+      {active
+        ? <button type="button" onClick={() => { setOpen(false); onChange(undefined); }}>엄격 모드로 전환</button>
+        : <button type="button" disabled={!supported} onClick={() => { setOpen(false); onChange({ mode: 'what-if' }); }}>한도 초과 범위 선택</button>}
+    </div>}
   </div>;
 }
 
@@ -65,7 +110,12 @@ export default function LimitReviewControls({ container, cargo, result, mode, on
     if (resolved.status !== 'active') { setError(resolved.errors.join(' ')); return; }
     onChange(selected); setEditing(false); setError('');
   };
-  return <section className={`limit-review-controls${active ? ' is-review' : ''}`} aria-label="한도 초과 검토 설정">
+  const slot = useHeaderSlot();
+  const headerButton = <LimitReviewHeaderButton active={active} supported={supported} onChange={onChange} />;
+  // Strict mode needs no page-wide bar: it is a header button next to the ruleset selector.
+  // Review mode keeps its persistent warning panel in the page in addition to the header state.
+  if (!active) return slot ? createPortal(headerButton, slot) : headerButton;
+  return <>{slot && createPortal(headerButton, slot)}<section className={`limit-review-controls${active ? ' is-review' : ''}`} aria-label="한도 초과 검토 설정">
     <div className="limit-review-heading"><strong>{active ? 'WHAT-IF REVIEW · 한도 초과 검토' : '기본 엄격 모드'}</strong>
       <span>{active ? '검토 전용 · 출고 승인 불가' : '등록 한도와 기존 규칙을 그대로 적용합니다'}</span>
       {active ? <button type="button" onClick={() => onChange(undefined)}>엄격 모드로 전환</button> : <button type="button" disabled={!supported} onClick={() => onChange({ mode: 'what-if' })}>한도 초과 범위 선택</button>}
@@ -97,7 +147,7 @@ export default function LimitReviewControls({ container, cargo, result, mode, on
       </details>
       {result.limitReview?.errors.length ? <p role="alert">{result.limitReview.errors.join(' ')}</p> : null}
     </>}
-  </section>;
+  </section></>;
 }
 
 export function LimitReviewBanner({ container, result, cargo }: Pick<Props, 'container' | 'result'> & { cargo?: CargoItem[] }) {

@@ -14,12 +14,16 @@ afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi
 async function render(config?: LimitReviewConfig, mode = 'boxes') { await act(async () => root.render(<LimitReviewControls container={{ ...container, limitReview: config }} cargo={cargo} result={result} mode={mode} onChange={onChange} />)); }
 async function click(text: string) { const button = [...host.querySelectorAll('button')].find(b => b.textContent === text)!; expect(button).toBeTruthy(); await act(async () => button.click()); }
 async function setInput(label: string, value: string) { const input = host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!; await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); }); }
+async function openHeader() { await act(async () => host.querySelector<HTMLButtonElement>('.limit-review-header-button')!.click()); }
 async function select(label: string) { const input = [...host.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].find(input => input.parentElement?.textContent === label)!; await act(async () => input.click()); }
 
 it('starts strict and only enables an explicit review mode with unchanged original limits', async () => {
   await render(); expect(host.textContent).toContain('기본 엄격 모드');
   expect(host.querySelectorAll('input')).toHaveLength(0);
-  await click('한도 초과 범위 선택'); expect(onChange).toHaveBeenCalledExactlyOnceWith({ mode: 'what-if' });
+  // Strict mode is a compact header button, not a page-wide bar.
+  expect(host.querySelector('.limit-review-controls')).toBeNull();
+  expect(host.textContent).not.toContain('한도 초과 범위 선택');
+  await openHeader(); await click('한도 초과 범위 선택'); expect(onChange).toHaveBeenCalledExactlyOnceWith({ mode: 'what-if' });
   expect(container.maxPayloadKg).toBe(20000);
 });
 it('keeps draft changes private until apply, permits cancelling, and never suggests an automatic excess percentage', async () => {
@@ -41,9 +45,20 @@ it.each(['', '-1', '0', '10000001'])('rejects invalid selected payload %s withou
   expect(onChange).not.toHaveBeenCalled(); expect(host.querySelector('[role=alert]')).not.toBeNull();
 });
 it('does not enable unsupported pallet or mixed review and preserves a visible warning on restored config', async () => {
-  await render(undefined, 'pallets'); expect([...host.querySelectorAll('button')].find(b => b.textContent === '한도 초과 범위 선택')!.disabled).toBe(true);
+  await render(undefined, 'pallets'); await openHeader(); expect([...host.querySelectorAll('button')].find(b => b.textContent === '한도 초과 범위 선택')!.disabled).toBe(true);
   await render({ mode: 'what-if', maxPayloadKg: 24000 }, 'mixed'); expect(host.querySelector('[role=alert]')?.textContent).toContain('기존 규칙의 박스 직접 적재');
   await click('엄격 모드로 전환'); expect(onChange).toHaveBeenCalledExactlyOnceWith(undefined);
+});
+it('places the mode button in the header slot beside the ruleset selector and keeps the review panel in review mode', async () => {
+  const slot = document.createElement('div'); slot.className = 'limit-review-header-slot'; document.body.append(slot);
+  try {
+    await render();
+    expect(slot.querySelector('.limit-review-header-button')?.textContent).toContain('기본 엄격 모드');
+    expect(host.textContent).toBe('');
+    await render({ mode: 'what-if' });
+    expect(slot.querySelector('.limit-review-header.is-review')?.textContent).toContain('WHAT-IF 검토');
+    expect(host.querySelector('.limit-review-controls.is-review')?.textContent).toContain('검토 전용 · 출고 승인 불가');
+  } finally { await act(async () => root.render(<></>)); slot.remove(); }
 });
 it('renders non-dismissable numerical excess and original warning after result restoration', async () => {
   const restored: LoadingResult = JSON.parse(JSON.stringify({ ...result, limitReview: { mode: 'what-if', label: 'WHAT-IF REVIEW', status: 'active', config: { mode: 'what-if', maxPayloadKg: 24000 }, errors: [], metrics: [{ key: 'payload', originalLimit: 20000, scenarioLimit: 24000, actual: 22000, excess: 2000, excessPercent: 10, provenance: 'configured', direction: 'maximum', unit: 'kg' }] } }));

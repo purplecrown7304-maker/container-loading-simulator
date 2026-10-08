@@ -3,8 +3,12 @@ import { expect, test } from '@playwright/test';
 test('review controls preserve actual limits and warning through cancel, save/load and strict switch', async ({ page }) => {
   await page.goto('/');
   const panel = page.getByRole('region', { name: '한도 초과 검토 설정' });
-  await expect(panel).toContainText('기본 엄격 모드');
-  await panel.getByRole('button', { name: '한도 초과 범위 선택', exact: true }).click();
+  const header = page.locator('.limit-review-header');
+  await expect(header).toContainText('기본 엄격 모드');
+  await expect(panel).toHaveCount(0);
+  await header.locator('.limit-review-header-button').click();
+  await header.getByRole('button', { name: '한도 초과 범위 선택', exact: true }).click();
+  await expect(header).toContainText('WHAT-IF 검토');
   await expect(panel).toContainText('출고 승인 불가');
   await panel.locator('summary').click();
   await panel.getByRole('checkbox', { name: '수평 이동', exact: true }).check();
@@ -17,7 +21,8 @@ test('review controls preserve actual limits and warning through cancel, save/lo
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:app-action', { detail: { action: 'save-local' } })));
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('container-loading-simulator-v1') ?? 'null')?.container.limitReview)).toEqual({ mode: 'what-if', simulation: { maxDisplacementMm: 20 } });
   await panel.getByRole('button', { name: '엄격 모드로 전환', exact: true }).click();
-  await expect(panel).toContainText('기본 엄격 모드');
+  await expect(header).toContainText('기본 엄격 모드');
+  await expect(panel).toHaveCount(0);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:app-action', { detail: { action: 'load-local' } })));
   await expect(panel).toContainText('출고 승인 불가');
   await expect(panel.locator('.limit-review-persistent-warning')).toBeVisible();

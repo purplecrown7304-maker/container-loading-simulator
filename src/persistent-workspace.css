@@ -55,8 +55,6 @@ html[data-guided-workflow="true"] .workspace-modal .guided-unload-priorities { m
 html[data-guided-workflow="true"] .dashboard-center > .viewer-card { position: relative; }
 .pallet-scene-overlays :is(.pallet-mode-panel-inline,.pallet-view-stack,.pallet-preview) { background: transparent !important; border: 0 !important; padding: 0 !important; pointer-events: none; }
 .pallet-scene-overlays :is(button,input,select,[role="dialog"],.pallet-inspection-backdrop,.pallet-inspector-backdrop) { pointer-events: auto; }
-.pallet-scene-overlays .pallet-preview > :is(.reference-clearance-strip,.pallet-securing-strip) { align-self: flex-start; max-width: calc(100% - 260px); background: #ffffffe8; }
-@media(max-width:760px) { .pallet-scene-overlays .pallet-preview > :is(.reference-clearance-strip,.pallet-securing-strip) { max-width: calc(100% - 175px); font-size: 11px; } }
 .pallet-scene-overlays .pallet-content-popover { pointer-events: auto; }
 /* Keep the actual rendering chain stretched, including after lazy viewer CSS loads. */
 html[data-guided-workflow="true"] .dashboard-center > .viewer-card > .viewer-host { flex: 1 1 0 !important; height: auto !important; min-height: 0 !important; }
@@ -89,10 +87,22 @@ html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .inertia-canvas
 }
 /* Only the visible pallet information strips intercept input, never their empty overlay. */
 html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays { z-index: 30; }
-html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays .pallet-preview > :is(.reference-clearance-strip,.pallet-securing-strip) { position: absolute !important; top: auto !important; left: 50%; transform: translateX(-50%) !important; width: max-content; max-width: calc(100% - 32px); margin: 0; z-index: 1; pointer-events: auto; }
-html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays .pallet-preview > .reference-clearance-strip { bottom: 124px; }
-html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays .pallet-preview > .pallet-securing-strip { bottom: 164px; }
+/* One left-bottom information dock under the step rail: summary, clearance, securing. */
+html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays .pallet-info-dock { position: absolute; left: 14px; bottom: 98px; z-index: 1; width: 300px; max-width: calc(100% - 28px); max-height: 42%; overflow: auto; }
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-bottom-actions.pallet-summary-active { display: none !important; }
 @media(max-width:760px) {
-  html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays .pallet-preview > .reference-clearance-strip { bottom: 164px; }
-  html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays .pallet-preview > .pallet-securing-strip { bottom: 244px; }
+  html[data-guided-workflow="true"] .viewer-host .pallet-scene-overlays .pallet-info-dock { left: 8px; right: 8px; width: auto; max-width: none; bottom: 150px; max-height: 26%; }
 }
+.pallet-info-dock { display: flex; flex-direction: column; border: 1px solid var(--studio-line, #dbe3ee); border-radius: 10px; background: #ffffffef; box-shadow: 0 3px 12px #1118270c; pointer-events: auto; }
+.pallet-info-dock > :is(.pallet-dock-summary,.reference-clearance-strip,.pallet-securing-strip) { position: static !important; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0 !important; padding: 8px 12px !important; border: 0 !important; border-top: 1px solid #edf1f5 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; backdrop-filter: none !important; transform: none !important; font-size: 11px !important; color: #52617a; }
+.pallet-info-dock > :first-child { border-top: 0 !important; }
+.pallet-info-dock .dock-label { flex: 1 1 100%; font-size: 10px !important; font-weight: 800; letter-spacing: .02em; color: #64748b !important; }
+.pallet-info-dock .pallet-securing-strip .dock-label { color: #16803c !important; }
+.pallet-info-dock span { white-space: nowrap; }
+.pallet-info-dock span b { color: #172033; font-size: 11px; }
+.pallet-info-dock .reference-clearance-strip span b { color: #92400e; }
+.pallet-info-dock .pallet-securing-strip > span { padding: 0 !important; border: 0 !important; background: transparent !important; font-weight: 600; }
+/* Guided workflow: CG legend sits under the centered toolbar instead of behind the step rail. */
+html[data-guided-workflow="true"] .viewer-host .three-cg-legend { top: 58px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); }
+/* Viewer hint sits just above the bottom control bar, under the info dock, never behind the bar. */
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-hint { left: 14px; bottom: 64px; }
