@@ -18,6 +18,8 @@ export type RulesContext = {
 };
 export const isARules = (container: ContainerSpec) => container.rules?.version === 'a-v1';
 export const aConfig = (container: ContainerSpec): Config => ({ ...DEFAULT_CONFIG, ...container.rules?.config,
+  // Pairs registered on the loading-method step apply to A as well; an explicit A config still wins when none are registered.
+  ...(container.incompatiblePairs?.length ? { incompatiblePairs: container.incompatiblePairs } : {}),
   ...(container.unloadingPolicy ? { strictUnloadOrder: container.unloadingPolicy === 'strict' } : {}),
   margins: { ...DEFAULT_CONFIG.margins, ...container.rules?.config?.margins } });
 export const placementOrientation = (p: { orientation?: Orientation; rotated?: boolean }): Orientation => p.orientation ?? (p.rotated ? 'WLH' : 'LWH');

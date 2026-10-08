@@ -10,6 +10,7 @@ import { writeStoredState, type StoredState } from './storage';
 import GuidedPalletTypePicker from './GuidedPalletTypePicker';
 import CargoStackRestrictionNotice from './CargoStackRestrictionNotice';
 import { loadingMethodBlockReason } from './loadingMethodReadiness';
+import { addIncompatiblePair, addRecommendedPairs, normalizeIncompatiblePairs, removeIncompatiblePair, segregationPreview, SEGREGATION_CLASSES, TEMP_ZONES } from './segregationSettings';
 
 const objectives = [
   { id:'stability' as const, title:'안정성 우선', detail:'무거운 화물을 낮게 두고 좌우·전후 균형을 맞춥니다.' },
@@ -49,6 +50,10 @@ export default function LoadingMethodStage({ input, strategy, onStrategy, confir
     publishGuidedLoadingUnit(next);
   };
   const stops = new Set(input.cargo.filter(i=>i.quantity>0).map(i=>i.unloadPriority ?? 1)).size;
+  const incompatiblePairs = normalizeIncompatiblePairs(input.container.incompatiblePairs);
+  const [pairDraft, setPairDraft] = useState<[string,string]>([SEGREGATION_CLASSES[1], SEGREGATION_CLASSES[2]]);
+  const segregation = segregationPreview(input.container, input.cargo);
+  const classifiedCount = products.filter(item=>item.segregationClass || item.tempZone).length;
   const strict = input.container.unloadingPolicy !== 'soft';
   const forecastInput:ForecastInput = { ...input, mode, pallet };
   const forecastKey = JSON.stringify(forecastInput);
@@ -102,6 +107,33 @@ export default function LoadingMethodStage({ input, strategy, onStrategy, confir
       <details className="step04-sku-choices"><summary>품목별 착지 번호 · 같은 배송지는 같은 번호</summary>{products.map(item=><label key={item.productId??item.id}><span>{item.productName??item.name}</span><input aria-label={`${item.productName??item.name} 하역 순서`} type="number" min="1" step="1" value={item.unloadPriority??1} onChange={e=>{const stop=Number(e.target.value);if(Number.isInteger(stop)&&stop>0)updateProduct(item,{unloadPriority:stop});}}/></label>)}</details>
       {stops>1 ? <div className="guided-strategy-grid" role="radiogroup" aria-label="하역 조건">{[{id:'strict',title:'엄격',text:'먼저 내릴 화물의 반출 경로를 막는 배치를 허용하지 않습니다.'},{id:'soft',title:'완화',text:'경로 막힘은 경고로 표시하며 현장 재취급이 필요합니다. 지지·하중 검사는 유지합니다.'}].map(option=><button type="button" key={option.id} role="radio" aria-checked={strict===(option.id==='strict')} className={`guided-strategy-card ${strict===(option.id==='strict')?'selected':''}`} onClick={()=>updateContainer({unloadingPolicy:option.id as 'strict'|'soft'})}><strong>{option.title}</strong><small>{option.text}</small></button>)}</div> : <p>착지가 2곳 이상이면 엄격·완화 조건을 선택할 수 있습니다. 착지 번호를 제품 순서로 자동 생성하지 않습니다.</p>}
     </section>
-    <section className="step04-section"><h2>유지되는 검사 조건</h2><div className="step04-checks">{['경계와 충돌','지지율','적층 하중','최대 적재중량','무게중심'].map(label=><span key={label}>{label}</span>)}<span>바닥 선하중 · {input.container.rules?.floorLineLoadKgPerM?'설정값 검사':'제원 미입력'}</span><span>축하중 · {equipment.category==='truck'?(input.container.rules?.axles?'설정값 검사':'실제 축 제원 미입력'):'컨테이너 비대상'}</span><span>혼적 금지 · {input.container.rules?'설정값 검사':'A 규칙에서 지원'}</span></div><p className="step04-help">최종 배치에 대해 검사를 실행합니다. 대표값과 계산 결과는 실제 운송 안전 인증이 아닙니다.</p></section>
+    <section className="step04-section" aria-label="혼적·온도 구분"><h2>4. 혼적·온도 구분 {classifiedCount?`· 입력 ${classifiedCount}품목`:''}</h2>
+      <p className="step04-help">구분이나 온도대를 입력한 품목만 검사합니다. 금지 조합이 함께 실리면 배치는 보여 주되 오류로 표시하고 PASS할 수 없습니다.</p>
+      <details className="step04-sku-choices"><summary>품목별 화물 구분 · 온도대</summary>{products.map(item=>{
+        const name=item.productName??item.name;
+        return <div className="step04-segregation-row" key={item.productId??item.id}><span>{name}</span>
+          <select aria-label={`${name} 화물 구분`} value={item.segregationClass??''} onChange={e=>updateProduct(item,{segregationClass:e.target.value||undefined})}><option value="">구분 없음</option>{SEGREGATION_CLASSES.map(value=><option key={value} value={value}>{value}</option>)}</select>
+          <select aria-label={`${name} 온도대`} value={item.tempZone??''} onChange={e=>updateProduct(item,{tempZone:e.target.value||undefined})}><option value="">온도대 없음</option>{TEMP_ZONES.map(value=><option key={value} value={value}>{value}</option>)}</select>
+        </div>;
+      })}</details>
+      <div className="step04-pairs" aria-label="함께 실을 수 없는 조합">
+        <b>함께 실을 수 없는 조합</b>
+        {incompatiblePairs.length ? <ul>{incompatiblePairs.map(([a,b])=><li key={`${a}|${b}`}><span>{a} ↔ {b}</span><button type="button" aria-label={`${a} ${b} 조합 삭제`} onClick={()=>updateContainer({incompatiblePairs:removeIncompatiblePair(incompatiblePairs,a,b)})}>삭제</button></li>)}</ul>
+          : <p>등록된 금지 조합이 없습니다. 조합을 등록해야 혼적 검사가 작동합니다.</p>}
+        <div className="step04-pair-editor">
+          <select aria-label="금지 조합 첫째 구분" value={pairDraft[0]} onChange={e=>setPairDraft([e.target.value,pairDraft[1]])}>{SEGREGATION_CLASSES.map(value=><option key={value} value={value}>{value}</option>)}</select>
+          <span aria-hidden="true">↔</span>
+          <select aria-label="금지 조합 둘째 구분" value={pairDraft[1]} onChange={e=>setPairDraft([pairDraft[0],e.target.value])}>{SEGREGATION_CLASSES.map(value=><option key={value} value={value}>{value}</option>)}</select>
+          <button type="button" disabled={pairDraft[0]===pairDraft[1]} onClick={()=>updateContainer({incompatiblePairs:addIncompatiblePair(incompatiblePairs,pairDraft[0],pairDraft[1])})}>조합 추가</button>
+          <button type="button" onClick={()=>updateContainer({incompatiblePairs:addRecommendedPairs(incompatiblePairs)})}>권장 조합 넣기</button>
+        </div>
+      </div>
+      {(segregation.conflicts.length>0 || segregation.mixedZones.length>0) && <p className="step04-segregation-alert" role="status">
+        {segregation.conflicts.length>0 && <span>현재 품목에 금지 조합이 있습니다: {segregation.conflicts.map(([a,b])=>`${a} ↔ ${b}`).join(', ')}. </span>}
+        {segregation.mixedZones.length>0 && <span>온도대가 섞여 있습니다: {segregation.mixedZones.join(', ')}. </span>}
+        이대로 적재하면 오류로 표시되고 PASS할 수 없습니다.
+      </p>}
+    </section>
+    <section className="step04-section"><h2>유지되는 검사 조건</h2><div className="step04-checks">{['경계와 충돌','지지율','적층 하중','최대 적재중량','무게중심'].map(label=><span key={label}>{label}</span>)}<span>바닥 선하중 · {input.container.rules?.floorLineLoadKgPerM?'설정값 검사':'제원 미입력'}</span><span>축하중 · {equipment.category==='truck'?(input.container.rules?.axles?'설정값 검사':'실제 축 제원 미입력'):'컨테이너 비대상'}</span><span>혼적 금지 · {incompatiblePairs.length?`등록 조합 ${incompatiblePairs.length}건 검사`:'조합 미등록'}</span></div><p className="step04-help">최종 배치에 대해 검사를 실행합니다. 대표값과 계산 결과는 실제 운송 안전 인증이 아닙니다.</p></section>
   </section>;
 }

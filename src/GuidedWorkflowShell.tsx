@@ -523,7 +523,7 @@ export default function GuidedWorkflowShell() {
     advance(4);
   };
   // Handling/destination choices do not change the confirmed carton design.
-  const { unloadingPolicy: _unload, palletDestination: _destination, ...packagingContainer } = live.container;
+  const { unloadingPolicy: _unload, palletDestination: _destination, incompatiblePairs: _pairs, ...packagingContainer } = live.container;
   const packagingKey = JSON.stringify({ container: packagingContainer, cargo: packaging.cargo });
   useEffect(() => {
     setPackagingConfirmed(false);
