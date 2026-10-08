@@ -513,6 +513,7 @@ exports[`legacy versus A: identical cargo differential contract > temperature 1`
     "elevated": 0,
     "errors": [
       "CG_LONGITUDINAL",
+      "MIXED_TEMP_ZONE",
     ],
     "placed": 2,
     "remaining": 0,
