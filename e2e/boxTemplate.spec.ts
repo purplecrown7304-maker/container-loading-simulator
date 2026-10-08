@@ -19,7 +19,8 @@ test('box management downloads and imports its template without quantity or unlo
   const path = await download.path();
   const workbook = XLSX.read(await readFile(path!), { type: 'buffer' });
   const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
-  expect(rows[0]).toHaveLength(9);
+  expect(rows[0]).toHaveLength(10);
+  expect(rows[0]).toContain('재질');
   expect(rows[0]).not.toContain('수량');
   expect(rows[0]).not.toContain('하역순서');
 

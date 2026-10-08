@@ -1,5 +1,6 @@
 import type { RulesContext, LoadingRuleset } from './loadingRuleset';
 import type { Orientation, Dims } from './loadSimA/types';
+import type { CartonMaterial } from './cartonMaterial';
 /** Explicit numerical scenarios never amend equipment ratings or certify transport. */
 export type LimitReviewConfig = {
   mode: 'what-if';
@@ -78,6 +79,10 @@ export type CargoItem = {
   maxTopLoadKg?: number;
   /** Box management explicitly saved this limit; zero must never be treated as a legacy default. */
   topLoadLimitExplicit?: boolean;
+  /** 박스 재질. 표시와 강도 추정 버튼에만 쓰며, 추정값은 사용자가 넣기를 눌렀을 때만 상부 허용하중이 된다. */
+  cartonMaterial?: CartonMaterial;
+  /** 상부 허용하중의 출처. 'material-estimate'는 재질 추정값이며 시험값이 아니다. */
+  strengthSource?: 'material-estimate';
   /** Strength is not measured; operational loading remains one layer/no top load. */
   strengthUnverified?: boolean;
   /** Provenance only; changing either limit invalidates this recorded explanation. */
