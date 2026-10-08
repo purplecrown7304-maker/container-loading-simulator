@@ -6,6 +6,8 @@ import { packByBlockSpaceBeamV2 } from './blockSpaceBeamPackerV2';
 export type PalletSpec = {
   /** Operational minimum for a regular pallet's top tier; final mixed tails are exempt. */
   minTopLayerFillRatio?: number;
+  /** 바닥 단 점유율 경고 기준(0 초과 1 이하). 미입력 시 0.9. 경고 전용이며 파렛트 구성을 바꾸지 않는다. */
+  minBottomLayerCoverageRatio?: number;
   /** Visual material metadata only; it does not change packing constraints. */
   material?: 'wood' | 'plastic';
   length: number;

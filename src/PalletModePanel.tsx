@@ -16,6 +16,7 @@ import { resolvePalletType, subscribePalletTypeSelection } from './palletTypeSel
 import { clearPalletSnapshot, publishPalletSnapshot, readPalletSnapshot } from './palletSnapshotStore';
 import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT } from './autoCertification';
 import { cargoStackRestrictions } from './cargoStackRestrictions';
+import { palletAdvisoryFindings } from './engine/palletPlanValidation';
 
 export type PalletViewerScene = LoadingViewerProps & { inputKey: string };
 type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number; mode?: 'pallets' | 'mixed'; inputKey: string; onSceneChange: (scene: PalletViewerScene | null) => void; onRunningChange: (running: boolean) => void };
@@ -280,7 +281,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg,
       usedVolumeM3: result.placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0),
       validationIssues: validatePlacements(container, result.placements),
-      operationalFindings: validateOperationalLoading(container, cargo, result.placements, supports),
+      operationalFindings: [...validateOperationalLoading(container, cargo, result.placements, supports), ...palletAdvisoryFindings(container, result, spec)],
     };
     publishPhysicsTarget({ mode: 'pallets', container, cargo, result: loadingResult, supports });
   }, [container, cargo, result, modelKey]);
@@ -295,7 +296,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg,
       usedVolumeM3: result.placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0),
       validationIssues: validatePlacements(container, result.placements),
-      operationalFindings: validateOperationalLoading(container, cargo, result.placements, result.pallets.map(p => ({ id: `PALLET-${p.palletIndex}`, unitCenterOfGravity:p.centerOfGravity, unitHeightM:Math.max(p.height,...p.cargoPlacements.map(b=>b.z+b.height-p.z))+p.packagingExtraHeightM, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) }))),
+      operationalFindings: [...validateOperationalLoading(container, cargo, result.placements, result.pallets.map(p => ({ id: `PALLET-${p.palletIndex}`, unitCenterOfGravity:p.centerOfGravity, unitHeightM:Math.max(p.height,...p.cargoPlacements.map(b=>b.z+b.height-p.z))+p.packagingExtraHeightM, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) }))), ...palletAdvisoryFindings(container, result, spec)],
     },
     supports: result.pallets.map(p => ({ modelKey, id: `PALLET-${p.palletIndex}`, unitCenterOfGravity:p.centerOfGravity, unitHeightM:Math.max(p.height,...p.cargoPlacements.map(b=>b.z+b.height-p.z))+p.packagingExtraHeightM, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) })),
   }), [container, cargo, result, modelKey]);
