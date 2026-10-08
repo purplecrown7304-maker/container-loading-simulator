@@ -39,8 +39,14 @@ export function readPersonalBoxCatalog(operator: LocalOperator): PersonalBoxCata
   const key = personalBoxCatalogKey(operator);
   const parsed = parseCatalog(window.localStorage.getItem(key));
   const cleaned = parsed.filter(item => !isLegacyAutoRecommendedPersonalBox(item));
-  if (cleaned.length !== parsed.length) window.localStorage.setItem(key, JSON.stringify(cleaned));
-  return cleaned;
+  // A box the packaging step can choose must also be visible and editable here (2026-10-08).
+  const listed = new Set(cleaned.map(item => item.id));
+  const restored = readExplicitPlannerRecommendations(operator)
+    .filter(box => !listed.has(box.id))
+    .map(personalItemFromPlannerBox);
+  const next = restored.length ? [...cleaned, ...restored] : cleaned;
+  if (next.length !== parsed.length || restored.length) window.localStorage.setItem(key, JSON.stringify(next));
+  return next;
 }
 
 export function writePersonalBoxCatalog(operator: LocalOperator, items: PersonalBoxCatalogItem[]) {
@@ -54,6 +60,62 @@ function activePlannerKey(operator: LocalOperator) {
   return isAdminSession()
     ? `${PLANNER_KEY_PREFIX}:admin`
     : operatorScopedStorageKey(PLANNER_KEY_PREFIX, operator);
+}
+
+function readPlannerState(operator: LocalOperator): ({ boxes?: BoxCatalogItem[] } & Record<string, unknown>) | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(activePlannerKey(operator)) ?? 'null') as ({ boxes?: BoxCatalogItem[] } & Record<string, unknown>) | null;
+    return parsed && Array.isArray(parsed.boxes) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function readExplicitPlannerRecommendations(operator: LocalOperator): ExplicitPlannerBox[] {
+  return (readPlannerState(operator)?.boxes ?? [])
+    .filter((box): box is ExplicitPlannerBox => (box as Partial<ExplicitPlannerBox>).recommendationRegistration === 'explicit');
+}
+
+/**
+ * Personal list entry for a registered recommendation found only in the packaging planner.
+ * Strength is never invented: a box without a positive top load and with a one-layer cap is shown
+ * as strength-unverified, which is how the engine already treats it.
+ */
+export function personalItemFromPlannerBox(box: BoxCatalogItem): PersonalBoxCatalogItem {
+  const unverified = box.strengthUnverified === true || box.maxTopLoadKg == null
+    || (box.maxTopLoadKg <= 0 && (box.maxStackLayers ?? 1) <= 1);
+  return {
+    id: box.id,
+    name: box.name,
+    length: box.outerLength,
+    width: box.outerWidth,
+    height: box.outerHeight,
+    weightKg: box.maxGrossWeightKg,
+    quantity: 0,
+    maxStackLayers: box.maxStackLayers,
+    maxTopLoadKg: box.maxTopLoadKg,
+    strengthUnverified: unverified,
+    allowRotation: true,
+    catalogOrigin: 'recommendation',
+    recommendationRegistration: 'explicit',
+  };
+}
+
+/** Deleting a registered recommendation from the personal list removes the planner copy too. */
+export function removeExplicitPlannerRecommendation(operator: LocalOperator, id: string): BoxCatalogItem | undefined {
+  const state = readPlannerState(operator);
+  const removed = state?.boxes?.find(box => box.id === id && (box as Partial<ExplicitPlannerBox>).recommendationRegistration === 'explicit');
+  if (!state || !removed) return undefined;
+  const next = { ...state, boxes: state.boxes!.filter(box => box !== removed) };
+  window.localStorage.setItem(activePlannerKey(operator), JSON.stringify(next));
+  window.dispatchEvent(new CustomEvent(PLANNER_EVENT, { detail: next }));
+  return removed;
+}
+
+/** Undo of a personal-list delete puts the planner copy back unchanged. */
+export function restoreExplicitPlannerRecommendation(operator: LocalOperator, box: BoxCatalogItem) {
+  upsertExplicitPlannerRecommendation(operator, box);
 }
 
 function upsertExplicitPlannerRecommendation(operator: LocalOperator, box: BoxCatalogItem) {
