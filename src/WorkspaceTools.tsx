@@ -10,6 +10,7 @@ import { readStoredState, writeStoredState, type StoredState } from './storage';
 import { OPEN_WORKSPACE_EVENT, type WorkspaceOpenDetail } from './uiEvents';
 import { applyPersonalStackPolicyToCargo } from './boxStackingPolicy';
 import { writeManualOverride } from './engine/manualOverride';
+import { CARTON_MATERIAL_ORDER, CARTON_MATERIALS, cartonMaterialLabel, estimateCartonTopLoad, type CartonMaterial } from './engine/cartonMaterial';
 
 const BOX_KEY = 'container-loading-workspace-boxes-v1';
 const VEHICLE_KEY = 'container-loading-workspace-vehicles-v1';
@@ -233,7 +234,9 @@ export default function WorkspaceTools({ showNav = true }: Props) {
       if (!current) return current;
       if (field === 'id' || field === 'name') return { ...current, [field]: String(value) };
       if (field === 'allowRotation') return { ...current, allowRotation: Boolean(value) };
-      if (field === 'maxTopLoadKg' && String(value).trim() === '') return { ...current, maxTopLoadKg: undefined };
+      // A typed value replaces a material estimate: it is no longer the estimate.
+      if (field === 'maxTopLoadKg' && String(value).trim() === '') return { ...current, maxTopLoadKg: undefined, strengthSource: undefined };
+      if (field === 'maxTopLoadKg') return { ...current, maxTopLoadKg: Number(value), strengthSource: undefined };
       if (field === 'maxStackLayers' && String(value).trim() === '') return { ...current, maxStackLayers: undefined };
       return { ...current, [field]: Number(value) };
     });
@@ -385,8 +388,19 @@ export default function WorkspaceTools({ showNav = true }: Props) {
                   <label>기본수량<input type="number" min="0" step="1" value={catalogDraft.quantity} onChange={event => updateCatalogDraft('quantity', event.target.value)} /></label>
                   <label>최대적층단<input type="number" min="1" step="1" placeholder="별도 제한 없음" value={catalogDraft.maxStackLayers ?? ''} onChange={event => updateCatalogDraft('maxStackLayers', event.target.value)} /></label>
                   <label>상부 허용하중(kg)<input aria-describedby="box-top-load-help" placeholder="강도 미확인" type="number" min="0" step="0.1" value={catalogDraft.maxTopLoadKg ?? ''} onChange={event => updateCatalogDraft('maxTopLoadKg', event.target.value)} /></label>
+                  <label>재질<select value={catalogDraft.cartonMaterial ?? ''} onChange={event => setCatalogDraft(current => current && ({ ...current, cartonMaterial: (event.target.value || undefined) as CartonMaterial | undefined }))}>
+                    <option value="">선택 안 함</option>{CARTON_MATERIAL_ORDER.map(material => <option key={material} value={material}>{CARTON_MATERIALS[material].label} · {CARTON_MATERIALS[material].note}</option>)}
+                  </select></label>
                   <label><input type="checkbox" checked={catalogDraft.allowRotation !== false} onChange={event => updateCatalogDraft('allowRotation', event.target.checked)} /> 90도 회전 허용</label>
                 </div>
+                {(() => {
+                  const estimate = estimateCartonTopLoad(catalogDraft.cartonMaterial, catalogDraft.length, catalogDraft.width);
+                  if (!catalogDraft.cartonMaterial) return null;
+                  if (!estimate) return <p className="box-material-estimate">{CARTON_MATERIALS[catalogDraft.cartonMaterial].label}은 추정 공식이 없습니다. 제조사 하중표의 상부 허용하중을 직접 입력하세요.</p>;
+                  const layers = catalogDraft.weightKg > 0 ? 1 + Math.floor(estimate.allowableTopLoadKg / catalogDraft.weightKg) : null;
+                  return <p className="box-material-estimate">재질 추정 상부 허용하중 <b>{estimate.allowableTopLoadKg.toFixed(1)} kg</b> (압축강도 약 {estimate.bctKg.toFixed(0)} kg ÷ 안전계수 {estimate.safetyFactor}{layers ? ` · 중량 ${catalogDraft.weightKg} kg 박스 기준 약 ${layers}단` : ''}). 시험값이 아니라 대표값 추정입니다.
+                    <button type="button" onClick={() => setCatalogDraft(current => current && ({ ...current, maxTopLoadKg: estimate.allowableTopLoadKg, strengthSource: 'material-estimate' }))}>추정값 넣기</button></p>;
+                })()}
                 <p id="box-top-load-help">상부 허용하중은 이 박스 위에 놓이는 모든 화물의 누적 중량입니다. 0kg을 저장하면 상부 적재 금지를 명시한 것으로 처리합니다. 빈칸으로 저장하면 강도 미확인이며 계산에는 1단·상부하중 0kg 제한을 적용합니다. 박스 자체 중량이나 파렛트 허용중량과 다릅니다. BCT 시험값은 안전계수를 반영한 허용하중으로 환산해 입력하세요. 값을 바꾼 뒤 포장 확정과 자동 적재를 다시 실행하세요.</p><div className="box-register-actions"><button className="blue" onClick={saveCatalogDraft}>저장</button><button onClick={() => setCatalogDraft(null)}>취소</button></div>
               </div>}
             </div>}
@@ -398,7 +412,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
               <div className="catalog-wrap"><table><caption>{operator.name} 개인 박스 목록</caption><thead><tr><th>선택</th><th>NO</th><th>박스코드</th><th>내용물</th><th>L</th><th>W</th><th>T</th><th>중량</th><th>CBM</th><th>재질</th><th>상부 허용하중(kg)</th><th>최대적층단</th><th>취급주의</th><th>색상</th><th>회전허용</th><th>적재 수량</th><th>관리</th></tr></thead><tbody>
                 {filtered.map((x, i) => <tr key={x.id}>
                   <td><input type="checkbox" checked={(selected[x.id] ?? 0) > 0} onChange={event => setSelected(state => ({ ...state, [x.id]: event.target.checked ? Math.max(1, x.quantity) : 0 }))} /></td>
-                  <td>{i + 1}</td><td>{x.id}</td><td>{x.name}</td><td>{Math.round(x.length * 1000)}</td><td>{Math.round(x.width * 1000)}</td><td>{Math.round(x.height * 1000)}</td><td>{x.weightKg}</td><td>{(x.length * x.width * x.height).toFixed(3)}</td><td>-</td><td>{x.strengthUnverified ? '강도 미확인 · 계산 1단' : x.maxTopLoadKg === 0 ? '0 · 위에 적재 금지' : x.maxTopLoadKg ?? '제한 미설정'}</td><td>{x.strengthUnverified ? '계산 1단 (강도 미확인)' : x.maxStackLayers ?? '제한없음'}</td><td>-</td><td><i className="catalog-color" style={{ background: cargoColor(x.id, x.displayColor) }} /></td><td>{x.allowRotation !== false ? '허용' : '금지'}</td>
+                  <td>{i + 1}</td><td>{x.id}</td><td>{x.name}</td><td>{Math.round(x.length * 1000)}</td><td>{Math.round(x.width * 1000)}</td><td>{Math.round(x.height * 1000)}</td><td>{x.weightKg}</td><td>{(x.length * x.width * x.height).toFixed(3)}</td><td>{cartonMaterialLabel(x.cartonMaterial)}</td><td>{x.strengthUnverified ? '강도 미확인 · 계산 1단' : x.maxTopLoadKg === 0 ? '0 · 위에 적재 금지' : x.maxTopLoadKg == null ? '제한 미설정' : x.strengthSource === 'material-estimate' ? `${x.maxTopLoadKg} · 재질 추정` : x.maxTopLoadKg}</td><td>{x.strengthUnverified ? '계산 1단 (강도 미확인)' : x.maxStackLayers ?? '제한없음'}</td><td>-</td><td><i className="catalog-color" style={{ background: cargoColor(x.id, x.displayColor) }} /></td><td>{x.allowRotation !== false ? '허용' : '금지'}</td>
                   <td><input className="qty-input" type="number" min="0" step="1" value={selected[x.id] ?? x.quantity} onChange={event => setSelected(state => ({ ...state, [x.id]: Math.max(0, Math.floor(Number(event.target.value) || 0)) }))} /></td>
                   <td><div className="box-register-actions"><button onClick={() => editCatalogItem(x)}>수정</button><button className="danger" onClick={() => deleteCatalogItem(x)}>삭제</button></div></td>
                 </tr>)}
