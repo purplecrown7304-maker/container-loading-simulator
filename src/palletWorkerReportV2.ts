@@ -17,6 +17,9 @@ import {
 import { buildPalletSecuringPlan, type PalletSecuringPlan } from './palletSecuringPlan';
 import { readPhysicsTarget } from './physicsTarget';
 import { palletBandingLabel, palletBandingLayout } from './palletBanding';
+import { buildFieldChecklistHtml } from './reportFieldChecklist';
+import { INERTIA_SCENARIO_ACCELERATION_G } from './engine/inertiaSimulation';
+import { readTransportEquipment } from './transportEquipment';
 
 export type PalletWorkSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult };
 type PalletWindow = Window & { __containerLoadingPalletSnapshot?: PalletWorkSnapshot };
@@ -263,6 +266,10 @@ export function buildPalletLoadingReportHtml(container: ContainerSpec, cargo: Ca
         content: `<h3>팔레트 투입 순서</h3>${reportTable('팔레트 투입 순서 표', `<table class="work"><colgroup><col style="width:8%"><col style="width:12%"><col style="width:19%"><col style="width:23%"><col style="width:30%"><col style="width:8%"></colgroup><thead><tr><th scope="col">순서</th><th scope="col">팔레트</th><th scope="col">박스 구성</th><th scope="col">중량 / 고정</th><th scope="col">놓을 위치</th><th scope="col">완료</th></tr></thead><tbody>${rows}</tbody></table>`)}<div class="title"><h3>팔레트별 결속 작업 순서</h3><span>미끄럼방지 → 배치 → 각대 → 밴딩 → 랩핑 → 확인</span></div><section class="sequence">${sequence}</section>`,
       },
       {
+        title: '현장 작업 체크리스트', description: '계산으로 확인할 수 없는 현장 항목입니다. 작업자가 직접 확인하고 표시하세요.',
+        content: buildFieldChecklistHtml(readTransportEquipment().category, { pallet: true }),
+      },
+      {
         title: '출고 전 최종 확인', description: approval === 'caution' ? '주의 · 검토용 문서입니다. 출고 전 보완 확인이 필요합니다.' : '고정 상태를 대조한 뒤 담당자가 확인하세요.',
         content: `<h3>관성 테스트 권장 사항</h3><ol class="recommendations">${recommendationItems}</ol><div class="final"><div>□ 밴딩/각대/랩핑 그림과 일치</div><div>□ 팔레트 흔들림·오버행 없음</div><div>□ 문 닫힘/고정바 간섭 없음</div></div>${REPORT_SIGNOFF}`,
       },
@@ -271,7 +278,7 @@ export function buildPalletLoadingReportHtml(container: ContainerSpec, cargo: Ca
         content: `<h3>관성 안전 지표</h3><section class="inertia-metrics">${inertia}</section>${history ? `<h3>자동 보강 이력</h3><section class="history">${history}</section>` : ''}<p class="technical">관성 판정(${escapeHtml(approvalLabel)})은 시뮬레이터 내부 비교 결과이며 실제 운송 안전 인증을 의미하지 않습니다. ‘주의 · 검토용’은 내부 PASS 기준을 일부 초과했지만 위험 기준은 넘지 않은 결과이며 출고 승인을 의미하지 않습니다. 화물↔팔레트 미끄럼과 적층 팔레트 상대 이동을 함께 확인하고 표시된 권장사항을 출고 전 점검하세요. 표시된 kN은 내부 물리모델 비교값이며 실제 자재 정격을 대체하지 않습니다.</p>`,
       },
     ],
-    footer: `<span>물리검증: ${physicsVerified ? '완료' : '별도 확인'}</span><span>관성: ${escapeHtml(approvalLabel)} · 전체 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)} mm · 화물 ${((certification.maxCargoRelativeSlipM ?? 0) * 1000).toFixed(1)} mm · 팔레트 ${((certification.maxSupportShiftM ?? 0) * 1000).toFixed(1)} mm · ${certification.maxTiltDeg.toFixed(1)}°</span><span>보조자재 약 ${certification.securing.estimatedNonCargoWeightKg.toFixed(1)} kg</span>`,
+    footer: `<span>물리검증: ${physicsVerified ? '완료' : '별도 확인'}</span><span>관성 검증 조건: 출발 ${INERTIA_SCENARIO_ACCELERATION_G.acceleration.toFixed(2)}g · 제동 ${INERTIA_SCENARIO_ACCELERATION_G.braking.toFixed(2)}g · 회전 ${INERTIA_SCENARIO_ACCELERATION_G.cornering.toFixed(2)}g (앱 내부 비교 기준)</span><span>관성: ${escapeHtml(approvalLabel)} · 전체 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)} mm · 화물 ${((certification.maxCargoRelativeSlipM ?? 0) * 1000).toFixed(1)} mm · 팔레트 ${((certification.maxSupportShiftM ?? 0) * 1000).toFixed(1)} mm · ${certification.maxTiltDeg.toFixed(1)}°</span><span>보조자재 약 ${certification.securing.estimatedNonCargoWeightKg.toFixed(1)} kg</span>`,
   });
 }
 

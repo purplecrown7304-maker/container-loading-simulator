@@ -126,4 +126,13 @@ describe('pallet worker report', () => {
     expect(html).toContain('&lt;b&gt;제품 A&lt;/b&gt;');
     expect(html).not.toContain('<b>제품 A</b>');
   });
+
+  it('prints the field checklist with pallet checks and the inertia conditions', () => {
+    const html = buildPalletLoadingReportHtml(container, cargo, snapshot, certification);
+    expect(html).toContain('현장 작업 체크리스트');
+    expect(html).toContain('data-field-checklist-unit="pallet"');
+    expect(html).toContain('열처리(HT)');
+    expect(html).toContain('관성 검증 조건: 출발 0.30g · 제동 0.50g · 회전 0.35g');
+  });
+
 });
