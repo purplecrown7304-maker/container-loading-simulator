@@ -6,3 +6,17 @@ html[data-guided-workflow="true"] .mockup-dashboard>.limit-review-controls{flex:
 /* The shared Three viewer owns its always-visible badge; full comparison remains in result overlays. */
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-card>.limit-review-result-banner{display:none}
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .limit-review-viewer-label{flex:none;align-self:stretch;z-index:36;text-align:center;background:#fffbebf5}
+/* Strict/review mode lives as a header button beside the ruleset selector. */
+.limit-review-header-slot{display:contents}
+.limit-review-header{position:relative;flex:none}
+.limit-review-header-button{display:inline-flex;align-items:center;gap:6px;height:32px;min-height:32px;margin:0;padding:4px 10px;border:1px solid var(--studio-line,#dbe3ee);border-radius:var(--studio-radius-sm,6px);background:var(--studio-sunken,#f8fafc);color:var(--studio-ink,#172033);font:600 12px/1.4 system-ui;white-space:nowrap;cursor:pointer}
+.limit-review-header-button i{width:7px;height:7px;border-radius:50%;background:#16a34a}
+.limit-review-header-button>span{color:#64748b;font-size:11px}
+.limit-review-header.is-review .limit-review-header-button{border-color:#f59e0b;background:#fffbeb;color:#92400e}
+.limit-review-header.is-review .limit-review-header-button i{background:#f59e0b}
+.limit-review-header-popover{position:absolute;top:calc(100% + 6px);left:0;z-index:7000;width:280px;padding:12px;border:1px solid #dbe3ee;border-radius:10px;background:#fff;box-shadow:0 12px 32px #0f172a29;color:#334155;font-size:12px;white-space:normal}
+.limit-review-header-popover b{display:block;color:#172033}
+.limit-review-header.is-review .limit-review-header-popover b{color:#92400e}
+.limit-review-header-popover p{margin:6px 0 10px;line-height:1.55}
+.limit-review-header-popover button{width:100%;background:#e2e8f0;color:#334155}
+@media(max-width:760px){.limit-review-header-popover{position:fixed;top:56px;left:8px;right:8px;width:auto}}

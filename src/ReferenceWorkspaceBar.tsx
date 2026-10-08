@@ -188,6 +188,7 @@ export default function ReferenceWorkspaceBar() {
         </button>
         <ViewerBackgroundSelector />
         <LoadingRulesSelector />
+        <div className="limit-review-header-slot" />
       </div>
 
       <div className="header-right-actions">

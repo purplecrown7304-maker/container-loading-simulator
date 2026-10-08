@@ -18,7 +18,9 @@ for (const width of [320, 480, 481, 761, 1280]) {
     await expect(rules).toHaveAccessibleDescription(/이전 적재·점검 결과가 초기화/);
 
     const review = page.getByRole('region', { name: '한도 초과 검토 설정' });
-    await review.getByRole('button', { name: '한도 초과 범위 선택', exact: true }).click();
+    const header = page.locator('.limit-review-header');
+    await header.locator('.limit-review-header-button').click();
+    await header.getByRole('button', { name: '한도 초과 범위 선택', exact: true }).click();
     await expect(review.locator('.limit-review-persistent-warning')).toBeVisible();
     await expect(review).toContainText('출고 승인 불가');
     await review.locator('summary').click();
@@ -27,7 +29,8 @@ for (const width of [320, 480, 481, 761, 1280]) {
     await review.getByRole('spinbutton', { name: '수평 이동 검토 범위', exact: true }).fill('20');
     await review.getByRole('button', { name: '검토 범위 적용', exact: true }).click();
     await review.getByRole('button', { name: '엄격 모드로 전환', exact: true }).click();
-    await expect(review).toContainText('기본 엄격 모드');
+    await expect(header).toContainText('기본 엄격 모드');
+    await expect(review).toHaveCount(0);
     await expectHeaderSceneControlsFit(page);
   });
 }

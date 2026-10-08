@@ -34,6 +34,11 @@ export async function expectHeaderSceneControlsFit(page: Page) {
   await expect(equipment).toBeInViewport();
   await expect(selector).toBeInViewport();
   await expect(page.locator('.header-menu-button')).toBeInViewport();
+  // The strict/review mode is a header button placed directly after the ruleset selector.
+  const mode = page.locator('.header-scene-controls .loading-rules-selector + .limit-review-header-slot .limit-review-header-button');
+  await expect(mode).toHaveCount(1);
+  await expect(mode).toBeInViewport();
+  await expect(page.locator('.mockup-dashboard > .limit-review-controls:not(.is-review)')).toHaveCount(0);
   const layout = await selector.evaluate(element => {
     const controls = element.closest('.header-scene-controls');
     const equipment = controls?.querySelector('.header-equipment-pill');
