@@ -3,6 +3,33 @@ import type { ContainerSpec, Placement, ValidationIssue } from './types';
 
 const EPSILON = 1e-9;
 
+/** LOADING_RULES R-5 (대표 결정 2026-10-08): 권장 천장 여유 5 cm. `ContainerSpec.ceilingClearanceM`으로 바꾼다(0 = 여유 없음). */
+export const DEFAULT_CEILING_CLEARANCE_M = 0.05;
+/** Engine default when a spec does not set the field: none. The app sets the recommended value when it builds the spec from equipment. */
+const UNSET_CEILING_CLEARANCE_M = 0;
+
+/** Legacy ceiling clearance in metres. A-rules keep their own margins and are not affected. */
+export function ceilingClearance(container: ContainerSpec): number {
+  if (isARules(container)) return 0;
+  const value = container.ceilingClearanceM ?? UNSET_CEILING_CLEARANCE_M;
+  return Number.isFinite(value) && value > 0 && value < container.height ? value : 0;
+}
+
+/** Highest point cargo, pallets and packaging may reach. */
+export function usableHeight(container: ContainerSpec): number {
+  return container.height - ceilingClearance(container);
+}
+
+/**
+ * Planning envelope for packers that read `container.height` directly: the clearance is folded
+ * into the height once and switched off, so it is never subtracted twice. Bounds checks on the
+ * original container give the same limit through `usableHeight`.
+ */
+export function planningContainer(container: ContainerSpec): ContainerSpec {
+  const clearance = ceilingClearance(container);
+  return clearance > 0 ? { ...container, height: container.height - clearance, ceilingClearanceM: 0 } : container;
+}
+
 export function isInsideContainer(container: ContainerSpec, placement: Placement): boolean {
   if (isARules(container)) {
     const cfg=aConfig(container), e=cfg.epsilon/1000;
@@ -14,7 +41,7 @@ export function isInsideContainer(container: ContainerSpec, placement: Placement
     placement.z >= -EPSILON &&
     placement.x + placement.length <= container.length + EPSILON &&
     placement.y + placement.width <= container.width + EPSILON &&
-    placement.z + placement.height <= container.height + EPSILON
+    placement.z + placement.height <= usableHeight(container) + EPSILON
   );
 }
 

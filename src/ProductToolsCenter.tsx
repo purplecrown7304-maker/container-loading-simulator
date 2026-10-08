@@ -24,6 +24,7 @@ import { useTransportEquipment } from './transportEquipment';
 import { formatBoxSize, packagingCandidates } from './productWorkflow';
 import { OPEN_PRODUCT_TOOL_EVENT, type ProductToolView } from './productToolEvents';
 import './product-tools-center.css';
+import { DEFAULT_CEILING_CLEARANCE_M } from './engine/constraints';
 
 type ProductDraft = {
   id: string;
@@ -56,6 +57,7 @@ function containerFromEquipment(equipment: ReturnType<typeof useTransportEquipme
     maxPayloadKg: equipment.maxPayloadKg,
     floorLoadLimitKgPerM2: equipment.floorLoadLimitKgPerM2,
     floorLoadWarningMultiplier: 3,
+    ceilingClearanceM: DEFAULT_CEILING_CLEARANCE_M,
   };
 }
 

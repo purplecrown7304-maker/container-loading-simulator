@@ -2,6 +2,7 @@ import type { CargoItem, ContainerSpec, Placement, LimitReviewMetadata } from '.
 import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules, projectedTopLoadKg } from './stacking';
 import { packByBlockSpaceBeamV2 } from './blockSpaceBeamPackerV2';
+import { planningContainer } from './constraints';
 
 export type PalletSpec = {
   /** Operational minimum for a regular pallet's top tier; final mixed tails are exempt. */
@@ -835,6 +836,7 @@ export function unsupportedReviewPalletResult(container: ContainerSpec, cargo: C
 
 export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pallet: PalletSpec = defaultPalletSpec, strategy: Strategy = 'capacity'): PalletPackingResult {
   if (container.limitReview !== undefined) return unsupportedReviewPalletResult(container,cargo);
+  container = planningContainer(container);
   const { pallets, remaining, consolidated, cargoMap } = buildInitialPallets(cargo, pallet, container, strategy);
   return finishPalletPacking(pallets, remaining, consolidated, cargoMap, container, pallet, strategy);
 }
