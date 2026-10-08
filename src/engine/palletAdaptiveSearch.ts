@@ -1,7 +1,7 @@
 import { centerPalletCargo, setNextPalletCenteredResultOverride } from './palletCentering';
 import { validatePlacements } from './constraints';
 import { validateOperationalLoading } from './operationalValidator';
-import { palletSupportBodies } from './palletPlanValidation';
+import { palletAdvisoryFindings, palletSupportBodies } from './palletPlanValidation';
 import { packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
 import { unloadingObstructions } from './operationalQuality';
@@ -67,7 +67,7 @@ function sameLoadedCargo(a: LoadingResult | OptimizedPalletPackingResult, b: Loa
   return true;
 }
 
-function toTarget(container: ContainerSpec, cargo: CargoItem[], result: OptimizedPalletPackingResult): PhysicsTarget {
+function toTarget(container: ContainerSpec, cargo: CargoItem[], result: OptimizedPalletPackingResult, spec?: PalletSpec): PhysicsTarget {
   const loadingResult: LoadingResult = {
     ruleset: container.rules?.version,
     placements: result.placements,
@@ -75,7 +75,7 @@ function toTarget(container: ContainerSpec, cargo: CargoItem[], result: Optimize
     loadedWeightKg: result.totalPalletizedWeightKg,
     usedVolumeM3: result.placements.reduce((sum, item) => sum + item.length * item.width * item.height, 0),
     validationIssues: validatePlacements(container, result.placements),
-    operationalFindings: validateOperationalLoading(container, cargo, result.placements, palletSupportBodies(result)),
+    operationalFindings: [...validateOperationalLoading(container, cargo, result.placements, palletSupportBodies(result)), ...palletAdvisoryFindings(container, result, spec)],
   };
   const supports = result.pallets.map(pallet => ({
     id: `PALLET-${String(pallet.palletIndex).padStart(2, '0')}`,
@@ -232,7 +232,7 @@ function addCandidate(
   if (!sameLoadedCargo(current.result, result)) return;
   if ((result.optimization.strategy === 'unloading' || current.container.unloadingPolicy === 'strict')
     && unloadingObstructions(current.cargo, result.placements) > unloadingObstructions(current.cargo, current.result.placements)) return;
-  const target = toTarget(current.container, current.cargo, result);
+  const target = toTarget(current.container, current.cargo, result, spec);
   if (target.result.validationIssues.length) return;
   const signature = createPhysicsTargetSignature(target);
   if (seen.has(signature)) return;

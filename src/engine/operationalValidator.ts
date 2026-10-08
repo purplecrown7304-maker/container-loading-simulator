@@ -498,7 +498,7 @@ function checkAfterStops(bodies: Body[], initialSupporters: SupportLink[][]) {
  * configured share of the cargo weight. Uses the same vertical projection split as the
  * weight-distribution panel, so the panel and every export disclose the same condition.
  */
-function checkHalfWeight(container: ContainerSpec, bodies: Body[]) {
+function checkHalfWeight(container: ContainerSpec, bodies: Body[], proportionalLongitudinal = false) {
   const out: OperationalRuleFinding[] = [];
   const configured = container.halfWeightWarningRatio;
   const limit = configured !== undefined && Number.isFinite(configured) && configured >= 0.5 && configured < 1
@@ -506,25 +506,78 @@ function checkHalfWeight(container: ContainerSpec, bodies: Body[]) {
   const cargoBodies = cargoOnly(bodies);
   const weight = cargoBodies.reduce((sum, body) => sum + body.placement.weightKg, 0);
   if (weight <= EPS) return out;
+  // Owner decision 2026-10-08: a light load sequenced from the inner wall is not a concentration
+  // problem. The allowed excess over 50% scales with maxPayload / loadedWeight, exactly like the
+  // approved proportional CG verdict (LOADING_RULES 1), and equals the base ratio at full payload.
+  // Width stays on the base ratio, as the lateral CG verdict does.
+  const longitudinalLimit = proportionalLongitudinal && container.maxPayloadKg > 0
+    ? 0.5 + (limit - 0.5) * Math.max(1, container.maxPayloadKg / weight) : limit;
   let inner = 0, left = 0;
   for (const { placement: p } of cargoBodies) {
     inner += p.weightKg * overlap1d(p.x, p.x + p.length, 0, container.length / 2) / Math.max(EPS, p.length);
     left += p.weightKg * overlap1d(p.y, p.y + p.width, 0, container.width / 2) / Math.max(EPS, p.width);
   }
-  const rows: Array<[number, string, string]> = [
-    [inner / weight, '안쪽', '문 쪽'],
-    [left / weight, '좌측', '우측'],
+  const rows: Array<[number, string, string, number]> = [
+    [inner / weight, '안쪽', '문 쪽', longitudinalLimit],
+    [left / weight, '좌측', '우측', limit],
   ];
-  for (const [first, firstLabel, secondLabel] of rows) {
+  for (const [first, firstLabel, secondLabel, rowLimit] of rows) {
     const ratio = Math.max(first, 1 - first);
-    if (ratio <= limit + EPS) continue;
+    // A scaled limit of 100% or more can never be exceeded: no warning at that load level.
+    if (rowLimit >= 1 || ratio <= rowLimit + EPS) continue;
     out.push(finding(
       'HALF_WEIGHT_CONCENTRATION',
       'warning',
-      `${first >= 0.5 ? firstLabel : secondLabel} 절반에 화물 중량의 ${(ratio * 100).toFixed(1)}%가 실려 기준 ${(limit * 100).toFixed(0)}%를 넘습니다. 중량 배분을 확인하세요.`,
+      `${first >= 0.5 ? firstLabel : secondLabel} 절반에 화물 중량의 ${(ratio * 100).toFixed(1)}%가 실려 기준 ${(rowLimit * 100).toFixed(0)}%를 넘습니다. 중량 배분을 확인하세요.`,
       [],
       ratio,
-      limit,
+      rowLimit,
+    ));
+  }
+  return out;
+}
+
+/**
+ * LOADING_RULES R-6 (owner decision 2026-10-08): verdicts, not blockers. The layout is shown,
+ * the result carries an error and cannot PASS. Nothing is checked until cargo declares a
+ * `segregationClass`/`tempZone`; forbidden class pairs come from `ContainerSpec.incompatiblePairs`.
+ */
+function checkSegregation(container: ContainerSpec, bodies: Body[]) {
+  const out: OperationalRuleFinding[] = [];
+  const cargoBodies = bodies.map((body, bodyIndex) => ({ body, bodyIndex })).filter(row => row.body.kind === 'cargo');
+  const byClass = new Map<string, number[]>();
+  const byZone = new Map<string, number[]>();
+  for (const { body, bodyIndex } of cargoBodies) {
+    const cls = body.cargo?.segregationClass?.trim();
+    const zone = body.cargo?.tempZone?.trim();
+    if (cls) byClass.set(cls, [...(byClass.get(cls) ?? []), bodyIndex]);
+    if (zone) byZone.set(zone, [...(byZone.get(zone) ?? []), bodyIndex]);
+  }
+  const seen = new Set<string>();
+  for (const pair of container.incompatiblePairs ?? []) {
+    const a = pair?.[0]?.trim(), b = pair?.[1]?.trim();
+    if (!a || !b || a === b) continue;
+    const key = [a, b].sort().join('\u0000');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const first = byClass.get(a), second = byClass.get(b);
+    if (!first || !second) continue;
+    out.push(finding(
+      'INCOMPATIBLE_CARGO',
+      'error',
+      `혼적 금지: ${a} 화물과 ${b} 화물이 같은 적재공간에 있습니다.`,
+      cargoIndexes(bodies, [...first, ...second]),
+    ));
+  }
+  if (byZone.size > 1) {
+    const zones = [...byZone.keys()].sort();
+    out.push(finding(
+      'MIXED_TEMP_ZONE',
+      'error',
+      `온도대 혼재: ${zones.join(', ')} 화물이 같은 적재공간에 있습니다.`,
+      cargoIndexes(bodies, [...byZone.values()].flat()),
+      zones.length,
+      1,
     ));
   }
   return out;
@@ -589,8 +642,9 @@ export function validateOperationalLoading(
     ...checkAfterStops(bodies, supporters).map(issue => container.unloadingPolicy === 'soft'
       ? { ...issue, severity: 'warning' as const, message: `${issue.message} 완화 모드: 해당 하역 단계에서 재지지·재취급 확인이 필요합니다.` }
       : issue),
-    // Disclosure-only warnings stay last so existing finding order is unchanged.
-    ...checkHalfWeight(container, bodies),
+    // Later additions stay last so the earlier finding order is unchanged.
+    ...checkHalfWeight(container, bodies, approvedDirectBox),
+    ...checkSegregation(container, bodies),
     ...checkHeavyOnLight(bodies, supporters),
   ];
 }

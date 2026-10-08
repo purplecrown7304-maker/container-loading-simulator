@@ -7,7 +7,7 @@ test('A rules keep the canvas, run a real worker and invalidate results on switc
  await page.goto('/');
  const rules=page.getByLabel('적재 규칙',{exact:true});await expect(rules).toBeVisible();
  await rules.selectOption('a-v1');
- await expect.poll(()=>page.evaluate(()=>(window as any).__containerLoadingLatestResult?.container.maxPayloadKg)).toBe(26500);
+ await expect.poll(()=>page.evaluate(()=>(window as any).__containerLoadingLatestResult?.container.maxPayloadKg)).toBe(28600);
  await expect.poll(()=>page.evaluate(()=>(window as any).__containerLoadingLatestResult?.container.rules?.version)).toBe('a-v1');
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:open-product-tool', { detail: 'products' })));
   const product = page.getByRole('dialog', { name: '회사 제품 관리' });
@@ -79,7 +79,7 @@ test('going back cancels an in-flight A worker without publishing a partial layo
  await page.goto('/');
  const rules=page.getByLabel('적재 규칙',{exact:true});await expect(rules).toBeVisible();
  await rules.selectOption('a-v1');
- await expect.poll(()=>page.evaluate(()=>(window as any).__containerLoadingLatestResult?.container.maxPayloadKg)).toBe(26500);
+ await expect.poll(()=>page.evaluate(()=>(window as any).__containerLoadingLatestResult?.container.maxPayloadKg)).toBe(28600);
  await expect.poll(()=>page.evaluate(()=>(window as any).__containerLoadingLatestResult?.container.rules?.version)).toBe('a-v1');
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:open-product-tool', { detail: 'products' })));
   const product = page.getByRole('dialog', { name: '회사 제품 관리' });

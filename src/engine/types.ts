@@ -47,6 +47,8 @@ export type ContainerSpec = {
   floorLoadLimitKgPerM2?: number;
   /** 평균 바닥하중 대비 국부하중 경고 배수. 미입력 시 3배를 사용한다. */
   floorLoadWarningMultiplier?: number;
+  /** 함께 실을 수 없는 `segregationClass` 쌍. 위반은 판정 오류(INCOMPATIBLE_CARGO)이며 배치를 막지는 않는다. */
+  incompatiblePairs?: Array<[string, string]>;
   /** 길이·폭 절반 한쪽의 중량 비율 경고 기준(0.5 이상 1 미만). 미입력 시 0.6. 경고 전용이며 배치를 바꾸지 않는다. */
   halfWeightWarningRatio?: number;
   /** Capacity compactness is disabled above this payload-utilization / volume-utilization ratio. */

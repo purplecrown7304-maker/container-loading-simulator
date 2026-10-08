@@ -19,7 +19,7 @@ describe('LOADING_RULES R-10 field checklist', () => {
   it('lists before, during and after loading checks for both equipment kinds', () => {
     for (const kind of ['container', 'truck'] as const) {
       const groups = fieldChecklistGroups(kind);
-      expect(groups.map(group => group.title)).toEqual(['적재 전', '적재 중', '적재 후']);
+      expect(groups.map(group => group.title)).toEqual(['상차 전', '상차 중', '상차 후']);
       expect(groups.every(group => group.items.length >= 4)).toBe(true);
     }
   });
@@ -27,9 +27,9 @@ describe('LOADING_RULES R-10 field checklist', () => {
   it('asks for the seal and VGM only on containers and for road limits only on trucks', () => {
     const containerText = fieldChecklistGroups('container').flatMap(group => group.items).join('\n');
     const truckText = fieldChecklistGroups('truck').flatMap(group => group.items).join('\n');
-    expect(containerText).toContain('봉인');
+    expect(containerText).toContain('씰');
     expect(containerText).toContain('VGM');
-    expect(truckText).not.toContain('봉인');
+    expect(truckText).not.toContain('씰');
     expect(truckText).not.toContain('VGM');
     expect(truckText).toContain('도로 운행 한도');
   });
@@ -39,7 +39,7 @@ describe('LOADING_RULES R-10 field checklist', () => {
     const items = fieldChecklistGroups('container').reduce((sum, group) => sum + group.items.length, 0);
     expect(html.match(/□ /g)).toHaveLength(items);
     expect(html).not.toMatch(/☑|✓|완료됨/);
-    expect(html).toContain('봉인 번호');
+    expect(html).toContain('씰 번호');
     expect(html).toContain('사진 기록');
     expect(html).toContain('재조임 지점');
   });
@@ -61,5 +61,16 @@ describe('work order discloses field checks and inertia conditions', () => {
     const g = INERTIA_SCENARIO_ACCELERATION_G;
     expect(g).toEqual({ acceleration: 0.3, braking: 0.5, cornering: 0.35 });
     expect(html).toContain(`관성 검증 조건: 출발 ${g.acceleration.toFixed(2)}g · 제동 ${g.braking.toFixed(2)}g · 회전 ${g.cornering.toFixed(2)}g`);
+  });
+});
+
+describe('pallet work order carries the same checklist (owner decision 2026-10-08)', () => {
+  it('adds pallet-specific checks only in pallet mode', () => {
+    const boxText = fieldChecklistGroups('container').flatMap(group => group.items).join('\n');
+    const palletText = fieldChecklistGroups('container', { pallet: true }).flatMap(group => group.items).join('\n');
+    expect(palletText).toContain('열처리(HT)');
+    expect(palletText).toContain('랩핑·밴딩');
+    expect(boxText).not.toContain('열처리(HT)');
+    expect(buildFieldChecklistHtml('container', { pallet: true })).toContain('data-field-checklist-unit="pallet"');
   });
 });

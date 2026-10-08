@@ -5,6 +5,7 @@ import { physicsTargetFromPalletSnapshot } from './certifiedExport';
 import { readPalletSnapshot } from './palletSnapshotStore';
 import { palletModelKey } from './palletModel';
 import { publishPhysicsTarget, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
+import { PALLET_ADVISORY_CODES } from './engine/palletPlanValidation';
 
 /**
  * The guided 3D viewer is intentionally unmounted after the automatic-loading step.
@@ -45,7 +46,9 @@ export function restorePalletPhysicsTarget(container: ContainerSpec, cargo: Carg
   if (current?.mode === 'pallets') {
     const refreshed: PhysicsTarget = {...current,container,cargo,result:{...current.result,
       validationIssues:validatePlacements(container,current.result.placements),
-      operationalFindings:validateOperationalLoading(container,cargo,current.result.placements,current.supports ?? []),
+      // Pallet advisories need the pallet build, which a live-only target does not carry: keep the ones it has.
+      operationalFindings:[...validateOperationalLoading(container,cargo,current.result.placements,current.supports ?? []),
+        ...(current.result.operationalFindings ?? []).filter(f=>(PALLET_ADVISORY_CODES as readonly string[]).includes(f.code))],
     }};
     publishPhysicsTarget(refreshed);
     return refreshed;

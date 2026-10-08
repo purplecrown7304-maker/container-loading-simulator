@@ -5,7 +5,7 @@ import type { PhysicsTarget } from './physicsTarget';
 import { isPhysicsTargetVerified } from './inertiaWorkOrderPolicy';
 import { validatePlacements } from './engine/constraints';
 import { validateOperationalLoading } from './engine/operationalValidator';
-import { palletSupportBodies } from './engine/palletPlanValidation';
+import { palletAdvisoryFindings, palletSupportBodies } from './engine/palletPlanValidation';
 
 const EPS = 1e-9;
 
@@ -35,7 +35,7 @@ export function physicsTargetFromPalletSnapshot(
       0,
     ),
     validationIssues: validatePlacements(container, snapshot.result.placements),
-    operationalFindings: validateOperationalLoading(container, cargo, snapshot.result.placements, palletSupportBodies(snapshot.result)),
+    operationalFindings: [...validateOperationalLoading(container, cargo, snapshot.result.placements, palletSupportBodies(snapshot.result)), ...palletAdvisoryFindings(container, snapshot.result, snapshot.spec)],
   };
   const supports = snapshot.result.pallets.map((pallet) => ({
     id: `PALLET-${String(pallet.palletIndex).padStart(2, '0')}`,
