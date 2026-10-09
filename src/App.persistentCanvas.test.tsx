@@ -16,6 +16,7 @@ import { APP_ACTION_EVENT } from './uiEvents';
 import { cancelPendingCertification, requestExactCertification } from './autoCertification';
 import { readLoadingRuleset, setLoadingRuleset } from './loadingRulesPreference';
 import { createCustomEquipment, selectTransportEquipment } from './transportEquipment';
+import { OPEN_PACKAGING_CONTENTS_EVENT } from './packagingContentsModel';
 
 const captured = vi.hoisted(() => ({ mounts: 0, unmounts: 0, props: null as LoadingViewerProps | null,
   runs: [] as Array<{ resolve: (value: PhysicsOptimizedLoading) => void; signal: AbortSignal; container: ContainerSpec }> }));
@@ -95,6 +96,26 @@ it('shows immediate preview without publishing it as calculated cargo, then pres
     await act(async () => publishGuidedWorkflowState({ active: true, step }));
     expect(captured.props?.result).toBe(result);
   }
+});
+
+it('main packaging canvas selection resolves the exact residual carton without running loading', async () => {
+  const carton = { ...cargo[0], id: 'PKG-A-PARTIAL', productId: 'A', boxId: 'BOX', unitsPerPackage: 3, quantity: 1 };
+  const stored = readStoredState();
+  const selected = vi.fn();
+  window.addEventListener(OPEN_PACKAGING_CONTENTS_EVENT, selected);
+  try {
+    await act(async () => publishWorkflowPreview({ kind: 'packaging', cargo: [carton] }));
+    const canvas = host.querySelector('canvas');
+    const index = captured.props!.result.placements.findIndex(p => p.cargoId === carton.id);
+    expect(index).toBeGreaterThanOrEqual(0);
+    await act(async () => captured.props!.onCargoSelect!(index));
+    expect(selected).toHaveBeenCalledOnce();
+    expect((selected.mock.calls[0][0] as CustomEvent).detail).toEqual({ cargoId: carton.id });
+    expect(host.querySelector('canvas')).toBe(canvas);
+    expect(captured.runs).toHaveLength(0);
+    expect(requestExactCertification).not.toHaveBeenCalled();
+    expect(readStoredState()).toEqual(stored);
+  } finally { window.removeEventListener(OPEN_PACKAGING_CONTENTS_EVENT, selected); }
 });
 
 it('holds a CG-error full plan for operator choice instead of auto-certifying it', async () => {

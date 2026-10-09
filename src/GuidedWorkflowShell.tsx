@@ -1,6 +1,8 @@
 import { useLoadingRuleset, aEquipmentDefault } from './loadingRulesPreference';
 import StudioIcon, { stepIcons } from './StudioIcon';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { OPEN_PACKAGING_CONTENTS_EVENT, openPackagingContents, type PackagingInspection, type PackagingInspectionRequest } from './packagingContentsModel';
+import './packaging-contents.css';
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT } from './adminAccess';
 import {
@@ -59,6 +61,7 @@ import { loadingMethodBlockReason } from './loadingMethodReadiness';
 import { guidedLoadingUnitLabel } from './guidedLoadingUnitState';
 
 type LiveDetail = { container: ContainerSpec; cargo: CargoItem[]; result?: LoadingResult };
+const PackagingContentsDialog = lazy(() => import('./PackagingContentsDialog'));
 type WorkflowWindow = Window & {
   __containerLoadingLatestResult?: { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 };
@@ -319,7 +322,7 @@ function PackagingStage({ container, selection, onBundle }: {
         return <article key={product.id} className={!active ? 'warning' : ''}>
           <div><b>{product.name}</b><span>{product.id} · 제품 {product.quantity}EA</span></div>
           <div className="guided-package-choice">{list.length ? <><select value={choices[product.id] ?? ''} onChange={event => setChoices(current => ({ ...current, [product.id]: event.target.value }))}>{list.map((item, index) => <option key={`${item.boxId}-${index}`} value={item.boxId}>{index + 1}순위 · {Math.round(item.outerLength * 1000)}×{Math.round(item.outerWidth * 1000)}×{Math.round(item.outerHeight * 1000)} · {item.source === 'catalog' ? '보유' : '신규'}</option>)}</select>{active && <span>{active.unitsPerBox}EA/BOX · 충진율 {Math.round(active.productFillRate * 100)}% · {active.boxName}</span>}{active && <span>자동 적재 최대 {active.maxStackLayers}단{active.strengthStatus === 'design-target' ? ' · 신규 박스 강도 미확인' : ' · 높이·상부하중 반영'}</span>}</> : <><strong className="warn">추천 가능한 박스 없음</strong><span>제품 관리 또는 박스 관리에서 조건을 확인하세요.</span></>}</div>
-          <div>{active ? <><b>{active.boxesNeeded} BOX</b><span>포장 후 수량</span></> : <><b>-</b><span>포장 불가</span></>}</div>
+          <div>{active ? <><b>{active.boxesNeeded} BOX</b><span>포장 후 수량</span><button type="button" className="guided-package-inspect" data-view-only="true" onClick={() => openPackagingContents({ productId: product.id })} aria-label={`${product.name} 박스 내부 보기`}><svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><path d="M3 10 16 4 29 10 29 23 16 29 3 23Z M3 10 16 16 29 10 M16 16V29" fill="#eef5ff" stroke="currentColor" strokeWidth="1.5"/></svg>박스 내부 보기</button></> : <><b>-</b><span>포장 불가</span></>}</div>
         </article>;
       })}
     </div>
@@ -483,6 +486,20 @@ export default function GuidedWorkflowShell() {
   const [live, setLive] = useState<LiveDetail>(() => readLive());
   const [selection, setSelection] = useState<ProductSelectionMap>(initialSelection);
   const [packaging, setPackaging] = useState<PackagingBundle>({ products: [], assignments: [], cargo: [], ready: false });
+  const [inspection, setInspection] = useState<PackagingInspection>();
+  useEffect(() => {
+    const open = (event: Event) => {
+      const request = (event as CustomEvent<PackagingInspectionRequest>).detail;
+      if (!request) return;
+      const item = request.cargoId ? packaging.cargo.find(c => c.id === request.cargoId) : undefined;
+      const product = packaging.products.find(p => p.id === (item?.productId ?? request.productId));
+      const assignment = packaging.assignments.find(a => a.productId === product?.id);
+      if (!product || !assignment || (request.cargoId && (!item?.boxId || item.boxId !== assignment.boxId))) return;
+      setInspection({ product, assignment, units: item?.unitsPerPackage ?? Math.min(product.quantity, assignment.unitsPerBox) });
+    };
+    window.addEventListener(OPEN_PACKAGING_CONTENTS_EVENT, open);
+    return () => window.removeEventListener(OPEN_PACKAGING_CONTENTS_EVENT, open);
+  }, [packaging]);
   const [strategy, setStrategy] = useState<LoadingStrategy | null>(null);
   const [step, setStep] = useState<StepId>(1);
   const [furthest, setFurthest] = useState<StepId>(1);
@@ -526,6 +543,7 @@ export default function GuidedWorkflowShell() {
   const { unloadingPolicy: _unload, palletDestination: _destination, incompatiblePairs: _pairs, ...packagingContainer } = live.container;
   const packagingKey = JSON.stringify({ container: packagingContainer, cargo: packaging.cargo });
   useEffect(() => {
+    setInspection(undefined);
     setPackagingConfirmed(false);
     setStrategy(null);
     writeLoadingStrategyPreference(null);
@@ -728,7 +746,7 @@ export default function GuidedWorkflowShell() {
   const summary = hosts.right ? createPortal(<JobSummary step={step} live={live} mode={mode} finalReady={finalReady} verification={verification} selection={selection} strategy={strategy}/>, hosts.right) : null;
   const blockReason = loadingMethodBlockReason(packagingConfirmed,strategy,mode,live,methodPalletSelection);
   const footer = <BottomBar blockReason={blockReason} packagingConfirmed={packagingConfirmed} canReport={!noLoadComplete} step={step} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>;
-  return <>{rail}{summary}{typeof document !== 'undefined' ? createPortal(<>
+  return <>{rail}{summary}{inspection && <Suspense fallback={<div role="status">박스 내부 화면 준비 중…</div>}><PackagingContentsDialog inspection={inspection} onClose={() => setInspection(undefined)}/></Suspense>}{typeof document !== 'undefined' ? createPortal(<>
     <div hidden={modalOpen}>{footer}</div>
     <WorkspaceModal open={modalOpen} title={steps[step - 1].label} onClose={() => setModalOpen(false)} footer={footer}>
       <RetainedStagePanel packagingConfirmed={packagingConfirmed} modalOpen={modalOpen} onPackaging={() => advance(3)} step={step} live={live} selection={selection} strategy={strategy} onSelection={setSelection} onBundle={setPackaging} onStrategy={chooseStrategy}/>
