@@ -79,6 +79,11 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await page.getByRole('button', { name: /메뉴$/ }).click();
   console.log('bulk packing UI remains responsive');
   await expect.poll(async () => page.evaluate(() => (window as any).__containerLoadingLatestResult?.result.placements.length ?? 0), { timeout: 180_000 }).toBeGreaterThan(452);
+  // A published layout is not yet a completed physics/verification run. Wait for
+  // finalization before asking for a report, so final-loading cleanup cannot race it.
+  await expect.poll(() => page.evaluate(() => Boolean((window as any).__containerLoadingFinalPhysicsSignature
+    && (window as any).__containerLoadingFinalPhysicsResult && !(window as any).__containerLoadingFinalPhysicsRunning)), { timeout: 180_000 }).toBe(true);
+  await expect(page.locator('.guided-status-row')).toHaveAttribute('data-verification-status', 'failed', { timeout: 120_000 });
   const loaded = await page.evaluate(() => {
     const { result, cargo } = (window as any).__containerLoadingLatestResult;
     return { count: result.placements.length, left: result.remaining.reduce((sum: number, item: any) => sum + item.quantity, 0), maxZ: Math.max(...result.placements.map((item: any) => item.z)), issues: result.validationIssues, cargo };
@@ -98,9 +103,12 @@ test('registered stacking updates without reload and bulk packaging advances bef
   const reportPromise = page.waitForEvent('popup', { timeout: 240_000 });
   await page.evaluate(() => {
     const target = (window as any).__containerLoadingPhysicsTarget;
-    window.dispatchEvent(new CustomEvent('container-loading:request-direct-work-order', { detail: target }));
+    // Recheck and document the selected final plan. Alternative-layout search is
+    // covered separately in workOrderRecovery.spec.ts; never replace this plan.
+    window.dispatchEvent(new CustomEvent('container-loading:request-direct-work-order', { detail: { ...target, preserveSelectedPlan: true } }));
   });
-  // A danger plan may compare alternative layouts before issuing its review report.
+  // All three real scenarios are completed again; preserving the selected plan
+  // does not turn a failed/danger result into dispatch approval.
   const report = await reportPromise;
   // The global record can refer to an in-flight alternative until the checked plan is applied.
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification.testedScenarios)).toBe(3);
