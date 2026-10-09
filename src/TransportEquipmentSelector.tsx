@@ -225,7 +225,7 @@ export default function TransportEquipmentSelector() {
       setMessage('길이·폭·높이·적재중량·바닥하중을 모두 0보다 크게 입력하세요.');
       return;
     }
-    const item = customTemplate ? { ...customTemplate, ...values, volumeM3: values.length * values.width * values.height, requiresSpecification: false, sourceLabel: '사용자 등록 실차 제원', sourceUrl: undefined } : createCustomEquipment(category, values);
+    const item = customTemplate?.id === 'custom-heavy-truck' ? { ...customTemplate, ...values, volumeM3: values.length * values.width * values.height, requiresSpecification: false, sourceLabel: '사용자 등록 실차 제원', sourceUrl: undefined } : createCustomEquipment(category, values);
     if (!applyToDashboard(item)) {
       setMessage('대시보드 입력칸을 찾지 못했습니다.');
       return;
