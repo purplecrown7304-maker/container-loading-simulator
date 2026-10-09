@@ -169,8 +169,3 @@ describe('company migration on real PostgreSQL', () => {
     expect((await action(owner, 'detail')).plans[0]).toMatchObject({ title: 'Synthetic load', revision: 1 });
   });
 });
-
-
-
-
-
