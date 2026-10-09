@@ -31,6 +31,10 @@ test('low-CBM mixed pallets stay on the floor through real workflow certificatio
   await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-supports', '2', { timeout: 90000 });
   await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 120000 });
   const viewer = page.locator('.viewer-host .three-comparison-viewer');
+  // The camera pose attribute exists only after the scene has applied the current plan. With faster
+  // certification the result button can be enabled before that, so wait for the applied scene.
+  await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 60000 });
+  await expect(viewer).toHaveAttribute('data-three-camera-pose', /\S/);
   const revision = await viewer.getAttribute('data-three-plan-revision');
   const camera = await viewer.getAttribute('data-three-camera-pose');
   const background = await expectGlobalBackgroundControl(page);

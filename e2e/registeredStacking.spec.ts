@@ -2,7 +2,9 @@ import { openWorkspace } from './helpers/workspace';
 import { expect, test } from '@playwright/test';
 
 test('registered stacking updates without reload and bulk packaging advances before loading', async ({ page, context, baseURL }) => {
-  test.setTimeout(240_000);
+  // Measured locally: ~234 s end to end, of which ~67 s is the work-order inertia re-check.
+  // Keep headroom for slower CI runners; a real hang still fails at these limits.
+  test.setTimeout(600_000);
   page.setDefaultTimeout(15_000);
   page.setDefaultNavigationTimeout(30_000);
   const appOrigin = new URL(baseURL!).origin;
@@ -87,7 +89,9 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestCertification?.status), { timeout: 120_000 }).toBe('failed');
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestResult.result.placements.length)).toBe(loaded.count);
-  const reportPromise = page.waitForEvent('popup', { timeout: 60_000 });
+  // The direct work order re-runs all three inertia scenarios for 1,562 cartons before
+  // opening the report (~67 s locally). 60 s made this test fail on slower machines.
+  const reportPromise = page.waitForEvent('popup', { timeout: 240_000 });
   await page.evaluate(() => {
     const target = (window as any).__containerLoadingPhysicsTarget;
     window.dispatchEvent(new CustomEvent('container-loading:request-direct-work-order', { detail: target }));
