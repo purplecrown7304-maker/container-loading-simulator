@@ -253,7 +253,7 @@ export default function TransportEquipmentSelector() {
         {list.map(item => <EditableEquipmentCard key={item.id} item={item} active={selected.id === item.id} onSelect={choose} onMessage={setMessage} />)}
       </div>
 
-      {(selected.id.startsWith('custom-') || message.includes('사용자 규격')) && <section className="transport-custom-editor">
+      {customTemplate && <section className="transport-custom-editor">
         <h3>{category === 'container' ? 'CUSTOM CONTAINER' : 'CUSTOM TRUCK'} 규격</h3>
         <div>
           <label>내부 길이(m)<input type="number" min="0.1" step="0.01" value={custom.length} onChange={e => setCustom(v => ({ ...v, length: Number(e.target.value) }))} /></label>
