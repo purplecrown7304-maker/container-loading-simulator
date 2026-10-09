@@ -2,7 +2,9 @@ import { openWorkspace } from './helpers/workspace';
 import { expect, test } from '@playwright/test';
 
 test('registered stacking updates without reload and bulk packaging advances before loading', async ({ page, context, baseURL }) => {
-  test.setTimeout(240_000);
+  // Measured locally: ~234 s end to end, of which ~67 s is the work-order inertia re-check.
+  // Keep headroom for slower CI runners; a real hang still fails at these limits.
+  test.setTimeout(600_000);
   page.setDefaultTimeout(15_000);
   page.setDefaultNavigationTimeout(30_000);
   const appOrigin = new URL(baseURL!).origin;
@@ -82,20 +84,20 @@ test('registered stacking updates without reload and bulk packaging advances bef
   expect(loaded.maxZ).toBeGreaterThan(0.265);
   expect(loaded.issues).toEqual([]);
   console.log('bulk stacking result', { count: loaded.count, remaining: loaded.left, maxZ: loaded.maxZ });
-  // Tall bulk loading is geometrically valid but does not pass the real inertia suite.
-  // It must remain blocked, while the existing manual warning work order stays available.
+  // This bulk plan remains geometrically valid but fails the strict inertia PASS threshold.
+  // The completed current plan is CAUTION/review-only, so dispatch stays blocked.
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestCertification?.status), { timeout: 120_000 }).toBe('failed');
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestResult.result.placements.length)).toBe(loaded.count);
+  // The direct work order re-runs all three inertia scenarios for 1,562 cartons before
+  // opening the report (~67 s locally). 60 s made this test fail on slower machines.
+  const reportPromise = page.waitForEvent('popup', { timeout: 240_000 });
   await page.evaluate(() => {
     const target = (window as any).__containerLoadingPhysicsTarget;
     window.dispatchEvent(new CustomEvent('container-loading:request-direct-work-order', { detail: target }));
   });
-  // Use the real UI to stop optional alternative search after a complete checked plan exists.
-  const checkedReport = page.locator('.final-cert-actions button.primary');
-  await expect(checkedReport).toBeVisible({ timeout: 90_000 });
-  const reportPromise = page.waitForEvent('popup', { timeout: 60_000 });
-  await checkedReport.click();
+  // A completed caution report opens directly; only a danger plan starts optional
+  // alternative comparison and offers the separate stop-comparison button.
   const report = await reportPromise;
   // The global record can refer to an in-flight alternative until the checked plan is applied.
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification.testedScenarios)).toBe(3);
@@ -103,7 +105,9 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   await expect(report.getByRole('heading', { name: /통합 출하·적재 작업지시서/ })).toBeVisible();
   await expect(report.locator('.summary')).toContainText(`${loaded.count} EA`);
-  await expect(report.locator('.recommendations')).toContainText('위험 기준을 초과');
+  await expect(report.locator('aside.technical-note')).toContainText('검증 판정: 주의 · 검토용');
+  await expect(report.locator('aside.technical-note')).toContainText('내부 PASS 기준을 일부 초과했지만 위험 기준 이내입니다');
+  await expect(report.locator('aside.technical-note')).toContainText('출고 승인을 의미하지 않습니다');
   console.log('bulk warning work order opened with matching loaded quantity; failed inertia remains blocked');
   await page.screenshot({ path: test.info().outputPath('registered-stacking.png'), fullPage: true });
 });

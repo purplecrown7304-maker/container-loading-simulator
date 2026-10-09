@@ -16,6 +16,7 @@ import { resolvePalletType, subscribePalletTypeSelection } from './palletTypeSel
 import { clearPalletSnapshot, publishPalletSnapshot, readPalletSnapshot } from './palletSnapshotStore';
 import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT } from './autoCertification';
 import { cargoStackRestrictions } from './cargoStackRestrictions';
+import { palletAdvisoryFindings } from './engine/palletPlanValidation';
 
 export type PalletViewerScene = LoadingViewerProps & { inputKey: string };
 type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number; mode?: 'pallets' | 'mixed'; inputKey: string; onSceneChange: (scene: PalletViewerScene | null) => void; onRunningChange: (running: boolean) => void };
@@ -280,7 +281,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg,
       usedVolumeM3: result.placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0),
       validationIssues: validatePlacements(container, result.placements),
-      operationalFindings: validateOperationalLoading(container, cargo, result.placements, supports),
+      operationalFindings: [...validateOperationalLoading(container, cargo, result.placements, supports), ...palletAdvisoryFindings(container, result, spec)],
     };
     publishPhysicsTarget({ mode: 'pallets', container, cargo, result: loadingResult, supports });
   }, [container, cargo, result, modelKey]);
@@ -295,7 +296,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg,
       usedVolumeM3: result.placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0),
       validationIssues: validatePlacements(container, result.placements),
-      operationalFindings: validateOperationalLoading(container, cargo, result.placements, result.pallets.map(p => ({ id: `PALLET-${p.palletIndex}`, unitCenterOfGravity:p.centerOfGravity, unitHeightM:Math.max(p.height,...p.cargoPlacements.map(b=>b.z+b.height-p.z))+p.packagingExtraHeightM, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) }))),
+      operationalFindings: [...validateOperationalLoading(container, cargo, result.placements, result.pallets.map(p => ({ id: `PALLET-${p.palletIndex}`, unitCenterOfGravity:p.centerOfGravity, unitHeightM:Math.max(p.height,...p.cargoPlacements.map(b=>b.z+b.height-p.z))+p.packagingExtraHeightM, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) }))), ...palletAdvisoryFindings(container, result, spec)],
     },
     supports: result.pallets.map(p => ({ modelKey, id: `PALLET-${p.palletIndex}`, unitCenterOfGravity:p.centerOfGravity, unitHeightM:Math.max(p.height,...p.cargoPlacements.map(b=>b.z+b.height-p.z))+p.packagingExtraHeightM, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) })),
   }), [container, cargo, result, modelKey]);
@@ -315,23 +316,33 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       <section className="pallet-mode-panel pallet-mode-panel-inline">
         <div className="pallet-view-stack">
           <div className="pallet-preview">
-            {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip">
-              <b>관성 보강 적용</b>
-              <span>밴딩 {securingUsage.bandingStraps}줄</span>
-              <span>각대 {securingUsage.cornerGuards}EA</span>
-              <span>랩핑 {securingUsage.wrappingLengthM.toFixed(0)}m</span>
-              <span>미끄럼방지 {securingUsage.antiSlipMats}EA</span>
-              {securingUsage.loadBars > 0 && <span>고정바 {securingUsage.loadBars}EA</span>}
-            </div>}
-            {clearances && (
-              <div className="reference-clearance-strip">
-                <span>안쪽 <b>{clearances.back}</b></span>
-                <span>문쪽 <b>{clearances.door}</b></span>
-                <span>좌측 <b>{clearances.left}</b></span>
-                <span>우측 <b>{clearances.right}</b></span>
-                <span>천장 <b>{clearances.top}</b></span>
+            <div className="pallet-info-dock" aria-label="팔레트 적재 정보">
+              <div className="pallet-dock-summary">
+                <b className="dock-label">적재 요약</b>
+                <span>팔레트 <b>{result.palletCount}</b></span>
+                <span>화물 <b>{result.placements.length} EA</b></span>
+                <span>중량 <b>{result.totalPalletizedWeightKg.toFixed(0)} kg</b></span>
+                <span>배치 <b>{result.optimization.selectedStackTarget}단 · 바닥 {result.optimization.floorPositions}열</b></span>
               </div>
-            )}
+              {clearances && (
+                <div className="reference-clearance-strip">
+                  <b className="dock-label">여유 공간</b>
+                  <span>안쪽 <b>{clearances.back}</b></span>
+                  <span>문쪽 <b>{clearances.door}</b></span>
+                  <span>좌측 <b>{clearances.left}</b></span>
+                  <span>우측 <b>{clearances.right}</b></span>
+                  <span>천장 <b>{clearances.top}</b></span>
+                </div>
+              )}
+              {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip">
+                <b className="dock-label">관성 보강 적용</b>
+                <span>밴딩 {securingUsage.bandingStraps}줄</span>
+                <span>각대 {securingUsage.cornerGuards}EA</span>
+                <span>랩핑 {securingUsage.wrappingLengthM.toFixed(0)}m</span>
+                <span>미끄럼방지 {securingUsage.antiSlipMats}EA</span>
+                {securingUsage.loadBars > 0 && <span>고정바 {securingUsage.loadBars}EA</span>}
+              </div>}
+            </div>
             {opened && <PalletContents pallet={opened} cargo={cargo} modelKey={modelKey} onClose={() => setOpened(null)} />}
           </div>
         </div>

@@ -339,20 +339,31 @@ export async function runPhysicsValidation(
   }
 }
 
+/** Scenario order of the transport suite. Results are always combined in this order. */
+export const PHYSICS_SUITE_SCENARIOS: readonly PhysicsScenario[] = ['settle', 'acceleration', 'braking', 'cornering'];
+
 export async function runPhysicsValidationSuite(
   container: ContainerSpec,
   placements: Placement[],
   onProgress?: (progress: number, scenario: PhysicsScenario) => void,
   supports: PhysicsSupport[] = [],
 ): Promise<PhysicsValidationSuite> {
-  const scenarios: PhysicsScenario[] = ['settle', 'acceleration', 'braking', 'cornering'];
+  const scenarios = PHYSICS_SUITE_SCENARIOS;
   const results: PhysicsValidationResult[] = [];
   for (let i = 0; i < scenarios.length; i += 1) {
     const scenario = scenarios[i];
     const result = await runPhysicsValidation(container, placements, p => onProgress?.((i + p) / scenarios.length, scenario), scenario, supports);
     results.push(result);
   }
+  return combinePhysicsValidationResults(placements, supports, results);
+}
 
+/** Pure aggregation of the four scenario results (in PHYSICS_SUITE_SCENARIOS order). */
+export function combinePhysicsValidationResults(
+  placements: Placement[],
+  supports: PhysicsSupport[],
+  results: PhysicsValidationResult[],
+): PhysicsValidationSuite {
   const placementWorst = placements.map((_, index) => worstMotion(results.map(result => result.placements[index]).filter(Boolean)));
   const supportWorst = supports.map((_, index) => worstMotion(results.map(result => result.supports[index]).filter(Boolean)));
   const stableCount = placementWorst.filter(x => x.severity === 'stable').length;

@@ -1,3 +1,4 @@
+import { buildLimitReviewHtml, isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 import type { PhysicsScenario, PhysicsValidationSuite } from './engine/physicsValidation';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { buildReportDocument, reportEscape as escapeHtml, reportTable, REPORT_SIGNOFF } from './reportLayout';
@@ -7,6 +8,8 @@ const mm = (value: number) => `${(value * 1000).toFixed(value * 1000 >= 10 ? 0 :
 const severityBadge = (severity: string) => `<span class="report-pill ${severity === 'unstable' ? 'danger' : 'caution'}">${severity === 'unstable' ? '불안정' : '주의'}</span>`;
 
 export function buildPhysicsReportHtml(container: ContainerSpec, cargo: CargoItem[], loading: LoadingResult, physics: PhysicsValidationSuite) {
+  const target = { container, cargo, result: loading };
+  const review = isLimitReviewTarget(target);
   const cargoMap = new Map(cargo.map(item => [item.id, item]));
   const issues = physics.placements.filter(item => item.severity !== 'stable').sort((a, b) => Number(b.severity === 'unstable') - Number(a.severity === 'unstable'));
   const supportIssues = physics.supports.filter(item => item.severity !== 'stable').sort((a, b) => Number(b.severity === 'unstable') - Number(a.severity === 'unstable'));
@@ -25,8 +28,9 @@ export function buildPhysicsReportHtml(container: ContainerSpec, cargo: CargoIte
   return buildReportDocument({
     title: '컨테이너 물리 안정성 검증 리포트',
     subtitle: `${new Date().toLocaleString('ko-KR')} · 정적 중력 / 급제동 / 횡가속 종합검증`,
-    status, tone: unstable > 0 ? 'danger' : warning > 0 ? 'caution' : 'good',
-    summary: `<section class="summary" aria-label="물리 검증 요약"><div><span>종합점수</span><b>${physics.score}/100</b></div><div><span>불안정 박스 / 팔레트</span><b>${physics.unstableCount} / ${physics.supportUnstableCount}</b></div><div><span>주의 박스 / 팔레트</span><b>${physics.warningCount} / ${physics.supportWarningCount}</b></div><div class="text-metric"><span>최악 조건</span><b>${scenarioLabel(physics.worstScenario)}</b></div></section>`,
+    watermark: review ? 'WHAT-IF REVIEW · 출고 승인 아님' : undefined,
+    status: review ? `${LIMIT_REVIEW_WARNING} · ${status}` : status, tone: unstable > 0 ? 'danger' : warning > 0 || review ? 'caution' : 'good',
+    summary: `${buildLimitReviewHtml(target)}<section class="summary" aria-label="물리 검증 요약"><div><span>종합점수</span><b>${physics.score}/100</b></div><div><span>불안정 박스 / 팔레트</span><b>${physics.unstableCount} / ${physics.supportUnstableCount}</b></div><div><span>주의 박스 / 팔레트</span><b>${physics.warningCount} / ${physics.supportWarningCount}</b></div><div class="text-metric"><span>최악 조건</span><b>${scenarioLabel(physics.worstScenario)}</b></div></section>`,
     sections: [
       { title: '우선 재확인 위치', description: '불안정 항목을 먼저 표시합니다. 사유와 위치를 대조하고 조치 후 확인 칸에 표시하세요.',
         content: `<h3>박스 재확인 위치 · ${issues.length}건</h3>${issues.length ? issueTable(issueRows, '박스 재확인 위치 표') : '<p class="empty-state">주의 또는 불안정 박스가 없습니다.</p>'}${physics.supports.length ? `<h3>팔레트/지지체 재확인 · ${supportIssues.length}건</h3>${supportIssues.length ? issueTable(supportRows, '팔레트 지지체 재확인 표') : '<p class="empty-state">주의 또는 불안정 팔레트가 없습니다.</p>'}` : ''}` },

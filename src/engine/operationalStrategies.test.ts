@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { heavyInnerOrderViolations } from './heavyInnerPolicy';
 import { loadContainer, type LoadingStrategy } from './loadingEngine';
 import { defaultPalletSpec, packOnPallets } from './palletOptimization';
 import { operationalQuality, unloadingObstructions } from './operationalQuality';
@@ -23,8 +24,12 @@ describe('operational strategy regression matrix', () => {
     }
     expect(unloadingObstructions(cargo, rows[2].result.placements)).toBe(0);
     expect(operationalQuality(container, rows[1].result.placements).cogHeight).toBeLessThanOrEqual(operationalQuality(container, rows[0].result.placements).cogHeight);
-    expect(operationalQuality(container, rows[0].result.placements).footprint).toBeLessThan(operationalQuality(container, rows[1].result.placements).footprint);
-    expect(operationalQuality(container, rows[2].result.placements).footprint).toBeLessThan(operationalQuality(container, rows[1].result.placements).footprint);
+    // Every direct-box strategy now obeys the same inner-start working sequence;
+    // compactness cannot force heavy/light wall permutations or global X centering.
+    for (const row of rows) {
+      expect(heavyInnerOrderViolations(container, cargo, row.result.placements, row.strategy)).toBe(0);
+      expect(Math.min(...row.result.placements.map(p => p.x))).toBe(0);
+    }
     console.log('BOX STRATEGIES', rows.map(row => ({ strategy: row.strategy, ...operationalQuality(container, row.result.placements), blocked: unloadingObstructions(cargo, row.result.placements) })));
   }, 60000);
 

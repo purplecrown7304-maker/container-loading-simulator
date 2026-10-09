@@ -15,6 +15,18 @@ const fields: Array<{ key: keyof SecuringMaterialSettings; label: string; unit: 
   { key: 'antiSlipKgPerEa', label: '미끄럼방지재', unit: 'kg/EA' },
   { key: 'dunnageKgPerEa', label: '블로킹재', unit: 'kg/EA' },
   { key: 'loadBarKgPerEa', label: '고정바', unit: 'kg/EA' },
+  { key: 'voidAirBagKgPerEa', label: '메움 에어백', unit: 'kg/EA' },
+  { key: 'voidAirBagFaceAreaM2', label: '에어백 기준 면적', unit: 'm²/EA' },
+  { key: 'voidAirBagMinGapM', label: '에어백 최소 틈', unit: 'm' },
+  { key: 'voidAirBagMaxGapM', label: '에어백 최대 틈', unit: 'm' },
+  { key: 'voidHoneycombKgPerM3', label: '종이 허니컴 밀도', unit: 'kg/m³' },
+  { key: 'voidHoneycombModuleVolumeM3', label: '허니컴 계획 모듈', unit: 'm³/EA' },
+  { key: 'voidHoneycombMinGapM', label: '허니컴 최소 틈', unit: 'm' },
+  { key: 'voidHoneycombMaxGapM', label: '허니컴 최대 틈', unit: 'm' },
+  { key: 'voidDoorBarKgPerEa', label: '문쪽 로드바', unit: 'kg/EA' },
+  { key: 'voidDoorBarMinSpanM', label: '문쪽 로드바 최소 폭', unit: 'm' },
+  { key: 'voidDoorBarMaxSpanM', label: '문쪽 로드바 최대 폭', unit: 'm' },
+  { key: 'voidDoorBarCoverageHeightM', label: '로드바 계획 높이 간격', unit: 'm' },
 ];
 
 export default function SecuringMaterialSettingsPanel() {
@@ -63,6 +75,6 @@ export default function SecuringMaterialSettingsPanel() {
       <button type="button" className="primary" onClick={save}>현장값 저장</button>
       {saved && <span>저장됨 · 기존 관성 PASS 재검증 필요</span>}
     </div>
-    <small className="securing-material-settings-note">단위중량만 바뀝니다. 밴딩/랩핑의 시뮬레이션 구속 성능계수는 안전상 임의 변경하지 않습니다.</small>
+    <small className="securing-material-settings-note">메움재 값은 앱 기본 계획값이며 현장 자재로 확인 필요합니다. 자재의 실제 강도·정격을 보증하지 않습니다. 밴딩/랩핑의 시뮬레이션 구속 성능계수는 안전상 임의 변경하지 않습니다.</small>
   </details>, host);
 }

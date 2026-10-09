@@ -55,7 +55,7 @@ html[data-guided-workflow="true"] .unity-summary { padding:7px 10px; flex-shrink
 .pallet-view-stack,.pallet-preview { flex:1; height:auto!important; overflow:hidden; }
 .pallet-preview { display:flex; flex-direction:column; }
 .pallet-preview>.unity-viewer { flex:1; }
-.pallet-preview>.reference-clearance-strip,.pallet-preview>.pallet-securing-strip { position:static!important; flex:none; width:auto; max-width:none; margin:5px 6px; padding:5px 8px; display:flex; flex-wrap:wrap; gap:5px 10px; transform:none; font-size:10px; }
+.pallet-info-dock>.reference-clearance-strip,.pallet-info-dock>.pallet-securing-strip { position:static!important; flex:none; width:auto; max-width:none; margin:5px 6px; padding:5px 8px; display:flex; flex-wrap:wrap; gap:5px 10px; transform:none; font-size:10px; }
 .pallet-metrics { flex-shrink:0; max-height:90px; overflow:auto; }
 .pallet-mini-canvas { height:240px; }
 .pallet-weight-canvas { height:340px; }

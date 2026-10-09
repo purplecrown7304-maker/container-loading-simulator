@@ -1,3 +1,4 @@
+import { buildLimitReviewHtml, buildLimitReviewInertiaHtml, isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 import { buildReportDocument, reportTable, REPORT_SIGNOFF } from './reportLayout';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import type { PhysicsScenario } from './engine/physicsValidation';
@@ -137,6 +138,7 @@ function assessScenario(scenario: InertiaScenario, result: InertiaAnimationResul
 }
 
 export function buildInertiaImprovementReportHtml(target: PhysicsTarget, results: InertiaResults) {
+  const review = isLimitReviewTarget(target);
   const assessments = SCENARIOS
     .map(info => results[info.id] ? assessScenario(info.id, results[info.id]!, target.mode) : null)
     .filter((item): item is ScenarioAssessment => Boolean(item));
@@ -144,7 +146,7 @@ export function buildInertiaImprovementReportHtml(target: PhysicsTarget, results
 
   const worst = [...assessments].sort((a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level] || b.result.maxHorizontalShiftM - a.result.maxHorizontalShiftM || b.result.maxTiltDeg - a.result.maxTiltDeg)[0];
   const tested = assessments.length;
-  const overallLabel = worst.level === 'danger'
+  const overallLabel = review ? `${LIMIT_REVIEW_WARNING} · ${tested < 3 ? '검사 미완료' : worst.level === 'danger' ? '위험' : worst.level === 'warning' ? '내부 기준 초과' : '내부 기준 이내'}` : worst.level === 'danger'
     ? '위험 · 작업지시서 생성 불가'
     : tested < 3
       ? '검증 미완료 · 남은 시나리오 실행 필요'
@@ -155,7 +157,7 @@ export function buildInertiaImprovementReportHtml(target: PhysicsTarget, results
   const scenarioRows = SCENARIOS.map(info => {
     const assessment = assessments.find(item => item.scenario === info.id);
     if (!assessment) return `<tr><td>${info.label}</td><td>${info.forceLabel}</td><td><span class="report-pill neutral">미실행</span></td><td colspan="3">시나리오를 실행한 뒤 결과를 확인하세요.</td></tr>`;
-    return `<tr class="${assessment.level}"><td>${assessment.label}</td><td>${assessment.forceLabel}</td><td><span class="report-pill ${assessment.level === 'stable' ? 'good' : assessment.level === 'warning' ? 'caution' : 'danger'}">${assessment.levelLabel}</span></td><td>${mm(assessment.result.maxHorizontalShiftM)}</td><td>${assessment.result.maxTiltDeg.toFixed(1)}°</td><td>${escapeHtml(assessment.evaluation)}</td></tr>`;
+    return `<tr class="${assessment.level}"><td>${assessment.label}</td><td>${assessment.forceLabel}</td><td><span class="report-pill ${assessment.level === 'stable' ? 'good' : assessment.level === 'warning' ? 'caution' : 'danger'}">${assessment.levelLabel}</span></td><td>${mm(assessment.result.maxHorizontalShiftM)}</td><td>${assessment.result.maxTiltDeg.toFixed(1)}°</td><td>${escapeHtml(review ? assessment.evaluation.replaceAll('내부 PASS 범위입니다.', '내부 기준 이내이며 WHAT-IF 검토용입니다.') : assessment.evaluation)}</td></tr>`;
   }).join('');
 
   const recommendationHtml = commonRecommendations.map((item, index) => `<li><b>${index + 1}</b><span>${escapeHtml(item)}</span></li>`).join('');
@@ -170,11 +172,12 @@ export function buildInertiaImprovementReportHtml(target: PhysicsTarget, results
     title: '관성 테스트 보완 보고서',
     subtitle: `${new Date().toLocaleString('ko-KR')} · ${target.mode === 'pallets' ? 'PALLET MODE' : 'BOX MODE'} · Rapier 3D 관성 애니메이션 결과 기반`,
     status: overallLabel,
-    tone: worst.level === 'danger' ? 'danger' : tested < 3 ? 'neutral' : worst.level === 'warning' ? 'caution' : 'good',
-    summary: `<section class="summary" aria-label="관성 검증 요약"><div><span>실행 시나리오</span><b>${tested} / 3</b></div><div><span>적재 화물</span><b>${target.result.placements.length} EA</b></div><div><span>팔레트</span><b>${target.supports?.length ?? 0} EA</b></div><div class="text-metric"><span>실행 결과 중 최악 조건</span><b>${worst.label}</b></div></section>`,
+    watermark: review ? 'WHAT-IF REVIEW · 출고 승인 아님' : undefined,
+    tone: worst.level === 'danger' ? 'danger' : review ? 'caution' : tested < 3 ? 'neutral' : worst.level === 'warning' ? 'caution' : 'good',
+    summary: `${buildLimitReviewHtml(target)}${buildLimitReviewInertiaHtml(target, { maxHorizontalShiftM: Math.max(...assessments.map(item => item.result.maxHorizontalShiftM)), maxTiltDeg: Math.max(...assessments.map(item => item.result.maxTiltDeg)) })}<section class="summary" aria-label="관성 검증 요약"><div><span>실행 시나리오</span><b>${tested} / 3</b></div><div><span>적재 화물</span><b>${target.result.placements.length} EA</b></div><div><span>팔레트</span><b>${target.supports?.length ?? 0} EA</b></div><div class="text-metric"><span>실행 결과 중 최악 조건</span><b>${worst.label}</b></div></section>`,
     sections: [
       { title: '종합 평가와 보완할 점', description: '현재 판정과 우선 조치사항을 먼저 확인하세요.',
-        content: `<div class="overall"><b>${overallLabel}</b><span>${escapeHtml(worst.evaluation)}${tested < 3 ? ' · 미실행 시나리오는 평가에 포함되지 않았습니다.' : ''}</span></div><h3>보완할 점</h3><ol class="recommend">${recommendationHtml}</ol>` },
+        content: `<div class="overall"><b>${overallLabel}</b><span>${escapeHtml(review ? worst.evaluation.replaceAll('내부 PASS 범위입니다.', '내부 기준 이내이며 WHAT-IF 검토용입니다.') : worst.evaluation)}${tested < 3 ? ' · 미실행 시나리오는 평가에 포함되지 않았습니다.' : ''}</span></div><h3>보완할 점</h3><ol class="recommend">${recommendationHtml}</ol>` },
       { title: '시나리오별 평가', description: '출발 가속·급정거·급회전을 모두 실행한 결과인지 확인하세요.',
         content: reportTable('관성 시나리오별 평가표', `<table><colgroup><col style="width:13%"><col style="width:16%"><col style="width:13%"><col style="width:13%"><col style="width:12%"><col style="width:33%"></colgroup><thead><tr><th scope="col">상황</th><th scope="col">관성 조건</th><th scope="col">판정</th><th scope="col">최대 이동</th><th scope="col">최대 기울기</th><th scope="col">평가 내용</th></tr></thead><tbody>${scenarioRows}</tbody></table>`) },
       { title: '보완 후 재시험 체크', description: '보완 전후 수치를 대조한 뒤 검토 담당자가 확인하세요.',

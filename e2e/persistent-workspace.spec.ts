@@ -1,23 +1,25 @@
 import { expect, test, type Page } from '@playwright/test';
+import { directLoadingFixtures } from './helpers/loadingFixtures';
+import { expectVerifiedLoading } from './helpers/certification';
 import { expectFloatingWorkspacesOverCanvas, openWorkspace } from './helpers/workspace';
 import { expectCompactViewerFooter, expectGlobalBackgroundControl, expectThreeOnly } from './helpers/viewer';
 
 const mainViewer = '.viewer-host .three-comparison-viewer';
 const workspaceTitles = ['적재공간 선택', '제품 선택', '제품 포장', '적재 방식 선택'];
 
-async function seedProducts(page: Page, count = 1) {
+async function seedProducts(page: Page, count = 1, fullDepth = false) {
   // Guest bootstrap installs memory-backed storage; seed its isolated catalog only after mount.
   await expect(page.locator('.guided-step-list button')).toHaveCount(6);
-  await page.evaluate(count => {
+  await page.evaluate(({ count, dimensions }) => {
     localStorage.setItem('container-loading-product-packaging-v1:guest', JSON.stringify({
       container: { length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 },
       products: Array.from({ length: count }, (_, index) => ({
         id: `PERSIST-${String(index + 1).padStart(2, '0')}`, name: `유지 확인 제품 ${index + 1}`,
-        length: .2, width: .15, height: .1, weightKg: 1, quantity: 1, requiresBoxPackaging: false,
+        ...dimensions, quantity: 1, requiresBoxPackaging: false,
       })), boxes: [], settings: { allowCustom: false },
     }));
     window.dispatchEvent(new Event('container-loading:enterprise-packaging-planner-updated'));
-  }, count);
+  }, { count, dimensions: fullDepth ? directLoadingFixtures.sixBox20ft : { length: .2, width: .15, height: .1, weightKg: 1 } });
 }
 
 async function selectProduct(page: Page, quantity = '6') {
@@ -144,7 +146,7 @@ test('mobile dialogs scroll internally, keep their close and next controls visib
 test('one real canvas survives equipment, product, packaging, loading-unit, result and repeated workspace changes @webgl', async ({ page }) => {
   test.setTimeout(150_000);
   await page.goto('/');
-  await seedProducts(page);
+  await seedProducts(page, 1, true);
   const viewer = page.locator(mainViewer);
   await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 60_000 });
   const canvas = await viewer.locator('canvas').elementHandle();
@@ -165,7 +167,10 @@ test('one real canvas survives equipment, product, packaging, loading-unit, resu
   await expect(viewer.locator('.unity-summary')).toContainText('5.90');
   await assertCanvas();
   workspace = await selectProduct(page);
-  await expect(viewer).toHaveAttribute('data-three-count', '6');
+  // The staging preview keeps 25 mm gaps: six 0.98 m cartons need 6.005 m,
+  // exceeding the 5.90 m floor. The final packing below must still load all six.
+  await expect(viewer).toHaveAttribute('data-three-count', '5');
+  await expect(page.locator('.workflow-preview-status')).toContainText('5 / 6개 표시');
   await assertCanvas();
   await workspace.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.locator('.workflow-preview-status')).toHaveAttribute('data-preview-kind', 'packaging');
@@ -178,7 +183,8 @@ test('one real canvas survives equipment, product, packaging, loading-unit, resu
   await workspace.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   const results = page.locator('.guided-bottom-bar:visible').getByRole('button', { name: /^결과 확인/ });
-  await expect(results).toBeEnabled({ timeout: 60_000 });
+  await expectVerifiedLoading(page);
+  await expect(results).toBeEnabled();
   await expect(viewer).toHaveAttribute('data-three-applied', 'true');
   await expect(viewer).toHaveAttribute('data-three-count', '6');
   await assertCanvas();

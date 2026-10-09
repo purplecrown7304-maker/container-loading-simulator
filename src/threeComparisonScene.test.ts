@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
+import { buildWeightSurfaceGeometry, weightSurfaceCellIndex } from './weightSurfaceGeometry';
 import { viewerPlan } from './viewerSceneProtocol';
 import { acceptSceneFrame, poseMatrix, sceneBoxMatrix, sceneCameraPose, sceneCenter, visibleCargoIndexes } from './threeComparisonSceneState';
 import { createComparisonSceneResources, requiredComparisonModelKeys, type ComparisonModels } from './threeComparisonSceneResources';
@@ -85,6 +86,33 @@ const shown = { cut: 100, step: 999, shell: true, labels: true, weight: false, s
 });
 
 describe('Three comparison scene resources', () => {
+  it('renders one shared surface, raycasts cell centers and releases its geometry', () => {
+    const plan = fixture(), before = JSON.stringify(plan), { scene } = resourcesFor(plan);
+    scene.updateVisibility({ ...shown, weight: true });
+    const group = scene.root.getObjectByName('Weight cells')!;
+    expect(group.children).toHaveLength(1);
+    const mesh = group.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+    expect(mesh.name).toBe('Weight surface');
+    const expected = buildWeightSurfaceGeometry(plan.cells, 20, 8, plan.container, plan.container.height * .72);
+    expect(mesh.geometry.getAttribute('position').array).toEqual(expected.positions);
+    expect(mesh.geometry.getAttribute('color').array).toEqual(expected.colors);
+    expect(mesh.geometry.index!.array).toEqual(expected.indices);
+    expect(mesh.material.vertexColors).toBe(true);
+    expect(mesh.material.side).toBe(THREE.DoubleSide);
+    expect(mesh.material.opacity).toBe(.68);
+    expect(mesh.renderOrder).toBe(0);
+    for (const index of [0, 21, 159]) {
+      const cell = plan.cells[index];
+      const ray = new THREE.Raycaster(new THREE.Vector3(cell.x + cell.length / 2 - 3, 5, cell.y + cell.width / 2 - 1.2), new THREE.Vector3(0, -1, 0));
+      const hit = ray.intersectObject(mesh)[0];
+      expect(hit).toBeDefined();
+      expect(weightSurfaceCellIndex(plan.cells, plan.container, hit.point.x, hit.point.z)).toBe(index);
+    }
+    const disposed = vi.fn(); mesh.geometry.addEventListener('dispose', disposed);
+    scene.dispose(); expect(disposed).toHaveBeenCalledOnce();
+    expect(JSON.stringify(plan)).toBe(before);
+  });
+
   it('shows the exact centroid in the ordinary canvas and keeps it visible through cargo, with an independent toggle', () => {
     const plan = fixture(), { scene } = resourcesFor(plan);
     scene.updateVisibility(shown);

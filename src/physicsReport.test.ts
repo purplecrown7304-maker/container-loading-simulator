@@ -41,3 +41,11 @@ describe('physics report', () => {
     expect(html).not.toContain('<위험>');
   });
 });
+
+it('persists WHAT-IF warning and watermark in standalone physics output without turning it into inertia certification', () => {
+  const review = { ...container, limitReview: { mode: 'what-if' as const, maxPayloadKg: 2000 } };
+  const html = buildPhysicsReportHtml(review, cargo, loading, physics);
+  expect(html).toContain('WHAT-IF REVIEW'); expect(html).toContain('class="watermark"');
+  expect(html).toContain('원래한도초과량'); expect(html).toContain('카탈로그 대표값');
+  expect(html).not.toContain('내부 관성 최대 이동');
+});

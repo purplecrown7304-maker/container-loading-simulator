@@ -16,8 +16,19 @@ export function blocksUnloadPath(a: Placement, b: Placement, cargo: Map<string, 
     || (overlaps(a.x,a.length,b.x,b.length) && b.z >= a.z+a.height-.0015));
 }
 
+/**
+ * True when every cargo id resolves to the same stop. `blocksUnloadPath` needs a strictly later
+ * stop, so no pair can block and the pairwise scan is skipped. Ids missing from the map use the
+ * same default stop (1) as `blocksUnloadPath`.
+ */
+function singleUnloadStop(cargo: Map<string, CargoItem>) {
+  for (const item of cargo.values()) if ((item.unloadPriority ?? 1) !== 1) return false;
+  return true;
+}
+
 export function acceptsUnloadCandidate(container: ContainerSpec, cargo: Map<string, CargoItem>, placements: Placement[], candidate: Placement) {
-  return container.unloadingPolicy !== 'strict' || !placements.some(p => blocksUnloadPath(p,candidate,cargo) || blocksUnloadPath(candidate,p,cargo));
+  if (container.unloadingPolicy !== 'strict' || singleUnloadStop(cargo)) return true;
+  return !placements.some(p => blocksUnloadPath(p,candidate,cargo) || blocksUnloadPath(candidate,p,cargo));
 }
 
 /** Deck construction groups stops under strict handling while the outer scorer keeps its objective. */

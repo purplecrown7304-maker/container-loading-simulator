@@ -1,11 +1,13 @@
-import { loadContainer, type LoadingStrategy } from './loadingEngine';
+import { loadContainer, type LoadingOptions, type LoadingStrategy } from './loadingEngine';
+import { readSecuringMaterialSettings } from '../securingMaterialSettings';
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 
 /** Run the identical deterministic solver away from the UI thread. */
-export function loadContainerAsync(container: ContainerSpec, cargo: CargoItem[], strategy: LoadingStrategy, signal?: AbortSignal): Promise<LoadingResult> {
+export function loadContainerAsync(container: ContainerSpec, cargo: CargoItem[], strategy: LoadingStrategy, signal?: AbortSignal, options: Pick<LoadingOptions, 'securingLevel' | 'securingMaterials'> = {}): Promise<LoadingResult> {
   if (signal?.aborted) return Promise.reject(new DOMException('취소됨', 'AbortError'));
+  const securingOptions = { ...options, securingMaterials: options.securingMaterials ?? readSecuringMaterialSettings() };
   // Node/unit tests have no browser Worker. Production browsers use the worker below.
-  if (typeof Worker === 'undefined') return Promise.resolve(loadContainer(container, cargo, { strategy, publish: false }));
+  if (typeof Worker === 'undefined') return Promise.resolve(loadContainer(container, cargo, { strategy, publish: false, ...securingOptions }));
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./loading.worker.ts', import.meta.url), { type: 'module' });
     const clean = () => { worker.terminate(); signal?.removeEventListener('abort', abort); };
@@ -16,9 +18,10 @@ export function loadContainerAsync(container: ContainerSpec, cargo: CargoItem[],
       else reject(new Error(event.data.error ?? '적재 계산 결과를 읽지 못했습니다.'));
     };
     worker.onerror = () => { clean(); reject(new Error('적재 계산 모듈을 실행하지 못했습니다. 다시 시도해 주세요.')); };
-    worker.onmessageerror = () => { clean(); reject(new Error('적재 계산 결과를 읽지 못했습니다.')); };
+    // Chromium does not expose a Worker.onmessageerror event-handler property.
+    worker.addEventListener('messageerror', () => { clean(); reject(new Error('적재 계산 결과를 읽지 못했습니다.')); }, { once: true });
     signal?.addEventListener('abort', abort, { once: true });
-    try { worker.postMessage({ container, cargo, strategy }); }
+    try { worker.postMessage({ container, cargo, strategy, securingOptions }); }
     catch (error) { clean(); reject(error); }
   });
 }

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ElementRef } from 'r
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
+import { weightSurfaceCellIndex } from './weightSurfaceGeometry';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
 import { vehicleLayout } from './threeVehicleLayout';
 import { loadVehicleModel, type VehicleModels } from './threeVehicleModels';
@@ -53,7 +54,7 @@ export type ThreeComparisonSceneProps = {
   frameRevision?: number;
   onSelect: (index: number | null) => void;
   onSupportSelect?: (index: number) => void;
-  onCellSelect?: (index: number) => void;
+  onCellSelect?: (index: number | null) => void;
   onReady?: (stats: ThreeComparisonSceneStats) => void;
   onStats?: (stats: ThreeComparisonSceneStats) => void;
   onError?: (message: string) => void;
@@ -102,6 +103,12 @@ function SceneContents({ resources, options, bindings, frameState }: { resources
     }
     resources.updateVisibility({ cut, shell, step, labels, weight, showCg, selected }); invalidate();
   }, [resources, plan, frameData, frameRevision, cut, shell, step, labels, weight, showCg, selected, bindings, frameState, invalidate]);
+  const selectCell = (event: ThreeEvent<MouseEvent | PointerEvent>) => {
+    if (!weight || event.object.userData.kind !== 'weightSurface') return;
+    event.stopPropagation();
+    const point = event.object.worldToLocal(event.point.clone());
+    options.onCellSelect?.(weightSurfaceCellIndex(plan.cells, plan.container, point.x, point.z));
+  };
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
     if (event.delta > 4) return;
     const data = event.object.userData;
@@ -110,9 +117,10 @@ function SceneContents({ resources, options, bindings, frameState }: { resources
       if (index === undefined) return;
       event.stopPropagation(); options.onSelect(index);
     } else if (data.kind === 'support') { event.stopPropagation(); options.onSupportSelect?.(data.index); }
-    else if (data.kind === 'cell') { event.stopPropagation(); options.onCellSelect?.(data.index); }
+    else if (data.kind === 'weightSurface' && weight) selectCell(event);
   };
-  return <primitive object={resources.root} dispose={null} onClick={handleClick} />;
+  return <primitive object={resources.root} dispose={null} onClick={handleClick} onPointerMove={selectCell}
+    onPointerOut={(event: ThreeEvent<PointerEvent>) => { if (event.object.userData.kind === 'weightSurface') options.onCellSelect?.(null); }} />;
 }
 
 function SceneRuntime({ resources, options, frameState }: { resources: Resources | null; options: ThreeComparisonSceneProps; frameState: { current: FrameState } }) {

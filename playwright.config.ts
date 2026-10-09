@@ -7,6 +7,9 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'line' : 'list',
+  // Rapier scenarios now run in background workers on the same CPU as the 3D scene, so a scene can
+  // take a little longer to apply on a busy runner. Passing assertions still return immediately.
+  expect: { timeout: 15_000 },
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'retain-on-failure',

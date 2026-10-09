@@ -60,3 +60,36 @@ describe('transport equipment catalog', () => {
     expect(CONTAINER_EQUIPMENT.find(item => item.id === '20-bulk')?.specializedCargo).toBe(true);
   });
 });
+
+describe('owner decisions 2026-10-08 on equipment values', () => {
+  it('lets every general-cargo preset carry its nameplate payload when spread evenly over the floor', async () => {
+    const { TRANSPORT_EQUIPMENT } = await import('./transportEquipment');
+    for (const item of TRANSPORT_EQUIPMENT.filter(e => !e.specializedCargo)) {
+      const evenlySpreadKg = item.floorLoadLimitKgPerM2 * item.length * item.width;
+      expect(evenlySpreadKg, item.id).toBeGreaterThanOrEqual(item.maxPayloadKg);
+    }
+  });
+
+  it('keeps the derived 20 ft floor limits at payload ÷ floor area rounded up to 10 kg/m²', async () => {
+    const { TRANSPORT_EQUIPMENT } = await import('./transportEquipment');
+    const derived = { '20-standard': 2030, '20-open-top': 2170, '20-flatrack': 3070, '20-flatrack-collapsible': 2860, '20-platform': 2860, '20-reefer': 2350 };
+    for (const [id, limit] of Object.entries(derived)) {
+      const item = TRANSPORT_EQUIPMENT.find(e => e.id === id)!;
+      expect(item.floorLoadLimitKgPerM2, id).toBe(limit);
+      expect(Math.ceil(item.maxPayloadKg / (item.length * item.width) / 10) * 10, id).toBe(limit);
+    }
+    // 40 ft class already reached payload at 1,500 kg/m² and is unchanged.
+    expect(TRANSPORT_EQUIPMENT.find(e => e.id === '40-standard')!.floorLoadLimitKgPerM2).toBe(1500);
+    expect(TRANSPORT_EQUIPMENT.find(e => e.id === '40-high-cube')!.floorLoadLimitKgPerM2).toBe(1500);
+  });
+
+  it('uses one payload source for both rulesets: 40 ft standard is 28,750 kg', async () => {
+    const { TRANSPORT_EQUIPMENT } = await import('./transportEquipment');
+    const { CONTAINERS } = await import('./engine/loadSimA/presets');
+    const pairs = { '20-standard': '20GP', '40-standard': '40GP', '40-high-cube': '40HC', '45-high-cube': '45HC' };
+    for (const [legacyId, aId] of Object.entries(pairs)) {
+      expect(CONTAINERS[aId].maxPayload, aId).toBe(TRANSPORT_EQUIPMENT.find(e => e.id === legacyId)!.maxPayloadKg);
+    }
+    expect(CONTAINERS['40GP'].maxPayload).toBe(28750);
+  });
+});

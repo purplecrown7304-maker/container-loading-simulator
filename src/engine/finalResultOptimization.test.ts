@@ -7,7 +7,6 @@ import {
   buildDirectResultReoptimizationCandidatesAsync,
 } from './finalResultOptimization';
 import type { PhysicsTarget } from '../physicsTarget';
-import { operationalQuality } from './operationalQuality';
 
 const container: ContainerSpec = {
   length: 12.03,
@@ -46,15 +45,14 @@ function smallTarget(): PhysicsTarget {
 }
 
 describe('final result inertia re-layout search', () => {
-  it('orders capacity recovery candidates by compactness rather than low height', async () => {
+  it('does not invent different recovery plans after the heavy-inner portfolio converges', async () => {
     const current = smallTarget();
     const { candidates } = await buildDirectResultReoptimizationCandidatesAsync(current, 6, () => false, { strategy: 'capacity' });
-    expect(candidates.length).toBeGreaterThan(1);
-    const penalties = candidates.map(candidate => {
-      const shape = operationalQuality(current.container, candidate.result.placements);
-      return shape.footprint * 30 + shape.slenderness * 45;
-    });
-    expect(penalties).toEqual([...penalties].sort((a, b) => a - b));
+    // The initial run already searched these safe height profiles. Returning
+    // duplicate or reordered plans would bypass the inner-first work policy.
+    expect(candidates).toEqual([]);
+    expect(current.result.placements).toHaveLength(12);
+    expect(current.result.validationIssues).toEqual([]);
   }, 30000);
   it('generates a broad deterministic and deduplicated profile set', () => {
     const profiles = buildDirectReoptimizationCargoProfiles(target());

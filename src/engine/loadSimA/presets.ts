@@ -29,6 +29,8 @@ export const SEA_ACCEL = {
   C: { forward: 0.4, rearward: 0.4, sideways: 0.8 },
 };
 
+// 대표 결정 2026-10-08 (LOADING_RULES 10.3): 적재중량은 기존 장비 목록(transportEquipment.ts)과 같은 값으로 통일한다.
+// 40피트 일반 28,750 kg. 실제 한도는 여전히 장비 명판이다.
 export const CONTAINERS: Record<string, Space> = {
   '20GP': {
     id: '20GP',
@@ -36,7 +38,7 @@ export const CONTAINERS: Record<string, Space> = {
     inner: { l: 5898, w: 2352, h: 2393 },
     door: { w: 2340, h: 2280 },
     access: ['rear'],
-    maxPayload: 28200,
+    maxPayload: 28130,
     tare: 2200,
     floorLineLoad: 4500,
   },
@@ -46,7 +48,7 @@ export const CONTAINERS: Record<string, Space> = {
     inner: { l: 12032, w: 2352, h: 2393 },
     door: { w: 2340, h: 2280 },
     access: ['rear'],
-    maxPayload: 26700,
+    maxPayload: 28750,
     tare: 3800,
     floorLineLoad: 3000,
   },
@@ -56,7 +58,7 @@ export const CONTAINERS: Record<string, Space> = {
     inner: { l: 12032, w: 2352, h: 2698 },
     door: { w: 2340, h: 2585 },
     access: ['rear'],
-    maxPayload: 26500,
+    maxPayload: 28600,
     tare: 3900,
     floorLineLoad: 3000,
   },
@@ -66,7 +68,7 @@ export const CONTAINERS: Record<string, Space> = {
     inner: { l: 13556, w: 2352, h: 2698 },
     door: { w: 2340, h: 2585 },
     access: ['rear'],
-    maxPayload: 27600,
+    maxPayload: 27700,
     tare: 4800,
     floorLineLoad: 3000,
   },

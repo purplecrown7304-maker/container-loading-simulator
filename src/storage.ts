@@ -1,4 +1,4 @@
-import type { CargoItem, ContainerSpec } from './engine/types';
+import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 
 export const STORAGE_KEY = 'container-loading-simulator-v1';
 export const STORAGE_UPDATED_EVENT = 'container-loading-simulator:storage-updated';
@@ -6,6 +6,8 @@ export const STORAGE_UPDATED_EVENT = 'container-loading-simulator:storage-update
 export type StoredState = {
   container: ContainerSpec;
   cargo: CargoItem[];
+  /** Optional final layout. Readers must revalidate it before use. Older input-only saves remain valid. */
+  result?: LoadingResult;
 };
 
 export function normalizeCargo(cargo: CargoItem[]): CargoItem[] {

@@ -234,7 +234,7 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
       <span>공간 사용 <b>{(result.usedVolumeM3 / Math.max(0.001, container.length * container.width * container.height) * 100).toFixed(1)}%</b></span>
       <span>잔여 체적 <b>{Math.max(0, container.length * container.width * container.height - result.usedVolumeM3).toFixed(2)} m³</b></span>
       <span>적재 중량 <b>{result.loadedWeightKg.toLocaleString()} / {container.maxPayloadKg.toLocaleString()} kg</b></span>
-      <span className={result.validationIssues.length ? 'space-rule-error' : ''}>{result.validationIssues.length ? `규칙 위반 ${result.validationIssues.length}건` : result.placements.length ? '적재 규칙 검사 통과' : '화물을 등록하고 자동 적재를 실행하세요'}</span>
+      <span className={result.validationIssues.length ? 'space-rule-error' : ''}>{container.limitReview || result.limitReview ? `WHAT-IF REVIEW · 출고 승인 불가 · 원 기준 위반 ${result.validationIssues.length}건` : result.validationIssues.length ? `규칙 위반 ${result.validationIssues.length}건` : result.placements.length ? '적재 규칙 검사 통과' : '화물을 등록하고 자동 적재를 실행하세요'}</span>
     </div>
     {result.validationIssues.length > 0 && <details className="loading-space-issues"><summary>규칙 위반 상세</summary><ul>{result.validationIssues.map((issue, index) => <li key={index}>{issue.message}</li>)}</ul></details>}
   </section>;

@@ -1,10 +1,11 @@
+import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { runInertiaAnimation, type InertiaAnimationResult, type InertiaPhase } from './engine/inertiaSimulation';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { PhysicsScenario } from './engine/physicsValidation';
 import {
-  buildSecuringUsage, createPhysicsTargetSignature, minimumSecuringLevelForMode,
+  buildSecuringUsage, createPhysicsTargetSignature, isNumericalLimitReviewTarget, minimumSecuringLevelForMode,
   readLatestInertiaCertification, securingProfileForUsage, type SecuringUsage,
 } from './inertiaCertification';
 import { openInertiaImprovementReport } from './inertiaReport';
@@ -87,6 +88,10 @@ export default function InertiaTestTool() {
     try {
       if (runStaticInspection(snapshot, 'geometry').attention) throw new Error('경계·충돌 문제가 있습니다. 배치를 수정한 후 다시 실행하세요.');
       const usage = securingForTarget(snapshot);
+      if (isLimitReviewTarget(snapshot) && (!isNumericalLimitReviewTarget(snapshot)
+        || snapshot.result.loadedWeightKg + usage.estimatedAddedWeightKg > (snapshot.container.limitReview?.maxPayloadKg ?? snapshot.container.maxPayloadKg) + 1e-9)) {
+        throw new Error('검토 시나리오 입력·형상 또는 고정재 포함 시나리오 한도를 확인하세요.');
+      }
       setSecuringUsage(usage); setGenerating(true);
       publishInertiaCanvasPlayback({ runId: id, target: snapshot, securing: usage });
       void runInertiaAnimation(snapshot.container, snapshot.result.placements, nextScenario, snapshot.supports ?? [],
@@ -226,6 +231,7 @@ export default function InertiaTestTool() {
         {!inline && testedCount > 0 && <button type="button" className="inertia-report-action" onClick={openReport}>계산 결과·개선 보고서 <b>{testedCount}/3</b></button>}
         <button type="button" onClick={close} aria-label="관성 테스트 닫기">닫기</button>
       </div></header>
+      {isLimitReviewTarget(target ?? undefined) && <p className="inertia-footnote" role="alert">{LIMIT_REVIEW_WARNING}</p>}
       <div className="inertia-scenario-tabs" role="tablist" aria-label="관성 테스트 상황">
         {SCENARIOS.map(item => <button key={item.id} type="button" role="tab" aria-selected={scenario === item.id}
           className={scenario === item.id ? 'active' : ''} onClick={() => chooseScenario(item.id)}>

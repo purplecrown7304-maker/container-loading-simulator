@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildWeightSurfaceGeometry } from './weightSurfaceGeometry';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
 import { createMeshyMaterial, meshyTint, type MeshyModel, type ModelKey } from './threeComparisonModels';
 import { poseMatrix, sceneBoxMatrix, sceneCenter, UNITY_CARTON_SCALE, visibleCargoIndexes, type ThreeComparisonPlan } from './threeComparisonSceneState';
@@ -173,14 +174,21 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     else cube('Securing', [0, 0, 0], size, mat(aid.color), unit);
   }
 
-  const maxLoad = Math.max(0, ...plan.cells.map(cell => cell.loadKg));
-  plan.cells.forEach((cell, index) => {
-    if (cell.loadKg <= 0 || maxLoad <= 0) return;
-    const t = cell.loadKg / maxLoad, barHeight = Math.max(.035, t * h * .72);
-    const blue = new THREE.Color(.14, .39, .92), green = new THREE.Color(.13, .77, .37), amber = new THREE.Color(.96, .62, .04), red = new THREE.Color(.94, .27, .27);
-    const color = t < .34 ? blue.lerp(green, t / .34) : t < .67 ? green.lerp(amber, (t - .34) / .33) : amber.lerp(red, (t - .67) / .33);
-    cube(`Cell_${index}`, [cell.x + cell.length / 2 - l / 2, .025 + barHeight / 2, cell.y + cell.width / 2 - w / 2], [cell.length * .88, barHeight, cell.width * .82], mat(color), weightRoot, { kind: 'cell', index });
-  });
+  const surface = buildWeightSurfaceGeometry(plan.cells, 20, 8, plan.container, h * .72);
+  const weightGeometry = new THREE.BufferGeometry();
+  weightGeometry.setAttribute('position', new THREE.BufferAttribute(surface.positions, 3));
+  weightGeometry.setAttribute('color', new THREE.BufferAttribute(surface.colors, 3));
+  weightGeometry.setIndex(new THREE.BufferAttribute(surface.indices, 1));
+  weightGeometry.computeVertexNormals();
+  const weightMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide,
+    transparent: true, opacity: .68, roughness: .42, metalness: .02, depthWrite: false,
+    // Keep zero-load vertices exactly on the floor without coplanar flickering.
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  ownedMaterials.push(weightMaterial);
+  const weightMesh = new THREE.Mesh(weightGeometry, weightMaterial);
+  weightMesh.name = 'Weight surface'; weightMesh.userData = { kind: 'weightSurface' };
+  weightMesh.renderOrder = 0; // Preserve the direct Three bars' default render order.
+  weightRoot.add(weightMesh);
   const weightedBodies = [...plan.placements, ...plan.supports];
   const totalWeight = weightedBodies.reduce((sum, body) => sum + body.weightKg, 0);
   const hasCg = totalWeight > 0 && weightedBodies.every(body => Number.isFinite(body.weightKg) && body.weightKg >= 0)
@@ -264,7 +272,7 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
       for (const material of ownedMaterials) material.dispose();
       for (const mesh of instanceMeshes) mesh.dispose();
       vehicle?.dispose();
-      boxGeometry.dispose(); labelGeometry.dispose(); sphereGeometry.dispose(); root.clear();
+      weightGeometry.dispose(); boxGeometry.dispose(); labelGeometry.dispose(); sphereGeometry.dispose(); root.clear();
     },
   };
 }

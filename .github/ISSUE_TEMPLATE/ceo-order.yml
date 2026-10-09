@@ -1,5 +1,5 @@
 name: 대표 업무지시서
-description: AI 직원(GPT/Claude)에게 새 작업을 지시합니다.
+description: 구현 담당에게 새 작업을 지시합니다.
 title: "[지시] "
 labels: ["ceo-order"]
 body:
@@ -7,11 +7,11 @@ body:
     id: implementer
     attributes:
       label: 구현 담당
-      description: 선택한 AI가 구현하고, 반대편 AI가 자동으로 검수합니다. 생성 후 같은 이름의 라벨(impl:gpt / impl:claude)도 붙여 주세요.
+      description: 작업 구현 담당을 지정합니다. 특정 AI의 자동 검수는 요구하지 않습니다.
       options:
-        - 기본 배정 규칙에 맡김
-        - impl:gpt (GPT 구현 → Claude 검수)
-        - impl:claude (Claude 구현 → GPT 검수)
+        - 기본 담당에 맡김
+        - GPT/Codex
+        - 직접 지정
     validations:
       required: true
   - type: dropdown

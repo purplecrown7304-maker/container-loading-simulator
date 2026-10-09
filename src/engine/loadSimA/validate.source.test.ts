@@ -114,7 +114,9 @@ test('하역 순서: 나중에 내릴 화물이 위에 있으면 차종과 무�
 });
 
 test('총중량 초과', () => {
-  assert.ok(errors(validate(t11Grid(10, 1400), CONTAINERS['40GP'])).includes('PAYLOAD_EXCEEDED'));
+  // 40GP 적재중량 28,750 kg (대표 결정 2026-10-08). 1,450 kg × 20 = 29,000 kg은 초과, 1,400 kg × 20 = 28,000 kg은 이내.
+  assert.ok(errors(validate(t11Grid(10, 1450), CONTAINERS['40GP'])).includes('PAYLOAD_EXCEEDED'));
+  assert.ok(!errors(validate(t11Grid(10, 1400), CONTAINERS['40GP'])).includes('PAYLOAD_EXCEEDED'));
 });
 
 test('선하중: 20GP에 12톤 기계를 2m 길이로 놓으면 초과, 3m면 통과', () => {

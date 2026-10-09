@@ -1,12 +1,12 @@
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import {
-  createPhysicsTargetSignature,
   readLatestInertiaCertification,
   requestCertifiedResults,
   type InertiaCertification,
 } from './inertiaCertification';
 import { restorePalletPhysicsTarget } from './palletTargetRestore';
 import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
+import { isPhysicsTargetVerified } from './inertiaWorkOrderPolicy';
 
 export const OPEN_RESULTS_MODAL_EVENT = 'container-loading-open-results-modal';
 export const REQUEST_PALLET_RESULTS_OPTIMIZATION_EVENT = 'container-loading:request-pallet-results-optimization';
@@ -19,12 +19,7 @@ export type ResultsModalDetail = {
 };
 
 export function certificationMatchesTarget(certification: InertiaCertification | undefined, target: PhysicsTarget | undefined) {
-  return Boolean(
-    certification?.status === 'passed'
-    && target
-    && certification.mode === target.mode
-    && certification.targetSignature === createPhysicsTargetSignature(target),
-  );
+  return isPhysicsTargetVerified(target, certification);
 }
 
 export function openResultsModal(detail: ResultsModalDetail) {

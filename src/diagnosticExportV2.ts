@@ -1,8 +1,11 @@
+import { isLimitReviewTarget, limitReviewRows, LIMIT_REVIEW_WARNING, LIMIT_REVIEW_PROVENANCE } from './limitReviewPresentation';
+import { readLatestInertiaCertification } from './inertiaCertification';
 import { buildBlackboxSnapshots } from './diagnosticBlackbox';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import type { PalletWorkSnapshot } from './palletWorkerReportV2';
 import { readPhysicsTarget } from './physicsTarget';
 import { readTransportEquipment } from './transportEquipment';
+import { VOID_FILL_DISCLAIMER, voidFillRows } from './voidFillPresentation';
 
 const APP_VERSION = '2.7.0-diagnostics';
 
@@ -41,13 +44,22 @@ function csvCell(value: unknown) {
   return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
-function toCsv(rows: Array<Record<string, unknown>>) {
+export function diagnosticCsv(rows: Array<Record<string, unknown>>, review = false) {
+  if (review) rows = rows.length ? rows.map(row => ({ documentPurpose: LIMIT_REVIEW_WARNING, ratingProvenance: LIMIT_REVIEW_PROVENANCE, ...row })) : [{ documentPurpose: LIMIT_REVIEW_WARNING, ratingProvenance: LIMIT_REVIEW_PROVENANCE }];
   if (!rows.length) return '\uFEFF';
   const headers = [...new Set(rows.flatMap(row => Object.keys(row)))];
   return `\uFEFF${[
     headers.map(csvCell).join(','),
     ...rows.map(row => headers.map(header => csvCell(row[header])).join(',')),
   ].join('\r\n')}`;
+}
+
+export function voidFillDiagnosticPayloads(result: LoadingResult, review = false) {
+  const rows: Array<Record<string, unknown>> = voidFillRows(result).map(row => ({ ...row }));
+  return {
+    json: safeJson({ schema: 'container-loading-void-fill-v1', plan: result.voidFillPlan ?? null, disclaimer: VOID_FILL_DISCLAIMER }),
+    csv: diagnosticCsv(rows, review),
+  };
 }
 
 function cargoRows(cargo: CargoItem[], result: LoadingResult) {
@@ -259,10 +271,16 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
   const equipment = readTransportEquipment();
   const snapshots = buildBlackboxSnapshots(container, cargo, result);
   const mode = target?.mode ?? 'boxes';
+  const reviewTarget = { container, cargo, result, mode, supports: target?.supports };
+  const review = isLimitReviewTarget(reviewTarget);
+  const reviewMetadata = review ? { documentPurpose: LIMIT_REVIEW_WARNING, ratingProvenance: LIMIT_REVIEW_PROVENANCE, comparisons: limitReviewRows(reviewTarget, readLatestInertiaCertification()), dispatchApproved: false } : undefined;
+  const toCsv = (rows: Array<Record<string, unknown>>) => diagnosticCsv(rows, review);
+  const voidFillPayloads = voidFillDiagnosticPayloads(result, review);
   const appResultSnapshot = latest ? decycle({ container: latest.container, cargo: latest.cargo, result: latest.result }) : null;
 
   const inspection = {
     schema: 'container-loading-diagnostics-v2',
+    limitReview: reviewMetadata,
     generatedAt: generatedAt.toISOString(),
     mode,
     selectedEquipment: equipment,
@@ -296,6 +314,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
     { name: 'packaging.json', data: textBytes(safeJson(snapshots.packaging)), modifiedAt: generatedAt },
     { name: 'loading-input.json', data: textBytes(safeJson(snapshots.loadingInput)), modifiedAt: generatedAt },
     { name: 'placements.json', data: textBytes(safeJson(snapshots.placements)), modifiedAt: generatedAt },
+    { name: 'void-fill.json', data: textBytes(voidFillPayloads.json), modifiedAt: generatedAt },
     { name: 'constraint-checks.json', data: textBytes(safeJson(snapshots.constraints)), modifiedAt: generatedAt },
     { name: 'weight-balance.json', data: textBytes(safeJson(snapshots.weightBalance)), modifiedAt: generatedAt },
     { name: 'floor-load.json', data: textBytes(safeJson(snapshots.floorLoad)), modifiedAt: generatedAt },
@@ -307,9 +326,19 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
     { name: 'runtime.json', data: textBytes(safeJson(snapshots.runtime)), modifiedAt: generatedAt },
     { name: 'cargo.csv', data: textBytes(toCsv(cargoRows(cargo, result))), modifiedAt: generatedAt },
     { name: 'placements.csv', data: textBytes(toCsv(placementRows(result, cargo))), modifiedAt: generatedAt },
+    { name: 'void-fill.csv', data: textBytes(voidFillPayloads.csv), modifiedAt: generatedAt },
     { name: 'floor-load.csv', data: textBytes(toCsv(floorRows(snapshots.floorLoad))), modifiedAt: generatedAt },
     { name: 'stack-analysis.csv', data: textBytes(toCsv(stackRows(snapshots.stackAnalysis))), modifiedAt: generatedAt },
   ];
+  if (reviewMetadata) {
+    entries.push({ name: 'WHAT-IF-REVIEW.json', data: textBytes(safeJson(reviewMetadata)), modifiedAt: generatedAt });
+    entries.push({ name: 'WHAT-IF-REVIEW.csv', data: textBytes(toCsv(reviewMetadata.comparisons)), modifiedAt: generatedAt });
+    // A JSON extracted on its own must retain the warning as well.
+    for (const entry of entries) if (entry.name.endsWith('.json')) {
+      const parsed = JSON.parse(new TextDecoder().decode(entry.data));
+      entry.data = textBytes(safeJson({ ...parsed, limitReview: reviewMetadata }));
+    }
+  }
   if (palletSnapshot) entries.push({ name: 'pallets.csv', data: textBytes(toCsv(palletRows(palletSnapshot))), modifiedAt: generatedAt });
 
   const packagingPreview = await captureCanvasPng('.product-packaging-canvas canvas');
@@ -321,6 +350,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
 
   const readme = [
     'Container Loading Simulator 블랙박스 점검 파일 v2',
+    ...(review ? [LIMIT_REVIEW_WARNING, LIMIT_REVIEW_PROVENANCE] : []),
     '',
     `생성 시각: ${generatedAt.toLocaleString()}`,
     `적재공간: ${equipment.shortName} (${equipment.geometry})`,
@@ -335,6 +365,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
     '- packaging.json: 제품 포장 확정 스냅샷 및 등록 박스',
     '- loading-input.json: 자동 적재 엔진에 실제 전달된 CargoItem[]',
     '- placements.json/csv: 최종 개별 배치',
+    '- void-fill.json/csv: 메움재 위치·재질·수량·중량·적용범위 및 현장확인 고지',
     '- stack-analysis.json/csv: 적층단, 지지율, 중심지지, 돌출, 상부하중, 전도 위험',
     '- weight-balance.json / floor-load.json,csv / constraint-checks.json',
     '- physics-validation.json / inertia-validation.json: 현재 배치 signature 일치 및 STALE 여부',
@@ -351,6 +382,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
   })));
   const manifest = {
     schema: 'container-loading-blackbox-manifest-v2',
+    limitReview: reviewMetadata,
     generatedAt: generatedAt.toISOString(),
     appVersion: APP_VERSION,
     gitCommit: system.build.gitCommit,

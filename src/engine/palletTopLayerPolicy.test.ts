@@ -18,6 +18,12 @@ function expectSafe(space: ContainerSpec, cargo: CargoItem[], pallet: typeof spe
   expect(result.totalPalletizedWeightKg).toBeLessThanOrEqual(space.maxPayloadKg + 1e-6);
   for (const load of result.pallets) {
     expect(load.cargoWeightKg).toBeLessThanOrEqual(pallet.maxLoadKg + 1e-6);
+    if (load.stackLevel > 1) {
+      // A carton can sit safely on its own deck while that entire deck is unsafe.
+      // Include the elevated pallet footprint in the same 80% support contract.
+      expect(hasAdequateSupport({cargoId:'PALLET',x:load.x,y:load.y,z:load.z,
+        length:load.length,width:load.width,height:load.height,weightKg:load.totalWeightKg},result.placements)).toBe(true);
+    }
     const base = { x: load.x, y: load.y, z: load.z + load.height, length: load.length, width: load.width };
     const placed: Placement[] = [];
     for (const p of [...load.cargoPlacements].sort((a,b) => a.z - b.z)) {
@@ -85,20 +91,22 @@ describe('regular top tiers below 50% move to a final mixed pallet (#97)', () =>
     expectSafe(container,cargo,limited,result);
   });
 
-  it('collects a large shipment’s horns with its existing unfinished floor pallet', () => {
+  it('preserves a large shipment and validates pallet footprints when collecting horns', () => {
     // Synthetic same-size packaging case, not an export of the user's live shipment.
     const quantities=[350,300,150,92,3], weights=[17,16,15,14,1];
     const cargo=quantities.map((quantity,i)=>box({id:String.fromCharCode(65+i),length:.235,width:.13,height:.265,weightKg:weights[i],quantity,maxStackLayers:10,maxTopLoadKg:100}));
     const space={length:5.9,width:2.352,height:2.395,maxPayloadKg:28130};
     const pallet={...defaultPalletSpec,height:.12,tareWeightKg:6,maxLoadKg:1000};
     const result=packOnPallets(space,cargo,pallet);
-    expect(result.placements).toHaveLength(895);
-    expect(result.remaining).toEqual([]);
-    expect(result.palletCount).toBe(15);
+    // The old 895-carton/15-pallet result rested four upper decks on 68.1694%
+    // contact and one on 78.2686%. Those are not legal under the shared 80%
+    // minimum. Preserve demand as explicit waiting rather than require that
+    // unsafe count; a future legal repack may recover the missing capacity.
+    expect(result.placements.length).toBeGreaterThan(0);
+    expect(result.placements.length + result.remaining.reduce((sum,item)=>sum+item.quantity,0)).toBe(895);
+    expect(result.remaining.every(item=>item.quantity>0 && item.reason.length>0)).toBe(true);
     const tails=result.pallets.filter(p=>p.isMixedTail);
-    expect(tails).toHaveLength(1);
-    expect(new Set(tails[0].cargoPlacements.map(p=>p.cargoId)).size).toBe(3);
-    expect(tails[0].cargoPlacements).toHaveLength(36);
+    expect(tails.length).toBeLessThanOrEqual(1);
     for(const load of result.pallets.filter(p=>!p.isMixedTail)) expect(palletTopLayerFill(load)).toBeGreaterThanOrEqual(.5);
     expectSafe(space,cargo,pallet,result);
   });

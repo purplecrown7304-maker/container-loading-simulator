@@ -11,16 +11,18 @@ export type DirectWorkOrderRequest = {
    * false: 최종 적재 진행의 자동 관성 검증 흐름. 동일한 검증/재배치를 수행하되 보고서는 열지 않는다.
    */
   openReport?: boolean;
+  /** User explicitly chose this exact full/CG plan; certify it without automatic layout replacement. */
+  preserveSelectedPlan?: boolean;
 };
 
 export function requestDirectWorkOrder(
   container: ContainerSpec,
   cargo: CargoItem[],
   result: LoadingResult,
-  options?: { openReport?: boolean },
+  options?: { openReport?: boolean; preserveSelectedPlan?: boolean },
 ) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent<DirectWorkOrderRequest>(REQUEST_DIRECT_WORK_ORDER_EVENT, {
-    detail: { container, cargo, result, openReport: options?.openReport ?? true },
+    detail: { container, cargo, result, openReport: options?.openReport ?? true, preserveSelectedPlan: options?.preserveSelectedPlan ?? false },
   }));
 }

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import * as XLSX from 'xlsx';
+import { readFile } from 'node:fs/promises';
 
 async function openProductManager(page: import('@playwright/test').Page) {
   await page.evaluate(() => {
@@ -81,4 +82,39 @@ test('box recommendations explicitly state that suggestions are not auto-registe
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText('추천만으로 개인 박스 목록에는 추가되지 않습니다.');
   await expect(dialog).toContainText('등록 버튼을 눌러야 개인 박스 목록에 추가');
+});
+
+test('registered products download, edit and re-upload by code without losing omitted products', async ({ page }) => {
+  await page.goto('/');
+  await registerDirectProduct(page, '00017');
+  await registerDirectProduct(page, 'KEEP');
+  const dialog = await openProductManager(page);
+  await dialog.getByPlaceholder('제품명 또는 제품코드 검색').fill('00017');
+  const downloaded = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: '등록 제품 엑셀 다운로드' }).click();
+  const download = await downloaded;
+  expect(download.suggestedFilename()).toBe('company-products.xlsx');
+  const book = XLSX.read(await readFile((await download.path())!));
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets.Products, { header: 1 });
+  expect(rows).toHaveLength(3); // Download includes products outside the current search.
+  expect(rows[1][0]).toBe('00017');
+  rows[1][1] = '엑셀 수정 제품';
+  rows[1][2] = 325.5;
+  rows[1][5] = 2.5;
+  rows[1][6] = 'Y';
+  book.Sheets.Products = XLSX.utils.aoa_to_sheet(rows.slice(0, 2));
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: 'company-products-edited.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer,
+  });
+  await expect(dialog.getByRole('status')).toContainText('추가 0종 · 수정 1종 · 확인 필요 0건');
+  await expect(dialog.locator('.product-master-list article')).toHaveCount(1);
+  await expect(dialog.locator('.product-master-list article')).toContainText('엑셀 수정 제품');
+  await expect(dialog.locator('.product-master-list article')).toContainText('2.5kg');
+  await dialog.getByPlaceholder('제품명 또는 제품코드 검색').fill('');
+  await expect(dialog.locator('.product-master-list article')).toHaveCount(2);
+  await expect(dialog.locator('.product-master-list article').filter({ hasText: 'KEEP' })).toBeVisible();
+  await dialog.locator('.product-master-list article').filter({ hasText: '00017' }).getByRole('button', { name: '수정', exact: true }).click();
+  await expect(dialog.getByLabel('길이 mm')).toHaveValue('325.5');
+  await expect(dialog.getByLabel('박스 적재')).toHaveValue('yes');
 });

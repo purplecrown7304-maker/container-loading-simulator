@@ -16,6 +16,71 @@ Build and maintain a web-based 3D container loading simulator that optimizes box
 - Hard safety constraints always outrank optimization preferences.
 - Mobile usability must be considered for all major UI changes.
 
+## 2A. Owner-approved scoped rule repair (2026-10-06)
+
+For legacy **direct-box** loading, the owner's latest work sequence supersedes older
+conflicting optimization preferences below: load continuously from the inner X=0
+end toward the +X door, by **individual gross package weight descending**. Keep
+SKU/height blocks contiguous. Explicit strict unloading constraints take priority;
+when they conflict with the weight order, retain strict stops and disclose the
+conflict. Hard geometry, support, cumulative compression, stacking, floor load,
+payload including required securing, and the existing operational CG acceptance
+range remain unchanged or more conservative. Exact 50:50 is not a reason to reorder
+working blocks. Do not apply X-centering, wall swaps, residual back-filling or
+sparse-top postpasses that undo this sequence. The order-preserving solver may
+compare safe tier/orientation profiles instead.
+
+This scoped policy does **not** remove the independent A-rules or pallet/MIXED
+planners. Shared legacy final acceptance uses at least 80% support and 1 mm contact;
+manual/residual insertion may be more conservative. Failed/incomplete results may
+be exported only as clearly marked review documents. Export permission, completed
+scenario execution, and a current static-plus-physics PASS are distinct states.
+See `docs/engine/LOADING_RULES.md` for the consolidated acceptance contract.
+
+## 2B. Owner-approved numerical review scenarios (2026-10-06)
+
+The owner explicitly requested selecting ranges above normal limits with warnings.
+Implement this only as an opt-in **WHAT-IF REVIEW** for legacy direct boxes; the
+strict default, original equipment/catalog values and original cargo strength
+metadata remain unchanged. A-rules, pallet and MIXED planners do not silently
+inherit numerical exceptions. Selected finite, bounded scenario values may allow
+continued calculation for payload (including securing), floor load, support ratio,
+stack depth and top load. Unselected limits, geometry, collision, positive physical
+contact/center support, valid input, and explicit strict unloading remain blocking.
+
+Every review output is exploratory and never dispatch approval or safety PASS.
+Preserve all actual-limit findings and their severity, original/scenario/actual
+values, excess amounts and unknown provenance. Internal inertia comparison values
+are separate from equipment ratings; changing a scenario threshold does not erase
+baseline failures. The review designation must survive 3D/result UI, manual edits,
+save/restore, JSON/CSV/Excel and printable reports. Any scenario/input change
+invalidates old certification; returning to strict requires original checks again.
+Computational input bounds are not safety margins. See the review section in
+`docs/engine/LOADING_RULES.md` for scope and UI behavior.
+
+## 2C. Owner-approved rule consolidation (2026-10-06)
+
+The owner approved one priority table for legacy **direct-box** loading. It is in
+`docs/engine/LOADING_RULES.md` section 1 and overrides any conflicting sentence in
+sections 2A, 3, 3A, 4 and 5 of this file:
+
+- Hard limits and explicit strict unloading block a placement. Loaded quantity comes
+  next. The inner-to-door weight sequence of 2A is used while it loads all cargo within
+  the CG range; otherwise the engine switches to level loading (heavy cartons in the
+  lowest tiers, lighter cartons above, one common low height).
+- Longitudinal CG is a verdict, not a silent reason to drop cargo. A full load that
+  fails CG is shown with its error and a separate CG-compliant alternative; cartons
+  removed there carry `CG_LIMIT`. The allowed deviation scales with
+  `maxPayload / loadedWeight` and equals the previous 5% at full payload.
+- Securing and void fill follow actual voids, not carton count. `VOID_FILL_REQUIRED`
+  must reach every output. `VOID_FILL_KG_PER_M3` is a placeholder until the company
+  material table exists; do not treat it as a verified value.
+- Section 3 (EMS + Beam Search) describes the pallet/MIXED search, not the direct-box
+  default. Section 5's sparse top-tier re-insertion (#86) applies to pallet, MIXED and
+  A paths only. Section 4's "CG is an optimization preference" is replaced by the
+  verdict rule above.
+- A-rules, pallet and MIXED planners are unchanged by this consolidation.
+
 ## 3. DIRECT BOX baseline algorithm
 The legacy fixed sequence of `CBM/weight sort -> full vertical stacks -> x shelf progression -> door-side tail mixing` is retired.
 
@@ -193,9 +258,11 @@ If two project rules conflict, preserve hard physical constraints first and docu
 - Floor/axle and handling constraints require deterministic tests when their configuration fields are introduced.
 - Reserved spaces require regression coverage before they become user-facing defaults.
 
-## 15. Multi-agent collaboration (GPT ↔ Claude)
-This repository is operated by the owner plus two AI agents (GPT/Codex and Claude) that alternate between implementer and reviewer. Full rules: `docs/agents/COLLABORATION.md`.
-- Check the issue/PR label before starting: `impl:gpt` means Codex implements and Claude reviews; `impl:claude` means Claude implements and Codex reviews.
-- As implementer: work on branch `gpt/<issue>-<slug>`, never commit to `main`, and fill in every item of `.github/pull_request_template.md`.
-- As reviewer: do not rewrite the other agent's code; leave file/line review comments with severity (blocking/recommended/minor) and end with one verdict line: `판정: 승인`, `판정: 수정 요청`, or `판정: 대표 판단 필요`.
-- Do not create report `.md` files or deploy-trigger files in the repo root. Put reports in the PR description; summarize releases only in `CHANGELOG.md`.
+## 15. Implementation, verification and release workflow
+Owner decision (2026-10-06): remove GitHub Claude review automation and mandatory alternating AI review. Full rules: `docs/agents/COLLABORATION.md`.
+- Work on a task branch and publish a PR; never commit directly to `main`.
+- Fill in the PR template with changes, verification results and remaining risks.
+- Run applicable tests, type checks, architecture checks, security checks and builds. Preserve normal GitHub CI and Vercel deployment checks.
+- Independent review may be performed when requested or useful; no specific AI reviewer is required.
+- The owner authorizes merging and deployment. An explicit deployment instruction authorizes the normal PR merge after applicable checks pass.
+- Do not create report or deploy-trigger files in the repo root. Put reports in the PR description; summarize releases only in `CHANGELOG.md`.

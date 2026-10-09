@@ -1,6 +1,37 @@
 import type { RulesContext, LoadingRuleset } from './loadingRuleset';
 import type { Orientation, Dims } from './loadSimA/types';
+import type { CartonMaterial } from './cartonMaterial';
+/** Explicit numerical scenarios never amend equipment ratings or certify transport. */
+export type LimitReviewConfig = {
+  mode: 'what-if';
+  maxPayloadKg?: number;
+  floorLoadLimitKgPerM2?: number;
+  minimumSupportRatio?: number;
+  cargoLimits?: Record<string, { maxStackLayers?: number; maxTopLoadKg?: number }>;
+  simulation?: { maxDisplacementMm?: number; maxRotationDeg?: number };
+};
+export type LimitReviewMetric = {
+  key: 'payload' | 'floor-load' | 'support' | 'stack-layers' | 'top-load' | 'displacement' | 'rotation';
+  cargoId?: string;
+  unit: 'kg' | 'kg/m²' | 'ratio' | 'layers' | 'mm' | 'deg';
+  originalLimit: number | null;
+  scenarioLimit: number;
+  actual: number;
+  excess: number | null;
+  excessPercent: number | null;
+  provenance: 'configured' | 'app-default' | 'unverified' | 'unknown';
+  direction: 'maximum' | 'minimum';
+};
+export type LimitReviewMetadata = {
+  mode: 'what-if';
+  label: 'WHAT-IF REVIEW';
+  status: 'active' | 'invalid' | 'unsupported';
+  config: LimitReviewConfig;
+  metrics: LimitReviewMetric[];
+  errors: string[];
+};
 export type ContainerSpec = {
+  limitReview?: LimitReviewConfig;
   /** Independent from the optimization objective. Omitted preserves historical behavior. */
   unloadingPolicy?: 'strict' | 'soft';
   palletDestination?: {
@@ -17,6 +48,12 @@ export type ContainerSpec = {
   floorLoadLimitKgPerM2?: number;
   /** 평균 바닥하중 대비 국부하중 경고 배수. 미입력 시 3배를 사용한다. */
   floorLoadWarningMultiplier?: number;
+  /** 천장 여유(m). 화물·팔레트·포장의 최고점은 `height - ceilingClearanceM` 이하여야 한다. 미입력 시 0.05, 0이면 여유 없음. A 규칙은 자체 여유를 쓴다. */
+  ceilingClearanceM?: number;
+  /** 함께 실을 수 없는 `segregationClass` 쌍. 위반은 판정 오류(INCOMPATIBLE_CARGO)이며 배치를 막지는 않는다. */
+  incompatiblePairs?: Array<[string, string]>;
+  /** 길이·폭 절반 한쪽의 중량 비율 경고 기준(0.5 이상 1 미만). 미입력 시 0.6. 경고 전용이며 배치를 바꾸지 않는다. */
+  halfWeightWarningRatio?: number;
   /** Capacity compactness is disabled above this payload-utilization / volume-utilization ratio. */
   weightLimitedBalanceRatio?: number;
 };
@@ -42,6 +79,10 @@ export type CargoItem = {
   maxTopLoadKg?: number;
   /** Box management explicitly saved this limit; zero must never be treated as a legacy default. */
   topLoadLimitExplicit?: boolean;
+  /** 박스 재질. 표시와 강도 추정 버튼에만 쓰며, 추정값은 사용자가 넣기를 눌렀을 때만 상부 허용하중이 된다. */
+  cartonMaterial?: CartonMaterial;
+  /** 상부 허용하중의 출처. 'material-estimate'는 재질 추정값이며 시험값이 아니다. */
+  strengthSource?: 'material-estimate';
   /** Strength is not measured; operational loading remains one layer/no top load. */
   strengthUnverified?: boolean;
   /** Provenance only; changing either limit invalidates this recorded explanation. */
@@ -108,6 +149,33 @@ export type OperationalRuleFinding = {
   limit?: number;
 };
 
+export type VoidFillKind = 'side-gap' | 'door-face' | 'height-step' | 'row-gap' | 'top-void';
+export type VoidFillMaterial = 'dunnage-airbag' | 'paper-honeycomb' | 'load-bar' | 'unresolved';
+export type VoidFill = {
+  id: string;
+  kind: VoidFillKind;
+  material: VoidFillMaterial;
+  quantity: number;
+  weightKg: number;
+  fixedSupportEligible: boolean;
+  gapM: number;
+  voidVolumeM3: number;
+  x: number;
+  y: number;
+  z: number;
+  length: number;
+  width: number;
+  height: number;
+};
+export type VoidFillPlan = {
+  fills: VoidFill[];
+  sideGapM: number;
+  rearGapM: number;
+  volumeM3: number;
+  weightKg: number;
+  unresolvedCount: number;
+};
+
 export type AutoCorrectionRecord = {
   kind: 'SHAPE' | 'LOW_ROW' | 'ZONE_HEIGHT';
   label: string;
@@ -120,6 +188,11 @@ export type AutoCorrectionRecord = {
 };
 
 export type LoadingResult = {
+  limitReview?: LimitReviewMetadata;
+  /** Planning budget only; this does not assert physics certification. */
+  securingBudget?: { level: 1 | 2 | 3; reservedWeightKg: number; requiredWeightKg: number; totalTransportWeightKg: number };
+  /** Actual direct-box gap plan used for payload, 3D, exports and restore. Planning data only, not a material rating. */
+  voidFillPlan?: VoidFillPlan;
   ruleset?: LoadingRuleset;
   placements: Placement[];
   remaining: Array<{ cargoId: string; quantity: number; reason: string; reasonCode?: string }>;

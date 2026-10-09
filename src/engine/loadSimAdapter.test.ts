@@ -9,7 +9,7 @@ import { packOnPallets, defaultPalletSpec } from './palletOptimization';
 import { centerPalletCargo } from './palletCentering';
 import { packMixedMode } from './mixedModePacking';
 import { optimizeLoadingWithPhysics } from './physicsOptimizer';
-import { readManualOverride } from './manualOverride';
+import { readManualOverride, writeManualOverride } from './manualOverride';
 import type { CargoItem, ContainerSpec, Placement } from './types';
 
 const c:ContainerSpec={length:6,width:2.4,height:2.4,maxPayloadKg:20000,rules:{version:'a-v1',equipmentId:'test',kind:'container',access:['rear'],door:{w:2350,h:2300},tareKg:2000,source:'test'}};
@@ -116,13 +116,28 @@ describe('A integration contracts',()=>{
    const container={...c,rules:{...c.rules!,config:{incompatiblePairs:[['food','chemical']] as [string,string][]}}};
    await expect(optimizeLoadingWithPhysics(container,[{...box,quantity:1,segregationClass:'food'},{...box,id:'chemical',quantity:1,segregationClass:'chemical'}],undefined,'capacity')).rejects.toThrow('A 규칙 최종 검사 실패');
  });
- it('can still read a legacy manual snapshot with its original fingerprint',()=>{
+ it('expires legacy manual fingerprints that omit floor, provenance and review constraints',()=>{
    const legacy={...c,rules:undefined};
    const fingerprint=JSON.stringify({c:[c.length,c.width,c.height,c.maxPayloadKg],items:[box].map(i=>[i.id,i.length,i.width,i.height,i.weightKg,i.quantity,i.maxStackLayers??null,i.maxTopLoadKg??null,i.allowRotation!==false,i.unloadPriority??null])});
    const result={placements:[],remaining:[],validationIssues:[],loadedWeightKg:0,usedVolumeM3:0};
    sessionStorage.setItem('container-loading-manual-override-v1',JSON.stringify({fingerprint,result}));
-   expect(readManualOverride(legacy,[box])).toEqual(result);
+   // Old snapshots did not identify all safety constraints. They must be
+   // recalculated rather than migrated into an accepted current layout.
+   expect(readManualOverride(legacy,[box])).toBeNull();
+   expect(readManualOverride({...legacy,floorLoadLimitKgPerM2:1500},[box])).toBeNull();
+   expect(readManualOverride({...legacy,limitReview:{mode:'what-if',maxPayloadKg:30000}},[box])).toBeNull();
    expect(readManualOverride(c,[box])).toBeNull();
+   sessionStorage.removeItem('container-loading-manual-override-v1');
+ });
+ it('round trips newly validated legacy and A snapshots with full constraint fingerprints',()=>{
+   const legacy={...c,rules:undefined};
+   const result={placements:[],remaining:[],validationIssues:[],loadedWeightKg:0,usedVolumeM3:0};
+   for(const container of [legacy,c]) {
+     writeManualOverride(container,[box],result);
+     expect(readManualOverride(container,[box])).toEqual(result);
+     expect(readManualOverride({...container,floorLoadLimitKgPerM2:1500},[box])).toBeNull();
+     expect(readManualOverride(container,[{...box,strengthUnverified:true}])).toBeNull();
+   }
    sessionStorage.removeItem('container-loading-manual-override-v1');
  });
 });

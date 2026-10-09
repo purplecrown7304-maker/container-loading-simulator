@@ -1,11 +1,12 @@
 .header-scene-controls { display: flex; align-items: center; justify-content: center; gap: 10px; min-width: 0; }
-.viewer-background-selector { display: inline-flex !important; flex-direction: row !important; align-items: center; gap: 6px; margin: 0; white-space: nowrap; color: var(--studio-secondary,#334155); font: 12px/1.4 system-ui; }
+.viewer-background-selector { display: inline-flex !important; flex-direction: row !important; flex: none; align-items: center; gap: 6px; margin: 0; white-space: nowrap; color: var(--studio-secondary,#334155); font: 12px/1.4 system-ui; }
 .viewer-background-selector select { width: auto !important; min-width: 100px; height: 32px; min-height: 32px; margin: 0; padding: 4px 24px 4px 8px; border: 1px solid var(--studio-line,#dbe3ee); border-radius: var(--studio-radius-sm,6px); background: var(--studio-sunken,#f8fafc); color: var(--studio-ink,#172033); font: inherit; cursor: pointer; }
 .viewer-background-selector select:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 html[data-guided-workflow="true"] .reference-utility.clean-single-header:has(.header-scene-controls) { grid-template-columns: minmax(0,1fr) auto minmax(0,1fr) !important; }
 html[data-guided-workflow="true"] .header-scene-controls .header-equipment-pill { flex: 0 1 auto; max-width: 240px !important; min-width: 0; }
 html[data-guided-workflow="true"] .header-scene-controls .header-equipment-pill b { overflow: hidden; text-overflow: ellipsis; }
 @media (max-width:1000px) and (min-width:761px) {
+  html[data-guided-workflow="true"] .reference-utility.clean-single-header:has(.header-scene-controls) { grid-template-columns: minmax(0,1fr) minmax(0,auto) auto !important; }
   html[data-guided-workflow="true"] .reference-utility:has(.header-scene-controls) .ref-brand-text small { display: none !important; }
 }
 @media (max-width:760px) {
@@ -15,6 +16,13 @@ html[data-guided-workflow="true"] .header-scene-controls .header-equipment-pill 
   html[data-guided-workflow="true"] .header-scene-controls { grid-column: 1 / -1; grid-row: 2; width: 100%; gap: 10px; }
   html[data-guided-workflow="true"] .header-scene-controls .header-equipment-pill { display: flex !important; height: 38px !important; max-width: min(52vw,240px) !important; }
   html[data-guided-workflow="true"] .header-scene-controls .header-equipment-pill b { max-width: none; }
-  .header-scene-controls .viewer-background-selector select { height: 38px; min-height: 38px; }
+  .header-scene-controls :is(.viewer-background-selector,.loading-rules-selector) select { height: 38px; min-height: 38px; }
   html[data-guided-workflow="true"] .reference-utility:has(.header-scene-controls) :is(.header-menu-panel,.header-account-menu) { position: fixed; top: calc(var(--studio-header-h) + 6px); max-height: calc(100dvh - var(--studio-header-h) - 14px); overflow-y: auto; }
+}
+/* Keep the two labeled selectors side by side; give equipment its own row on small phones. */
+@media (max-width:480px) {
+  html[data-guided-workflow="true"] { --studio-header-h: 130px; }
+  html[data-guided-workflow="true"] .reference-utility.clean-single-header:has(.header-scene-controls) { grid-template-rows: 40px 84px; }
+  html[data-guided-workflow="true"] .header-scene-controls { display: grid; grid-template-columns: auto auto; gap: 4px 10px; }
+  html[data-guided-workflow="true"] .header-scene-controls .header-equipment-pill { grid-column: 1 / -1; height: 32px !important; max-width: min(100%,240px) !important; }
 }

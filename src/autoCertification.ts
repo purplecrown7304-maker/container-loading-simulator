@@ -1,7 +1,9 @@
 import { requestDirectWorkOrder } from './directWorkOrderEvents';
-import { runPhysicsValidationSuite, type PhysicsScenario, type PhysicsValidationSuite } from './engine/physicsValidation';
+import type { PhysicsScenario, PhysicsValidationSuite } from './engine/physicsValidation';
+import type { ContainerSpec, Placement } from './engine/types';
+import { runPhysicsValidationSuiteParallel } from './physicsParallel';
 import { operationalErrors } from './engine/operationalValidator';
-import { createPhysicsTargetSignature, requestCertifiedResults } from './inertiaCertification';
+import { createPhysicsTargetSignature, isNumericalLimitReviewTarget, requestCertifiedResults } from './inertiaCertification';
 import { publishPhysicsTarget, readPhysicsTarget, subscribePhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
 export const FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT = 'container-loading:final-physics-validation-progress';
@@ -63,7 +65,25 @@ export function readFinalPhysicsValidation() {
   };
 }
 
-async function validateThenCertify(target: PhysicsTarget) {
+/**
+ * A transport-suite result that was already computed for exactly these inputs (same container and
+ * placements objects, no supports). Rapier is deterministic, so re-running it would only repeat
+ * the same numbers; any other target runs the suite again.
+ */
+export type PrecomputedPhysics = { container: ContainerSpec; placements: Placement[]; result: PhysicsValidationSuite };
+
+type ExactCertificationOptions = {
+  preserveSelectedPlan?: boolean;
+  allowCgVerdictError?: boolean;
+  precomputedPhysics?: PrecomputedPhysics;
+};
+
+function reusablePhysics(target: PhysicsTarget, precomputed?: PrecomputedPhysics) {
+  return precomputed && precomputed.container === target.container && precomputed.placements === target.result.placements
+    && !(target.supports?.length) ? precomputed.result : undefined;
+}
+
+async function validateThenCertify(target: PhysicsTarget, options: ExactCertificationOptions = {}) {
   if (typeof window === 'undefined') return;
   if (!target.result.placements.length && !(target.supports?.length)) {
     if (target.result.remaining.some(item => item.quantity > 0)) {
@@ -79,15 +99,18 @@ async function validateThenCertify(target: PhysicsTarget) {
   const signature = createPhysicsTargetSignature(target);
   const physicsWindow = window as FinalPhysicsWindow;
   const hardFindings = operationalErrors(target.result.operationalFindings ?? []);
-  if (hardFindings.length) {
+  const blockingFindings = options.allowCgVerdictError
+    ? hardFindings.filter(finding => finding.code !== 'CG_LONGITUDINAL')
+    : hardFindings;
+  if (blockingFindings.length && !isNumericalLimitReviewTarget(target)) {
     physicsWindow.__containerLoadingFinalPhysicsRunning = false;
     clearFinalPhysicsRecord();
     window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, {
       detail: {
         mode: target.mode,
         signature,
-        error: `운영 규칙 검증 실패 ${hardFindings.length}건`,
-        findings: hardFindings,
+        error: `운영 규칙 검증 실패 ${blockingFindings.length}건`,
+        findings: blockingFindings,
       },
     }));
     return;
@@ -97,7 +120,11 @@ async function validateThenCertify(target: PhysicsTarget) {
   publishProgress(target, signature, 0, 'settle');
 
   try {
-    const physics = await runPhysicsValidationSuite(
+    const reused = reusablePhysics(target, options.precomputedPhysics);
+    // Keep the completion events asynchronous, as with a fresh run, so the caller finishes first.
+    if (reused) await Promise.resolve();
+    if (runId !== validationRunId) return;
+    const physics = reused ?? await runPhysicsValidationSuiteParallel(
       target.container,
       target.result.placements,
       (value, scenario) => {
@@ -129,7 +156,10 @@ async function validateThenCertify(target: PhysicsTarget) {
     // 박스 모드는 사용자가 '작업지시서 발급'을 눌렀을 때와 같은 검증 엔진을 자동 호출한다.
     // 보고서는 열지 않고, 관성 3종 + 누락 시나리오 보완 + 제한된 안전 후보 비교까지만 끝낸다.
     if (target.mode === 'boxes') {
-      requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false });
+      requestDirectWorkOrder(target.container, target.cargo, target.result, {
+        openReport: false,
+        preserveSelectedPlan: options.preserveSelectedPlan,
+      });
       return;
     }
 
@@ -157,10 +187,10 @@ subscribePhysicsTarget(() => {
   queueMicrotask(() => { if (validationRunId === scheduledRunId && readPhysicsTarget() === target) void validateThenCertify(target); });
 });
 
-export function requestExactCertification(target: PhysicsTarget) {
+export function requestExactCertification(target: PhysicsTarget, options: ExactCertificationOptions = {}) {
   if (typeof window === 'undefined') return;
   publishPhysicsTarget(target);
-  void validateThenCertify(target);
+  void validateThenCertify(target, options);
 }
 
 export function requestNextPalletCertification() {

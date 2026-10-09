@@ -1,18 +1,21 @@
+import { isLimitReviewTarget, limitReviewRows, LIMIT_REVIEW_WARNING, LIMIT_REVIEW_PROVENANCE } from './limitReviewPresentation';
 import { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { boxResultMatchesCertification, palletSnapshotMatchesCertification } from './certifiedExport';
+import { boxResultMatchesWorkOrderCertification, palletSnapshotMatchesWorkOrderCertification } from './certifiedExport';
 import { analyzeConstraints } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { OptimizedPalletPackingResult, PalletSpec } from './engine/palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { buildWorkSequence } from './engine/workSequence';
-import { confirmUnverifiedExport, hasCurrentPhysicsVerification } from './exportVerification';
+import { confirmUnverifiedExport } from './exportVerification';
+import { buildWorkOrderRecommendations, isPhysicsTargetVerified, workOrderTargetApprovalLabel, physicsTargetHardFailureReasons } from './inertiaWorkOrderPolicy';
 import { readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
 import { buildPalletSecuringPlan } from './palletSecuringPlan';
 import { palletBandingLabel } from './palletBanding';
 import { readPhysicsTarget } from './physicsTarget';
 import { defaultSecuringMaterialSettings } from './securingMaterialSettings';
+import { VOID_FILL_DISCLAIMER, voidFillRows, voidFillTotal } from './voidFillPresentation';
 
 type Detail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type PalletSnapshot = { spec: PalletSpec; result: OptimizedPalletPackingResult };
@@ -33,13 +36,13 @@ type InertiaHistoryRow = {
 function matchingBoxCertification(detail: Detail): InertiaCertification | undefined {
   const target = readPhysicsTarget();
   const certification = readLatestInertiaCertification();
-  return boxResultMatchesCertification(detail, target, certification) ? certification : undefined;
+  return boxResultMatchesWorkOrderCertification(detail, target, certification) ? certification : undefined;
 }
 
 function matchingCurrentPalletCertification(snapshot: PalletSnapshot | undefined): InertiaCertification | undefined {
   const target = readPhysicsTarget();
   const certification = readLatestInertiaCertification();
-  return palletSnapshotMatchesCertification(snapshot, target, certification) ? certification : undefined;
+  return palletSnapshotMatchesWorkOrderCertification(snapshot, target, certification) ? certification : undefined;
 }
 
 function materialRows(securing: SecuringUsage) {
@@ -60,7 +63,7 @@ function appendMaterialSheet(wb: XLSX.WorkBook, securing: SecuringUsage) {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ 자재: '추가 보조자재 없음', 수량: 0, 단위: '', 길이_m: '', 단위중량: '', 중량_kg: 0, 비고: '' }]), '보조자재');
 }
 
-function appendInertiaMetricsSheet(wb: XLSX.WorkBook, certification: InertiaCertification) {
+function appendInertiaMetricsSheet(wb: XLSX.WorkBook, certification: InertiaCertification, target: CurrentTarget) {
   const row = {
     적재모드: certification.mode === 'pallets' ? '팔레트' : '박스 직접 적재',
     전체최대이동_mm: Number((certification.maxHorizontalShiftM * 1000).toFixed(2)),
@@ -69,13 +72,14 @@ function appendInertiaMetricsSheet(wb: XLSX.WorkBook, certification: InertiaCert
     최대기울기_deg: Number(certification.maxTiltDeg.toFixed(2)),
     최대화물구속력_kN: Number(((certification.maxCargoRestraintForceN ?? 0) / 1000).toFixed(3)),
     최대팔레트구속력_kN: Number(((certification.maxSupportRestraintForceN ?? 0) / 1000).toFixed(3)),
-    판정: certification.status === 'passed' ? 'PASS' : 'FAIL',
+    판정: workOrderTargetApprovalLabel(target, certification),
+    문서용도: isPhysicsTargetVerified(target, certification) ? '검증 결과' : '검토용 · 출고 승인 아님',
     비고: '구속력은 내부 물리모델 비교값이며 실제 자재 정격을 대체하지 않음',
   };
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([row]), '관성안전지표');
 }
 
-function appendInertiaHistorySheet(wb: XLSX.WorkBook, certification: InertiaCertification) {
+function appendInertiaHistorySheet(wb: XLSX.WorkBook, certification: InertiaCertification, review = Boolean(certification.limitReview)) {
   const rows = (certification.attempts ?? []).flatMap<InertiaHistoryRow>((attempt, attemptIndex) => {
     if (!attempt.scenarios.length) return [{
       순서: attemptIndex + 1,
@@ -95,10 +99,21 @@ function appendInertiaHistorySheet(wb: XLSX.WorkBook, certification: InertiaCert
       화물팔레트미끄럼_mm: certification.mode === 'pallets' ? Number(((scenario.maxCargoRelativeSlipM ?? 0) * 1000).toFixed(2)) : '',
       팔레트상대이동_mm: certification.mode === 'pallets' ? Number(((scenario.maxSupportShiftM ?? 0) * 1000).toFixed(2)) : '',
       기울기_deg: Number(scenario.maxTiltDeg.toFixed(2)),
-      판정: scenario.passed ? 'PASS' : 'FAIL',
+      판정: scenario.passed ? (review ? '내부 기준 이내 · WHAT-IF 검토용' : 'PASS') : 'FAIL',
     }));
   });
   if (rows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), '관성보강이력');
+}
+
+/** Every exported tab carries a permanent data warning, including isolated sheet copies. */
+export function appendLimitReviewSheets(wb: XLSX.WorkBook, target: CurrentTarget, certification: InertiaCertification) {
+  if (!isLimitReviewTarget(target)) return;
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(limitReviewRows(target, certification)), 'WHAT-IF 한도비교');
+  for (const name of wb.SheetNames) {
+    const sheet = wb.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });
+    wb.Sheets[name] = XLSX.utils.aoa_to_sheet([[LIMIT_REVIEW_WARNING], [LIMIT_REVIEW_PROVENANCE], ...rows]);
+  }
 }
 
 function exportBoxWorkbook(detail: Detail, certification: InertiaCertification) {
@@ -109,8 +124,12 @@ function exportBoxWorkbook(detail: Detail, certification: InertiaCertification) 
   result.placements.forEach(p => loadedByCargo.set(p.cargoId, (loadedByCargo.get(p.cargoId) ?? 0) + 1));
   const loadSteps = buildWorkSequence(container, cargo, result, 'LOAD');
   const unloadSteps = buildWorkSequence(container, cargo, result, 'UNLOAD');
-  const physicsVerified = hasCurrentPhysicsVerification();
+  const target: CurrentTarget = { mode: 'boxes', container, cargo, result };
+  const physicsVerified = isPhysicsTargetVerified(target, certification);
+  const approvalLabel = workOrderTargetApprovalLabel(target, certification);
   const securing = certification.securing;
+  const voidRows = voidFillRows(result);
+  const voidTotal = voidFillTotal(result);
 
   const summary = [
     ['항목', '값'], ['적재모드', '박스 직접 적재'],
@@ -118,10 +137,13 @@ function exportBoxWorkbook(detail: Detail, certification: InertiaCertification) 
     ['최대 적재중량(kg)', container.maxPayloadKg], ['적재 중량(kg)', result.loadedWeightKg],
     ['적재 부피(m3)', result.usedVolumeM3], ['적재 박스 수(EA)', result.placements.length],
     ['바닥 평균 하중(kg/m2)', Number(floor.averageKgPerM2.toFixed(1))], ['바닥 최대 하중(kg/m2)', Number(floor.maxKgPerM2.toFixed(1))],
-    ['물리 안정성 검증', physicsVerified ? '검증 완료' : '별도 확인'],
-    ['최종 관성검증', `PASS · 전체 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)}mm · 기울기 ${certification.maxTiltDeg.toFixed(1)}°`],
+    ['물리 안정성 검증', physicsVerified ? '검증 완료' : '검증 확인 필요'],
+    ['문서 용도', physicsVerified ? '검증 결과' : '검토용 · 출고 승인 아님'],
+    ['검증 경고', [...physicsTargetHardFailureReasons(target), ...buildWorkOrderRecommendations(certification)].join(' / ')],
+    ['최종 관성검증', `${approvalLabel} · 전체 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)}mm · 기울기 ${certification.maxTiltDeg.toFixed(1)}°`],
     ['내부 최대 화물 구속력(kN)', Number(((certification.maxCargoRestraintForceN ?? 0) / 1000).toFixed(3))],
     ['보강 단계', securing.levelLabel], ['박스 제외 보조자재 중량(kg)', Number(securing.estimatedNonCargoWeightKg.toFixed(2))],
+    ['메움재 수량(EA)', voidTotal.quantity], ['메움재 중량(kg)', Number(voidTotal.weightKg.toFixed(2))], ['메움재 미확정 위치', voidTotal.unresolvedCount],
   ];
   const cargoRows = cargo.map(item => ({ 코드: item.id, 품명: item.name, 요청수량: item.quantity, 적재수량: loadedByCargo.get(item.id) ?? 0, 잔량: Math.max(0, item.quantity - (loadedByCargo.get(item.id) ?? 0)), 길이_m: item.length, 폭_m: item.width, 높이_m: item.height, 개당중량_kg: item.weightKg, 최대적층단: item.maxStackLayers ?? '', 상부허용중량_kg: item.maxTopLoadKg ?? '', 회전허용: item.allowRotation !== false ? 'Y' : 'N', 하역순서: item.unloadPriority ?? '' }));
   const placementRows = result.placements.map((p, index) => ({ No: index + 1, 코드: p.cargoId, X_m: p.x, Y_m: p.y, Z_m: p.z, 길이_m: p.length, 폭_m: p.width, 높이_m: p.height, 중량_kg: p.weightKg, 회전: p.rotated ? '90도' : '기본' }));
@@ -138,17 +160,37 @@ function exportBoxWorkbook(detail: Detail, certification: InertiaCertification) 
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(floorRows), '바닥하중');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(checkRows), '제약조건');
   appendMaterialSheet(wb, securing);
-  appendInertiaMetricsSheet(wb, certification);
-  appendInertiaHistorySheet(wb, certification);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(voidRows.length ? voidRows.map(row => ({
+    ID: row.id,
+    틈유형: row.gapType,
+    자재: row.material,
+    수량_EA: row.quantity,
+    중량_kg: row.weightKg,
+    틈_m: row.gapM,
+    빈공간_m3: row.voidVolumeM3,
+    X_m: row.xM,
+    Y_m: row.yM,
+    Z_m: row.zM,
+    길이_m: row.lengthM,
+    폭_m: row.widthM,
+    높이_m: row.heightM,
+    관성고정지지: row.fixedSupportEligible,
+    비고: VOID_FILL_DISCLAIMER,
+  })) : [{ ID: '메움재 없음', 틈유형: '', 자재: '', 수량_EA: 0, 중량_kg: 0, 비고: VOID_FILL_DISCLAIMER }]), '메움재상세');
+  appendInertiaMetricsSheet(wb, certification, target);
+  appendInertiaHistorySheet(wb, certification, isLimitReviewTarget(target));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(remainingRows), '미적재');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(correctionRows), '자동보정');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(toStepRows(loadSteps)), '적재작업순서');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(toStepRows(unloadSteps)), '하역작업순서');
+  appendLimitReviewSheets(wb, target, certification);
   XLSX.writeFile(wb, `container-loading-box-${new Date().toISOString().slice(0, 10)}.xlsx`, { compression: true });
 }
 
 function exportPalletWorkbook(target: CurrentTarget, snapshot: PalletSnapshot, certification: InertiaCertification) {
   const result = snapshot.result;
+  const physicsVerified = isPhysicsTargetVerified(target, certification);
+  const approvalLabel = workOrderTargetApprovalLabel(target, certification);
   const securing = certification.securing;
   const plan = buildPalletSecuringPlan(target, securing);
   const cargoById = new Map(target.cargo.map(item => [item.id, item.name]));
@@ -160,7 +202,9 @@ function exportPalletWorkbook(target: CurrentTarget, snapshot: PalletSnapshot, c
     ['사용 팔레트(EA)', result.palletCount], ['바닥 위치(열)', result.optimization.floorPositions], ['적층 팔레트(EA)', result.stackedPallets], ['최대 적층단', result.maxUsedStackLevel],
     ['적재 화물(EA)', result.placements.length], ['화물 중량(kg)', Number(result.loadedCargoWeightKg.toFixed(2))], ['총 팔레트화 중량(kg)', Number(result.totalPalletizedWeightKg.toFixed(2))],
     ['좌우 편차(kg)', Number(result.lateralImbalanceKg.toFixed(2))],
-    ['관성검증', `PASS · 전체 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)}mm · 화물↔팔레트 ${((certification.maxCargoRelativeSlipM ?? 0) * 1000).toFixed(1)}mm · 팔레트 ${((certification.maxSupportShiftM ?? 0) * 1000).toFixed(1)}mm · ${certification.maxTiltDeg.toFixed(1)}°`],
+    ['문서 용도', physicsVerified ? '검증 결과' : '검토용 · 출고 승인 아님'],
+    ['검증 경고', [...physicsTargetHardFailureReasons(target), ...buildWorkOrderRecommendations(certification)].join(' / ')],
+    ['관성검증', `${approvalLabel} · 전체 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)}mm · 화물↔팔레트 ${((certification.maxCargoRelativeSlipM ?? 0) * 1000).toFixed(1)}mm · 팔레트 ${((certification.maxSupportShiftM ?? 0) * 1000).toFixed(1)}mm · ${certification.maxTiltDeg.toFixed(1)}°`],
     ['내부 최대 화물 구속력(kN)', Number(((certification.maxCargoRestraintForceN ?? 0) / 1000).toFixed(3))],
     ['내부 최대 팔레트 구속력(kN)', Number(((certification.maxSupportRestraintForceN ?? 0) / 1000).toFixed(3))],
     ['보강 단계', securing.levelLabel], ['박스 제외 보조자재 중량(kg)', Number(securing.estimatedNonCargoWeightKg.toFixed(2))],
@@ -219,11 +263,12 @@ function exportPalletWorkbook(target: CurrentTarget, snapshot: PalletSnapshot, c
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), '요약');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pallets), '팔레트별');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(boxes), '팔레트박스구성');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(securingRows.length ? securingRows : [{ 순서: 1, 팔레트: '추가 보강 없음', 결속작업순서: '기본 적재안으로 관성검증 통과' }]), '팔레트별결속');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(securingRows.length ? securingRows : [{ 순서: 1, 팔레트: '추가 보강 없음', 결속작업순서: physicsVerified ? '기본 적재안으로 관성검증 통과' : '검토용 · 검증 결과 및 현장 고정 확인 필요' }]), '팔레트별결속');
   appendMaterialSheet(wb, securing);
-  appendInertiaMetricsSheet(wb, certification);
-  appendInertiaHistorySheet(wb, certification);
+  appendInertiaMetricsSheet(wb, certification, target);
+  appendInertiaHistorySheet(wb, certification, isLimitReviewTarget(target));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(remaining.length ? remaining : [{ 코드: '미적재 없음', 수량: 0, 사유: '' }]), '미적재');
+  appendLimitReviewSheets(wb, target, certification);
   XLSX.writeFile(wb, `container-loading-pallet-${new Date().toISOString().slice(0, 10)}.xlsx`, { compression: true });
 }
 
@@ -249,7 +294,7 @@ export default function ExcelExportActions() {
         const snapshot = (window as ExportWindow).__containerLoadingPalletSnapshot;
         const certification = matchingCurrentPalletCertification(snapshot);
         if (!certification || !snapshot) {
-          window.alert('팔레트 Excel은 현재 팔레트 적재안이 관성 시뮬레이션 3종을 모두 통과하고 인증 좌표와 출력 좌표가 일치한 뒤 내보낼 수 있습니다.');
+          window.alert('팔레트 Excel은 현재 검증 결과와 적재안·출력 좌표가 일치해야 내보낼 수 있습니다. 실패·미완료 결과는 검토용으로 표시됩니다.');
           return;
         }
         if (!confirmUnverifiedExport('팔레트 Excel 파일')) return;
@@ -259,7 +304,7 @@ export default function ExcelExportActions() {
       if (!detail) return;
       const certification = matchingBoxCertification(detail);
       if (!certification) {
-        window.alert('Excel 결과는 현재 박스 적재안이 관성 시뮬레이션 3종을 모두 통과하고 현재 적재안과 출력 데이터가 일치한 뒤 내보낼 수 있습니다.');
+        window.alert('Excel은 현재 검증 결과와 적재안·출력 데이터가 일치해야 내보낼 수 있습니다. 실패·미완료 결과는 검토용으로 표시됩니다.');
         return;
       }
       if (!confirmUnverifiedExport('Excel 파일')) return;

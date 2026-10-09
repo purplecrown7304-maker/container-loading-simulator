@@ -5,6 +5,8 @@ import {
   assessWorkOrderCertification,
   buildWorkOrderRecommendations,
   canCreateWorkOrder,
+  workOrderApprovalLabel,
+  isInertiaCertificationPassed,
 } from './inertiaWorkOrderPolicy';
 
 const scenarios: InertiaScenario[] = ['acceleration', 'braking', 'cornering'];
@@ -73,6 +75,10 @@ describe('work order inertia warning policy', () => {
   it('allows a completed caution result that is above PASS but below danger', () => {
     const cert = certification('boxes', threeResults({ maxHorizontalShiftM: 0.02 }));
     expect(assessWorkOrderCertification(cert)).toBe('caution');
+    expect(cert.status).toBe('failed');
+    expect(isInertiaCertificationPassed(cert)).toBe(false);
+    expect(workOrderApprovalLabel(cert)).toBe('주의 · 검토용');
+    expect(buildWorkOrderRecommendations(cert).some(item => item.includes('출고 승인을 의미하지 않습니다'))).toBe(true);
     expect(canCreateWorkOrder(cert)).toBe(true);
     expect(buildWorkOrderRecommendations(cert).some(item => item.includes('미끄럼방지재'))).toBe(true);
   });

@@ -1,7 +1,35 @@
 import { aConfig, isARules } from './loadingRuleset';
 import type { ContainerSpec, Placement, ValidationIssue } from './types';
+import { candidateIndexes, footprintGridFor } from './footprintGrid';
 
 const EPSILON = 1e-9;
+
+/** LOADING_RULES R-5 (대표 결정 2026-10-08): 권장 천장 여유 5 cm. `ContainerSpec.ceilingClearanceM`으로 바꾼다(0 = 여유 없음). */
+export const DEFAULT_CEILING_CLEARANCE_M = 0.05;
+/** Engine default when a spec does not set the field: none. The app sets the recommended value when it builds the spec from equipment. */
+const UNSET_CEILING_CLEARANCE_M = 0;
+
+/** Legacy ceiling clearance in metres. A-rules keep their own margins and are not affected. */
+export function ceilingClearance(container: ContainerSpec): number {
+  if (isARules(container)) return 0;
+  const value = container.ceilingClearanceM ?? UNSET_CEILING_CLEARANCE_M;
+  return Number.isFinite(value) && value > 0 && value < container.height ? value : 0;
+}
+
+/** Highest point cargo, pallets and packaging may reach. */
+export function usableHeight(container: ContainerSpec): number {
+  return container.height - ceilingClearance(container);
+}
+
+/**
+ * Planning envelope for packers that read `container.height` directly: the clearance is folded
+ * into the height once and switched off, so it is never subtracted twice. Bounds checks on the
+ * original container give the same limit through `usableHeight`.
+ */
+export function planningContainer(container: ContainerSpec): ContainerSpec {
+  const clearance = ceilingClearance(container);
+  return clearance > 0 ? { ...container, height: container.height - clearance, ceilingClearanceM: 0 } : container;
+}
 
 export function isInsideContainer(container: ContainerSpec, placement: Placement): boolean {
   if (isARules(container)) {
@@ -14,7 +42,7 @@ export function isInsideContainer(container: ContainerSpec, placement: Placement
     placement.z >= -EPSILON &&
     placement.x + placement.length <= container.length + EPSILON &&
     placement.y + placement.width <= container.width + EPSILON &&
-    placement.z + placement.height <= container.height + EPSILON
+    placement.z + placement.height <= usableHeight(container) + EPSILON
   );
 }
 
@@ -45,9 +73,16 @@ export function validatePlacements(
     }
   });
 
+  const tolerance = isARules(container) ? aConfig(container).epsilon/1000 : EPSILON;
+  // A collision needs positive overlap on every axis, so only footprint neighbours can collide.
+  // Candidates are ascending, so issues keep the original (i, j) order.
+  const grid = footprintGridFor(placements);
   for (let i = 0; i < placements.length; i += 1) {
-    for (let j = i + 1; j < placements.length; j += 1) {
-      if (overlaps(placements[i], placements[j], isARules(container) ? aConfig(container).epsilon/1000 : EPSILON)) {
+    const p = placements[i];
+    const pad = Math.abs(tolerance);
+    for (const j of candidateIndexes(grid, placements.length, p.x - pad, p.y - pad, p.x + p.length + pad, p.y + p.width + pad)) {
+      if (j <= i) continue;
+      if (overlaps(placements[i], placements[j], tolerance)) {
         issues.push({
           type: 'COLLISION',
           message: `화물 ${placements[i].cargoId}와 ${placements[j].cargoId}가 겹칩니다.`,

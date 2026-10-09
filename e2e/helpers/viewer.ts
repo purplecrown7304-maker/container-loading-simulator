@@ -23,28 +23,58 @@ export async function expectGlobalBackgroundControl(page: Page, value?: string) 
 
 export async function expectHeaderSceneControlsFit(page: Page) {
   const selector = await expectGlobalBackgroundControl(page);
+  const rules = page.getByRole('combobox', { name: '적재 규칙', exact: true });
+  await expect(rules).toHaveCount(1);
+  await expect(rules).toBeVisible();
+  await expect(rules).toBeEnabled();
+  await expect(rules).toBeInViewport();
+  await expect(rules.locator('option')).toHaveText(['기존 규칙', 'A 규칙']);
   const equipment = page.getByRole('button', { name: '현재 장비 변경', exact: true });
   await expect(equipment).toBeVisible();
   await expect(equipment).toBeInViewport();
   await expect(selector).toBeInViewport();
   await expect(page.locator('.header-menu-button')).toBeInViewport();
+  // The strict/review mode is a header button placed directly after the ruleset selector.
+  const mode = page.locator('.header-scene-controls .loading-rules-selector + .limit-review-header-slot .limit-review-header-button');
+  await expect(mode).toHaveCount(1);
+  await expect(mode).toBeInViewport();
+  await expect(page.locator('.mockup-dashboard > .limit-review-controls:not(.is-review)')).toHaveCount(0);
   const layout = await selector.evaluate(element => {
     const controls = element.closest('.header-scene-controls');
     const equipment = controls?.querySelector('.header-equipment-pill');
     const wrapper = element.closest('.viewer-background-selector');
+    const rulesWrapper = controls?.querySelector('.loading-rules-selector');
+    const rules = rulesWrapper?.querySelector('select');
     const rect = element.getBoundingClientRect();
+    const rulesRect = rules?.getBoundingClientRect();
     const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    const rulesHit = rulesRect && document.elementFromPoint(rulesRect.x + rulesRect.width / 2, rulesRect.y + rulesRect.height / 2);
     return { adjacent: !!equipment && equipment.nextElementSibling === wrapper,
+      rulesAdjacent: !!wrapper && wrapper.nextElementSibling === rulesWrapper,
       pointerReachable: hit === element || element.contains(hit),
+      rulesPointerReachable: !!rules && (rulesHit === rules || !!rulesHit && rules.contains(rulesHit)),
       equipment: equipment?.getBoundingClientRect().toJSON(), selector: rect.toJSON(),
+      rules: rulesRect?.toJSON(), rulesLabel: rulesWrapper?.querySelector('label')?.getBoundingClientRect().toJSON(),
       fits: document.documentElement.scrollWidth <= innerWidth + 1 && document.body.scrollWidth <= innerWidth + 1 };
   });
   expect(layout.adjacent).toBe(true);
   expect(layout.pointerReachable).toBe(true);
+  expect(layout.rulesAdjacent).toBe(true);
+  expect(layout.rulesPointerReachable).toBe(true);
   expect(layout.equipment).toBeDefined();
-  expect(layout.selector.x).toBeGreaterThanOrEqual(layout.equipment!.right - 1);
-  expect(layout.selector.x - layout.equipment!.right).toBeLessThanOrEqual(60);
-  expect(Math.abs(layout.selector.y + layout.selector.height / 2 - (layout.equipment!.y + layout.equipment!.height / 2))).toBeLessThanOrEqual(8);
+  if (page.viewportSize()!.width <= 480) {
+    expect(layout.selector.y).toBeGreaterThanOrEqual(layout.equipment!.bottom);
+  } else {
+    expect(layout.selector.x).toBeGreaterThanOrEqual(layout.equipment!.right - 1);
+    expect(layout.selector.x - layout.equipment!.right).toBeLessThanOrEqual(60);
+    expect(Math.abs(layout.selector.y + layout.selector.height / 2 - (layout.equipment!.y + layout.equipment!.height / 2))).toBeLessThanOrEqual(8);
+  }
+  expect(layout.rules!.x).toBeGreaterThanOrEqual(layout.selector.right);
+  expect(layout.rules!.x - layout.selector.right).toBeLessThanOrEqual(80);
+  expect(Math.abs(layout.rules!.y + layout.rules!.height / 2 - (layout.selector.y + layout.selector.height / 2))).toBeLessThanOrEqual(4);
+  expect(layout.rules!.height).toBeGreaterThanOrEqual(28);
+  expect(layout.rulesLabel!.width).toBeGreaterThan(20);
+  expect(layout.rulesLabel!.height).toBeGreaterThan(10);
   expect(layout.selector.height).toBeGreaterThanOrEqual(28);
   expect(layout.fits).toBe(true);
 }

@@ -4,6 +4,7 @@ import { packByBlockSpaceBeamV2 } from './blockSpaceBeamPackerV2';
 import { defaultPalletSpec, packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './palletOptimization';
 import type { LoadingStrategy } from './loadingEngine';
 import type { CargoItem, ContainerSpec, Placement } from './types';
+import { planningContainer } from './constraints';
 
 const EPS = 1e-9;
 const PALLET_UNIT_PREFIX = '__MIXED_PALLET_UNIT__';
@@ -214,6 +215,8 @@ export function packMixedMode(
   strategy: LoadingStrategy = 'capacity',
   options: MixedModeOptions = {},
 ): MixedModePackingResult {
+  if (container.limitReview !== undefined) return {...packOnPallets(container,cargo,pallet,strategy),mixed:{enabled:true,directBoxCount:0,directFloorBoxCount:0,palletBoxCount:0,palletCount:0,demotedPalletCount:0,candidateCount:0,minPalletFillRatio:options.minPalletFillRatio??0.7,totalLoadedWeightKg:0,palletFillRates:[]}};
+  container = planningContainer(container);
   const active = cargo.filter((item) => item.quantity > 0);
   const threshold = Math.max(0, Math.min(1, options.minPalletFillRatio ?? 0.7));
   const candidateCap = Math.max(2, Math.floor(options.maxDemotionCandidates ?? 10));
