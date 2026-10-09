@@ -12,11 +12,15 @@ export type ComparisonModels = Partial<Record<ModelKey, MeshyModel>>;
 type CargoBatch = { indices: number[]; meshes: THREE.InstancedMesh[]; visibleIndices: number[] };
 type LabelBatch = { indices: number[]; mesh: THREE.InstancedMesh };
 const noRaycast = () => {};
+export function isRoadTruckBody(plan: ThreeComparisonPlan) {
+  return (plan.vehicleRig !== undefined && !['none', 'articulated'].includes(plan.vehicleRig))
+    || ['curtain', 'reefer-truck', 'isotherm-truck', 'mega-truck', 'jumbo-truck'].includes(plan.geometry);
+}
 
 export function requiredComparisonModelKeys(plan: ThreeComparisonPlan): ModelKey[] {
   const keys = new Set<ModelKey>();
   if (plan.placements.length) keys.add('carton');
-  if (!['platform', 'flat-rack', 'tank'].includes(plan.geometry)) keys.add('container-shell');
+  if (!isRoadTruckBody(plan) && !['platform', 'flat-rack', 'tank'].includes(plan.geometry)) keys.add('container-shell');
   if (plan.vehicle && !plan.vehicleRig) keys.add('truck-cab');
   for (const support of plan.supports) keys.add(support.modelKey || 'wood-pallet');
   for (const aid of plan.decorations) if (aid.modelKey) keys.add(aid.modelKey as ModelKey);
@@ -84,8 +88,9 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     return group;
   };
 
-  const floor = mat(new THREE.Color(.65, .73, .79)), frame = mat(new THREE.Color(.20, .37, .48)), wall = mat(new THREE.Color(.76, .83, .88)), grid = mat(new THREE.Color(.82, .87, .9));
-  if (!['platform', 'flat-rack', 'tank'].includes(plan.geometry)) addModel('container-shell', equipment, [0, h / 2, 0], [l + .12, h + .12, w + .12], undefined, new THREE.Box3(new THREE.Vector3(-l / 2 - .03, -.005, -w / 2 - .03), new THREE.Vector3(l / 2 + .03, h + .005, w / 2 + .03)));
+  const roadBody = isRoadTruckBody(plan);
+  const floor = mat(new THREE.Color(.65, .73, .79)), frame = mat(roadBody ? '#8c9aa6' : new THREE.Color(.20, .37, .48)), wall = mat(roadBody ? '#f3f4f6' : new THREE.Color(.76, .83, .88)), grid = mat(new THREE.Color(.82, .87, .9));
+  if (!roadBody && !['platform', 'flat-rack', 'tank'].includes(plan.geometry)) addModel('container-shell', equipment, [0, h / 2, 0], [l + .12, h + .12, w + .12], undefined, new THREE.Box3(new THREE.Vector3(-l / 2 - .03, -.005, -w / 2 - .03), new THREE.Vector3(l / 2 + .03, h + .005, w / 2 + .03)));
   if (plan.geometry === 'flat-rack') {
     const rackMaterials = new Map<string, THREE.Material>();
     for (const part of flatRackParts(l, w, h, plan.equipmentId?.endsWith('-collapsible'))) {
@@ -102,7 +107,12 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
   }
   if (!['platform', 'flat-rack'].includes(plan.geometry)) {
     cube('Far wall', [0, h / 2, -w / 2 - .045], [l, h, .05], wall, equipment);
-    for (let x = -l / 2; x < l / 2; x += .3) cube('Corrugation', [x, h / 2, -w / 2 - .016], [.035, h, .025], floor, equipment);
+    if (!roadBody) for (let x = -l / 2; x < l / 2; x += .3) cube('Corrugation', [x, h / 2, -w / 2 - .016], [.035, h, .025], floor, equipment);
+    if (roadBody && plan.geometry === 'curtain') {
+      cube('Wing body seam', [0, h * .43, -w / 2 - .016], [l, .018, .012], frame, equipment);
+      for (let i = 1; i <= 4; i++) cube('Wing latch', [-l / 2 + l * i / 5, .16, -w / 2 - .012], [.05, .14, .02], frame, equipment);
+    }
+    if (roadBody && plan.geometry === 'reefer-truck') cube('Refrigeration unit', [-l / 2 - .18, h * .8, 0], [.28, h * .25, w * .65], wall, equipment);
   }
   for (let x = -l / 2; x <= l / 2; x++) cube('Floor grid', [x, .002, 0], [.009, .004, w], grid, equipment);
   for (let z = -w / 2; z <= w / 2; z += .5) cube('Floor grid', [0, .002, z], [l, .004, .009], grid, equipment);

@@ -30,14 +30,42 @@ test('guided equipment selector changes the current container in place', async (
   await expect(reopened).toHaveCount(0);
 });
 
-test('truck category can select a Tautliner without leaving the guided workflow', async ({ page }) => {
+test('truck category selects a domestic one-ton body without leaving the guided workflow', async ({ page }) => {
   await page.goto('/');
   await openWorkspace(page, 1);
   await page.getByRole('button', { name: '트럭', exact: true }).click();
-  await expect(page.locator('.equipment-icon-option')).toHaveCount(6);
-  await page.locator('.equipment-icon-option[data-equipment-id="tautliner"]').click();
-  await expectSelectedEquipment(page, 'Tautliner / Curtainsider');
+  await expect(page.locator('.equipment-icon-option')).toHaveCount(7);
+  await expect(page.locator('[data-equipment-id="tautliner"]')).toHaveCount(0);
+  const small = page.locator('.equipment-icon-option[data-equipment-id="kr-1t-box"]');
+  await expect(small.locator('.truck-card-photo')).toHaveAttribute('data-thumbnail-state', 'ready', { timeout: 60_000 });
+  await expect(small.getByRole('img')).toHaveAttribute('src', /^data:image\/png/);
+  await page.screenshot({ path: test.info().outputPath('domestic-truck-catalog.png'), fullPage: true });
+  await small.click();
+  await expectSelectedEquipment(page, '1톤 내장탑');
+  await expect(page.locator('.equipment-selected-strip')).toContainText('2,830 mm');
+  await expect(page.locator('.equipment-selected-strip')).toContainText('1,000 kg');
   await expect(page.getByRole('heading', { name: '적재공간 선택' })).toBeVisible();
+});
+
+test('large-body reference cannot load until actual payload and floor rating are registered', async ({ page }) => {
+  await page.goto('/');
+  await openWorkspace(page, 1);
+  await page.getByRole('button', { name: '트럭', exact: true }).click();
+  const large = page.locator('.equipment-icon-option[data-equipment-id="custom-heavy-truck"]');
+  await expect(large).toContainText('실차 등록 필요');
+  await large.click();
+  const dialog = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
+  await expect(dialog.getByLabel('최대 적재중량(kg)')).toHaveValue('0');
+  await dialog.getByRole('button', { name: '사용자 규격 적용' }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('status')).toContainText('0보다 크게');
+  await dialog.getByLabel('최대 적재중량(kg)').fill('11000');
+  await dialog.getByLabel('바닥 허용하중(kg/m²)').fill('1000');
+  await dialog.getByRole('button', { name: '사용자 규격 적용' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expectSelectedEquipment(page, '대형 실차 등록');
+  await expect(page.locator('.equipment-selected-strip')).toContainText('11,000 kg');
+  await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-vehicle-rig', 'multi-axle-rigid');
 });
 
 test('custom truck dimensions can be applied from the current selector', async ({ page }) => {

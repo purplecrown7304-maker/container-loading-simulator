@@ -4,6 +4,7 @@ import {
   TRANSPORT_EQUIPMENT_EVENT,
   readTransportEquipment,
   selectTransportEquipment,
+  getTransportEquipment,
   type TransportCategory,
   type TransportEquipment,
 } from './transportEquipment';
@@ -37,7 +38,7 @@ function draftFrom(item: TransportEquipment): TransportEquipmentSpecOverride {
 }
 
 function equipmentById(id: string) {
-  return TRANSPORT_EQUIPMENT.find(item => item.id === id) ?? TRANSPORT_EQUIPMENT[0];
+  return getTransportEquipment(id) ?? (readTransportEquipment().id === id ? readTransportEquipment() : TRANSPORT_EQUIPMENT[0]);
 }
 
 function patchSelectorCards() {
@@ -50,7 +51,7 @@ function patchSelectorCards() {
     const spec = card.querySelector<HTMLElement>('.transport-equipment-spec');
     const payload = card.querySelector<HTMLElement>('.transport-equipment-payload');
     const specText = `${item.length.toFixed(2)} × ${item.width.toFixed(2)} × ${item.height.toFixed(2)} m`;
-    const payloadText = `적재 ${item.maxPayloadKg.toLocaleString()} kg`;
+    const payloadText = item.requiresSpecification && !item.maxPayloadKg ? '허용중량 · 실차 등록 필요' : `적재 ${item.maxPayloadKg.toLocaleString()} kg`;
     if (spec && spec.textContent !== specText) spec.textContent = specText;
     if (payload && payload.textContent !== payloadText) payload.textContent = payloadText;
   });
@@ -151,9 +152,10 @@ export default function TransportEquipmentSpecManager() {
 
   const reset = () => {
     removeTransportEquipmentSpecOverride(selectedId);
-    if (readTransportEquipment().id === selectedId) selectTransportEquipment(selectedBase);
+    const registrationRequired = selectedBase.requiresSpecification && !(selectedBase.maxPayloadKg > 0 && selectedBase.floorLoadLimitKgPerM2 > 0);
+    if (!registrationRequired && readTransportEquipment().id === selectedId) selectTransportEquipment(selectedBase);
     setDraft(draftFrom(selectedBase));
-    setMessage(`${selectedBase.shortName} 규격을 기본값으로 복원했습니다.`);
+    setMessage(registrationRequired ? '기본 템플릿으로 복원했습니다. 허용중량과 바닥하중을 다시 등록하세요. 현재 계획의 실차 규격은 유지됩니다.' : `${selectedBase.shortName} 규격을 기본값으로 복원했습니다.`);
   };
 
   if (!open) return null;

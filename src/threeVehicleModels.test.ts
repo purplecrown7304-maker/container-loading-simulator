@@ -5,8 +5,8 @@ import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { vehicleLayout, vehicleRigForEquipment, VEHICLE_BOUNDS, VEHICLE_DECK_Y, type VehicleModelKey } from './threeVehicleLayout';
 import { loadVehicleModel, prepareVehicleModel, VEHICLE_MODEL_URLS, type VehicleModels } from './threeVehicleModels';
-import { createVehicleResources, fitVehicleRails } from './threeVehicleResources';
-import { CONTAINER_EQUIPMENT, TRUCK_EQUIPMENT } from './transportEquipment';
+import { createVehicleResources, fitVehicleRails, vehicleAxleGeometry } from './threeVehicleResources';
+import { CONTAINER_EQUIPMENT, TRUCK_EQUIPMENT, LEGACY_TRUCK_EQUIPMENT } from './transportEquipment';
 import { sceneCameraPose } from './threeComparisonSceneState';
 import { viewerPlan } from './viewerSceneProtocol';
 
@@ -34,6 +34,7 @@ afterEach(() => vi.restoreAllMocks());
 describe('user supplied vehicle assets', () => {
   const expected = {
     cab: [10886, 'cbe7b6709faf0a7f6a4c42b34a4ae8d0e9b00c8c8faee61b9323d554794376ff'],
+    'big-cab': [9124, '1f37b2983596e54bf72bacbee42b0d601e1c745d67e62aa64584fadfd93ca00e'],
     tractor: [19841, '9282f024d5f723d242ee5c4bff1d970d591f93df4dd4b33055cf3210801d256b'],
     'truck-underbody': [14645, ''], 'container-chassis': [19483, ''],
   } as const;
@@ -46,7 +47,7 @@ describe('user supplied vehicle assets', () => {
     expect(geometry.index!.count / 3).toBe(expected[key][0]);
     if (expected[key][1]) expect(createHash('sha256').update(bytes).digest('hex')).toBe(expected[key][1]);
     const provenance = JSON.parse(readFileSync('public/models/vehicles/provenance.json', 'utf8'));
-    const entry = key === 'cab' ? provenance.cab_cleanup[0] : provenance.sources.find((v: { filename: string }) => VEHICLE_MODEL_URLS[key].endsWith(v.filename));
+    const entry = key === 'cab' ? provenance.cab_cleanup[0] : key === 'big-cab' ? provenance.rigid_cab_derivative : provenance.sources.find((v: { filename: string }) => VEHICLE_MODEL_URLS[key].endsWith(v.filename));
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(entry.sha256);
     for (const axis of ['x', 'y', 'z'] as const) {
       const i = ['x', 'y', 'z'].indexOf(axis);
@@ -72,20 +73,28 @@ describe('user supplied vehicle assets', () => {
 });
 
 describe('view-only equipment assembly', () => {
-  it('uses the Meshy truck pair for road trucks regardless of length, reserving tractors for containers and trailers', () => {
+  it('selects domestic cab classes and tandem axles while retaining European saved trailers', () => {
     for (const equipment of CONTAINER_EQUIPMENT) expect(vehicleRigForEquipment(equipment)).toBe('articulated');
     for (const equipment of TRUCK_EQUIPMENT) {
-      const trailer = ['mega-trailer', 'jumbo'].includes(equipment.id);
       const kind = vehicleRigForEquipment(equipment);
-      expect(kind, equipment.id).toBe(trailer ? 'articulated' : 'rigid');
-      expect(vehicleLayout(kind, equipment).placements.map(item => item.key)).toEqual(trailer ? ['container-chassis', 'tractor'] : ['truck-underbody', 'cab']);
+      const expectedKind = { small: 'rigid', medium: 'medium-rigid', heavy: 'heavy-rigid', 'heavy-tandem': 'multi-axle-rigid' }[equipment.vehicleProfile ?? 'small'];
+      expect(kind, equipment.id).toBe(expectedKind);
+      const keys = vehicleLayout(kind, equipment).placements.map(item => item.key);
+      expect(keys).toEqual(kind === 'multi-axle-rigid' ? ['truck-underbody', 'big-cab', 'truck-underbody'] : ['truck-underbody', kind === 'rigid' ? 'cab' : 'big-cab']);
     }
-    for (const length of [4, 8, 8.1, 13.62]) expect(vehicleRigForEquipment({ id: 'custom-truck', category: 'truck', length })).toBe('rigid');
+    for (const e of LEGACY_TRUCK_EQUIPMENT.filter(e => !e.id.startsWith('custom-'))) expect(vehicleRigForEquipment(e)).toBe('articulated');
+    expect(vehicleRigForEquipment({ id: 'custom-truck', category: 'truck', length: 3.1 })).toBe('rigid');
+    expect(vehicleRigForEquipment({ id: 'custom-truck', category: 'truck', length: 4.4 })).toBe('medium-rigid');
+    expect(vehicleRigForEquipment({ id: 'custom-truck', category: 'truck', length: 7 })).toBe('heavy-rigid');
+    expect(vehicleRigForEquipment({ id: 'custom-truck', category: 'truck', length: 13.62 })).toBe('multi-axle-rigid');
   });
   const cases = [
     { kind: 'articulated' as const, length: 5.9, width: 2.352, height: 2.395 },
     { kind: 'articulated' as const, length: 12.032, width: 2.352, height: 2.7 },
     { kind: 'rigid' as const, length: 3.1, width: 1.7, height: 1.8 },
+    { kind: 'medium-rigid' as const, length: 5, width: 2.15, height: 2.015 },
+    { kind: 'heavy-rigid' as const, length: 7.82, width: 2.4, height: 2.56 },
+    { kind: 'multi-axle-rigid' as const, length: 9.2, width: 2.4, height: 2.6 },
     { kind: 'rigid' as const, length: 6.2, width: 2.35, height: 2.6 },
     { kind: 'rigid' as const, length: 13.62, width: 2.48, height: 2.7 },
     { kind: 'articulated' as const, length: 1.5, width: 3.5, height: 2.6 },
@@ -93,14 +102,22 @@ describe('view-only equipment assembly', () => {
   for (const footprint of cases) it(`${footprint.kind} ${footprint.length}m: fits beneath cargo, preserves wheels and grounds both components`, () => {
     const loaded = models(), layout = vehicleLayout(footprint.kind, footprint);
     for (const placement of layout.placements) {
-      const src = loaded[placement.key]!.parts[0].geometry, before = Array.from(src.getAttribute('position').array);
+      const original = loaded[placement.key]!.parts[0].geometry;
+      const src = placement.axleOnly ? vehicleAxleGeometry(original) : original, before = Array.from(src.getAttribute('position').array);
       const fitted = placement.rails ? fitVehicleRails(src, placement.rails, placement.scale) : src.clone().scale(placement.scale, placement.scale, placement.scale);
       fitted.translate(...placement.position); fitted.computeBoundingBox();
       expect(fitted.boundingBox!.min.y).toBeCloseTo(layout.groundY, 5);
       if (placement.rails) {
-        expect(fitted.boundingBox!.max.y).toBeCloseTo(VEHICLE_DECK_Y, 5);
-        expect(fitted.boundingBox!.min.x).toBeCloseTo(-placement.rails.targetLength / 2 + placement.position[0], 5);
-        expect(fitted.boundingBox!.max.x).toBeCloseTo((footprint.length + .12) / 2, 5);
+        if (placement.axleOnly) expect(fitted.boundingBox!.max.y).toBeLessThan(VEHICLE_DECK_Y);
+        else expect(fitted.boundingBox!.max.y).toBeCloseTo(VEHICLE_DECK_Y, 5);
+        if (!placement.axleOnly) {
+          expect(fitted.boundingBox!.min.x).toBeCloseTo(-placement.rails.targetLength / 2 + placement.position[0], 5);
+          expect(fitted.boundingBox!.max.x).toBeCloseTo((footprint.length + .12) / 2, 5);
+        } else {
+          expect(fitted.boundingBox!.min.x).toBeGreaterThan(layout.bounds.min.x);
+          expect(fitted.boundingBox!.max.x).toBeLessThan(layout.bounds.max.x);
+          expect(src.index!.count).toBeLessThan(original.index!.count);
+        }
         const p = src.getAttribute('position'), f = fitted.getAttribute('position');
         const wheelIndices: number[] = [];
         for (let i = 0; i < p.count; i++) if (p.getX(i) > .05 && p.getX(i) < .68) wheelIndices.push(i);
@@ -113,7 +130,7 @@ describe('view-only equipment assembly', () => {
         // Every cosmetic vertex above floor level is ahead of the cargo plane.
         if (positions.getY(i) >= -.001) expect(positions.getX(i)).toBeLessThan(-footprint.length / 2 - .05);
       }
-      expect(Array.from(src.getAttribute('position').array)).toEqual(before); fitted.dispose();
+      expect(Array.from(src.getAttribute('position').array)).toEqual(before); fitted.dispose(); if (placement.axleOnly) src.dispose();
     }
     const resources = createVehicleResources(footprint.kind, footprint, loaded), sourceDispose = vi.spyOn(loaded.cab!.parts[0].geometry, 'dispose');
     const owned = (resources.root.children[0].children[0] as THREE.Mesh).geometry, ownedDispose = vi.spyOn(owned, 'dispose');

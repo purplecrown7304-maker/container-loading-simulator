@@ -123,8 +123,8 @@ function readLive(): LiveDetail {
   };
 }
 
-function openEquipment(category?: TransportCategory) {
-  window.dispatchEvent(new CustomEvent(OPEN_TRANSPORT_SELECTOR_EVENT, { detail: category ? { category } : undefined }));
+function openEquipment(category?: TransportCategory, equipmentId?: string) {
+  window.dispatchEvent(new CustomEvent(OPEN_TRANSPORT_SELECTOR_EVENT, { detail: category ? { category, equipmentId } : undefined }));
 }
 
 function formatDimensions(item: CargoItem) {
@@ -139,7 +139,7 @@ function EquipmentSelectionStage() {
   const ruleset=useLoadingRuleset();
   const items = (category === 'container' ? CONTAINER_EQUIPMENT : TRUCK_EQUIPMENT).map(e=>ruleset==='a-v1'?aEquipmentDefault(e):e);
   const choose = (item: typeof equipment) => {
-    if (item.id.startsWith('custom-')) { openEquipment(category); return; }
+    if (item.id.startsWith('custom-')) { openEquipment(category, item.id); return; }
     if (!applyToDashboard(item)) { setError('장비 규격을 적용하지 못했습니다. 다시 선택해 주세요.'); return; }
     selectTransportEquipment(item); setError('');
   };

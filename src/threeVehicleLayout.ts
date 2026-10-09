@@ -2,26 +2,34 @@ import { Box3, Vector3 } from 'three';
 import type { TransportEquipment } from './transportEquipment';
 
 /** Display-only. Never passed to Unity, Rapier, loading or certification inputs. */
-export type VehicleRigKind = 'articulated' | 'rigid' | 'none';
-export type VehicleModelKey = 'cab' | 'tractor' | 'truck-underbody' | 'container-chassis';
+export type VehicleRigKind = 'articulated' | 'rigid' | 'medium-rigid' | 'heavy-rigid' | 'multi-axle-rigid' | 'none';
+export type VehicleModelKey = 'cab' | 'big-cab' | 'tractor' | 'truck-underbody' | 'container-chassis';
 export type VehicleFootprint = { length: number; width: number; height: number };
 export type RailFit = { minX: number; maxX: number; start: number; end: number; targetLength: number; rearStart?: number; rearEnd?: number; rearSpan?: number; preserveLegs?: boolean };
-export type VehiclePlacement = { key: VehicleModelKey; scale: number; position: [number, number, number]; rails?: RailFit };
+export type VehiclePlacement = { key: VehicleModelKey; scale: number; position: [number, number, number]; rails?: RailFit; axleOnly?: boolean };
 
 // Measured from the four uploaded GLBs. Y is up, -X is front; no OBJ reflection.
 // Cab bounds exclude only the disconnected rear spare tire in the derived asset.
 export const VEHICLE_BOUNDS: Record<VehicleModelKey, { min: [number, number, number]; max: [number, number, number] }> = {
   cab: { min: [-.9458140135, -.7922639251, -.7339370251], max: [.715034008, .7863590121, .7321860194] },
+  'big-cab': { min: [-.9520850182, -.5049030185, -.4165219963], max: [-.2800709903, .4708440006, .4140000045] },
   tractor: { min: [-.9520850182, -.5064610839, -.4165219963], max: [.9507579803, .4708440006, .4140000045] },
   'truck-underbody': { min: [-.9523359537, -.1381949782, -.3313519955], max: [.9503779411, .1381939948, .3332639635] },
   'container-chassis': { min: [-.9516379833, -.1206570119, -.2223069966], max: [.9528430104, .1196880117, .2217819989] },
 };
-const SEMITRAILERS = new Set(['mega-trailer', 'jumbo']);
-export function vehicleRigForEquipment(equipment: Pick<TransportEquipment, 'id' | 'category' | 'length'>): VehicleRigKind {
+const SEMITRAILERS = new Set(['tautliner', 'refrigerated-truck', 'isotherm-truck', 'mega-trailer', 'jumbo']);
+export function vehicleRigForEquipment(equipment: Pick<TransportEquipment, 'id' | 'category' | 'length'> & Partial<Pick<TransportEquipment, 'vehicleProfile' | 'maxPayloadKg'>>): VehicleRigKind {
   if (equipment.category === 'container' || SEMITRAILERS.has(equipment.id)) return 'articulated';
-  // A road-truck selection uses the uploaded cab + truck underbody even when
-  // its editable cargo length exceeds 8m. Length is not a vehicle-type signal.
-  // Jumbo remains the existing continuous-space approximation, not two physics bodies.
+  const profile = equipment.vehicleProfile;
+  if (profile === 'small') return 'rigid';
+  if (profile === 'medium') return 'medium-rigid';
+  if (profile === 'heavy') return 'heavy-rigid';
+  if (profile === 'heavy-tandem') return 'multi-axle-rigid';
+  // Custom dimensions have no certified vehicle identity. Pick a representative
+  // rigid silhouette, never stretch a one-ton cab across a long cargo body.
+  if (equipment.length > 8 || (equipment.maxPayloadKg ?? 0) > 7000) return 'multi-axle-rigid';
+  if (equipment.length > 6 || (equipment.maxPayloadKg ?? 0) > 3500) return 'heavy-rigid';
+  if (equipment.length > 3.6 || (equipment.maxPayloadKg ?? 0) > 1500) return 'medium-rigid';
   return 'rigid';
 }
 export const VEHICLE_DECK_Y = -.115;
@@ -62,8 +70,8 @@ export function vehicleLayout(kind: VehicleRigKind, footprint: VehicleFootprint)
   if (kind === 'none') return { placements: [] as VehiclePlacement[], groundY: -.14, bounds: new Box3() };
   const articulated = kind === 'articulated';
   const bodyKey: VehicleModelKey = articulated ? 'container-chassis' : 'truck-underbody';
-  const body = VEHICLE_BOUNDS[bodyKey], frontKey: VehicleModelKey = articulated ? 'tractor' : 'cab', front = VEHICLE_BOUNDS[frontKey];
-  let frontScale = Math.min(width / (front.max[2] - front.min[2]), articulated ? 3.15 : 1.75);
+  const body = VEHICLE_BOUNDS[bodyKey], frontKey: VehicleModelKey = articulated ? 'tractor' : kind === 'rigid' ? 'cab' : 'big-cab', front = VEHICLE_BOUNDS[frontKey];
+  let frontScale = Math.min(width / (front.max[2] - front.min[2]), articulated ? 3.15 : kind === 'rigid' ? 1.75 : kind === 'medium-rigid' ? 2.5 : 2.95);
   // A rigid ladder frame continues beneath the cab to its front axle. Moving
   // this bare front rail span does not move the rear axle or cargo coordinates.
   const frontExtension = articulated ? 0 : (front.max[0] - front.min[0]) * frontScale * .60 + .16;
@@ -91,8 +99,15 @@ export function vehicleLayout(kind: VehicleRigKind, footprint: VehicleFootprint)
     { key: bodyKey, scale: bodyScale, position: [-frontExtension / 2, VEHICLE_DECK_Y - body.max[1] * bodyScale, -(body.min[2] + body.max[2]) / 2 * bodyScale], rails },
     { key: frontKey, scale: frontScale, position: [-length / 2 - (articulated ? width * .60 : .16) - cabRearX * frontScale, frontY, -(front.min[2] + front.max[2]) / 2 * frontScale] },
   ];
+  if (kind === 'multi-axle-rigid') {
+    // One additional complete rear axle, copied at a uniform scale. Its wheel
+    // centers stay one diameter apart; this is cosmetic, not an axle-load rating.
+    const bodyPlacement = placements[0];
+    placements.push({ ...bodyPlacement, position: [bodyPlacement.position[0] - .34 * bodyScale, bodyPlacement.position[1], bodyPlacement.position[2]], axleOnly: true });
+  }
   const bounds = new Box3();
   for (const placement of placements) {
+    if (placement.axleOnly) continue; // Additional axle is inside the existing body envelope.
     const source = VEHICLE_BOUNDS[placement.key];
     const min = new Vector3(...source.min).multiplyScalar(placement.scale).add(new Vector3(...placement.position));
     const max = new Vector3(...source.max).multiplyScalar(placement.scale).add(new Vector3(...placement.position));

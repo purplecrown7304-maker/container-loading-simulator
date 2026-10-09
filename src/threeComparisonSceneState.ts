@@ -54,7 +54,8 @@ export function visibleCargoIndexes(plan: ThreeComparisonPlan, cut: number, step
 export function sceneCameraPose(plan: ThreeComparisonPlan, view: string, aspect: number) {
   const { length, width, height } = plan.container;
   const pitch = view === 'top' ? 89 : view === 'door' || view === 'rear' || view === 'side' ? 0 : 27;
-  const yaw = view === 'top' ? 0 : view === 'door' || view === 'rear' ? -90 : view === 'side' ? 180 : 222;
+  const rigid = plan.vehicleRig !== undefined && !['none', 'articulated'].includes(plan.vehicleRig);
+  const yaw = view === 'top' ? 0 : view === 'door' || view === 'rear' ? -90 : view === 'side' ? 180 : rigid ? 138 : 222;
   const target = new Vector3(0, height * .4, 0);
   const rotation = new Quaternion().setFromEuler(new Euler(pitch * Math.PI / 180, yaw * Math.PI / 180, 0, 'YXZ'));
   const inverse = rotation.clone().invert();

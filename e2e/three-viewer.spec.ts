@@ -47,7 +47,8 @@ test('truck selection loads the Meshy cab and truck underbody instead of the con
   await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 60_000 });
   const workspace = await openWorkspace(page, 1);
   await workspace.getByRole('button', { name: '트럭', exact: true }).click();
-  for (const id of ['refrigerated-truck', 'isotherm-truck', 'tautliner', 'custom-truck', 'mega-trailer']) {
+  const rigs = { 'kr-1t-box': 'rigid', 'kr-2.5t-wing': 'medium-rigid', 'kr-2.4t-box': 'medium-rigid', 'kr-5.5t-wing': 'heavy-rigid', 'kr-7t-wing': 'multi-axle-rigid', 'custom-truck': 'rigid' };
+  for (const [id, rig] of Object.entries(rigs)) {
     await workspace.locator(`.equipment-icon-option[data-equipment-id="${id}"]`).click();
     if (id === 'custom-truck') {
       const selector = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
@@ -55,11 +56,11 @@ test('truck selection loads the Meshy cab and truck underbody instead of the con
       await selector.getByRole('button', { name: '사용자 규격 적용', exact: true }).click();
     }
     await expect(workspace.locator(`.equipment-icon-option[data-equipment-id="${id}"]`)).toHaveAttribute('aria-pressed', 'true');
-    await expect(viewer).toHaveAttribute('data-three-vehicle-rig', id === 'mega-trailer' ? 'articulated' : 'rigid');
+    await expect(viewer).toHaveAttribute('data-three-vehicle-rig', rig);
     await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 60_000 });
     await expect(viewer).toHaveAttribute('data-three-vehicle-status', 'ready');
   }
-  for (const asset of ['cargo-1ton-cab-v2-clean.glb', 'cargo-truck-underbody-v2-web.glb', 'cargo-container-tractor-v2-web.glb', 'cargo-container-chassis-v2-web.glb']) expect(assets.has(`/models/vehicles/${asset}`), asset).toBe(true);
+  for (const asset of ['cargo-1ton-cab-v2-clean.glb', 'cargo-rigid-heavy-cab-v1.glb', 'cargo-truck-underbody-v2-web.glb', 'cargo-container-tractor-v2-web.glb', 'cargo-container-chassis-v2-web.glb']) expect(assets.has(`/models/vehicles/${asset}`), asset).toBe(true);
   expect(errors).toEqual([]);
 });
 

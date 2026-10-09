@@ -86,6 +86,17 @@ const shown = { cut: 100, step: 999, shell: true, labels: true, weight: false, s
 });
 
 describe('Three comparison scene resources', () => {
+  it('draws truck panels and wing latches without container corrugations or moving cargo', () => {
+    const plan = { ...fixture(), geometry: 'curtain' };
+    const before = JSON.stringify(plan);
+    expect(requiredComparisonModelKeys(plan)).not.toContain('container-shell');
+    const { scene } = resourcesFor(plan);
+    const names: string[] = []; scene.root.traverse(node => names.push(node.name));
+    expect(names).toContain('Wing body seam');
+    expect(names.filter(name => name === 'Wing latch')).toHaveLength(4);
+    expect(names).not.toContain('Corrugation');
+    expect(JSON.stringify(plan)).toBe(before); scene.dispose();
+  });
   it('renders one shared surface, raycasts cell centers and releases its geometry', () => {
     const plan = fixture(), before = JSON.stringify(plan), { scene } = resourcesFor(plan);
     scene.updateVisibility({ ...shown, weight: true });
