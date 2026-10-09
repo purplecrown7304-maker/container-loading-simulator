@@ -87,8 +87,9 @@ test('registered stacking updates without reload and bulk packaging advances bef
   expect(loaded.maxZ).toBeGreaterThan(0.265);
   expect(loaded.issues).toEqual([]);
   console.log('bulk stacking result', { count: loaded.count, remaining: loaded.left, maxZ: loaded.maxZ });
-  // This bulk plan remains geometrically valid but fails the strict inertia PASS threshold.
-  // The completed current plan is CAUTION/review-only, so dispatch stays blocked.
+  // The 1mm packing changes carton masses and the resulting bulk layout. Its
+  // geometry is valid, but the actual inertia metrics exceed the danger limits.
+  // Failed certification must still block dispatch regardless of full loading.
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestCertification?.status), { timeout: 120_000 }).toBe('failed');
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestResult.result.placements.length)).toBe(loaded.count);
@@ -99,18 +100,25 @@ test('registered stacking updates without reload and bulk packaging advances bef
     const target = (window as any).__containerLoadingPhysicsTarget;
     window.dispatchEvent(new CustomEvent('container-loading:request-direct-work-order', { detail: target }));
   });
-  // A completed caution report opens directly; only a danger plan starts optional
-  // alternative comparison and offers the separate stop-comparison button.
+  // A danger plan may compare alternative layouts before issuing its review report.
   const report = await reportPromise;
   // The global record can refer to an in-flight alternative until the checked plan is applied.
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification.testedScenarios)).toBe(3);
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification.status)).toBe('failed');
+  const metrics = await page.evaluate(() => {
+    const certification = (window as any).__containerLoadingLatestCertification;
+    return Object.values(certification.results).map((result: any) => ({ shift: result.maxHorizontalShiftM, tilt: result.maxTiltDeg }));
+  });
+  expect(metrics).toHaveLength(3);
+  expect(metrics.every(metric => Number.isFinite(metric.shift) && Number.isFinite(metric.tilt))).toBe(true);
+  // Match the unchanged 30mm / 4.5deg danger limits in inertiaWorkOrderPolicy.ts.
+  expect(metrics.some(metric => metric.shift > 0.03 || metric.tilt > 4.5)).toBe(true);
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   await expect(report.getByRole('heading', { name: /통합 출하·적재 작업지시서/ })).toBeVisible();
   await expect(report.locator('.summary')).toContainText(`${loaded.count} EA`);
-  await expect(report.locator('aside.technical-note')).toContainText('검증 판정: 주의 · 검토용');
-  await expect(report.locator('aside.technical-note')).toContainText('내부 PASS 기준을 일부 초과했지만 위험 기준 이내입니다');
+  await expect(report.locator('aside.technical-note')).toContainText('검증 판정: 위험');
+  await expect(report.locator('aside.technical-note')).toContainText('관성 결과가 위험 기준을 초과했습니다');
   await expect(report.locator('aside.technical-note')).toContainText('출고 승인을 의미하지 않습니다');
-  console.log('bulk warning work order opened with matching loaded quantity; failed inertia remains blocked');
+  console.log('bulk danger work order opened with matching loaded quantity; measured danger and failed inertia remain blocked', metrics);
   await page.screenshot({ path: test.info().outputPath('registered-stacking.png'), fullPage: true });
 });
