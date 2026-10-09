@@ -21,6 +21,7 @@ import { OPEN_TRANSPORT_SELECTOR_EVENT, useTransportEquipment } from './transpor
 import { dispatchAppAction, openWorkspace } from './uiEvents';
 import './final-workflow-cleanup.css';
 import './member-auth.css';
+import { OPEN_COMPANY_WORKSPACE_EVENT } from './company/events';
 
 type LoginRole = 'member' | 'admin';
 type MemberMode = 'login' | 'signup';
@@ -213,6 +214,9 @@ export default function ReferenceWorkspaceBar() {
           {menuOpen && <nav className="header-menu-panel final-workflow-menu" aria-label="적재 작업 전체 메뉴">
             <section>
               <strong>핵심 작업</strong>
+              <button type="button" onClick={() => runAndClose(() => window.dispatchEvent(new Event(OPEN_COMPANY_WORKSPACE_EVENT)))}>
+                <span>▦</span><div><b>기업 작업 공간</b><small>직원 권한 · 출하 계획 공유 · 업무 검토와 이력</small></div>
+              </button>
               <button className="menu-primary" type="button" onClick={() => runAndClose(() => dispatchAppAction('run-loading'))}>
                 <span>▶</span><div><b>최종 적재 진행</b><small>적재 계산 · 제약 · 물리 · 관성 검증을 순서대로 실행</small></div>
               </button>

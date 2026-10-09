@@ -3,7 +3,7 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   build: {
     rolldownOptions: {
-      input: { index: 'index.html', comparison: 'comparison.html' },
+      input: { index: 'index.html', comparison: 'comparison.html', workspace: 'workspace.html' },
       output: {
         strictExecutionOrder: true,
         codeSplitting: {

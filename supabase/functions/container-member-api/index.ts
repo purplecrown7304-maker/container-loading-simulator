@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { handleCompanyAction } from "../_shared/companyAction.ts";
 
 const PASSWORD_ITERATIONS = 180000;
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -168,6 +169,12 @@ Deno.serve(async (req: Request) => {
 
   if (!authenticatedMember) return json({ error: "member_auth_required" }, 401);
   await db.from("loading_member_sessions").update({ last_seen_at: nowIso }).eq("token_hash", tokenHash);
+
+  if (action === "company") {
+    const result = await handleCompanyAction(authenticatedMember.id, body,
+      (name, args) => db.rpc(name, args), sha256, () => randomHex(32));
+    return json(result.body, result.status);
+  }
 
   if (action === "get_data") {
     const { data, error } = await db

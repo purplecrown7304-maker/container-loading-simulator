@@ -3,9 +3,16 @@
   "buildCommand": "npm run verify:predeploy",
   "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/workspace", "destination": "/workspace.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
+    {
+      "source": "/workspace.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    },
     {
       "source": "/assets/(.*)",
       "headers": [
