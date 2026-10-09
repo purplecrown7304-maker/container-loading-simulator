@@ -3,7 +3,7 @@ import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
 import { vehicleLayout, type VehicleRigKind } from './threeVehicleLayout';
 import type { viewerPlan } from './viewerSceneProtocol';
 
-export type ThreeComparisonPlan = ReturnType<typeof viewerPlan> & { vehicleRig?: VehicleRigKind };
+export type ThreeComparisonPlan = ReturnType<typeof viewerPlan> & { vehicleRig?: VehicleRigKind; equipmentId?: string };
 export type SceneBox = Pick<ThreeComparisonPlan['placements'][number], 'x' | 'y' | 'z' | 'length' | 'width' | 'height'>;
 export const UNITY_CARTON_SCALE = .99;
 

@@ -40,7 +40,7 @@ export default function ThreeLoadingViewer({ container, result, cargo, preview =
     const matchesEquipment = Math.abs(container.length - equipment.length) < .02 && Math.abs(container.width - equipment.width) < .02 && Math.abs(container.height - equipment.height) < .02;
     const showRig = geometry === undefined || vehicle === true || (vehicle !== undefined && matchesEquipment);
     const vehicleRig = showRig ? vehicleRigForEquipment(equipment) : 'none';
-    return { ...viewerPlan(container, result, ++revision.current, cargo ?? readStoredState()?.cargo, { supports, securing, geometry: geometry ?? equipment.geometry, vehicle: vehicle ?? (geometry ? false : equipment.category === 'truck') }), vehicleRig };
+    return { ...viewerPlan(container, result, ++revision.current, cargo ?? readStoredState()?.cargo, { supports, securing, geometry: geometry ?? equipment.geometry, vehicle: vehicle ?? (geometry ? false : equipment.category === 'truck') }), vehicleRig, equipmentId: geometry === undefined || geometry === equipment.geometry ? equipment.id : undefined };
   }, [container, result, cargo, supports, securing, geometry, vehicle, equipment]);
   const frameActive = Boolean(frameData);
   const weightOn = frameActive ? false : weightView ?? weight;

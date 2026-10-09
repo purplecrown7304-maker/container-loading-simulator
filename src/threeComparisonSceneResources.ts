@@ -5,6 +5,7 @@ import { poseMatrix, sceneBoxMatrix, sceneCenter, UNITY_CARTON_SCALE, visibleCar
 
 import { createVehicleResources } from './threeVehicleResources';
 import type { VehicleModels } from './threeVehicleModels';
+import { flatRackParts } from './flatRackVisual';
 
 export type ComparisonModels = Partial<Record<ModelKey, MeshyModel>>;
 type CargoBatch = { indices: number[]; meshes: THREE.InstancedMesh[]; visibleIndices: number[] };
@@ -84,16 +85,27 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
 
   const floor = mat(new THREE.Color(.65, .73, .79)), frame = mat(new THREE.Color(.20, .37, .48)), wall = mat(new THREE.Color(.76, .83, .88)), grid = mat(new THREE.Color(.82, .87, .9));
   if (!['platform', 'flat-rack', 'tank'].includes(plan.geometry)) addModel('container-shell', equipment, [0, h / 2, 0], [l + .12, h + .12, w + .12], undefined, new THREE.Box3(new THREE.Vector3(-l / 2 - .03, -.005, -w / 2 - .03), new THREE.Vector3(l / 2 + .03, h + .005, w / 2 + .03)));
-  cube('Floor', [0, -.055, 0], [l, .11, w], floor, equipment);
-  edgeBox([0, h / 2, 0], [l + .04, h + .04, w + .04], frame, equipment, .035);
-  if (plan.geometry !== 'platform') cube('Back wall', [-l / 2 - .045, h / 2, 0], [.05, h, w], wall, equipment);
+  if (plan.geometry === 'flat-rack') {
+    const rackMaterials = new Map<string, THREE.Material>();
+    for (const part of flatRackParts(l, w, h, plan.equipmentId?.endsWith('-collapsible'))) {
+      let material = rackMaterials.get(part.color);
+      if (!material) { material = mat(part.color); rackMaterials.set(part.color, material); }
+      cube(part.name, part.position, part.size, material, equipment);
+    }
+  } else {
+    cube('Floor', [0, -.055, 0], [l, .11, w], floor, equipment);
+    if (plan.geometry !== 'platform') {
+      edgeBox([0, h / 2, 0], [l + .04, h + .04, w + .04], frame, equipment, .035);
+      cube('Back wall', [-l / 2 - .045, h / 2, 0], [.05, h, w], wall, equipment);
+    }
+  }
   if (!['platform', 'flat-rack'].includes(plan.geometry)) {
     cube('Far wall', [0, h / 2, -w / 2 - .045], [l, h, .05], wall, equipment);
     for (let x = -l / 2; x < l / 2; x += .3) cube('Corrugation', [x, h / 2, -w / 2 - .016], [.035, h, .025], floor, equipment);
   }
   for (let x = -l / 2; x <= l / 2; x++) cube('Floor grid', [x, .002, 0], [.009, .004, w], grid, equipment);
   for (let z = -w / 2; z <= w / 2; z += .5) cube('Floor grid', [0, .002, z], [l, .004, .009], grid, equipment);
-  cube('Door threshold', [l / 2, .025, 0], [.08, .05, w], mat(new THREE.Color(.13, .56, .76)), equipment);
+  if (!['platform', 'flat-rack'].includes(plan.geometry)) cube('Door threshold', [l / 2, .025, 0], [.08, .05, w], mat(new THREE.Color(.13, .56, .76)), equipment);
   const vehicle = plan.vehicleRig ? createVehicleResources(plan.vehicleRig, plan.container, vehicleModels) : null;
   if (vehicle) { equipment.add(vehicle.root); modelCount += vehicle.modelCount; }
   if (plan.vehicle && !plan.vehicleRig) addModel('truck-cab', equipment, [-l / 2 - w * .64, h * .43, 0], [w * 1.15, h * 1.03, w]);
