@@ -61,7 +61,7 @@ jobs:
         timeout-minutes: 25
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/results.json
-        run: npm run test:e2e -- --project=chromium-desktop --max-failures=3 --reporter=line,json,github
+        run: npm run test:e2e -- --project=chromium-desktop --max-failures=3 --reporter=line,json
       - name: Upload browser diagnostics
         if: always()
         uses: actions/upload-artifact@v6
