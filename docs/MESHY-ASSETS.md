@@ -4,6 +4,17 @@ The runtime uses Three.js only. Original OBJ/MTL/JPEG assets now live in
 `src/assets/Meshy`; the 2026-10-02 move preserved every asset byte. The old Unity
 project, editor metadata, WebGL runtime and build script have been removed.
 
+## Packaging contents cutaway — 2026-10-09
+
+The packaging inspection dialog reuses the existing `carton` OBJ and original
+texture, scaled to the selected carton's outer dimensions. Per-view materials
+clip the physical inner volume and the top/front/right surfaces to show products
+inside. This is an **open cutaway of the existing closed Meshy carton**, not a
+newly generated open-box model. No new generation or credit spending occurred.
+The cached source geometry, UVs and texture remain unchanged; clipping is visual
+only and does not participate in packing, collision or safety checks. Failed asset
+loads show a disclosed procedural fallback.
+
 ## Pallet replacement — 2026-09-29
 
 The wood and plastic pallet source assets were regenerated with Meshy 7.1 in

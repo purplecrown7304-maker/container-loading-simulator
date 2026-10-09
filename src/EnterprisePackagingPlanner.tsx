@@ -11,6 +11,7 @@ import {
   type ProductOrientationPolicy,
 } from './engine/productPackagingOptimizer';
 import type { ContainerSpec } from './engine/types';
+import { DEFAULT_PRODUCT_GAP_M, productGapM } from './engine/productInteriorGeometry';
 import { readStoredState, writeStoredState } from './storage';
 
 const PLANNER_STORAGE_KEY = 'container-loading-product-packaging-v1';
@@ -27,6 +28,7 @@ type ProductDraft = {
   maxUnitsPerBox: number;
   orientationPolicy: ProductOrientationPolicy;
   cushioningMm: number;
+  productGapMm: number;
   maxInternalLayers: number;
   fragile: boolean;
   allowMixedCarton: boolean;
@@ -72,7 +74,7 @@ type StoredPlanner = {
 const emptyProduct: ProductDraft = {
   id: '', name: '', lengthMm: 200, widthMm: 120, heightMm: 80,
   weightKg: 0.5, quantity: 100, maxUnitsPerBox: 24,
-  orientationPolicy: 'base-rotation', cushioningMm: 5, maxInternalLayers: 0,
+  orientationPolicy: 'base-rotation', cushioningMm: 5, productGapMm: DEFAULT_PRODUCT_GAP_M * 1000, maxInternalLayers: 0,
   fragile: false, allowMixedCarton: true,
 };
 
@@ -127,6 +129,7 @@ function productToDraft(item: ProductItem): ProductDraft {
     maxUnitsPerBox: item.maxUnitsPerBox ?? 24,
     orientationPolicy: item.orientationPolicy ?? (item.allowRotation === false ? 'upright' : 'base-rotation'),
     cushioningMm: mm(item.cushioningM ?? 0),
+    productGapMm: productGapM(item) * 1000,
     maxInternalLayers: item.maxInternalLayers ?? 0,
     fragile: item.fragile === true,
     allowMixedCarton: item.allowMixedCarton !== false,
@@ -189,7 +192,7 @@ export default function EnterprisePackagingPlanner() {
     if (!editingProductId && products.some((item) => item.id === id)) return setMessage(`이미 등록된 제품 코드입니다: ${id}`);
     if ([productDraft.lengthMm, productDraft.widthMm, productDraft.heightMm, productDraft.weightKg].some((v) => !Number.isFinite(v) || v <= 0)) return setMessage('제품 치수와 중량은 0보다 커야 합니다.');
     if (!Number.isInteger(productDraft.quantity) || productDraft.quantity < 1 || !Number.isInteger(productDraft.maxUnitsPerBox) || productDraft.maxUnitsPerBox < 1) return setMessage('제품 수량과 박스당 최대EA는 1 이상의 정수여야 합니다.');
-    if (!Number.isFinite(productDraft.cushioningMm) || productDraft.cushioningMm < 0 || (!Number.isInteger(productDraft.maxInternalLayers) || productDraft.maxInternalLayers < 0)) return setMessage('완충여유는 0 이상, 내부 최대적층은 0(자동) 또는 1 이상의 정수여야 합니다.');
+    if (!Number.isFinite(productDraft.cushioningMm) || productDraft.cushioningMm < 0 || !Number.isFinite(productDraft.productGapMm) || productDraft.productGapMm < 0 || (!Number.isInteger(productDraft.maxInternalLayers) || productDraft.maxInternalLayers < 0)) return setMessage('벽 완충여유와 제품 간격은 0 이상, 내부 최대적층은 0(자동) 또는 1 이상의 정수여야 합니다.');
     const next: ProductItem = {
       id,
       name,
@@ -202,6 +205,7 @@ export default function EnterprisePackagingPlanner() {
       orientationPolicy: productDraft.orientationPolicy,
       allowRotation: productDraft.orientationPolicy !== 'upright',
       cushioningM: productDraft.cushioningMm / 1000,
+      productGapM: productDraft.productGapMm / 1000,
       maxInternalLayers: productDraft.maxInternalLayers > 0 ? productDraft.maxInternalLayers : undefined,
       fragile: productDraft.fragile,
       allowMixedCarton: productDraft.allowMixedCarton,
@@ -370,13 +374,14 @@ export default function EnterprisePackagingPlanner() {
           <label>수량<input type="number" min="1" step="1" value={productDraft.quantity} onChange={(e) => setProductDraft((v) => ({ ...v, quantity: Number(e.target.value) }))} /></label>
           <label>박스당 최대EA<input type="number" min="1" step="1" value={productDraft.maxUnitsPerBox} onChange={(e) => setProductDraft((v) => ({ ...v, maxUnitsPerBox: Number(e.target.value) }))} /></label>
           <label>회전정책<select value={productDraft.orientationPolicy} onChange={(e) => setProductDraft((v) => ({ ...v, orientationPolicy: e.target.value as ProductOrientationPolicy }))}><option value="upright">세워서만</option><option value="base-rotation">바닥면 90°</option><option value="any">3축 회전 허용</option></select></label>
-          <label>완충여유(mm)<input type="number" min="0" step="1" value={productDraft.cushioningMm} onChange={(e) => setProductDraft((v) => ({ ...v, cushioningMm: Number(e.target.value) }))} /></label>
+          <label>박스 벽 완충여유(mm)<input type="number" min="0" step="1" value={productDraft.cushioningMm} onChange={(e) => setProductDraft((v) => ({ ...v, cushioningMm: Number(e.target.value) }))} /></label>
+          <label>제품 간격(mm)<input type="number" min="0" step="0.1" value={productDraft.productGapMm} onChange={(e) => setProductDraft((v) => ({ ...v, productGapMm: Number(e.target.value) }))} /></label>
           <label>내부 최대적층<input type="number" min="0" step="1" value={productDraft.maxInternalLayers} onChange={(e) => setProductDraft((v) => ({ ...v, maxInternalLayers: Number(e.target.value) }))} /><small>0=자동</small></label>
           <label className="form-check-label"><input type="checkbox" checked={productDraft.fragile} onChange={(e) => setProductDraft((v) => ({ ...v, fragile: e.target.checked }))} /> 파손주의</label>
           <label className="form-check-label"><input type="checkbox" checked={productDraft.allowMixedCarton} onChange={(e) => setProductDraft((v) => ({ ...v, allowMixedCarton: e.target.checked }))} /> 잔량 혼합포장 허용</label>
         </div>
         <div className="packaging-inline-actions"><button onClick={saveProduct}>{editingProductId ? '제품 수정 저장' : '제품 등록'}</button>{editingProductId && <button onClick={resetProductDraft}>수정 취소</button>}</div>
-        <div className="packaging-list">{products.length ? products.map((item) => <div key={item.id}><span><b>{item.id}</b> {item.name}<small>{mm(item.length)}×{mm(item.width)}×{mm(item.height)}mm · {item.weightKg}kg · {item.orientationPolicy ?? 'base-rotation'} · 완충 {mm(item.cushioningM ?? 0)}mm{item.fragile ? ' · 파손주의' : ''}</small></span><strong>{item.quantity} EA</strong><span className="row-actions"><button onClick={() => editProduct(item)}>수정</button><button aria-label={`${item.id} 삭제`} onClick={() => { setProducts((v) => v.filter((p) => p.id !== item.id)); invalidatePlan(`${item.id} 제품을 삭제했습니다.`); }}>삭제</button></span></div>) : <p>등록된 제품이 없습니다.</p>}</div>
+        <div className="packaging-list">{products.length ? products.map((item) => <div key={item.id}><span><b>{item.id}</b> {item.name}<small>{mm(item.length)}×{mm(item.width)}×{mm(item.height)}mm · {item.weightKg}kg · {item.orientationPolicy ?? 'base-rotation'} · 벽 완충 {mm(item.cushioningM ?? 0)}mm · 제품 간격 {productGapM(item) * 1000}mm{item.fragile ? ' · 파손주의' : ''}</small></span><strong>{item.quantity} EA</strong><span className="row-actions"><button onClick={() => editProduct(item)}>수정</button><button aria-label={`${item.id} 삭제`} onClick={() => { setProducts((v) => v.filter((p) => p.id !== item.id)); invalidatePlan(`${item.id} 제품을 삭제했습니다.`); }}>삭제</button></span></div>) : <p>등록된 제품이 없습니다.</p>}</div>
       </article>
 
       <article className="packaging-panel wide">

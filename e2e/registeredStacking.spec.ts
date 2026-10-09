@@ -37,7 +37,9 @@ test('registered stacking updates without reload and bulk packaging advances bef
   for (let i = 0; i < quantities.length; i++) await page.locator('.guided-product-table article').filter({ hasText: `STACK-${i + 1}` }).locator('input[type="number"]').fill(String(quantities[i]));
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('자동 적재 최대 1단', { exact: false })).toHaveCount(6);
-  await expect(page.locator('.workflow-preview-status')).toContainText('1,562');
+  // With 1mm between products and no wall cushion, capacities are
+  // [84, 70, 70, 70, 70, 60]; rounding each SKU's demand up gives 1,691 cartons.
+  await expect(page.locator('.workflow-preview-status')).toContainText('1,691');
 
   await page.getByRole('button', { name: '설정 닫기', exact: true }).click();
   await page.getByRole('button', { name: /메뉴$/ }).click();
@@ -57,11 +59,12 @@ test('registered stacking updates without reload and bulk packaging advances bef
     const latest = (window as any).__containerLoadingLatestResult;
     return { cargo: saved.cargo, placed: latest.result.placements.length, remaining: latest.result.remaining.length };
   });
-  expect(prepared.cargo.reduce((sum: number, item: any) => sum + item.quantity, 0)).toBe(1562);
+  expect(prepared.cargo.reduce((sum: number, item: any) => sum + item.quantity, 0)).toBe(1691);
+  expect(prepared.cargo.reduce((sum: number, item: any) => sum + item.quantity * item.unitsPerPackage, 0)).toBe(110000);
   expect(prepared.cargo.every((item: any) => item.maxStackLayers === 9 && item.maxTopLoadKg === 100 && item.boxId === 'REC-235X130X265')).toBe(true);
   expect(prepared.placed).toBe(0);
   expect(prepared.remaining).toBe(0);
-  console.log('bulk packaging confirmed: 1562 cartons, 9 layers, no hidden loading');
+  console.log('bulk packaging confirmed: 1691 cartons, 110000 products, 9 layers, no hidden loading');
 
   await page.getByRole('radio', { name: /공간효율 우선/ }).click();
   await page.getByRole('button', { name: /다음 단계/ }).click();
@@ -76,38 +79,54 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await page.getByRole('button', { name: /메뉴$/ }).click();
   console.log('bulk packing UI remains responsive');
   await expect.poll(async () => page.evaluate(() => (window as any).__containerLoadingLatestResult?.result.placements.length ?? 0), { timeout: 180_000 }).toBeGreaterThan(452);
+  // A published layout is not yet a completed physics/verification run. Wait for
+  // finalization before asking for a report, so final-loading cleanup cannot race it.
+  await expect.poll(() => page.evaluate(() => Boolean((window as any).__containerLoadingFinalPhysicsSignature
+    && (window as any).__containerLoadingFinalPhysicsResult && !(window as any).__containerLoadingFinalPhysicsRunning)), { timeout: 180_000 }).toBe(true);
+  await expect(page.locator('.guided-status-row')).toHaveAttribute('data-verification-status', 'failed', { timeout: 120_000 });
   const loaded = await page.evaluate(() => {
     const { result, cargo } = (window as any).__containerLoadingLatestResult;
     return { count: result.placements.length, left: result.remaining.reduce((sum: number, item: any) => sum + item.quantity, 0), maxZ: Math.max(...result.placements.map((item: any) => item.z)), issues: result.validationIssues, cargo };
   });
-  expect(loaded.count + loaded.left).toBe(1562);
+  expect(loaded.count + loaded.left).toBe(1691);
   expect(loaded.maxZ).toBeGreaterThan(0.265);
   expect(loaded.issues).toEqual([]);
   console.log('bulk stacking result', { count: loaded.count, remaining: loaded.left, maxZ: loaded.maxZ });
-  // This bulk plan remains geometrically valid but fails the strict inertia PASS threshold.
-  // The completed current plan is CAUTION/review-only, so dispatch stays blocked.
+  // The 1mm packing changes carton masses and the resulting bulk layout. Its
+  // geometry is valid, but the actual inertia metrics exceed the danger limits.
+  // Failed certification must still block dispatch regardless of full loading.
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestCertification?.status), { timeout: 120_000 }).toBe('failed');
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestResult.result.placements.length)).toBe(loaded.count);
-  // The direct work order re-runs all three inertia scenarios for 1,562 cartons before
+  // The direct work order re-runs all three inertia scenarios for the loaded cartons before
   // opening the report (~67 s locally). 60 s made this test fail on slower machines.
   const reportPromise = page.waitForEvent('popup', { timeout: 240_000 });
   await page.evaluate(() => {
     const target = (window as any).__containerLoadingPhysicsTarget;
-    window.dispatchEvent(new CustomEvent('container-loading:request-direct-work-order', { detail: target }));
+    // Recheck and document the selected final plan. Alternative-layout search is
+    // covered separately in workOrderRecovery.spec.ts; never replace this plan.
+    window.dispatchEvent(new CustomEvent('container-loading:request-direct-work-order', { detail: { ...target, preserveSelectedPlan: true } }));
   });
-  // A completed caution report opens directly; only a danger plan starts optional
-  // alternative comparison and offers the separate stop-comparison button.
+  // All three real scenarios are completed again; preserving the selected plan
+  // does not turn a failed/danger result into dispatch approval.
   const report = await reportPromise;
   // The global record can refer to an in-flight alternative until the checked plan is applied.
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification.testedScenarios)).toBe(3);
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification.status)).toBe('failed');
+  const metrics = await page.evaluate(() => {
+    const certification = (window as any).__containerLoadingLatestCertification;
+    return Object.values(certification.results).map((result: any) => ({ shift: result.maxHorizontalShiftM, tilt: result.maxTiltDeg }));
+  });
+  expect(metrics).toHaveLength(3);
+  expect(metrics.every(metric => Number.isFinite(metric.shift) && Number.isFinite(metric.tilt))).toBe(true);
+  // Match the unchanged 30mm / 4.5deg danger limits in inertiaWorkOrderPolicy.ts.
+  expect(metrics.some(metric => metric.shift > 0.03 || metric.tilt > 4.5)).toBe(true);
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   await expect(report.getByRole('heading', { name: /통합 출하·적재 작업지시서/ })).toBeVisible();
   await expect(report.locator('.summary')).toContainText(`${loaded.count} EA`);
-  await expect(report.locator('aside.technical-note')).toContainText('검증 판정: 주의 · 검토용');
-  await expect(report.locator('aside.technical-note')).toContainText('내부 PASS 기준을 일부 초과했지만 위험 기준 이내입니다');
+  await expect(report.locator('aside.technical-note')).toContainText('검증 판정: 위험');
+  await expect(report.locator('aside.technical-note')).toContainText('관성 결과가 위험 기준을 초과했습니다');
   await expect(report.locator('aside.technical-note')).toContainText('출고 승인을 의미하지 않습니다');
-  console.log('bulk warning work order opened with matching loaded quantity; failed inertia remains blocked');
+  console.log('bulk danger work order opened with matching loaded quantity; measured danger and failed inertia remain blocked', metrics);
   await page.screenshot({ path: test.info().outputPath('registered-stacking.png'), fullPage: true });
 });

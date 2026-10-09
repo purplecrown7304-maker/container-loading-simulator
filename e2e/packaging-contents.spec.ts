@@ -39,8 +39,8 @@ test('packaging inspection shows full and partial carton contents without changi
   await page.evaluate(() => {
     const operator = { id: 'contents-regression', name: '내부 보기 테스트' };
     sessionStorage.setItem('container-loading-local-operator-v1', JSON.stringify(operator));
-    const products = [{ id: 'CONTENTS-1', name: '내부 보기 제품', length: .1, width: .1, height: .1, weightKg: .1, quantity: 11, maxUnitsPerBox: 8, requiresBoxPackaging: true }];
-    const box = { id: 'CONTENTS-BOX', name: '내부 보기 등록 박스', innerLength: .2, innerWidth: .2, innerHeight: .2, outerLength: .208, outerWidth: .208, outerHeight: .208, tareWeightKg: .1, maxGrossWeightKg: 22, maxStackLayers: 10, maxTopLoadKg: 100, recommendationRegistration: 'explicit' };
+    const products = [{ id: 'CONTENTS-1', name: '내부 보기 제품', length: .03, width: .04, height: .02, cushioningM: .005, weightKg: .1, quantity: 168, requiresBoxPackaging: true }];
+    const box = { id: 'CONTENTS-BOX', name: '내부 보기 등록 박스', innerLength: .227, innerWidth: .122, innerHeight: .257, outerLength: .235, outerWidth: .130, outerHeight: .265, tareWeightKg: .1, maxGrossWeightKg: 22, maxStackLayers: 10, maxTopLoadKg: 100, recommendationRegistration: 'explicit' };
     localStorage.setItem('container-loading-product-packaging-v1:contents-regression', JSON.stringify({ container: { length: 5.9, width: 2.352, height: 2.395, maxPayloadKg: 28130 }, products, boxes: [box], settings: { allowCustom: false } }));
     localStorage.setItem('container-loading-user-box-catalog-v1:contents-regression', JSON.stringify([{ id: box.id, name: box.name, length: box.outerLength, width: box.outerWidth, height: box.outerHeight, weightKg: 22, quantity: 0, maxStackLayers: 10, maxTopLoadKg: 100, catalogOrigin: 'recommendation', recommendationRegistration: 'explicit' }]));
     window.dispatchEvent(new CustomEvent('container-loading:local-operator-updated', { detail: operator }));
@@ -48,18 +48,20 @@ test('packaging inspection shows full and partial carton contents without changi
   await openWorkspace(page, 1);
   await page.getByRole('button', { name: /다음: 제품 선택/ }).click();
   await page.getByPlaceholder('제품명 또는 제품코드 검색').fill('CONTENTS-1');
-  await page.locator('.guided-product-table article').filter({ hasText: 'CONTENTS-1' }).locator('input[type="number"]').fill('11');
+  await page.locator('.guided-product-table article').filter({ hasText: 'CONTENTS-1' }).locator('input[type="number"]').fill('168');
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
-  await expect(page.locator('.guided-packaging-list')).toContainText('8EA/BOX');
+  await expect(page.locator('.guided-packaging-list')).toContainText('165EA/BOX');
   const snapshot = () => page.evaluate(() => Object.fromEntries(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)])));
   const before = await snapshot();
   const opener = page.getByRole('button', { name: '내부 보기 제품 박스 내부 보기', exact: true });
   await opener.click();
   const dialog = page.getByRole('dialog', { name: '박스 내부 제품 보기', exact: true });
   await expect(dialog).toBeVisible();
-  await expect(dialog.locator('.packaging-contents-metrics')).toContainText('8 EA');
-  await expect(dialog.locator('.packaging-contents-controls')).toContainText('2단');
+  await expect(dialog.locator('.packaging-contents-metrics')).toContainText('165 EA');
+  await expect(dialog.locator('.packaging-contents-controls')).toContainText('11단');
+  await expect(dialog.locator('.packaging-contents-controls')).toContainText('제품 간격 1 mm');
   await expect(dialog.locator('canvas')).toBeVisible();
+  await expect(dialog.getByRole('status')).toContainText('Meshy 박스 원본 · 열린 단면 보기');
   await page.screenshot({ path: testInfo.outputPath('box-contents.png') });
   await dialog.getByRole('button', { name: '상단', exact: true }).click();
   await expect(dialog.getByRole('button', { name: '상단', exact: true })).toHaveAttribute('aria-pressed', 'true');

@@ -1,5 +1,6 @@
 import { loadContainer } from './loadingEngine';
 import type { CargoItem, ContainerSpec } from './types';
+import { productInteriorGrid, productInteriorRequiredExtent, productPackingOrientations } from './productInteriorGeometry';
 
 const EPS = 1e-9;
 const VERIFIED_CARTON_SCORE_TOLERANCE = 0.005;
@@ -22,8 +23,10 @@ export type ProductItem = {
   /** 제품 자체의 포장 방향 정책. */
   orientationPolicy?: ProductOrientationPolicy;
   maxUnitsPerBox?: number;
-  /** 제품 한 개 주위에 확보할 완충/유격(m). 각 축 양쪽에 적용한다. */
+  /** 박스 벽과 제품 사이의 완충 여유(m). 각 축 양쪽 벽에 적용한다. */
   cushioningM?: number;
+  /** 제품 사이 간격(m). 미입력 시 대표 지정 1mm. 벽 완충 여유와 구분한다. */
+  productGapM?: number;
   /** 박스 내부에서 제품을 몇 단까지 겹칠 수 있는지. */
   maxInternalLayers?: number;
   /** 파손주의 제품은 maxInternalLayers 미입력 시 내부 1단으로 제한한다. */
@@ -118,11 +121,6 @@ function finitePositive(value: number) {
   return Number.isFinite(value) && value > 0;
 }
 
-function orientationPolicy(product: ProductItem): ProductOrientationPolicy {
-  if (product.orientationPolicy === 'upright' || product.orientationPolicy === 'base-rotation' || product.orientationPolicy === 'any') return product.orientationPolicy;
-  return product.allowRotation === false ? 'upright' : 'base-rotation';
-}
-
 function productError(product: ProductItem): string | null {
   if (!product.id.trim()) return '제품 코드가 비어 있습니다.';
   if (!product.name.trim()) return '제품명이 비어 있습니다.';
@@ -130,6 +128,7 @@ function productError(product: ProductItem): string | null {
   if (!Number.isInteger(product.quantity) || product.quantity < 1) return '제품 수량은 1 이상의 정수여야 합니다.';
   if (product.maxUnitsPerBox != null && (!Number.isInteger(product.maxUnitsPerBox) || product.maxUnitsPerBox < 1)) return '박스당 최대 수량은 1 이상의 정수여야 합니다.';
   if (product.cushioningM != null && (!Number.isFinite(product.cushioningM) || product.cushioningM < 0)) return '완충 여유는 0 이상의 값이어야 합니다.';
+  if (product.productGapM != null && (!Number.isFinite(product.productGapM) || product.productGapM < 0)) return '제품 간격은 0 이상의 값이어야 합니다.';
   if (product.maxInternalLayers != null && (!Number.isInteger(product.maxInternalLayers) || product.maxInternalLayers < 1)) return '박스 내부 최대 적층은 1 이상의 정수여야 합니다.';
   if (product.orientationPolicy != null && !['upright', 'base-rotation', 'any'].includes(product.orientationPolicy)) return '제품 회전 정책을 확인하세요.';
   return null;
@@ -144,30 +143,6 @@ function boxError(box: BoxCatalogItem): string | null {
   if (box.maxTopLoadKg != null && (!Number.isFinite(box.maxTopLoadKg) || box.maxTopLoadKg < 0)) return '상부 허용중량은 0 이상이어야 합니다.';
   if (box.unitCost != null && (!Number.isFinite(box.unitCost) || box.unitCost < 0)) return '박스 단가는 0 이상이어야 합니다.';
   return null;
-}
-
-type UnitOrientation = [number, number, number];
-
-function effectiveDimensions(product: ProductItem): [number, number, number] {
-  const padding = Math.max(0, product.cushioningM ?? 0);
-  return [product.length + padding * 2, product.width + padding * 2, product.height + padding * 2];
-}
-
-function orientations(product: ProductItem): UnitOrientation[] {
-  const [l, w, h] = effectiveDimensions(product);
-  const policy = orientationPolicy(product);
-  const source: UnitOrientation[] = policy === 'upright'
-    ? [[l, w, h]]
-    : policy === 'base-rotation'
-      ? [[l, w, h], [w, l, h]]
-      : [[l, w, h], [w, l, h], [l, h, w], [h, l, w], [w, h, l], [h, w, l]];
-  const seen = new Set<string>();
-  return source.filter(([a, b, c]) => {
-    const key = `${a.toFixed(6)}:${b.toFixed(6)}:${c.toFixed(6)}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }
 
 function maxInternalLayers(product: ProductItem) {
@@ -193,11 +168,8 @@ export function cartonStackLimits(container: ContainerSpec, box: BoxCatalogItem,
 
 function assignmentFromBox(container: ContainerSpec, product: ProductItem, box: BoxCatalogItem, source: 'catalog' | 'generated'): ProductPackagingAssignment | null {
   let bestUnits = 0;
-  const layerLimit = maxInternalLayers(product);
-  for (const [pl, pw, ph] of orientations(product)) {
-    const nx = Math.floor((box.innerLength + EPS) / pl);
-    const ny = Math.floor((box.innerWidth + EPS) / pw);
-    const nz = Math.min(layerLimit, Math.floor((box.innerHeight + EPS) / ph));
+  for (const size of productPackingOrientations(product)) {
+    const [nx, ny, nz] = productInteriorGrid(product, [box.innerLength, box.innerWidth, box.innerHeight], size);
     const geometric = nx * ny * nz;
     const byWeight = Math.floor((box.maxGrossWeightKg - box.tareWeightKg + EPS) / product.weightKg);
     const perBoxLimit = product.maxUnitsPerBox ?? Number.POSITIVE_INFINITY;
@@ -274,13 +246,13 @@ function generatedBoxes(container: ContainerSpec, product: ProductItem, options:
     ? options.generatedDimensionStepM as number
     : 0.005;
 
-  for (const [pl, pw, ph] of orientations(product)) {
+  for (const [pl, pw, ph] of productPackingOrientations(product)) {
     for (let nx = 1; nx <= 4; nx += 1) for (let ny = 1; ny <= 4; ny += 1) for (let nz = 1; nz <= Math.min(6, layerLimit); nz += 1) {
       const units = nx * ny * nz;
       if (units > maxUnits || units * product.weightKg + options.generatedBoxTareKg > options.maxGeneratedGrossWeightKg + EPS) continue;
-      const requiredInnerLength = pl * nx + options.clearanceM * 2;
-      const requiredInnerWidth = pw * ny + options.clearanceM * 2;
-      const requiredInnerHeight = ph * nz + options.clearanceM * 2;
+      const requiredInnerLength = productInteriorRequiredExtent(product, pl, nx) + options.clearanceM * 2;
+      const requiredInnerWidth = productInteriorRequiredExtent(product, pw, ny) + options.clearanceM * 2;
+      const requiredInnerHeight = productInteriorRequiredExtent(product, ph, nz) + options.clearanceM * 2;
       // 제조 단위로 항상 바깥쪽 올림한다. 제품 수용공간을 줄이는 반올림은 금지한다.
       const innerLength = roundUp(requiredInnerLength, dimensionStep);
       const innerWidth = roundUp(requiredInnerWidth, dimensionStep);

@@ -11,11 +11,13 @@ const box = {
   outerLength: 0.235, outerWidth: 0.13, outerHeight: 0.265,
   tareWeightKg: 0.6, maxGrossWeightKg: 22, maxStackLayers: 10, maxTopLoadKg: 198,
 } satisfies BoxCatalogItem & { maxStackLayers: number };
-const product = { id: 'STACK', name: '제품', length: 0.055, width: 0.03, height: 0.04, weightKg: 0.1, quantity: 960, requiresBoxPackaging: true };
+// 1mm product spacing gives 84 units/carton: exactly ten full cartons.
+const product = { id: 'STACK', name: '제품', length: 0.055, width: 0.03, height: 0.04, weightKg: 0.1, quantity: 840, requiresBoxPackaging: true };
 
 describe('registered carton stacking through product packaging', () => {
   it('preserves all ten declared layers through packaging, full cartons and loading', () => {
     const assignment = packagingCandidates(container, product, [box])[0];
+    expect(assignment.unitsPerBox).toBe(84);
     expect(assignment.maxStackLayers).toBe(10);
     const cargo = cargoFromProductPackaging([product], [assignment]);
     expect(cargo[0].boxId).toBe(box.id);
@@ -48,7 +50,7 @@ describe('registered carton stacking through product packaging', () => {
       weightKg: 22, quantity: 0, maxStackLayers: 10, maxTopLoadKg: 0,
       catalogOrigin: 'recommendation', recommendationRegistration: 'explicit',
     }]);
-    const partialProduct = { ...product, quantity: 961 };
+    const partialProduct = { ...product, quantity: 841 };
     const assignment = packagingCandidates(container, partialProduct, state.boxes)[0];
     const cargo = cargoFromProductPackaging([partialProduct], [assignment]);
     expect(cargo).toHaveLength(2);
@@ -60,7 +62,7 @@ describe('registered carton stacking through product packaging', () => {
 describe('unverified recommendation through packaging and loading', () => {
   it('keeps raw missing strength separate while full and partial cartons stay one layer', () => {
     const unknown = { ...box, strengthUnverified: true, maxTopLoadKg: undefined };
-    const selected = { ...product, quantity: 961 };
+    const selected = { ...product, quantity: 841 };
     const assignment = packagingCandidates(container, selected, [unknown])[0];
     expect(assignment).toMatchObject({ maxStackLayers: 1, maxTopLoadKg: 0, strengthUnverified: true, strengthStatus: 'design-target' });
     const cargo = cargoFromProductPackaging([selected], [assignment]);

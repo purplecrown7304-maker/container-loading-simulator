@@ -3,6 +3,7 @@ import { reportTable } from './reportLayout';
 import { requiresBoxPackaging, type CompanyProductItem } from './companyProduct';
 import type { ProductPackagingAssignment } from './engine/productPackagingOptimizer';
 import type { CargoItem, Placement } from './engine/types';
+import { productGapM } from './engine/productInteriorGeometry';
 
 const STORAGE_KEY = 'container-loading-shipment-instruction-v1';
 
@@ -27,6 +28,8 @@ export type ShipmentInstructionLine = {
   outerLength: number;
   outerWidth: number;
   outerHeight: number;
+  productGapM?: number;
+  wallCushioningM?: number;
 };
 
 export type ShipmentInstructionSnapshot = {
@@ -121,6 +124,8 @@ export function writeShipmentInstructionSnapshot(
       contentWeightKg: item.unitsPerBox * product.weightKg,
       partialUnits: partialUnits || undefined,
       partialContentWeightKg: partialUnits ? partialUnits * product.weightKg : undefined,
+      productGapM: productGapM(product),
+      wallCushioningM: product.cushioningM ?? 0,
       outerLength: item.outerLength,
       outerWidth: item.outerWidth,
       outerHeight: item.outerHeight,
@@ -195,8 +200,9 @@ export function buildShipmentInstructionSection(cargo: CargoItem[], result: Resu
     const actual = cargo.find(c => c.id === item.cargoId) ?? cargo.find(c => c.id === `${item.cargoId}-PARTIAL`);
     const color = cargoColor(item.cargoId, actual?.displayColor);
     const code = specCode(item.outerLength, item.outerWidth, item.outerHeight);
+    const spacing = item.packagingMode === 'box' && item.productGapM != null ? `<small>제품 간격 ${item.productGapM * 1000} mm · 벽 완충 ${(item.wallCushioningM ?? 0) * 1000} mm</small>` : '';
     const unit = item.packagingMode === 'box' ? 'BOX' : 'EA';
-    return `<tr><td><b><i class="cargo-swatch" style="background:${color}"></i>${escapeHtml(item.productId)}</b><small>${escapeHtml(item.productName)}</small></td><td><b>${item.productQuantity} EA</b><small>적재 환산 ${loadedProductCount(item, loaded)} EA</small></td><td>${code}<small>${item.packagingMode === 'box' ? `${item.unitsPerBox} EA/BOX` : '직접 적재'}${item.partialUnits ? ` · 잔량 ${item.partialUnits} EA` : ''}</small></td><td><b>${item.boxesNeeded} ${unit}</b></td><td><b>${loadedCount} ${unit}</b><small class="${remainingCount ? 'shipment-warn' : 'shipment-ok'}">${remainingCount ? `미적재 ${remainingCount}` : '출하 준비'}</small></td><td class="check">□</td></tr>`;
+    return `<tr><td><b><i class="cargo-swatch" style="background:${color}"></i>${escapeHtml(item.productId)}</b><small>${escapeHtml(item.productName)}</small></td><td><b>${item.productQuantity} EA</b><small>적재 환산 ${loadedProductCount(item, loaded)} EA</small></td><td>${code}${spacing}<small>${item.packagingMode === 'box' ? `${item.unitsPerBox} EA/BOX` : '직접 적재'}${item.partialUnits ? ` · 잔량 ${item.partialUnits} EA` : ''}</small></td><td><b>${item.boxesNeeded} ${unit}</b></td><td><b>${loadedCount} ${unit}</b><small class="${remainingCount ? 'shipment-warn' : 'shipment-ok'}">${remainingCount ? `미적재 ${remainingCount}` : '출하 준비'}</small></td><td class="check">□</td></tr>`;
   }).join('') : cargo.map(item => {
     const count = loaded.get(item.id) ?? 0;
     const waiting = remaining.get(item.id) ?? Math.max(0, item.quantity - count);

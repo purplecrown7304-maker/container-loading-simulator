@@ -53,7 +53,9 @@ function parseProducts(sheetName: string, sheet: XLSX.WorkSheet, issues: Packagi
     const weightKg = num(row['중량(kg)'] ?? row['개당중량(kg)'] ?? row['Weight(kg)'] ?? row['Weight']);
     const quantity = num(row['수량'] ?? row['Quantity']);
     const maxUnits = num(row['박스당최대EA'] ?? row['박스당 최대수량'] ?? row['MaxUnitsPerBox']);
-    const cushioningMm = num(row['완충여유(mm)'] ?? row['완충(mm)'] ?? row['Cushioning(mm)']);
+    const cushioningMm = num(row['벽완충여유(mm)'] ?? row['완충여유(mm)'] ?? row['완충(mm)'] ?? row['Cushioning(mm)']);
+    const gapRaw = row['제품간격(mm)'] ?? row['ProductGap(mm)'];
+    const productGapMm = num(gapRaw);
     const maxInternalLayers = num(row['내부최대적층'] ?? row['박스내최대적층'] ?? row['MaxInternalLayers']);
     const orientation = orientationValue(row['회전정책'] ?? row['OrientationPolicy'], row['90도회전허용'] ?? row['회전허용'] ?? row['AllowRotation']);
     const fragile = boolValue(row['파손주의'] ?? row['Fragile'], false);
@@ -65,6 +67,7 @@ function parseProducts(sheetName: string, sheet: XLSX.WorkSheet, issues: Packagi
     if (!Number.isInteger(quantity) || quantity < 1) return issues.push({ sheet: sheetName, row: excelRow, code: id, message: '제품 수량은 1 이상의 정수여야 합니다.' });
     if (Number.isFinite(maxUnits) && (!Number.isInteger(maxUnits) || maxUnits < 1)) return issues.push({ sheet: sheetName, row: excelRow, code: id, message: '박스당 최대EA는 비워두거나 1 이상의 정수여야 합니다.' });
     if (Number.isFinite(cushioningMm) && cushioningMm < 0) return issues.push({ sheet: sheetName, row: excelRow, code: id, message: '완충여유는 비워두거나 0 이상이어야 합니다.' });
+    if (gapRaw != null && String(gapRaw).trim() !== '' && (!Number.isFinite(productGapMm) || productGapMm < 0)) return issues.push({ sheet: sheetName, row: excelRow, code: id, message: '제품간격은 비워두거나 0 이상의 숫자여야 합니다.' });
     if (Number.isFinite(maxInternalLayers) && (!Number.isInteger(maxInternalLayers) || maxInternalLayers < 1)) return issues.push({ sheet: sheetName, row: excelRow, code: id, message: '내부최대적층은 비워두거나 1 이상의 정수여야 합니다.' });
     if (!orientation.valid) return issues.push({ sheet: sheetName, row: excelRow, code: id, message: '회전정책은 upright/base-rotation/any 또는 지원되는 한글 값이어야 합니다.' });
     if (!fragile.valid) return issues.push({ sheet: sheetName, row: excelRow, code: id, message: '파손주의 값은 Y/N, TRUE/FALSE, 1/0 중 하나여야 합니다.' });
@@ -84,6 +87,7 @@ function parseProducts(sheetName: string, sheet: XLSX.WorkSheet, issues: Packagi
         allowRotation: orientation.value !== 'upright',
         orientationPolicy: orientation.value,
         cushioningM: Number.isFinite(cushioningMm) ? cushioningMm / 1000 : undefined,
+        productGapM: Number.isFinite(productGapMm) ? productGapMm / 1000 : undefined,
         maxInternalLayers: Number.isFinite(maxInternalLayers) ? maxInternalLayers : undefined,
         fragile: fragile.value,
         allowMixedCarton: mixed.value,
@@ -103,6 +107,7 @@ function parseProducts(sheetName: string, sheet: XLSX.WorkSheet, issues: Packagi
       && item.maxUnitsPerBox === base.maxUnitsPerBox
       && item.orientationPolicy === base.orientationPolicy
       && item.cushioningM === base.cushioningM
+      && item.productGapM === base.productGapM
       && item.maxInternalLayers === base.maxInternalLayers
       && item.fragile === base.fragile
       && item.allowMixedCarton === base.allowMixedCarton,
@@ -178,16 +183,16 @@ export async function parseProductPackagingWorkbook(file: File): Promise<Packagi
 export function downloadProductPackagingTemplate() {
   const workbook = XLSX.utils.book_new();
   const products = XLSX.utils.aoa_to_sheet([
-    ['제품코드', '제품명', '길이(mm)', '폭(mm)', '높이(mm)', '중량(kg)', '수량', '박스당최대EA', '회전정책', '완충여유(mm)', '내부최대적층', '파손주의', '혼합포장허용'],
-    ['PRD-A', '제품 A', 220, 120, 80, 0.6, 240, 24, 'base-rotation', 5, 3, 'N', 'Y'],
-    ['PRD-B', '제품 B', 310, 180, 110, 1.2, 120, 12, 'upright', 10, 1, 'Y', 'N'],
+    ['제품코드', '제품명', '길이(mm)', '폭(mm)', '높이(mm)', '중량(kg)', '수량', '박스당최대EA', '회전정책', '벽완충여유(mm)', '제품간격(mm)', '내부최대적층', '파손주의', '혼합포장허용'],
+    ['PRD-A', '제품 A', 220, 120, 80, 0.6, 240, 24, 'base-rotation', 5, 1, 3, 'N', 'Y'],
+    ['PRD-B', '제품 B', 310, 180, 110, 1.2, 120, 12, 'upright', 10, 1, 1, 'Y', 'N'],
   ]);
   const boxes = XLSX.utils.aoa_to_sheet([
     ['박스코드', '박스명', '내부L(mm)', '내부W(mm)', '내부H(mm)', '외부L(mm)', '외부W(mm)', '외부H(mm)', '박스자중(kg)', '최대총중량(kg)', '상부허용중량(kg)', '박스단가'],
     ['BOX-604040', '600×400×400', 590, 390, 390, 600, 400, 400, 0.8, 22, 80, 1.2],
     ['BOX-503030', '500×300×300', 490, 290, 290, 500, 300, 300, 0.6, 18, 60, 0.9],
   ]);
-  products['!cols'] = [14, 20, 12, 12, 12, 12, 10, 14, 18, 16, 16, 12, 16].map(wch => ({ wch }));
+  products['!cols'] = [14, 20, 12, 12, 12, 12, 10, 14, 18, 16, 16, 16, 12, 16].map(wch => ({ wch }));
   boxes['!cols'] = [14, 20, 12, 12, 12, 12, 12, 12, 14, 18, 18, 12].map(wch => ({ wch }));
   XLSX.utils.book_append_sheet(workbook, products, 'Products');
   XLSX.utils.book_append_sheet(workbook, boxes, 'Boxes');

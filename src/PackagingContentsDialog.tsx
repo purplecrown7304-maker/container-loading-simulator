@@ -4,10 +4,13 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { Edges, OrbitControls } from '@react-three/drei';
 import { Color, InstancedMesh, Object3D } from 'three';
 import { packagingContentsModel, type PackagingInspection } from './packagingContentsModel';
+import { createPackagingCartonScene } from './packagingCartonScene';
+import { loadMeshyModel, type MeshyModel } from './threeComparisonModels';
 import './packaging-contents.css';
 
 type Model = NonNullable<ReturnType<typeof packagingContentsModel>>;
 type View = 'orbit' | 'top' | 'front';
+const gapMm = (v: number) => (v * 1000).toLocaleString(undefined, { maximumFractionDigits: 6 });
 const mm = (v: number) => Math.round(v * 1000).toLocaleString();
 class SceneBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -52,15 +55,29 @@ function Products({ model, scale }: { model: Model; scale: number }) {
   }, [model, scale, invalidate]);
   return <><instancedMesh ref={mesh} args={[undefined, undefined, model.shown]}><boxGeometry args={[model.size[0] / scale, model.size[2] / scale, model.size[1] / scale]} /><meshStandardMaterial color="#ffffff" roughness={0.65} /></instancedMesh><lineSegments><bufferGeometry><bufferAttribute attach="attributes-position" args={[edges, 3]}/></bufferGeometry><lineBasicMaterial color="#54728e"/></lineSegments></>;
 }
+function MeshyCarton({ source, inner, outer, scale }: { source: MeshyModel; inner: number[]; outer: number[]; scale: number }) {
+  const { invalidate } = useThree();
+  const scene = useMemo(() => createPackagingCartonScene(source, inner, outer, scale), [source, inner, outer, scale]);
+  useEffect(() => { invalidate(); return scene.dispose; }, [scene, invalidate]);
+  return <primitive object={scene.object} dispose={null}/>;
+}
 export default function PackagingContentsDialog({ inspection, onClose }: { inspection: PackagingInspection; onClose: () => void }) {
   const [view, setView] = useState<View>('orbit');
   const [reset, setReset] = useState(0);
   const dialog = useRef<HTMLDivElement>(null);
   const close = useRef(onClose); close.current = onClose;
   const model = useMemo(() => packagingContentsModel(inspection), [inspection]);
+  const [carton, setCarton] = useState<MeshyModel | null>(null);
+  const [cartonFailed, setCartonFailed] = useState(false);
   const { product, assignment } = inspection;
   const scale = Math.max(assignment.outerLength, assignment.outerWidth, assignment.outerHeight);
+  const outer = useMemo(() => [assignment.outerLength, assignment.outerWidth, assignment.outerHeight], [assignment]);
   const [l, w, h] = [assignment.innerLength / scale, assignment.innerWidth / scale, assignment.innerHeight / scale];
+  useEffect(() => {
+    let active = true;
+    loadMeshyModel('carton').then(value => { if (active) setCarton(value); }, () => { if (active) setCartonFailed(true); });
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     dialog.current?.querySelector<HTMLButtonElement>('button')?.focus();
@@ -79,15 +96,17 @@ export default function PackagingContentsDialog({ inspection, onClose }: { inspe
     <div ref={dialog} className="packaging-contents-dialog" role="dialog" aria-modal="true" aria-label="박스 내부 제품 보기" tabIndex={-1}>
       <header><div><small>BOX CONTENTS</small><h2>{product.name}</h2><p>{assignment.boxName} · {assignment.boxId}</p></div><button type="button" data-view-only="true" aria-label="박스 내부 보기 닫기" onClick={onClose}>닫기 ×</button></header>
       <div className="packaging-contents-metrics"><span>이 박스의 제품 <b>{inspection.units.toLocaleString()} EA</b></span><span>박스 내경 <b>{mm(assignment.innerLength)} × {mm(assignment.innerWidth)} × {mm(assignment.innerHeight)} mm</b></span><span>제품 규격 <b>{mm(product.length)} × {mm(product.width)} × {mm(product.height)} mm</b></span></div>
-      {model ? <><div className="packaging-contents-controls" role="group" aria-label="박스 내부 시점"><button data-view-only="true" aria-pressed={view === 'orbit'} onClick={() => setView('orbit')}>입체</button><button data-view-only="true" aria-pressed={view === 'top'} onClick={() => setView('top')}>상단</button><button data-view-only="true" aria-pressed={view === 'front'} onClick={() => setView('front')}>정면</button><button data-view-only="true" onClick={() => { setView('orbit'); setReset(v => v + 1); }}>시점 초기화</button><span>{model.layers}단 · 완충 여유 {mm(model.padding)} mm</span></div>
-      <div className="packaging-contents-canvas" aria-label="열린 박스 안 제품 3D 모형"><SceneBoundary><Canvas frameloop="demand" dpr={[1, 1.5]} camera={{ position: [1.8, 1.5, 2], fov: 38 }}><color attach="background" args={['#edf2f6']} /><ambientLight intensity={1.7}/><directionalLight position={[3, 5, 4]} intensity={2}/>
+      {model ? <><div className="packaging-contents-controls" role="group" aria-label="박스 내부 시점"><button data-view-only="true" aria-pressed={view === 'orbit'} onClick={() => setView('orbit')}>입체</button><button data-view-only="true" aria-pressed={view === 'top'} onClick={() => setView('top')}>상단</button><button data-view-only="true" aria-pressed={view === 'front'} onClick={() => setView('front')}>정면</button><button data-view-only="true" onClick={() => { setView('orbit'); setReset(v => v + 1); }}>시점 초기화</button><span>{model.layers}단 · 제품 간격 {gapMm(model.gap)} mm</span></div>
+      <div className="packaging-contents-canvas" aria-label="열린 박스 안 제품 3D 모형"><SceneBoundary><Canvas frameloop="demand" dpr={[1, 1.5]} gl={{ localClippingEnabled: true }} camera={{ position: [1.8, 1.5, 2], fov: 38 }}><color attach="background" args={['#edf2f6']} /><ambientLight intensity={1.7}/><directionalLight position={[3, 5, 4]} intensity={2}/>
+        {carton ? <MeshyCarton source={carton} inner={model.inner} outer={outer} scale={scale}/> : <>
         <mesh position={[0, -h / 2 - 0.01, 0]}><boxGeometry args={[l + 0.02, 0.02, w + 0.02]}/><meshStandardMaterial color="#b98d54"/></mesh>
         <mesh position={[0, h / 2 + 0.08, -w / 2 - 0.13]} rotation={[-0.55, 0, 0]}><boxGeometry args={[l + 0.02, 0.012, 0.3]}/><meshStandardMaterial color="#cba977"/></mesh>
         <mesh position={[0, 0, -w / 2 - 0.01]}><boxGeometry args={[l + 0.02, h, 0.02]}/><meshStandardMaterial color="#cba977" transparent opacity={0.45} depthWrite={false}/></mesh>
         <mesh position={[-l / 2 - 0.01, 0, 0]}><boxGeometry args={[0.02, h, w]}/><meshStandardMaterial color="#cba977" transparent opacity={0.35} depthWrite={false}/></mesh>
         <mesh position={[l / 2 + 0.01, 0, 0]}><boxGeometry args={[0.02, h, w]}/><meshStandardMaterial color="#cba977" transparent opacity={0.15} depthWrite={false}/></mesh>
         <mesh><boxGeometry args={[l, h, w]}/><meshBasicMaterial transparent opacity={0} depthWrite={false}/><Edges color="#99723e"/></mesh>
+        </>}
         <Products model={model} scale={scale}/><OrbitControls makeDefault target={[0, 0, 0]} minDistance={0.5} maxDistance={6}/><CameraView view={view} reset={reset}/>
-      </Canvas></SceneBoundary></div><p className="packaging-contents-note">드래그 회전 · 휠 확대 · 뚜껑과 앞면을 열어 내부를 표시합니다. 제품은 등록 치수에 따른 형상이며 내부 배치는 등록 조건에 따른 표시 예시입니다.{model.shown < model.units ? ` 화면에는 ${model.shown} / ${model.units.toLocaleString()}개를 표시합니다.` : ''}</p></> : <p role="alert">제품 치수·방향·내부 적층 조건으로 이 수량을 표시할 수 없습니다. 박스와 제품 등록값을 확인하세요.</p>}
+      </Canvas></SceneBoundary></div><p className="packaging-contents-note" role="status">{carton ? 'Meshy 박스 원본 · 열린 단면 보기. ' : cartonFailed ? 'Meshy 모델을 불러오지 못해 기본 박스 형상을 표시합니다. ' : 'Meshy 박스 모델 로딩 중. '}드래그 회전 · 휠 확대. 제품 간격 {gapMm(model.gap)} mm · 박스 벽 완충 여유 {mm(model.padding)} mm. 포장 수량과 내부 배치는 동일한 간격·내경·방향·적층 조건으로 계산합니다.{model.shown < model.units ? ` 화면에는 ${model.shown} / ${model.units.toLocaleString()}개를 표시합니다.` : ''}</p></> : <p role="alert">제품 치수·방향·내부 적층 조건과 등록된 제품 간격으로 이 수량을 표시할 수 없습니다. 박스와 제품 등록값을 확인하세요.</p>}
     </div></div>, document.body);
 }

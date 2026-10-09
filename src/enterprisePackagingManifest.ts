@@ -1,6 +1,7 @@
 import type { EnterprisePackagingPlan } from './engine/enterprisePackagingOptimizer';
 import type { BoxCatalogItem, ProductItem } from './engine/productPackagingOptimizer';
 import type { CargoItem, ContainerSpec } from './engine/types';
+import { productGapM } from './engine/productInteriorGeometry';
 
 export const ENTERPRISE_PACKAGING_MANIFEST_KEY = 'container-loading-enterprise-packaging-manifest-v1';
 export const ENTERPRISE_PACKAGING_MANIFEST_EVENT = 'container-loading:enterprise-packaging-manifest';
@@ -63,7 +64,7 @@ export function createEnterprisePackagingManifest(
     version: 1,
     createdAt: new Date().toISOString(),
     container: { ...container },
-    products: products.map((item) => ({ ...item })),
+    products: products.map((item) => ({ ...item, productGapM: productGapM(item) })),
     boxes: boxes.map((item) => ({ ...item })),
     assignments: plan.assignments.map((item) => ({ ...item })),
     family: {

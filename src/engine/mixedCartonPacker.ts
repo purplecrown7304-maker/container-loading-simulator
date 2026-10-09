@@ -1,4 +1,5 @@
 import type { BoxCatalogItem, ProductItem, ProductOrientationPolicy } from './productPackagingOptimizer';
+import { productGapM } from './productInteriorGeometry';
 
 const EPS = 1e-9;
 
@@ -12,6 +13,8 @@ export type MixedCartonUnit = {
   weightKg: number;
   orientationPolicy: ProductOrientationPolicy;
   cushioningM: number;
+  productGapM?: number;
+  maxInternalLayers?: number;
 };
 
 export type MixedCartonPlacement = {
@@ -24,6 +27,8 @@ export type MixedCartonPlacement = {
   width: number;
   height: number;
   rotated: boolean;
+  internalLayer?: number;
+  internalLayerLimit?: number;
 };
 
 export type MixedCartonPacking = {
@@ -68,6 +73,8 @@ export function residualUnitsForProducts(
         weightKg: product.weightKg,
         orientationPolicy: productPolicy(product),
         cushioningM: Math.max(0, product.cushioningM ?? 0),
+        productGapM: productGapM(product),
+        maxInternalLayers: product.maxInternalLayers ?? (product.fragile ? 1 : undefined),
       };
       // 파손주의 제품은 명시적으로 허용해도 다른 SKU와 섞지 않는 보수적 기본값을 사용한다.
       if (product.allowMixedCarton === false || product.fragile) dedicated.push(unit);
@@ -78,10 +85,9 @@ export function residualUnitsForProducts(
 }
 
 function orientations(unit: MixedCartonUnit): Orientation[] {
-  const pad = unit.cushioningM * 2;
-  const l = unit.length + pad;
-  const w = unit.width + pad;
-  const h = unit.height + pad;
+  const l = unit.length;
+  const w = unit.width;
+  const h = unit.height;
   const raw: Array<[number, number, number, boolean]> = unit.orientationPolicy === 'upright'
     ? [[l, w, h, false]]
     : unit.orientationPolicy === 'base-rotation'
@@ -102,23 +108,24 @@ function orientations(unit: MixedCartonUnit): Orientation[] {
     .sort((a, b) => (b.length * b.width) - (a.length * a.width) || a.height - b.height || a.length - b.length || a.width - b.width);
 }
 
-function collides(candidate: MixedCartonPlacement, placed: MixedCartonPlacement[]) {
+function collides(candidate: MixedCartonPlacement, placed: MixedCartonPlacement[], gap: number) {
   return placed.some((item) =>
-    candidate.x < item.x + item.length - EPS && candidate.x + candidate.length > item.x + EPS
-    && candidate.y < item.y + item.width - EPS && candidate.y + candidate.width > item.y + EPS
-    && candidate.z < item.z + item.height - EPS && candidate.z + candidate.height > item.z + EPS,
+    candidate.x < item.x + item.length + gap - EPS && candidate.x + candidate.length + gap > item.x + EPS
+    && candidate.y < item.y + item.width + gap - EPS && candidate.y + candidate.width + gap > item.y + EPS
+    && candidate.z < item.z + item.height + gap - EPS && candidate.z + candidate.height + gap > item.z + EPS,
   );
 }
 
-function isSupported(candidate: MixedCartonPlacement, placed: MixedCartonPlacement[]) {
-  if (candidate.z <= EPS) return true;
-  return placed.some((below) =>
-    Math.abs((below.z + below.height) - candidate.z) <= EPS
+function supportedLayer(candidate: MixedCartonPlacement, placed: MixedCartonPlacement[], padding: number, gap: number) {
+  if (Math.abs(candidate.z - padding) <= EPS) return { layer: 1, limit: Infinity };
+  const below = placed.find((below) =>
+    Math.abs((below.z + below.height + gap) - candidate.z) <= EPS
     && candidate.x >= below.x - EPS
     && candidate.y >= below.y - EPS
     && candidate.x + candidate.length <= below.x + below.length + EPS
     && candidate.y + candidate.width <= below.y + below.width + EPS,
   );
+  return below ? { layer: (below.internalLayer ?? 1) + 1, limit: below.internalLayerLimit ?? Infinity } : { layer: 0, limit: 0 };
 }
 
 function pointKey(point: Point) {
@@ -199,7 +206,7 @@ function candidateBoundingVolume(candidate: MixedCartonPlacement, placed: MixedC
   return maxX * maxY * maxZ;
 }
 
-function bestPlacementForUnit(box: BoxCatalogItem, unit: MixedCartonUnit, placed: MixedCartonPlacement[], points: Point[]) {
+function bestPlacementForUnit(box: BoxCatalogItem, unit: MixedCartonUnit, placed: MixedCartonPlacement[], points: Point[], padding: number, gap: number) {
   const candidates: Array<{ placement: MixedCartonPlacement; point: Point; boundingVolume: number; contact: number }> = [];
   const currentPoints = normalizedPoints(points, box, placed);
   for (const point of currentPoints) {
@@ -215,10 +222,16 @@ function bestPlacementForUnit(box: BoxCatalogItem, unit: MixedCartonUnit, placed
         height: orientation.height,
         rotated: orientation.rotated,
       };
-      if (candidate.x + candidate.length > box.innerLength + EPS
-        || candidate.y + candidate.width > box.innerWidth + EPS
-        || candidate.z + candidate.height > box.innerHeight + EPS) continue;
-      if (collides(candidate, placed) || !isSupported(candidate, placed)) continue;
+      if (candidate.x < padding - EPS || candidate.y < padding - EPS || candidate.z < padding - EPS
+        || candidate.x + candidate.length > box.innerLength - padding + EPS
+        || candidate.y + candidate.width > box.innerWidth - padding + EPS
+        || candidate.z + candidate.height > box.innerHeight - padding + EPS) continue;
+      const support = supportedLayer(candidate, placed, padding, gap);
+      const layer = support.layer;
+      const limit = Math.min(unit.maxInternalLayers ?? Infinity, support.limit);
+      if (collides(candidate, placed, gap) || !layer || layer > limit) continue;
+      candidate.internalLayer = layer;
+      candidate.internalLayerLimit = Number.isFinite(limit) ? limit : undefined;
       candidates.push({
         placement: candidate,
         point,
@@ -239,19 +252,19 @@ function bestPlacementForUnit(box: BoxCatalogItem, unit: MixedCartonUnit, placed
   )[0];
 }
 
-function addExtremePoints(points: Point[], chosen: MixedCartonPlacement, placed: MixedCartonPlacement[]) {
+function addExtremePoints(points: Point[], chosen: MixedCartonPlacement, placed: MixedCartonPlacement[], gap: number) {
   points.push(
-    { x: chosen.x + chosen.length, y: chosen.y, z: chosen.z },
-    { x: chosen.x, y: chosen.y + chosen.width, z: chosen.z },
-    { x: chosen.x, y: chosen.y, z: chosen.z + chosen.height },
+    { x: chosen.x + chosen.length + gap, y: chosen.y, z: chosen.z },
+    { x: chosen.x, y: chosen.y + chosen.width + gap, z: chosen.z },
+    { x: chosen.x, y: chosen.y, z: chosen.z + chosen.height + gap },
   );
   // 기존 면과 새 박스 면의 교차점도 후보로 추가한다. 이는 단순 3축 피벗보다
   // 계단형 빈 공간을 다시 찾는 데 유리하며 모든 후보는 후속 경계/충돌/지지 검사를 거친다.
   for (const item of placed) {
     points.push(
-      { x: item.x + item.length, y: chosen.y, z: chosen.z },
-      { x: chosen.x, y: item.y + item.width, z: chosen.z },
-      { x: chosen.x, y: chosen.y, z: item.z + item.height },
+      { x: item.x + item.length + gap, y: chosen.y, z: chosen.z },
+      { x: chosen.x, y: item.y + item.width + gap, z: chosen.z },
+      { x: chosen.x, y: chosen.y, z: item.z + item.height + gap },
     );
   }
 }
@@ -261,19 +274,27 @@ function buildPacking(box: BoxCatalogItem, allUnits: MixedCartonUnit[], consider
   const placed: MixedCartonPlacement[] = [];
   const consideredKeys = new Set(consideredUnits.map((unit) => unit.key));
   const unplaced = new Set(allUnits.map((unit) => unit.key));
-  let points: Point[] = [{ x: 0, y: 0, z: 0 }];
+  // Different SKUs share the strictest declared wall cushion and product gap.
+  const padding = Math.max(0, ...consideredUnits.map(unit => unit.cushioningM));
+  const gap = Math.max(0, ...consideredUnits.map(unit => productGapM(unit)));
+  let points: Point[] = [{ x: padding, y: padding, z: padding }];
   let payloadWeight = 0;
 
   for (const unit of ordered) {
     if (box.tareWeightKg + payloadWeight + unit.weightKg > box.maxGrossWeightKg + EPS) continue;
-    const best = bestPlacementForUnit(box, unit, placed, points);
+    if (![unit.length, unit.width, unit.height, unit.weightKg].every(v => Number.isFinite(v) && v > 0)
+      || !Number.isFinite(unit.cushioningM) || unit.cushioningM < 0
+      || !Number.isFinite(productGapM(unit)) || productGapM(unit) < 0
+      || !Number.isFinite(padding) || !Number.isFinite(gap)
+      || (unit.maxInternalLayers != null && (!Number.isSafeInteger(unit.maxInternalLayers) || unit.maxInternalLayers < 1))) continue;
+    const best = bestPlacementForUnit(box, unit, placed, points, padding, gap);
     if (!best) continue;
     const chosen = best.placement;
     placed.push(chosen);
     payloadWeight += unit.weightKg;
     unplaced.delete(unit.key);
     points = normalizedPoints(points.filter((point) => pointKey(point) !== pointKey(best.point)), box, placed);
-    addExtremePoints(points, chosen, placed.filter((item) => item.unitKey !== chosen.unitKey));
+    addExtremePoints(points, chosen, placed.filter((item) => item.unitKey !== chosen.unitKey), gap);
   }
 
   // maxUnits로 탐색에서 제외한 단위도 반드시 미배치로 남겨 수량 유실을 막는다.

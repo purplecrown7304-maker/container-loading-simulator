@@ -2,6 +2,7 @@ import { buildReportDocument, reportTable, REPORT_SIGNOFF } from './reportLayout
 import type { EnterprisePackagingPlan } from './engine/enterprisePackagingOptimizer';
 import type { BoxCatalogItem, ProductItem } from './engine/productPackagingOptimizer';
 import type { ContainerSpec } from './engine/types';
+import { productGapM } from './engine/productInteriorGeometry';
 
 const esc = (value: unknown) => String(value ?? '')
   .replaceAll('&', '&amp;')
@@ -21,7 +22,8 @@ function productHandling(product: ProductItem | undefined) {
       : '바닥면 90° 회전';
   return [
     orientation,
-    product.cushioningM ? `완충 ${Math.round(product.cushioningM * 1000)}mm` : null,
+    `제품 간격 ${productGapM(product) * 1000}mm`,
+    product.cushioningM ? `벽 완충 ${Math.round(product.cushioningM * 1000)}mm` : null,
     product.maxInternalLayers ? `내부 ${product.maxInternalLayers}단 이하` : null,
     product.fragile ? '파손주의' : null,
     product.allowMixedCarton === false ? '혼합금지' : null,
