@@ -51,6 +51,7 @@ describe('enterprise packaging work order', () => {
     expect(html).toContain('1단 / 상부허용 0kg');
     expect(html).toContain('세워서만');
     expect(html).toContain('완충 5mm');
+    expect(html).toContain('제품 간격 1mm');
     expect(html).toContain('파손주의');
     expect(html).toContain('혼합금지');
   });

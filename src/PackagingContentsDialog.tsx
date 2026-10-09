@@ -10,6 +10,7 @@ import './packaging-contents.css';
 
 type Model = NonNullable<ReturnType<typeof packagingContentsModel>>;
 type View = 'orbit' | 'top' | 'front';
+const gapMm = (v: number) => (v * 1000).toLocaleString(undefined, { maximumFractionDigits: 6 });
 const mm = (v: number) => Math.round(v * 1000).toLocaleString();
 class SceneBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -95,7 +96,7 @@ export default function PackagingContentsDialog({ inspection, onClose }: { inspe
     <div ref={dialog} className="packaging-contents-dialog" role="dialog" aria-modal="true" aria-label="박스 내부 제품 보기" tabIndex={-1}>
       <header><div><small>BOX CONTENTS</small><h2>{product.name}</h2><p>{assignment.boxName} · {assignment.boxId}</p></div><button type="button" data-view-only="true" aria-label="박스 내부 보기 닫기" onClick={onClose}>닫기 ×</button></header>
       <div className="packaging-contents-metrics"><span>이 박스의 제품 <b>{inspection.units.toLocaleString()} EA</b></span><span>박스 내경 <b>{mm(assignment.innerLength)} × {mm(assignment.innerWidth)} × {mm(assignment.innerHeight)} mm</b></span><span>제품 규격 <b>{mm(product.length)} × {mm(product.width)} × {mm(product.height)} mm</b></span></div>
-      {model ? <><div className="packaging-contents-controls" role="group" aria-label="박스 내부 시점"><button data-view-only="true" aria-pressed={view === 'orbit'} onClick={() => setView('orbit')}>입체</button><button data-view-only="true" aria-pressed={view === 'top'} onClick={() => setView('top')}>상단</button><button data-view-only="true" aria-pressed={view === 'front'} onClick={() => setView('front')}>정면</button><button data-view-only="true" onClick={() => { setView('orbit'); setReset(v => v + 1); }}>시점 초기화</button><span>{model.layers}단 · 표시 간격 {mm(model.gap)} mm</span></div>
+      {model ? <><div className="packaging-contents-controls" role="group" aria-label="박스 내부 시점"><button data-view-only="true" aria-pressed={view === 'orbit'} onClick={() => setView('orbit')}>입체</button><button data-view-only="true" aria-pressed={view === 'top'} onClick={() => setView('top')}>상단</button><button data-view-only="true" aria-pressed={view === 'front'} onClick={() => setView('front')}>정면</button><button data-view-only="true" onClick={() => { setView('orbit'); setReset(v => v + 1); }}>시점 초기화</button><span>{model.layers}단 · 제품 간격 {gapMm(model.gap)} mm</span></div>
       <div className="packaging-contents-canvas" aria-label="열린 박스 안 제품 3D 모형"><SceneBoundary><Canvas frameloop="demand" dpr={[1, 1.5]} gl={{ localClippingEnabled: true }} camera={{ position: [1.8, 1.5, 2], fov: 38 }}><color attach="background" args={['#edf2f6']} /><ambientLight intensity={1.7}/><directionalLight position={[3, 5, 4]} intensity={2}/>
         {carton ? <MeshyCarton source={carton} inner={model.inner} outer={outer} scale={scale}/> : <>
         <mesh position={[0, -h / 2 - 0.01, 0]}><boxGeometry args={[l + 0.02, 0.02, w + 0.02]}/><meshStandardMaterial color="#b98d54"/></mesh>
@@ -106,6 +107,6 @@ export default function PackagingContentsDialog({ inspection, onClose }: { inspe
         <mesh><boxGeometry args={[l, h, w]}/><meshBasicMaterial transparent opacity={0} depthWrite={false}/><Edges color="#99723e"/></mesh>
         </>}
         <Products model={model} scale={scale}/><OrbitControls makeDefault target={[0, 0, 0]} minDistance={0.5} maxDistance={6}/><CameraView view={view} reset={reset}/>
-      </Canvas></SceneBoundary></div><p className="packaging-contents-note" role="status">{carton ? 'Meshy 박스 원본 · 열린 단면 보기. ' : cartonFailed ? 'Meshy 모델을 불러오지 못해 기본 박스 형상을 표시합니다. ' : 'Meshy 박스 모델 로딩 중. '}드래그 회전 · 휠 확대. 등록 치수의 제품을 표시 간격 {mm(model.gap)} mm로 모아 보여주는 예시입니다. 포장 수량 계산에는 등록된 완충 여유 {mm(model.padding)} mm가 유지됩니다.{model.shown < model.units ? ` 화면에는 ${model.shown} / ${model.units.toLocaleString()}개를 표시합니다.` : ''}</p></> : <p role="alert">제품 치수·방향·내부 적층 조건과 표시 간격 1 mm로 이 수량을 표시할 수 없습니다. 박스와 제품 등록값을 확인하세요.</p>}
+      </Canvas></SceneBoundary></div><p className="packaging-contents-note" role="status">{carton ? 'Meshy 박스 원본 · 열린 단면 보기. ' : cartonFailed ? 'Meshy 모델을 불러오지 못해 기본 박스 형상을 표시합니다. ' : 'Meshy 박스 모델 로딩 중. '}드래그 회전 · 휠 확대. 제품 간격 {gapMm(model.gap)} mm · 박스 벽 완충 여유 {mm(model.padding)} mm. 포장 수량과 내부 배치는 동일한 간격·내경·방향·적층 조건으로 계산합니다.{model.shown < model.units ? ` 화면에는 ${model.shown} / ${model.units.toLocaleString()}개를 표시합니다.` : ''}</p></> : <p role="alert">제품 치수·방향·내부 적층 조건과 등록된 제품 간격으로 이 수량을 표시할 수 없습니다. 박스와 제품 등록값을 확인하세요.</p>}
     </div></div>, document.body);
 }

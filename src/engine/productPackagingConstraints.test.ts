@@ -31,8 +31,10 @@ describe('enterprise product packaging constraints', () => {
   it('uses cushioning clearance when calculating units per carton', () => {
     const box: BoxCatalogItem = {
       id: 'BOX', name: '박스',
-      innerLength: 0.4, innerWidth: 0.2, innerHeight: 0.2,
-      outerLength: 0.41, outerWidth: 0.21, outerHeight: 0.21,
+      // Enough room for 1mm gaps without wall padding; adding 10mm at each
+      // wall then crosses a capacity threshold on all axes.
+      innerLength: 0.41, innerWidth: 0.21, innerHeight: 0.21,
+      outerLength: 0.42, outerWidth: 0.22, outerHeight: 0.22,
       tareWeightKg: 0.3, maxGrossWeightKg: 20,
     };
     const base: ProductItem = { id: 'A', name: 'A', length: 0.1, width: 0.1, height: 0.1, weightKg: 0.2, quantity: 100, orientationPolicy: 'upright' };
@@ -42,6 +44,8 @@ describe('enterprise product packaging constraints', () => {
     const paddedPlan = optimizeProductPackaging(container, [padded], [box], { allowCustomBoxDesign: false, maxGeneratedGrossWeightKg: 22, generatedBoxTareKg: 0.6, clearanceM: 0.01, wallThicknessM: 0.004, maxGeneratedUnitsPerBox: 24 });
 
     expect(basePlan.assignments[0].unitsPerBox).toBeGreaterThan(paddedPlan.assignments[0].unitsPerBox);
+    expect(basePlan.assignments[0].unitsPerBox).toBe(16);
+    expect(paddedPlan.assignments[0].unitsPerBox).toBe(3);
   });
 
   it('limits fragile products to one internal layer unless explicitly overridden', () => {

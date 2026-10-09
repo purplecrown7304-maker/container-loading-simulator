@@ -1,16 +1,16 @@
 import type { ProductItem, ProductPackagingAssignment } from './engine/productPackagingOptimizer';
+import { productGapM, productInteriorGrid, productPackingOrientations } from './engine/productInteriorGeometry';
 
 export const OPEN_PACKAGING_CONTENTS_EVENT = 'container-loading:open-packaging-contents';
 export type PackagingInspectionRequest = { cargoId?: string; productId?: string };
 export type PackagingInspection = { product: ProductItem; assignment: ProductPackagingAssignment; units: number };
-/** Owner-selected display spacing. Does not change packaging or cushioning constraints. */
-export const DEFAULT_CONTENTS_DISPLAY_GAP_M = 0.001;
 export function openPackagingContents(request: PackagingInspectionRequest) {
   window.dispatchEvent(new CustomEvent(OPEN_PACKAGING_CONTENTS_EVENT, { detail: request }));
 }
 
 /** Display-only regular grid matching the existing packaging orientation/layer rules. */
-export function packagingContentsModel({ product, assignment, units }: PackagingInspection, limit = 600, gap = DEFAULT_CONTENTS_DISPLAY_GAP_M) {
+export function packagingContentsModel({ product, assignment, units }: PackagingInspection, limit = 600) {
+  const gap = productGapM(product);
   const inner = [assignment.innerLength, assignment.innerWidth, assignment.innerHeight];
   const outer = [assignment.outerLength, assignment.outerWidth, assignment.outerHeight];
   const dims = [product.length, product.width, product.height];
@@ -26,16 +26,10 @@ export function packagingContentsModel({ product, assignment, units }: Packaging
   const padding = product.cushioningM ?? 0;
   const policy = product.orientationPolicy ?? (product.allowRotation === false ? 'upright' : 'base-rotation');
   if (!['upright', 'base-rotation', 'any'].includes(policy)) return null;
-  const permutations = policy === 'upright' ? [[0, 1, 2]] : policy === 'any'
-    ? [[0, 1, 2], [1, 0, 2], [0, 2, 1], [2, 0, 1], [1, 2, 0], [2, 1, 0]] : [[0, 1, 2], [1, 0, 2]];
   const maxLayers = product.maxInternalLayers ?? (product.fragile ? 1 : Infinity);
   if (product.maxInternalLayers != null && (!Number.isSafeInteger(maxLayers) || maxLayers < 1)) return null;
-  const candidates = permutations.map(order => {
-    const size = order.map(i => dims[i]);
-    // Retain the calculator's grid and layer limits. Compact only the display;
-    // never infer extra capacity by reducing the registered cushioning envelope.
-    const grid = size.map((d, i) => Math.floor((inner[i] + 1e-9) / (d + 2 * padding)));
-    grid[2] = Math.min(grid[2], maxLayers);
+  const candidates = productPackingOrientations(product).map(size => {
+    const grid = productInteriorGrid(product, inner, size);
     const pitch = size.map(d => d + gap);
     const capacity = grid[0] * grid[1] * grid[2];
     const occupied = [Math.min(grid[0], units), Math.min(grid[1], Math.ceil(units / grid[0])), Math.ceil(units / (grid[0] * grid[1]))];

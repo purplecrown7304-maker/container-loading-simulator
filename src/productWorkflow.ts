@@ -8,6 +8,7 @@ import {
   type ProductPackagingAssignment,
 } from './engine/productPackagingOptimizer';
 import type { CargoItem, ContainerSpec } from './engine/types';
+import { productGapM, productInteriorGrid, productInteriorRequiredExtent, productPackingOrientations } from './engine/productInteriorGeometry';
 import {
   enterprisePackagingOptionsFromPlanner,
   readEnterprisePackagingPlannerState,
@@ -84,28 +85,6 @@ export function plannerContainer(): ContainerSpec {
   return state?.container ?? { length: 12.032, width: 2.35, height: 2.7, maxPayloadKg: 28600, floorLoadLimitKgPerM2: 1500, floorLoadWarningMultiplier: 3 };
 }
 
-type QuickOrientation = [number, number, number];
-
-function quickOrientations(product: CompanyProductItem): QuickOrientation[] {
-  const padding = Math.max(0, product.cushioningM ?? 0);
-  const l = product.length + padding * 2;
-  const w = product.width + padding * 2;
-  const h = product.height + padding * 2;
-  const policy = product.orientationPolicy ?? (product.allowRotation === false ? 'upright' : 'base-rotation');
-  const raw: QuickOrientation[] = policy === 'upright'
-    ? [[l, w, h]]
-    : policy === 'any'
-      ? [[l, w, h], [w, l, h], [l, h, w], [h, l, w], [w, h, l], [h, w, l]]
-      : [[l, w, h], [w, l, h]];
-  const seen = new Set<string>();
-  return raw.filter(([a, b, c]) => {
-    const key = `${a.toFixed(6)}:${b.toFixed(6)}:${c.toFixed(6)}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
 function quickTileEfficiency(container: ContainerSpec, l: number, w: number, h: number) {
   const count = (a: number, b: number) => Math.floor((container.length + QUICK_EPS) / a) * Math.floor((container.width + QUICK_EPS) / b) * Math.floor((container.height + QUICK_EPS) / h);
   const bestCount = Math.max(count(l, w), count(w, l));
@@ -114,13 +93,10 @@ function quickTileEfficiency(container: ContainerSpec, l: number, w: number, h: 
 }
 
 function quickUnitsInBox(product: CompanyProductItem, box: BoxCatalogItem) {
-  const layerLimit = product.maxInternalLayers ?? (product.fragile ? 1 : Number.POSITIVE_INFINITY);
   const perBoxLimit = product.maxUnitsPerBox ?? Number.POSITIVE_INFINITY;
   let best = 0;
-  for (const [pl, pw, ph] of quickOrientations(product)) {
-    const nx = Math.floor((box.innerLength + QUICK_EPS) / pl);
-    const ny = Math.floor((box.innerWidth + QUICK_EPS) / pw);
-    const nz = Math.min(layerLimit, Math.floor((box.innerHeight + QUICK_EPS) / ph));
+  for (const size of productPackingOrientations(product)) {
+    const [nx, ny, nz] = productInteriorGrid(product, [box.innerLength, box.innerWidth, box.innerHeight], size);
     const byWeight = Math.floor((box.maxGrossWeightKg - box.tareWeightKg + QUICK_EPS) / product.weightKg);
     best = Math.max(best, Math.min(nx * ny * nz, byWeight, perBoxLimit));
   }
@@ -205,7 +181,7 @@ function packagingCacheKey(
     c: [container.length, container.width, container.height, container.maxPayloadKg],
     p: [
       product.id, product.length, product.width, product.height, product.weightKg, product.quantity,
-      product.allowRotation, product.orientationPolicy, product.maxUnitsPerBox, product.cushioningM,
+      product.allowRotation, product.orientationPolicy, product.maxUnitsPerBox, product.cushioningM, product.productGapM,
       product.maxInternalLayers, product.fragile,
     ],
     b: boxCatalogFingerprint(boxes),
@@ -247,13 +223,13 @@ function generatedQuickCandidates(
   const seen = new Set<string>();
   let index = 0;
 
-  for (const [pl, pw, ph] of quickOrientations(product)) {
+  for (const [pl, pw, ph] of productPackingOrientations(product)) {
     for (let nx = 1; nx <= 4; nx += 1) for (let ny = 1; ny <= 4; ny += 1) for (let nz = 1; nz <= layerLimit; nz += 1) {
       const units = nx * ny * nz;
       if (units > maxUnits || units * product.weightKg + packaging.generatedBoxTareKg > packaging.maxGeneratedGrossWeightKg + QUICK_EPS) continue;
-      const innerLength = roundUpQuick(pl * nx + packaging.clearanceM * 2, step);
-      const innerWidth = roundUpQuick(pw * ny + packaging.clearanceM * 2, step);
-      const innerHeight = roundUpQuick(ph * nz + packaging.clearanceM * 2, step);
+      const innerLength = roundUpQuick(productInteriorRequiredExtent(product, pl, nx) + packaging.clearanceM * 2, step);
+      const innerWidth = roundUpQuick(productInteriorRequiredExtent(product, pw, ny) + packaging.clearanceM * 2, step);
+      const innerHeight = roundUpQuick(productInteriorRequiredExtent(product, ph, nz) + packaging.clearanceM * 2, step);
       const outerLength = roundUpQuick(innerLength + packaging.wallThicknessM * 2, step);
       const outerWidth = roundUpQuick(innerWidth + packaging.wallThicknessM * 2, step);
       const outerHeight = roundUpQuick(innerHeight + packaging.wallThicknessM * 2, step);
@@ -301,6 +277,14 @@ export function packagingCandidates(
   state?: EnterprisePackagingPlannerState | null,
 ): ProductPackagingAssignment[] {
   if (!requiresBoxPackaging(product)) return [];
+  // Validate before JSON cache lookup: JSON serializes NaN/Infinity as null,
+  // which must never reuse a previously valid candidate with missing settings.
+  if (![product.length, product.width, product.height, product.weightKg].every(v => Number.isFinite(v) && v > 0)
+    || !Number.isSafeInteger(product.quantity) || product.quantity < 1
+    || !Number.isFinite(productGapM(product)) || productGapM(product) < 0
+    || !Number.isFinite(product.cushioningM ?? 0) || (product.cushioningM ?? 0) < 0
+    || (product.maxInternalLayers != null && (!Number.isSafeInteger(product.maxInternalLayers) || product.maxInternalLayers < 1))
+    || (product.maxUnitsPerBox != null && (!Number.isSafeInteger(product.maxUnitsPerBox) || product.maxUnitsPerBox < 1))) return [];
   const planner = state ?? readEnterprisePackagingPlannerState();
   const cacheKey = packagingCacheKey(container, product, boxes, planner);
   const cached = packagingCandidateCache.get(cacheKey);

@@ -541,7 +541,9 @@ export default function GuidedWorkflowShell() {
   };
   // Handling/destination choices do not change the confirmed carton design.
   const { unloadingPolicy: _unload, palletDestination: _destination, incompatiblePairs: _pairs, ...packagingContainer } = live.container;
-  const packagingKey = JSON.stringify({ container: packagingContainer, cargo: packaging.cargo });
+  const packagingKey = JSON.stringify({ container: packagingContainer, cargo: packaging.cargo,
+    interior: packaging.products.filter(requiresBoxPackaging).map(product => [product.id, product.length, product.width, product.height,
+      product.cushioningM, product.productGapM, product.orientationPolicy, product.allowRotation, product.maxInternalLayers, product.fragile]) });
   useEffect(() => {
     setInspection(undefined);
     setPackagingConfirmed(false);

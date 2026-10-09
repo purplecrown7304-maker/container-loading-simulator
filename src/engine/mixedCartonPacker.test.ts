@@ -95,4 +95,19 @@ describe('mixed residual carton packer', () => {
       }
     }
   });
+  it('shares 1mm spacing with dedicated cartons and preserves walls and stacked layer limits', () => {
+    const units = Array.from({ length: 4 }, (_, i) => ({ key: `G#${i}`, productId: 'G', productName: 'G', length: .1, width: .1, height: .1, weightKg: .1, orientationPolicy: 'upright' as const, cushioningM: .005, maxInternalLayers: 2 }));
+    const slim = { ...box, innerLength: .11, innerWidth: .11, innerHeight: .42 };
+    const packed = packMixedUnitsIntoCarton(slim, units);
+    expect(packed.placements).toHaveLength(2); expect(packed.unplacedUnitKeys).toHaveLength(2);
+    const [a, b] = packed.placements;
+    expect(a.z).toBeCloseTo(.005); expect(b.z - a.z - a.height).toBeCloseTo(.001);
+    for (const p of packed.placements) {
+      expect(p.length).toBe(.1); expect(p.x).toBeGreaterThanOrEqual(.005);
+      expect(p.x + p.length).toBeLessThanOrEqual(slim.innerLength - .005 + 1e-9);
+    }
+    // An upper SKU cannot evade the lower item's declared two-tier limit.
+    const mixed = packMixedUnitsIntoCarton(slim, units.map((u, i) => ({ ...u, productId: String(i), maxInternalLayers: i ? 10 : 2 })));
+    expect(mixed.placements).toHaveLength(2);
+  });
 });

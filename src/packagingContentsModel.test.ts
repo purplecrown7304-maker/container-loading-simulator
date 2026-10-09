@@ -35,7 +35,7 @@ describe('carton contents display geometry', () => {
     const value = fixture(); const m = packagingContentsModel(value, 3)!;
     expect(m.shown).toBe(3); expect(m.units).toBe(8); expect(m.layers).toBe(2);
   });
-  it('compacts the registered cushioning grid to exactly 1mm on all axes without changing inputs', () => {
+  it('uses exactly 1mm on all axes and preserves the wall cushion without changing inputs', () => {
     const value = fixture(); value.product.cushioningM = .005;
     value.assignment.innerLength = value.assignment.innerWidth = value.assignment.innerHeight = .22;
     value.assignment.outerLength = value.assignment.outerWidth = value.assignment.outerHeight = .23;
@@ -54,21 +54,23 @@ describe('carton contents display geometry', () => {
   it('does not fabricate room for 1mm gaps in an exact-fit carton', () => {
     const value = fixture(); value.assignment.innerLength = value.assignment.innerWidth = value.assignment.innerHeight = .2;
     expect(packagingContentsModel(value)).toBeNull();
-    expect(packagingContentsModel(value, 600, 0)?.shown).toBe(8);
+    value.product.productGapM = 0;
+    expect(packagingContentsModel(value)?.shown).toBe(8);
   });
-  it('shows the reported 96-product carton in eight compact layers', () => {
+  it('shows the recalculated 165-product carton in eleven layers', () => {
     // Synthetic reconstruction of the screenshot dimensions, not company inventory.
     const value = fixture();
-    Object.assign(value.product, { length: .03, width: .04, height: .02, cushioningM: .005, quantity: 96 });
-    Object.assign(value.assignment, { unitsPerBox: 96, innerLength: .227, innerWidth: .122, innerHeight: .257, outerLength: .235, outerWidth: .130, outerHeight: .265 });
-    value.units = 96;
+    Object.assign(value.product, { length: .03, width: .04, height: .02, cushioningM: .005, quantity: 330 });
+    Object.assign(value.assignment, { unitsPerBox: 165, innerLength: .227, innerWidth: .122, innerHeight: .257, outerLength: .235, outerWidth: .130, outerHeight: .265 });
+    value.units = 165;
     const m = packagingContentsModel(value)!;
-    expect(m.shown).toBe(96); expect(m.layers).toBe(8);
-    expect(m.positions[12][2] - m.positions[0][2] - m.size[2]).toBeCloseTo(.001, 10);
-    expect(m.positions[95][2] + m.size[2] / 2).toBeCloseTo(.172, 10);
+    expect(m.shown).toBe(165); expect(m.layers).toBe(11); expect(m.size).toEqual([.04, .03, .02]);
+    expect(m.positions[15][2] - m.positions[0][2] - m.size[2]).toBeCloseTo(.001, 10);
+    expect(m.positions[164][2] + m.size[2] / 2).toBeCloseTo(.235, 10);
   });
   it.each([-1, NaN, Infinity])('rejects an invalid display gap %s', gap => {
-    expect(packagingContentsModel(fixture(), 600, gap)).toBeNull();
+    const value = fixture(); value.product.productGapM = gap;
+    expect(packagingContentsModel(value)).toBeNull();
   });
   it.each([0, NaN, Infinity, -1])('rejects invalid dimensions %s rather than inventing products', dimension => {
     const value = fixture(); value.product.length = dimension; expect(packagingContentsModel(value)).toBeNull();

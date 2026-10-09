@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import type { EnterprisePackagingPlan } from './engine/enterprisePackagingOptimizer';
 import type { BoxCatalogItem, ProductItem } from './engine/productPackagingOptimizer';
 import type { ContainerSpec } from './engine/types';
+import { productGapM } from './engine/productInteriorGeometry';
 
 const mm = (value: number) => Math.round(value * 1000);
 const pct = (value: number) => Number((value * 100).toFixed(2));
@@ -55,7 +56,8 @@ export function downloadEnterprisePackagingWorkbook(
       '제품중량(kg)': product?.weightKg ?? '',
       '출하수량(EA)': product?.quantity ?? '',
       '회전정책': product?.orientationPolicy ?? (product?.allowRotation === false ? 'upright' : 'base-rotation'),
-      '완충여유(mm)': product ? mm(product.cushioningM ?? 0) : '',
+      '벽완충여유(mm)': product ? mm(product.cushioningM ?? 0) : '',
+      '제품간격(mm)': product ? productGapM(product) * 1000 : '',
       '파손주의': product?.fragile === true,
       '잔량 혼합허용': product?.allowMixedCarton !== false,
       '선정박스코드': item.boxId,
