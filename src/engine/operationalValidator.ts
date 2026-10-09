@@ -4,6 +4,7 @@ import { validateAPlan } from './loadSimAdapter';
 import { cargoWithUnloadingPolicy } from './unloadingPolicy';
 import { CONTACT_TOLERANCE_M, MIN_SUPPORT_RATIO, supportContactArea } from './support';
 import { findMatchingEquipment } from '../transportEquipment';
+import { candidateIndexes, footprintGridFor } from './footprintGrid';
 import type { CargoItem, ContainerSpec, OperationalRuleFinding, Placement } from './types';
 
 const EPS = 1e-6;
@@ -93,11 +94,13 @@ function buildBodies(cargo: CargoItem[], placements: Placement[], supports: Oper
 }
 
 function supportersOf(bodies: Body[]) {
+  // Contact needs overlapping footprints; ascending candidates keep the original link order.
+  const grid = footprintGridFor(bodies.map(body => body.placement));
   return bodies.map((body, index) => {
     const p = body.placement;
     const links: SupportLink[] = [];
     if (p.z <= HEIGHT_TOLERANCE_M) return links;
-    for (let j = 0; j < bodies.length; j += 1) {
+    for (const j of candidateIndexes(grid, bodies.length, p.x, p.y, p.x + p.length, p.y + p.width)) {
       if (j === index) continue;
       const below = bodies[j].placement;
       const area = supportContactArea(below, p);
@@ -129,8 +132,11 @@ function checkBounds(container: ContainerSpec, bodies: Body[]) {
 
 function checkOverlap(bodies: Body[]) {
   const out: OperationalRuleFinding[] = [];
+  const grid = footprintGridFor(bodies.map(body => body.placement));
   for (let i = 0; i < bodies.length; i += 1) {
-    for (let j = i + 1; j < bodies.length; j += 1) {
+    const p = bodies[i].placement;
+    for (const j of candidateIndexes(grid, bodies.length, p.x, p.y, p.x + p.length, p.y + p.width)) {
+      if (j <= i) continue;
       if (!overlapsVolume(bodies[i].placement, bodies[j].placement)) continue;
       out.push(finding(
         'OVERLAP',
@@ -274,11 +280,14 @@ function checkUnloadOrder(bodies: Body[]) {
     .map((body, bodyIndex) => ({ body, bodyIndex }))
     .filter(row => row.body.kind === 'cargo' && (row.body.cargo?.unloadPriority ?? 0) > 0);
 
+  // Only a strictly later stop can block; the last stop (or a single-stop load) has nothing to scan.
+  const lastStop = cargoBodies.reduce((max, row) => Math.max(max, row.body.cargo!.unloadPriority!), 0);
   for (const current of cargoBodies) {
     const a = current.body.placement;
     const priority = current.body.cargo!.unloadPriority!;
     const blockers: number[] = [];
     const above: number[] = [];
+    if (priority >= lastStop) continue;
     for (const later of cargoBodies) {
       if (later.bodyIndex === current.bodyIndex) continue;
       const laterPriority = later.body.cargo!.unloadPriority!;
@@ -405,16 +414,22 @@ function checkSecuring(container: ContainerSpec, bodies: Body[], supporters: Sup
     ));
   }
 
+  // A neighbour can only restrain within `near` of a face; pad the footprint query generously.
+  const cargoGrid = contactAware ? footprintGridFor(cargoBodies.map(body => body.placement)) : null;
   bodies.forEach((body, bodyIndex) => {
     if (body.kind !== 'cargo' || supporters[bodyIndex].length > 0 || body.placement.z > HEIGHT_TOLERANCE_M) return;
     const p = body.placement;
     // Contact restraint is part of the approved legacy direct-box rule only.
     const near = 0.03;
+    const pad = near + 0.01;
+    const neighbours = contactAware
+      ? candidateIndexes(cargoGrid, cargoBodies.length, p.x - pad, p.y - pad, p.x + p.length + pad, p.y + p.width + pad).map(index => cargoBodies[index])
+      : cargoBodies;
     const blocked = (axis: 'x' | 'y', positive: boolean) => {
       const face = axis === 'x' ? (positive ? p.x + p.length : p.x) : (positive ? p.y + p.width : p.y);
       const wall = positive ? (axis === 'x' ? container.length : container.width) : 0;
       if (Math.abs(wall - face) <= near) return true;
-      return cargoBodies.some(other => {
+      return neighbours.some(other => {
         const q = other.placement;
         if (q === p || overlap1d(p.z, p.z + p.height, q.z, q.z + q.height) <= EPS) return false;
         const gap = axis === 'x' ? (positive ? q.x - face : face - (q.x + q.length)) : (positive ? q.y - face : face - (q.y + q.width));

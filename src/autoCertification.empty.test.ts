@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { cancelPendingCertification, FINAL_PHYSICS_VALIDATION_COMPLETE_EVENT, FINAL_PHYSICS_VALIDATION_ERROR_EVENT, FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT, NO_LOAD_RESULT_EVENT, requestExactCertification, requestNextPalletCertification } from './autoCertification';
 import { publishPhysicsTarget, clearPhysicsTarget } from './physicsTarget';
-import { runPhysicsValidationSuite } from './engine/physicsValidation';
+import { runPhysicsValidationSuiteParallel as runPhysicsValidationSuite } from './physicsParallel';
 import type { PhysicsTarget } from './physicsTarget';
-vi.mock('./engine/physicsValidation', () => ({ runPhysicsValidationSuite: vi.fn() }));
+vi.mock('./physicsParallel', () => ({ runPhysicsValidationSuiteParallel: vi.fn() }));
 
 afterEach(() => { cancelPendingCertification(); clearPhysicsTarget('boxes'); clearPhysicsTarget('pallets'); vi.clearAllMocks(); });
 it.each(['boxes', 'pallets'] as const)('finishes an all-unloaded %s run without falsely certifying an empty plan', async mode => {

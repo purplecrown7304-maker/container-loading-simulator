@@ -119,6 +119,12 @@ test('real loading.worker matches the synchronous loadContainer fallback bit-for
   const workerPage = await workerContext.newPage();
   await installInput(workerPage, false);
   const workerFinal = await runLoading(workerPage);
+  // The automatic follow-up search may still have a worker request in flight when the result is
+  // published (the final check no longer re-runs the transport suite first). Wait for it.
+  await expect.poll(() => workerPage.evaluate(() => {
+    const trace = (window as any).__loadingWorkerParity;
+    return trace.responses.length === trace.requests.length;
+  }), { timeout: 60_000 }).toBe(true);
   const workerTrace = await workerPage.evaluate(() => structuredClone((window as any).__loadingWorkerParity));
   expect(workerTrace.requests.length).toBeGreaterThan(0);
   expect(workerTrace.responses.length).toBe(workerTrace.requests.length);

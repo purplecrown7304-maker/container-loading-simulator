@@ -37,10 +37,12 @@ vi.mock('./engine/physicsOptimizer', () => ({ optimizeLoadingWithPhysics: (conta
   new Promise<PhysicsOptimizedLoading>(resolve => captured.runs.push({ resolve, signal, container })) }));
 
 let root: Root, host: HTMLDivElement;
-const optimized = (): PhysicsOptimizedLoading => ({ strategy: 'capacity', score: 95, candidates: [], physics: { score: 95 } as PhysicsOptimizedLoading['physics'], result: {
-  placements: [{ cargoId: 'A', x: 1, y: .5, z: 0, length: .5, width: .4, height: .3, weightKg: 10 }],
-  remaining: [], validationIssues: [], usedVolumeM3: .06, loadedWeightKg: 10,
-} });
+const optimized = (): PhysicsOptimizedLoading => {
+  const placements = [{ cargoId: 'A', x: 1, y: .5, z: 0, length: .5, width: .4, height: .3, weightKg: 10 }];
+  return { strategy: 'capacity', score: 95, candidates: [], physics: { score: 95 } as PhysicsOptimizedLoading['physics'], physicsPlacements: placements, result: {
+    placements, remaining: [], validationIssues: [], usedVolumeM3: .06, loadedWeightKg: 10,
+  } };
+};
 const run = () => act(async () => { window.dispatchEvent(new CustomEvent(APP_ACTION_EVENT, { detail: { action: 'run-loading' } })); });
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -182,7 +184,9 @@ it.each([['legacy', 'a-v1'], ['a-v1', 'legacy']] as const)('changing the header 
     const completed = optimized();
     await act(async () => current.resolve(completed));
     expect(published).toHaveBeenCalledTimes(1);
-    expect(requestExactCertification).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ container: current.container, result: completed.result }));
+    // The suite already run for these exact placements is handed over instead of being re-run.
+    expect(requestExactCertification).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ container: current.container, result: completed.result }),
+      { precomputedPhysics: { container: current.container, placements: completed.physicsPlacements, result: completed.physics } });
     expect(captured.props?.result).toBe(completed.result);
     expect(captured.props?.preview).toBe(false);
     expect(host.querySelector('canvas')).toBe(canvas);

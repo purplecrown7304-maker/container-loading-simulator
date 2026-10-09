@@ -1,4 +1,5 @@
-import { runInertiaAnimation, type InertiaAnimationResult } from './engine/inertiaSimulation';
+import type { InertiaAnimationResult } from './engine/inertiaSimulation';
+import { createInertiaRunSession, inertiaTargetKey, waitForInertiaRun } from './inertiaScenarioRuns';
 import {
   INERTIA_PASS_PALLET_CARGO_SLIP_M,
   INERTIA_PASS_SHIFT_M,
@@ -202,28 +203,33 @@ export async function completeCertificationForWorkOrder(
   const simulationSupports = buildInertiaSimulationSupports(target, certification.securing);
   const results: Partial<Record<InertiaScenario, InertiaAnimationResult>> = { ...certification.results };
 
-  for (let index = 0; index < SCENARIOS.length; index += 1) {
-    if (shouldCancel?.()) throw new Error('INERTIA_WORK_ORDER_CANCELLED');
-    const scenario = SCENARIOS[index];
-    if (results[scenario]) continue;
-    const result = await runInertiaAnimation(
-      target.container,
-      target.result.placements,
-      scenario,
-      simulationSupports,
-      value => onProgress?.({
+  // Missing scenarios start together; a run the certification already computed (or is still
+  // computing) for these exact inputs is reused. Results are recorded in the fixed order.
+  const session = createInertiaRunSession();
+  const targetKey = inertiaTargetKey(target.container, target.result.placements);
+  try {
+    const runs = SCENARIOS.map(scenario => results[scenario] ? null : session.start(targetKey, {
+      container: target.container, placements: target.result.placements, scenario, supports: simulationSupports, securing: profile,
+    }));
+    for (let index = 0; index < SCENARIOS.length; index += 1) {
+      if (shouldCancel?.()) throw new Error('INERTIA_WORK_ORDER_CANCELLED');
+      const scenario = SCENARIOS[index];
+      const run = runs[index];
+      if (!run) continue;
+      const result = await waitForInertiaRun(run, value => onProgress?.({
         level,
         levelLabel: certification.securing.levelLabel,
         scenario,
         scenarioIndex: index + 1,
         scenarioCount: SCENARIOS.length,
         physicsProgress: value,
-      }),
-      profile,
-      { captureFrames: false, shouldCancel },
-    );
-    results[scenario] = result;
-    onScenarioResult?.(result, level);
+      }), shouldCancel, 'INERTIA_WORK_ORDER_CANCELLED');
+      results[scenario] = result;
+      onScenarioResult?.(result, level);
+    }
+    if (shouldCancel?.()) throw new Error('INERTIA_WORK_ORDER_CANCELLED');
+  } finally {
+    session.release({ abortAll: Boolean(shouldCancel?.()) });
   }
 
   const values = SCENARIOS.flatMap(scenario => results[scenario] ? [results[scenario]!] : []);

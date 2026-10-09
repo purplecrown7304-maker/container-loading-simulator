@@ -1,5 +1,7 @@
 import { requestDirectWorkOrder } from './directWorkOrderEvents';
-import { runPhysicsValidationSuite, type PhysicsScenario, type PhysicsValidationSuite } from './engine/physicsValidation';
+import type { PhysicsScenario, PhysicsValidationSuite } from './engine/physicsValidation';
+import type { ContainerSpec, Placement } from './engine/types';
+import { runPhysicsValidationSuiteParallel } from './physicsParallel';
 import { operationalErrors } from './engine/operationalValidator';
 import { createPhysicsTargetSignature, isNumericalLimitReviewTarget, requestCertifiedResults } from './inertiaCertification';
 import { publishPhysicsTarget, readPhysicsTarget, subscribePhysicsTarget, type PhysicsTarget } from './physicsTarget';
@@ -63,10 +65,23 @@ export function readFinalPhysicsValidation() {
   };
 }
 
+/**
+ * A transport-suite result that was already computed for exactly these inputs (same container and
+ * placements objects, no supports). Rapier is deterministic, so re-running it would only repeat
+ * the same numbers; any other target runs the suite again.
+ */
+export type PrecomputedPhysics = { container: ContainerSpec; placements: Placement[]; result: PhysicsValidationSuite };
+
 type ExactCertificationOptions = {
   preserveSelectedPlan?: boolean;
   allowCgVerdictError?: boolean;
+  precomputedPhysics?: PrecomputedPhysics;
 };
+
+function reusablePhysics(target: PhysicsTarget, precomputed?: PrecomputedPhysics) {
+  return precomputed && precomputed.container === target.container && precomputed.placements === target.result.placements
+    && !(target.supports?.length) ? precomputed.result : undefined;
+}
 
 async function validateThenCertify(target: PhysicsTarget, options: ExactCertificationOptions = {}) {
   if (typeof window === 'undefined') return;
@@ -105,7 +120,11 @@ async function validateThenCertify(target: PhysicsTarget, options: ExactCertific
   publishProgress(target, signature, 0, 'settle');
 
   try {
-    const physics = await runPhysicsValidationSuite(
+    const reused = reusablePhysics(target, options.precomputedPhysics);
+    // Keep the completion events asynchronous, as with a fresh run, so the caller finishes first.
+    if (reused) await Promise.resolve();
+    if (runId !== validationRunId) return;
+    const physics = reused ?? await runPhysicsValidationSuiteParallel(
       target.container,
       target.result.placements,
       (value, scenario) => {
