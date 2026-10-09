@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import * as THREE from 'three';
 import type { ContainerSpec } from './engine/types';
 import { useTransportEquipment } from './transportEquipment';
+import { flatRackParts } from './flatRackVisual';
 
 function Panel({ position, args, color = '#e8f0f8', opacity = 0.12 }: { position: [number, number, number]; args: [number, number, number]; color?: string; opacity?: number }) {
   return <mesh position={position}>
@@ -86,7 +87,7 @@ export default function EquipmentShell3D({ container, scale }: { container: Cont
   const shell = useMemo(() => geometry, [geometry]);
 
   if (shell === 'open-top') return <ClosedShell length={length} width={width} height={height} roof={false}/>;
-  if (shell === 'flat-rack') return <FlatRackShell length={length} width={width} height={height}/>;
+  if (shell === 'flat-rack') return <group scale={scale}>{flatRackParts(container.length, container.width, container.height, equipment.id.endsWith('-collapsible')).map((part, index) => <mesh key={index} name={part.name} position={part.position}><boxGeometry args={part.size}/><meshStandardMaterial color={part.color} roughness={.85}/></mesh>)}</group>;
   if (shell === 'platform') return <FlatRackShell length={length} width={width} height={height} platform/>;
   if (shell === 'reefer') return <ClosedShell length={length} width={width} height={height} reefer/>;
   if (shell === 'bulk') return <BulkShell length={length} width={width} height={height}/>;

@@ -36,6 +36,33 @@ async function advanceToStrategy(page: import('@playwright/test').Page, id: stri
 
 
 test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
+test('truck selection loads the Meshy cab and truck underbody instead of the container tractor', async ({ page }) => {
+  test.setTimeout(150_000);
+  const errors: string[] = [], assets = new Set<string>();
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('response', response => { if (response.ok() && response.url().includes('/models/vehicles/')) assets.add(new URL(response.url()).pathname); });
+  await page.goto('/');
+  const viewer = page.locator('.viewer-host .three-comparison-viewer');
+  await expect(viewer).toHaveAttribute('data-three-vehicle-rig', 'articulated');
+  await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 60_000 });
+  const workspace = await openWorkspace(page, 1);
+  await workspace.getByRole('button', { name: '트럭', exact: true }).click();
+  for (const id of ['refrigerated-truck', 'isotherm-truck', 'tautliner', 'custom-truck', 'mega-trailer']) {
+    await workspace.locator(`.equipment-icon-option[data-equipment-id="${id}"]`).click();
+    if (id === 'custom-truck') {
+      const selector = page.getByRole('dialog', { name: '컨테이너 및 트럭 유형' });
+      await selector.locator('[data-equipment-id="custom-truck"]').click();
+      await selector.getByRole('button', { name: '사용자 규격 적용', exact: true }).click();
+    }
+    await expect(workspace.locator(`.equipment-icon-option[data-equipment-id="${id}"]`)).toHaveAttribute('aria-pressed', 'true');
+    await expect(viewer).toHaveAttribute('data-three-vehicle-rig', id === 'mega-trailer' ? 'articulated' : 'rigid');
+    await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 60_000 });
+    await expect(viewer).toHaveAttribute('data-three-vehicle-status', 'ready');
+  }
+  for (const asset of ['cargo-1ton-cab-v2-clean.glb', 'cargo-truck-underbody-v2-web.glb', 'cargo-container-tractor-v2-web.glb', 'cargo-container-chassis-v2-web.glb']) expect(assets.has(`/models/vehicles/${asset}`), asset).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test('Three renders the real loading plan and preserves certification during view changes', async ({ page }) => {
   test.setTimeout(150_000);
   const errors: string[] = [];
@@ -53,7 +80,9 @@ test('Three renders the real loading plan and preserves certification during vie
   await expect(viewer).toHaveAttribute('data-three-ready', 'true', { timeout: 100_000 });
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect(viewer.locator('.unity-summary')).toContainText('12 EA', { timeout: 60_000 });
-  await expect(viewer).toHaveAttribute('data-three-applied', 'true');
+  // The summary is synchronous plan data; it is not a WebGL readiness signal.
+  // A final plan rebuild needs the same model-application wait as packaging.
+  await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 100_000 });
   await page.getByRole('slider', { name: 'Three.js 높이 단면', exact: true }).fill('70');
   await expectVerifiedLoading(page);
   await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled();

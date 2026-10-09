@@ -5,7 +5,7 @@ import type { ThreeComparisonSceneProps } from './ThreeComparisonScene';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
 import ThreeLoadingViewer from './ThreeLoadingViewer';
 import ViewerBackgroundSelector from './ViewerBackgroundSelector';
-import { readTransportEquipment, selectTransportEquipment } from './transportEquipment';
+import { readTransportEquipment, selectTransportEquipment, TRUCK_EQUIPMENT } from './transportEquipment';
 
 const captured = vi.hoisted(() => ({ scene: undefined as ThreeComparisonSceneProps | undefined }));
 vi.mock('./ThreeComparisonScene', () => ({ default: (props: ThreeComparisonSceneProps) => { captured.scene = props; return <div/>; } }));
@@ -72,5 +72,21 @@ it('switches short custom trucks to the cab and rigid underbody without changing
     await act(async () => root.render(<ThreeLoadingViewer container={equipment} result={result} geometry="custom" vehicle preview />));
     expect(captured.scene!.plan.vehicleRig).toBe('rigid');
     expect(captured.scene!.plan.placements.map(({ cargoId, x, y, z }) => ({ cargoId, x, y, z }))).toEqual(result.placements.map(({ cargoId, x, y, z }) => ({ cargoId, x, y, z })));
+  } finally { act(() => selectTransportEquipment(original)); }
+});
+
+it('replaces the container tractor with the selected road truck in the live viewer plan', async () => {
+  const original = readTransportEquipment();
+  try {
+    await act(async () => root.render(<ThreeLoadingViewer container={original} result={result} preview />));
+    expect(captured.scene!.plan.vehicleRig).toBe('articulated');
+    for (const id of ['refrigerated-truck', 'isotherm-truck', 'tautliner', 'custom-truck', 'mega-trailer']) {
+      const equipment = TRUCK_EQUIPMENT.find(item => item.id === id)!;
+      act(() => selectTransportEquipment(equipment));
+      await act(async () => root.render(<ThreeLoadingViewer container={equipment} result={result} preview />));
+      expect(captured.scene!.plan.vehicleRig, id).toBe(id === 'mega-trailer' ? 'articulated' : 'rigid');
+      expect(captured.scene!.plan.equipmentId).toBe(id);
+      expect(captured.scene!.plan.placements.map(({ cargoId, x, y, z }) => ({ cargoId, x, y, z }))).toEqual(result.placements.map(({ cargoId, x, y, z }) => ({ cargoId, x, y, z })));
+    }
   } finally { act(() => selectTransportEquipment(original)); }
 });
