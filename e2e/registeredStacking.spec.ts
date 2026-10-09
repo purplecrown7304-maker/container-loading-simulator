@@ -37,7 +37,9 @@ test('registered stacking updates without reload and bulk packaging advances bef
   for (let i = 0; i < quantities.length; i++) await page.locator('.guided-product-table article').filter({ hasText: `STACK-${i + 1}` }).locator('input[type="number"]').fill(String(quantities[i]));
   await page.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.getByText('자동 적재 최대 1단', { exact: false })).toHaveCount(6);
-  await expect(page.locator('.workflow-preview-status')).toContainText('1,562');
+  // With 1mm between products and no wall cushion, capacities are
+  // [84, 70, 70, 70, 70, 60]; rounding each SKU's demand up gives 1,691 cartons.
+  await expect(page.locator('.workflow-preview-status')).toContainText('1,691');
 
   await page.getByRole('button', { name: '설정 닫기', exact: true }).click();
   await page.getByRole('button', { name: /메뉴$/ }).click();
@@ -57,11 +59,12 @@ test('registered stacking updates without reload and bulk packaging advances bef
     const latest = (window as any).__containerLoadingLatestResult;
     return { cargo: saved.cargo, placed: latest.result.placements.length, remaining: latest.result.remaining.length };
   });
-  expect(prepared.cargo.reduce((sum: number, item: any) => sum + item.quantity, 0)).toBe(1562);
+  expect(prepared.cargo.reduce((sum: number, item: any) => sum + item.quantity, 0)).toBe(1691);
+  expect(prepared.cargo.reduce((sum: number, item: any) => sum + item.quantity * item.unitsPerPackage, 0)).toBe(110000);
   expect(prepared.cargo.every((item: any) => item.maxStackLayers === 9 && item.maxTopLoadKg === 100 && item.boxId === 'REC-235X130X265')).toBe(true);
   expect(prepared.placed).toBe(0);
   expect(prepared.remaining).toBe(0);
-  console.log('bulk packaging confirmed: 1562 cartons, 9 layers, no hidden loading');
+  console.log('bulk packaging confirmed: 1691 cartons, 110000 products, 9 layers, no hidden loading');
 
   await page.getByRole('radio', { name: /공간효율 우선/ }).click();
   await page.getByRole('button', { name: /다음 단계/ }).click();
@@ -80,7 +83,7 @@ test('registered stacking updates without reload and bulk packaging advances bef
     const { result, cargo } = (window as any).__containerLoadingLatestResult;
     return { count: result.placements.length, left: result.remaining.reduce((sum: number, item: any) => sum + item.quantity, 0), maxZ: Math.max(...result.placements.map((item: any) => item.z)), issues: result.validationIssues, cargo };
   });
-  expect(loaded.count + loaded.left).toBe(1562);
+  expect(loaded.count + loaded.left).toBe(1691);
   expect(loaded.maxZ).toBeGreaterThan(0.265);
   expect(loaded.issues).toEqual([]);
   console.log('bulk stacking result', { count: loaded.count, remaining: loaded.left, maxZ: loaded.maxZ });
@@ -89,7 +92,7 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestCertification?.status), { timeout: 120_000 }).toBe('failed');
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestResult.result.placements.length)).toBe(loaded.count);
-  // The direct work order re-runs all three inertia scenarios for 1,562 cartons before
+  // The direct work order re-runs all three inertia scenarios for the loaded cartons before
   // opening the report (~67 s locally). 60 s made this test fail on slower machines.
   const reportPromise = page.waitForEvent('popup', { timeout: 240_000 });
   await page.evaluate(() => {
