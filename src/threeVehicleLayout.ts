@@ -16,12 +16,13 @@ export const VEHICLE_BOUNDS: Record<VehicleModelKey, { min: [number, number, num
   'truck-underbody': { min: [-.9523359537, -.1381949782, -.3313519955], max: [.9503779411, .1381939948, .3332639635] },
   'container-chassis': { min: [-.9516379833, -.1206570119, -.2223069966], max: [.9528430104, .1196880117, .2217819989] },
 };
-const SEMITRAILERS = new Set(['tautliner', 'refrigerated-truck', 'isotherm-truck', 'mega-trailer', 'jumbo']);
+const SEMITRAILERS = new Set(['mega-trailer', 'jumbo']);
 export function vehicleRigForEquipment(equipment: Pick<TransportEquipment, 'id' | 'category' | 'length'>): VehicleRigKind {
   if (equipment.category === 'container' || SEMITRAILERS.has(equipment.id)) return 'articulated';
-  // A custom long road body is a semitrailer proxy; short custom trucks are rigid.
+  // A road-truck selection uses the uploaded cab + truck underbody even when
+  // its editable cargo length exceeds 8m. Length is not a vehicle-type signal.
   // Jumbo remains the existing continuous-space approximation, not two physics bodies.
-  return equipment.length > 8 ? 'articulated' : 'rigid';
+  return 'rigid';
 }
 export const VEHICLE_DECK_Y = -.115;
 

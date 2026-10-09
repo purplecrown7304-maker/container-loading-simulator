@@ -134,12 +134,18 @@ test('mobile guided dashboard remains usable without horizontal body overflow', 
   await expect(page.getByRole('button', { name: /다음: 제품 선택/ })).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
 
-  const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
-  const viewportWidth = await page.evaluate(() => window.innerWidth);
+  // The scene resize observer moves both the rail and its parent together.
+  // Read them in one frame, rather than comparing a pre-move rail with a
+  // post-move parent after separate browser round trips.
+  const { bodyWidth, viewportWidth, rail, left, stage } = await page.evaluate(() => {
+    const bounds = (selector: string) => {
+      const { x, y, width, height } = document.querySelector(selector)!.getBoundingClientRect();
+      return { x, y, width, height };
+    };
+    return { bodyWidth: document.body.scrollWidth, viewportWidth: window.innerWidth,
+      rail: bounds('.guided-step-rail'), left: bounds('.dashboard-left'), stage: bounds('.workspace-modal') };
+  });
   expect(bodyWidth).toBeLessThanOrEqual(viewportWidth + 2);
-  const rail = await page.locator('.guided-step-rail').boundingBox();
-  const left = await page.locator('.dashboard-left').boundingBox();
-  const stage = await page.locator('.workspace-modal').boundingBox();
   expect(rail!.y + rail!.height).toBeLessThanOrEqual(left!.y + left!.height);
   expect(stage!.x).toBeGreaterThanOrEqual(0);
   expect(stage!.x + stage!.width).toBeLessThanOrEqual(viewportWidth + 1);

@@ -34,9 +34,10 @@ contracts beyond its final mudguard. The rigid ladder frame continues beneath
 the cab. These adjustments are per-scene geometry clones; cached/source GLBs
 are never changed. Landing feet retain their measured tire-plane clearance.
 
-Known container and semitrailer presets use tractor + container chassis. Short
-custom road trucks use cab + underbody; custom road bodies longer than 8m use a
-semitrailer visual proxy. Jumbo retains the application's existing continuous
+Containers, Mega Trailer and Jumbo use tractor + container chassis. Tautliner,
+Refrigerated Truck, Isotherm Truck and Custom Truck use the uploaded Meshy cab +
+truck underbody, including long custom cargo spaces. Cargo length does not select
+the vehicle type. Jumbo retains the application's existing continuous
 cargo-space approximation. Visual proxies do not assert real vehicle axle-load
 specifications or roadworthiness.
 

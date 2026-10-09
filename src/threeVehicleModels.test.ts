@@ -72,15 +72,22 @@ describe('user supplied vehicle assets', () => {
 });
 
 describe('view-only equipment assembly', () => {
-  it('uses articulated rigs for containers and named semi-trailers, rigid cab for short custom trucks', () => {
-    for (const equipment of [...CONTAINER_EQUIPMENT, ...TRUCK_EQUIPMENT]) expect(vehicleRigForEquipment(equipment)).toBe('articulated');
-    expect(vehicleRigForEquipment({ id: 'custom-truck', category: 'truck', length: 4 })).toBe('rigid');
+  it('uses the Meshy truck pair for road trucks regardless of length, reserving tractors for containers and trailers', () => {
+    for (const equipment of CONTAINER_EQUIPMENT) expect(vehicleRigForEquipment(equipment)).toBe('articulated');
+    for (const equipment of TRUCK_EQUIPMENT) {
+      const trailer = ['mega-trailer', 'jumbo'].includes(equipment.id);
+      const kind = vehicleRigForEquipment(equipment);
+      expect(kind, equipment.id).toBe(trailer ? 'articulated' : 'rigid');
+      expect(vehicleLayout(kind, equipment).placements.map(item => item.key)).toEqual(trailer ? ['container-chassis', 'tractor'] : ['truck-underbody', 'cab']);
+    }
+    for (const length of [4, 8, 8.1, 13.62]) expect(vehicleRigForEquipment({ id: 'custom-truck', category: 'truck', length })).toBe('rigid');
   });
   const cases = [
     { kind: 'articulated' as const, length: 5.9, width: 2.352, height: 2.395 },
     { kind: 'articulated' as const, length: 12.032, width: 2.352, height: 2.7 },
     { kind: 'rigid' as const, length: 3.1, width: 1.7, height: 1.8 },
     { kind: 'rigid' as const, length: 6.2, width: 2.35, height: 2.6 },
+    { kind: 'rigid' as const, length: 13.62, width: 2.48, height: 2.7 },
     { kind: 'articulated' as const, length: 1.5, width: 3.5, height: 2.6 },
   ];
   for (const footprint of cases) it(`${footprint.kind} ${footprint.length}m: fits beneath cargo, preserves wheels and grounds both components`, () => {
