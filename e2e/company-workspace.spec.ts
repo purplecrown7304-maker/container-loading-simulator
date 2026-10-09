@@ -73,7 +73,7 @@ test.describe('company workspace through real SQL and handler', () => {
 
   test('create, invite, accept, review, role change and revocation hide data', async ({ page, isMobile }) => {
     const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
-    await page.goto('/workspace.html'); await login(page, 0);
+    await page.goto('/workspace.html?view=company'); await login(page, 0);
     await page.getByLabel('기업 이름').fill('Synthetic company');
     await page.getByRole('button', { name: '기업 생성', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Synthetic company', exact: true })).toBeVisible();
@@ -125,7 +125,7 @@ test.describe('company workspace through real SQL and handler', () => {
   test('20-row pages omit snapshots and outsiders cannot spoof an actor', async ({ page }) => {
     const company = await okApi(members[0].id, { op:'create', name:'Synthetic company' });
     for(let i=0;i<21;i++) await okApi(members[0].id, { op:'save', companyId:company.id, title:`Plan ${String(i).padStart(2,'0')}`, snapshot:snap() });
-    await page.goto('/workspace.html'); await login(page, 0);
+    await page.goto('/workspace.html?view=company'); await login(page, 0);
     await expect(page.locator('.company-plan-list > li')).toHaveCount(20);
     const first = replies.filter(r=>r.op==='detail').at(-1)!.data;
     expect(first.hasMorePlans).toBe(true); expect(first.plans.every((p:any)=>!('snapshot' in p))).toBe(true);

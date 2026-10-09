@@ -125,7 +125,7 @@ function renderMobileServiceNotice() {
         <div style="font-size:44px;line-height:1;margin-bottom:18px" aria-hidden="true">🖥️</div>
         <h1 style="margin:0 0 12px;font-size:24px">모바일 버전 준비 중</h1>
         <p style="margin:0;color:#6e6e73;line-height:1.7">현재 물류 적재 시뮬레이터는 PC 웹 버전만 제공됩니다.<br>데스크톱 또는 노트북에서 이용해 주세요.</p>
-        <p><a href="/workspace.html">기업 작업 공간 · 저장된 계획 보기</a></p>
+        <p><a href="/workspace.html?view=company">기업 작업 공간 · 저장된 계획 보기</a></p>
       </section>
     </main>
   `;

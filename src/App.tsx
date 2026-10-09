@@ -33,6 +33,7 @@ import CgPlanChoice from './CgPlanChoice';
 import VoidFillSummary from './VoidFillSummary';
 import './loading-plan-choice.css';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
+import { openPackagingContents } from './packagingContentsModel';
 import { useTransportEquipment } from './transportEquipment';
 import { withRecommendedCeilingClearance } from './containerDefaults';
 
@@ -594,7 +595,10 @@ export default function App() {
                 geometry={equipment.geometry} vehicle={equipment.category === 'truck'}
                 cargo={isPreview ? workflowPreview?.cargo ?? cargo : cargo} mode={mode} isPreview={isPreview}
                 supports={currentPalletScene?.supports} onSupportSelect={currentPalletScene?.onSupportSelect}
-                onCargoSelect={currentPalletScene?.onCargoSelect}
+                onCargoSelect={isPreview && workflowPreview?.kind === 'packaging' ? index => {
+                  const placement = displayResult.placements[index];
+                  if (placement) openPackagingContents({ cargoId: placement.cargoId });
+                } : currentPalletScene?.onCargoSelect}
                 title={isPreview ? (workflowPreview?.kind === 'products' ? '선택 제품 미리보기' : '포장·화물 미리보기') : currentPalletScene?.title ?? '박스 적재 결과'} />
             </Suspense>
             <Suspense fallback={null}>
