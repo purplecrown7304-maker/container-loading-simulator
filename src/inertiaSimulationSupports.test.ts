@@ -9,6 +9,7 @@ import {
   isPhysicsTargetVerified,
 } from './inertiaWorkOrderPolicy';
 import type { PhysicsTarget } from './physicsTarget';
+import { clearInertiaScenarioRuns } from './inertiaScenarioRuns';
 import { defaultSecuringMaterialSettings, writeSecuringMaterialSettings } from './securingMaterialSettings';
 
 vi.mock('./engine/inertiaSimulation', () => ({ runInertiaAnimation: vi.fn() }));
@@ -44,6 +45,7 @@ function mockSimulation(brakingShiftM = 0.02) {
 
 beforeEach(() => {
   localStorage.clear();
+  clearInertiaScenarioRuns();
   mockSimulation();
 });
 
@@ -60,7 +62,10 @@ describe('shared inertia simulation supports', () => {
     expect(initial.securing.level).toBe(3);
     expect(initial.testedScenarios).toBe(2);
     expect(initial.results.cornering).toBeUndefined();
-    expect(runInertiaAnimation).toHaveBeenCalledTimes(6);
+    // Each level starts its three scenarios together; the early stop still records only two.
+    expect(runInertiaAnimation).toHaveBeenCalledTimes(9);
+    expect(vi.mocked(runInertiaAnimation).mock.calls.map(call => call[2])).toEqual(
+      ['acceleration', 'braking', 'cornering', 'acceleration', 'braking', 'cornering', 'acceleration', 'braking', 'cornering']);
 
     const plan = gapSecuringPlan(current.container, current.result.placements, initial.securing.materialUnitWeights);
     expect(plan.fills.filter(fill => fill.fixedSupportEligible).map(fill => fill.kind)).toEqual(['side-gap', 'door-face']);
@@ -86,10 +91,13 @@ describe('shared inertia simulation supports', () => {
     expect(fixedGapSupports(gapSecuringPlan(current.container, current.result.placements))).not.toEqual(fixedGapSupports(plan));
 
     const completed = await completeCertificationForWorkOrder(current, initial);
-    const completionCall = vi.mocked(runInertiaAnimation).mock.calls[6];
-    expect(completionCall[2]).toBe('cornering');
-    expect(completionCall[3]).toEqual(expectedSupports);
-    expect(completionCall[5]).toEqual(vi.mocked(runInertiaAnimation).mock.calls[5][5]);
+    // The level-3 cornering run already started with the initial supports and profile is reused:
+    // a settings re-read would change the inputs, miss the cache and start a new simulation.
+    expect(runInertiaAnimation).toHaveBeenCalledTimes(9);
+    const levelThreeCornering = vi.mocked(runInertiaAnimation).mock.calls[8];
+    expect(levelThreeCornering[2]).toBe('cornering');
+    expect(levelThreeCornering[5]).toEqual(vi.mocked(runInertiaAnimation).mock.calls[7][5]);
+    expect(completed.results.cornering).toEqual(await vi.mocked(runInertiaAnimation).mock.results[8].value);
     expect(completed.securing).toBe(initial.securing);
     expect(completed.results.acceleration).toBe(initial.results.acceleration);
     expect(completed.results.braking).toBe(initial.results.braking);
@@ -99,9 +107,17 @@ describe('shared inertia simulation supports', () => {
     expect(assessWorkOrderCertification(completed)).toBe('caution');
     expect(isInertiaCertificationPassed(completed)).toBe(false);
 
-    // Reusing a partial snapshot must not append fills into the target or accumulate them.
+    // Without the shared run, completion simulates again with the same initial geometry and profile.
+    clearInertiaScenarioRuns();
     await completeCertificationForWorkOrder(current, initial);
-    expect(vi.mocked(runInertiaAnimation).mock.calls[7][3]).toEqual(expectedSupports);
+    const freshCompletion = vi.mocked(runInertiaAnimation).mock.calls[9];
+    expect(freshCompletion[2]).toBe('cornering');
+    expect(freshCompletion[3]).toEqual(expectedSupports);
+    expect(freshCompletion[5]).toEqual(vi.mocked(runInertiaAnimation).mock.calls[7][5]);
+    // Reusing a partial snapshot must not append fills into the target or accumulate them.
+    clearInertiaScenarioRuns();
+    await completeCertificationForWorkOrder(current, initial);
+    expect(vi.mocked(runInertiaAnimation).mock.calls[10][3]).toEqual(expectedSupports);
     expect(current.supports).toEqual(originalSupports);
     expect(buildInertiaSimulationSupports(current, initial.securing)).toEqual(expectedSupports);
   });
@@ -119,7 +135,8 @@ describe('shared inertia simulation supports', () => {
       expect(fixedGapSupports(gapSecuringPlan(current.container, current.result.placements)).length).toBeGreaterThan(0);
       const initial = await runInertiaCertification(current);
       await completeCertificationForWorkOrder(current, initial);
-      expect(runInertiaAnimation).toHaveBeenCalledTimes(7);
+      // Three levels × three concurrent scenarios; completion reuses the level-3 cornering run.
+      expect(runInertiaAnimation).toHaveBeenCalledTimes(9);
       for (const call of vi.mocked(runInertiaAnimation).mock.calls) expect(call[3]).toBe(current.supports);
     },
   );
@@ -132,6 +149,7 @@ describe('shared inertia simulation supports', () => {
     const initial = await runInertiaCertification(current);
     const partial = { ...initial, results: { acceleration: initial.results.acceleration }, testedScenarios: 1 };
     vi.mocked(runInertiaAnimation).mockClear();
+    clearInertiaScenarioRuns();
 
     const completed = await completeCertificationForWorkOrder(current, partial);
     expect(runInertiaAnimation).toHaveBeenCalledTimes(2);

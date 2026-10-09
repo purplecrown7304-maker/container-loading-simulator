@@ -10,6 +10,17 @@ const STRATEGIES: LoadingStrategy[] = ['stability', 'capacity', 'unloading'];
 const HEIGHT_RATIOS = [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25];
 
 export const DIRECT_SEARCH_TIMEOUT_MS = 20_000;
+/**
+ * Every optional alternative layout is certified with the full inertia simulation, whose cost
+ * grows with the number of bodies. Automatic final loading therefore compares at most
+ * floor(budget / placed boxes) alternatives: unchanged (7) up to 1,714 boxes, none above 12,000.
+ * A fixed function of the input; the published plan is always fully certified.
+ */
+export const AUTOMATIC_ALTERNATIVE_BODY_BUDGET = 12_000;
+export function automaticAlternativeLimit(maxAlternatives: number, placedCount: number) {
+  if (placedCount <= 0) return Math.max(0, maxAlternatives);
+  return Math.max(0, Math.min(maxAlternatives, Math.floor(AUTOMATIC_ALTERNATIVE_BODY_BUDGET / placedCount)));
+}
 export const DIRECT_SEARCH_RUN_TIMEOUT_MS = 5_000;
 export type DirectSearchProgress = { completed: number; total: number; label: string };
 export type DirectSearchOptions = {

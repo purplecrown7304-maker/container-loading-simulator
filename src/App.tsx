@@ -11,6 +11,7 @@ import { containerInputError, preflightCargoInput } from './engine/inputPrefligh
 import { pendingLoadingResult, publishLoadingResult, restoreLoadingResult, type LoadingStrategy } from './engine/loadingEngine';
 import { readManualOverride, writeManualOverride } from './engine/manualOverride';
 import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
+import { runPhysicsValidationSuiteParallel } from './physicsParallel';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
 import { GUIDED_LOADING_UNIT_EVENT, readGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingUnitState';
@@ -358,7 +359,7 @@ export default function App() {
           const remainingSeconds = Math.max(0, Math.round(elapsedSeconds * (100 - overallProgress) / overallProgress));
           setOptimizationEtaSeconds(Math.min(3599, remainingSeconds));
         }
-      }, preferredStrategy ?? undefined, controller.signal);
+      }, preferredStrategy ?? undefined, controller.signal, runPhysicsValidationSuiteParallel);
       if (!ownsRun()) return;
       const published = optimized.result;
       publishLoadingResult(container, activeCargo, published);
@@ -367,7 +368,8 @@ export default function App() {
         clearLatestInertiaCertification();
         publishPhysicsTarget({ mode: 'boxes', container, cargo: activeCargo, result: published });
       } else {
-        requestExactCertification({ mode: 'boxes', container, cargo: activeCargo, result: published });
+        requestExactCertification({ mode: 'boxes', container, cargo: activeCargo, result: published },
+          { precomputedPhysics: { container, placements: optimized.physicsPlacements, result: optimized.physics } });
       }
       setPhysicsScore(optimized.physics.score);
       setPhysicsStrategy(optimized.strategy);

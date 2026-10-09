@@ -2,10 +2,11 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import PhysicsValidationTool, { OPEN_PHYSICS_VALIDATION_EVENT, PHYSICS_VALIDATION_RESULT_EVENT } from './PhysicsValidationTool';
-import { runPhysicsValidationSuite, type PhysicsValidationSuite } from './engine/physicsValidation';
+import type { PhysicsValidationSuite } from './engine/physicsValidation';
+import { runPhysicsValidationSuiteParallel as runPhysicsValidationSuite } from './physicsParallel';
 import { clearPhysicsTarget, publishPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
-vi.mock('./engine/physicsValidation', async original => ({ ...await original<object>(), runPhysicsValidationSuite: vi.fn() }));
+vi.mock('./physicsParallel', () => ({ runPhysicsValidationSuiteParallel: vi.fn() }));
 const target: PhysicsTarget = {
   mode: 'boxes', container: { length: 1, width: 1, height: 1, maxPayloadKg: 100, limitReview: { mode: 'what-if', maxPayloadKg: 200 } },
   cargo: [{ id: 'A', name: 'A', length: .5, width: .5, height: .5, weightKg: 10, quantity: 1 }],

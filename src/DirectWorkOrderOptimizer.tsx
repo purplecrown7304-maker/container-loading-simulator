@@ -2,7 +2,7 @@ import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresenta
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { REQUEST_DIRECT_WORK_ORDER_EVENT, type DirectWorkOrderRequest } from './directWorkOrderEvents';
-import { DIRECT_SEARCH_TIMEOUT_MS, buildDirectResultReoptimizationCandidatesAsync, buildSecuringPayloadAdjustmentCandidateAsync, type DirectResultReoptimizationCandidate, type DirectSearchProgress } from './engine/finalResultOptimization';
+import { DIRECT_SEARCH_TIMEOUT_MS, automaticAlternativeLimit, buildDirectResultReoptimizationCandidatesAsync, buildSecuringPayloadAdjustmentCandidateAsync, type DirectResultReoptimizationCandidate, type DirectSearchProgress } from './engine/finalResultOptimization';
 import { writeManualOverride } from './engine/manualOverride';
 import {
   INERTIA_CERTIFICATION_EVENT,
@@ -233,8 +233,18 @@ export default function DirectWorkOrderOptimizer() {
             // One payload-budgeted retry only; same-count layouts cannot repair this failure.
             continue;
           }
+          const alternativeLimit = automatic
+            ? automaticAlternativeLimit(MAX_DIRECT_WORK_ORDER_CANDIDATES - 1, current.result.placements.length)
+            : MAX_DIRECT_WORK_ORDER_CANDIDATES - 1;
+          if (alternativeLimit < MAX_DIRECT_WORK_ORDER_CANDIDATES - 1) {
+            searchNotice = alternativeLimit === 0
+              ? `대량 적재(박스 ${current.result.placements.length.toLocaleString()}개)라 대체 배치 비교를 생략하고 현재 적재안만 관성 검증했습니다.`
+              : `대량 적재(박스 ${current.result.placements.length.toLocaleString()}개)라 대체 배치는 최대 ${alternativeLimit}개만 비교했습니다.`;
+            setNotice(searchNotice);
+          }
+          if (alternativeLimit === 0) continue;
           setMessage('동일 수량을 유지하는 안전 재배치 후보를 계산 중입니다.');
-          const alternatives = await buildDirectResultReoptimizationCandidatesAsync(current, MAX_DIRECT_WORK_ORDER_CANDIDATES - 1, cancelled, {
+          const alternatives = await buildDirectResultReoptimizationCandidatesAsync(current, alternativeLimit, cancelled, {
             strategy: readLoadingStrategyPreference() ?? undefined,
             signal: controller.signal,
             onProgress: next => { if (!cancelled()) setSearch(next); },
@@ -242,7 +252,7 @@ export default function DirectWorkOrderOptimizer() {
           if (cancelled()) return;
           checkCurrent();
           if (alternatives.timedOut) {
-            searchNotice = '추가 배치 계산 시간 제한에 도달했습니다. 계산과 검증이 완료된 배치만 비교했으며 모든 후보를 탐색한 결과는 아닙니다.';
+            searchNotice = [searchNotice, '추가 배치 계산 시간 제한에 도달했습니다. 계산과 검증이 완료된 배치만 비교했으며 모든 후보를 탐색한 결과는 아닙니다.'].filter(Boolean).join(' ');
             setNotice(searchNotice);
           }
           candidates.push(...alternatives.candidates);

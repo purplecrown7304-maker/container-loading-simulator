@@ -3,7 +3,8 @@ import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresenta
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
-import { runPhysicsValidationSuite, type PhysicsScenario, type PhysicsValidationSuite } from './engine/physicsValidation';
+import type { PhysicsScenario, PhysicsValidationSuite } from './engine/physicsValidation';
+import { runPhysicsValidationSuiteParallel } from './physicsParallel';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { openPhysicsReport } from './physicsReport';
 import { PHYSICS_TARGET_EVENT, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
@@ -40,7 +41,7 @@ export default function PhysicsValidationTool(){
     const target=currentTarget();if(!target){setStatus('error');setMessage('먼저 자동 적재를 실행해 적재 결과를 만들어 주세요.');return}if(!target.result.placements.length&&!target.supports?.length){setStatus('error');setMessage('현재 물리 검증할 적재물이 없습니다.');return}
     if(isLimitReviewTarget(target)&&!isNumericalLimitReviewTarget(target)){setStatus('error');setMessage('검토 시나리오 입력·형상·선택 한도를 확인하세요.');return}
     targetRef.current=target;setTargetMode(target.mode);const signature=createPhysicsTargetSignature(target);const runId=++runIdRef.current;setStatus('running');setValidation(null);setProgress(0);setActiveScenario('settle');setMessage('Rapier 3D 물리 월드를 준비하고 있습니다.');
-    try{const result=await runPhysicsValidationSuite(target.container,target.result.placements,(value,scenario)=>{if(runId!==runIdRef.current)return;setProgress(Math.round(value*100));setActiveScenario(scenario)},target.supports??[]);if(runId!==runIdRef.current)return;const live=currentTarget();if(!live||createPhysicsTargetSignature(live)!==signature){invalidate('입력 또는 검토 한도가 변경되어 이전 물리 결과를 폐기했습니다.');return}const physicsWindow=window as LoadingWindow;physicsWindow.__containerLoadingLatestPhysics=result;window.dispatchEvent(new CustomEvent(PHYSICS_VALIDATION_RESULT_EVENT,{detail:{mode:target.mode,result}}));setValidation(result);setStatus('done');setProgress(100);setMessage(result.summary)}catch(error){if(runId!==runIdRef.current)return;console.error('Physics validation failed',error);setStatus('error');setMessage('물리엔진을 실행하지 못했습니다. 브라우저를 새로고침한 뒤 다시 시도하세요.')}
+    try{const result=await runPhysicsValidationSuiteParallel(target.container,target.result.placements,(value,scenario)=>{if(runId!==runIdRef.current)return;setProgress(Math.round(value*100));setActiveScenario(scenario)},target.supports??[]);if(runId!==runIdRef.current)return;const live=currentTarget();if(!live||createPhysicsTargetSignature(live)!==signature){invalidate('입력 또는 검토 한도가 변경되어 이전 물리 결과를 폐기했습니다.');return}const physicsWindow=window as LoadingWindow;physicsWindow.__containerLoadingLatestPhysics=result;window.dispatchEvent(new CustomEvent(PHYSICS_VALIDATION_RESULT_EVENT,{detail:{mode:target.mode,result}}));setValidation(result);setStatus('done');setProgress(100);setMessage(result.summary)}catch(error){if(runId!==runIdRef.current)return;console.error('Physics validation failed',error);setStatus('error');setMessage('물리엔진을 실행하지 못했습니다. 브라우저를 새로고침한 뒤 다시 시도하세요.')}
   },[currentTarget,invalidate]);
 
   useEffect(()=>{const onOpen=()=>{setOpen(true);if(status!=='running')void run()};window.addEventListener(OPEN_PHYSICS_VALIDATION_EVENT,onOpen);return()=>window.removeEventListener(OPEN_PHYSICS_VALIDATION_EVENT,onOpen)},[run,status]);

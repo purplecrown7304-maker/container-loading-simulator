@@ -1,6 +1,6 @@
 import { type LoadingStrategy } from './loadingEngine';
 import { loadContainerAsync } from './asyncLoading';
-import { runPhysicsValidationSuite, type PhysicsValidationSuite } from './physicsValidation';
+import { runPhysicsValidationSuite, type PhysicsScenario, type PhysicsSupport, type PhysicsValidationSuite } from './physicsValidation';
 import { assessShapeQuality } from './shapeQuality';
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 import { assessWeightBalance } from './weightBalance';
@@ -15,6 +15,7 @@ export type PhysicsOptimizationCandidate = {
   utilizationScore: number;
   result: LoadingResult;
   physics: PhysicsValidationSuite;
+  physicsPlacements: LoadingResult['placements'];
 };
 
 export type PhysicsOptimizedLoading = {
@@ -22,6 +23,8 @@ export type PhysicsOptimizedLoading = {
   score: number;
   result: LoadingResult;
   physics: PhysicsValidationSuite;
+  /** The exact placement array `physics` was simulated with (it can be another strategy's equal layout). */
+  physicsPlacements: LoadingResult['placements'];
   candidates: PhysicsOptimizationCandidate[];
 };
 
@@ -109,16 +112,26 @@ export function comparePhysicsOptimizationCandidates(a: PhysicsOptimizationCandi
  * 동일한 placement 좌표가 전략 이름만 다르게 생성된 경우에는 물리 결과를 재사용한다.
  * preferredStrategy가 주어지면 사용자가 선택한 전략만 생성·검증한다.
  */
+/** Same contract as runPhysicsValidationSuite; the app passes the worker-pool version. */
+export type PhysicsSuiteRunner = (
+  container: ContainerSpec,
+  placements: LoadingResult['placements'],
+  onProgress?: (progress: number, scenario: PhysicsScenario) => void,
+  supports?: PhysicsSupport[],
+  signal?: AbortSignal,
+) => Promise<PhysicsValidationSuite>;
+
 export async function optimizeLoadingWithPhysics(
   container: ContainerSpec,
   cargo: CargoItem[],
   onProgress?: (progress: PhysicsOptimizationProgress) => void,
   preferredStrategy?: LoadingStrategy,
   signal?: AbortSignal,
+  runSuite: PhysicsSuiteRunner = runPhysicsValidationSuite,
 ): Promise<PhysicsOptimizedLoading> {
   const activeCargo = cargo.filter(item => item.quantity > 0);
   const candidates: PhysicsOptimizationCandidate[] = [];
-  const physicsByLayout = new Map<string, PhysicsValidationSuite>();
+  const physicsByLayout = new Map<string, { physics: PhysicsValidationSuite; placements: LoadingResult['placements'] }>();
   const strategies = resolveOptimizationStrategies(preferredStrategy);
 
   for (let index = 0; index < strategies.length; index += 1) {
@@ -130,17 +143,22 @@ export async function optimizeLoadingWithPhysics(
       throw new Error('A 규칙 최종 검사 실패: ' + (result.operationalFindings??[]).filter(f=>f.severity==='error').map(f=>f.message).join('; '));
     }
     const signature = placementSignature(result);
-    let physics = physicsByLayout.get(signature);
+    const cached = physicsByLayout.get(signature);
+    let physics = cached?.physics;
+    let physicsPlacements = cached?.placements ?? result.placements;
 
     if (physics) {
       onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: strategies.length, physicsProgress: 1 });
     } else {
-      physics = await runPhysicsValidationSuite(
+      physicsPlacements = result.placements;
+      physics = await runSuite(
         container,
         result.placements,
         value => onProgress?.({ strategy, candidateIndex: index + 1, candidateCount: strategies.length, physicsProgress: value }),
+        [],
+        signal,
       );
-      physicsByLayout.set(signature, physics);
+      physicsByLayout.set(signature, { physics, placements: physicsPlacements });
     }
     signal?.throwIfAborted();
 
@@ -155,6 +173,7 @@ export async function optimizeLoadingWithPhysics(
       utilizationScore: scored.utilizationScore,
       result,
       physics,
+      physicsPlacements,
     });
   }
 
@@ -164,9 +183,9 @@ export async function optimizeLoadingWithPhysics(
   if (!best) {
     const fallbackStrategy = preferredStrategy ?? 'stability';
     const result = await loadContainerAsync(container, activeCargo, fallbackStrategy, signal);
-    const physics = await runPhysicsValidationSuite(container, result.placements);
-    return { strategy: fallbackStrategy, score: physics.score, result, physics, candidates: [] };
+    const physics = await runSuite(container, result.placements, undefined, [], signal);
+    return { strategy: fallbackStrategy, score: physics.score, result, physics, physicsPlacements: result.placements, candidates: [] };
   }
 
-  return { strategy: best.strategy, score: best.score, result: best.result, physics: best.physics, candidates };
+  return { strategy: best.strategy, score: best.score, result: best.result, physics: best.physics, physicsPlacements: best.physicsPlacements, candidates };
 }

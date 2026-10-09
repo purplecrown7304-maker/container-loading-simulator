@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { NO_LOAD_RESULT_EVENT, requestExactCertification } from './autoCertification';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
-import { runPhysicsValidationSuite } from './engine/physicsValidation';
+import { runPhysicsValidationSuiteParallel } from './physicsParallel';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
 import { getGuidedWorkflowSnapshot } from './guidedWorkflowState';
@@ -89,7 +89,7 @@ export default function FinalWorkflowRecoveryBridge() {
           if (current && createPhysicsTargetSignature(current) === expectedSignature) return;
 
           try {
-            const physics = await runPhysicsValidationSuite(detail.container, detail.result.placements);
+            const physics = await runPhysicsValidationSuiteParallel(detail.container, detail.result.placements);
             if (!active.current || runId.current !== id) return;
             (window as WorkflowWindow).__containerLoadingLatestPhysics = physics;
             window.dispatchEvent(new CustomEvent(PHYSICS_RESULT_EVENT, {
