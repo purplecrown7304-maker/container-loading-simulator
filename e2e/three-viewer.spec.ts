@@ -53,7 +53,9 @@ test('Three renders the real loading plan and preserves certification during vie
   await expect(viewer).toHaveAttribute('data-three-ready', 'true', { timeout: 100_000 });
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect(viewer.locator('.unity-summary')).toContainText('12 EA', { timeout: 60_000 });
-  await expect(viewer).toHaveAttribute('data-three-applied', 'true');
+  // The summary is synchronous plan data; it is not a WebGL readiness signal.
+  // A final plan rebuild needs the same model-application wait as packaging.
+  await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 100_000 });
   await page.getByRole('slider', { name: 'Three.js 높이 단면', exact: true }).fill('70');
   await expectVerifiedLoading(page);
   await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled();
