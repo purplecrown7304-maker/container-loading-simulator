@@ -4,6 +4,7 @@ import type { VehicleModelKey } from './threeVehicleLayout';
 
 export const VEHICLE_MODEL_URLS: Record<VehicleModelKey, string> = {
   cab: `${import.meta.env.BASE_URL}models/vehicles/cargo-1ton-cab-v2-clean.glb`,
+  'big-cab': `${import.meta.env.BASE_URL}models/vehicles/cargo-rigid-heavy-cab-v1.glb`,
   tractor: `${import.meta.env.BASE_URL}models/vehicles/cargo-container-tractor-v2-web.glb`,
   'truck-underbody': `${import.meta.env.BASE_URL}models/vehicles/cargo-truck-underbody-v2-web.glb`,
   'container-chassis': `${import.meta.env.BASE_URL}models/vehicles/cargo-container-chassis-v2-web.glb`,

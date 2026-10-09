@@ -1,6 +1,7 @@
 import { readLoadingRuleset, aEquipmentDefault } from './loadingRulesPreference';
 import { readTransportEquipmentSpecOverrides } from './transportEquipmentSpecOverrides';
 import { useSyncExternalStore } from 'react';
+import { DOMESTIC_TRUCK_EQUIPMENT } from './domesticTruckEquipment';
 
 export type TransportCategory = 'container' | 'truck';
 export type EquipmentGeometry =
@@ -38,6 +39,9 @@ export type TransportEquipment = {
   specializedCargo?: boolean;
   sourceLabel: string;
   note?: string;
+  sourceUrl?: string;
+  vehicleProfile?: 'small' | 'medium' | 'heavy' | 'heavy-tandem';
+  requiresSpecification?: boolean;
 };
 
 const containerSource = 'Hapag-Lloyd / Maersk 대표 장비값';
@@ -66,7 +70,9 @@ export const CONTAINER_EQUIPMENT: TransportEquipment[] = [
   { id: 'custom-container', category: 'container', name: 'CUSTOM CONTAINER', shortName: 'Custom Container', geometry: 'custom', length: 12.032, width: 2.35, height: 2.7, maxPayloadKg: 28600, floorLoadLimitKgPerM2: 1500, sourceLabel: '사용자 입력값' },
 ];
 
-export const TRUCK_EQUIPMENT: TransportEquipment[] = [
+// Retain old identifiers for saved plans; they are European trailer references,
+// never silently reinterpret their cargo dimensions as a domestic truck.
+export const LEGACY_TRUCK_EQUIPMENT: TransportEquipment[] = [
   { id: 'tautliner', category: 'truck', name: 'TAUTLINER (CURTAINSIDER)', shortName: 'Tautliner / Curtainsider', geometry: 'curtain', length: 13.62, width: 2.48, height: 2.7, maxPayloadKg: 32800, floorLoadLimitKgPerM2: 1700, doorWidth: 2.45, doorHeight: 2.67, volumeM3: 91, sideLoading: true, sourceLabel: truckSource, note: '측면 커튼 개방 적재 가능. 제조사·국가 규정에 따라 제원이 달라질 수 있습니다.' },
   { id: 'refrigerated-truck', category: 'truck', name: 'REFRIGERATED TRUCK', shortName: 'Refrigerated Truck', geometry: 'reefer-truck', length: 13.31, width: 2.48, height: 2.6, maxPayloadKg: 31000, floorLoadLimitKgPerM2: 1700, doorWidth: 2.46, doorHeight: 2.6, volumeM3: 85, temperatureControlled: true, sourceLabel: truckSource },
   { id: 'isotherm-truck', category: 'truck', name: 'ISOTHERM TRUCK', shortName: 'Isotherm Truck', geometry: 'isotherm-truck', length: 13.31, width: 2.48, height: 2.6, maxPayloadKg: 30000, floorLoadLimitKgPerM2: 1700, doorWidth: 2.46, doorHeight: 2.6, volumeM3: 85, sourceLabel: '냉장 트레일러 대표 내측치수 기반', note: '단열차량 대표값입니다. 실제 차량 등록증/제조사 제원으로 수정하세요.' },
@@ -74,6 +80,8 @@ export const TRUCK_EQUIPMENT: TransportEquipment[] = [
   { id: 'jumbo', category: 'truck', name: 'JUMBO', shortName: 'Jumbo 120m³', geometry: 'jumbo-truck', length: 15.4, width: 2.48, height: 3, maxPayloadKg: 23000, floorLoadLimitKgPerM2: 1600, volumeM3: 120, sideLoading: true, topLoading: true, sourceLabel: '유럽 Jumbo 120m³ 대표값', note: '7.7m + 7.7m 조합형 대표 적재공간을 하나의 연속 공간으로 근사합니다.' },
   { id: 'custom-truck', category: 'truck', name: 'CUSTOM TRUCK', shortName: 'Custom Truck', geometry: 'custom', length: 13.62, width: 2.48, height: 2.7, maxPayloadKg: 28000, floorLoadLimitKgPerM2: 1700, sourceLabel: '사용자 입력값' },
 ];
+
+export const TRUCK_EQUIPMENT = DOMESTIC_TRUCK_EQUIPMENT;
 
 export const TRANSPORT_EQUIPMENT = [...CONTAINER_EQUIPMENT, ...TRUCK_EQUIPMENT];
 export const TRANSPORT_EQUIPMENT_EVENT = 'container-loading:transport-equipment-updated';
@@ -111,6 +119,7 @@ export function subscribeTransportEquipment(listener: () => void) { listeners.ad
 export function useTransportEquipment() { return useSyncExternalStore(subscribeTransportEquipment, readTransportEquipment, readTransportEquipment); }
 
 export function selectTransportEquipment(value: TransportEquipment) {
+  if (value.requiresSpecification && ![value.length, value.width, value.height, value.maxPayloadKg, value.floorLoadLimitKgPerM2].every(v => Number.isFinite(v) && v > 0)) throw new Error('실차 내부 치수·적재중량·바닥하중을 입력하세요.');
   const base = TRANSPORT_EQUIPMENT.find(e=>e.id===value.id);
   const isDefault = base && ['length','width','height','maxPayloadKg'].every(k=>value[k as 'length']===base[k as 'length']);
   selected = clone(readLoadingRuleset()==='a-v1' && isDefault && !readTransportEquipmentSpecOverrides()[value.id] ? aEquipmentDefault(value) : value);
@@ -119,7 +128,7 @@ export function selectTransportEquipment(value: TransportEquipment) {
   emit();
 }
 
-export function getTransportEquipment(id: string) { return TRANSPORT_EQUIPMENT.find(item => item.id === id); }
+export function getTransportEquipment(id: string) { return TRANSPORT_EQUIPMENT.find(item => item.id === id) ?? LEGACY_TRUCK_EQUIPMENT.find(item => item.id === id); }
 
 export function findMatchingEquipment(length: number, width: number, height: number, maxPayloadKg: number, tolerance = 0.012) {
   return TRANSPORT_EQUIPMENT.find(item => !item.id.startsWith('custom-')

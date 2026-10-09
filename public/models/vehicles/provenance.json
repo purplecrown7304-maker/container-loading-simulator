@@ -223,5 +223,16 @@
       ],
       "deployed_filename": "cargo-1ton-cab-v2-clean.glb"
     }
-  ]
+  ],
+  "rigid_cab_derivative": {
+    "filename": "cargo-rigid-heavy-cab-v1.glb",
+    "source_filename": "cargo-container-tractor-v2-web.glb",
+    "source_sha256": "9282f024d5f723d242ee5c4bff1d970d591f93df4dd4b33055cf3210801d256b",
+    "sha256": "1f37b2983596e54bf72bacbee42b0d601e1c745d67e62aa64584fadfd93ca00e",
+    "triangles": 9124,
+    "retained_vertices": 16015,
+    "cut_x": -0.28,
+    "original_uv_textures": true,
+    "purpose": "Representative medium/heavy rigid cab, not an exact manufacturer replica"
+  }
 }

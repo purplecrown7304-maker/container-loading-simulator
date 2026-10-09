@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import EquipmentCard3D from './EquipmentCard3D';
 import EditableEquipmentCard from './EditableEquipmentCard';
 import { STORAGE_UPDATED_EVENT } from './storage';
+import { applyTransportEquipmentSpecOverride } from './transportEquipmentSpecOverrides';
 import {
   CONTAINER_EQUIPMENT,
   OPEN_TRANSPORT_SELECTOR_EVENT,
@@ -131,6 +132,7 @@ export default function TransportEquipmentSelector() {
   const [open, setOpen] = useState(false);
   const [category, setCategory] = useState<TransportCategory>(selected.category);
   const [custom, setCustom] = useState<EditableSpec>(() => editable(selected));
+  const [customTemplate, setCustomTemplate] = useState<TransportEquipment>();
   const [message, setMessage] = useState('');
   const ruleset=useLoadingRuleset();
   const list = useMemo(() => (category === 'container' ? CONTAINER_EQUIPMENT : TRUCK_EQUIPMENT).map(e=>ruleset==='a-v1'?aEquipmentDefault(e):e), [category,ruleset]);
@@ -167,7 +169,13 @@ export default function TransportEquipmentSelector() {
       const nextCategory = detail?.category ?? readTransportEquipment().category;
       setCategory(nextCategory);
       setCustom(editable(readTransportEquipment()));
-      setMessage('');
+      const templateId = (event as CustomEvent<{ equipmentId?: string }>).detail?.equipmentId;
+      const current = readTransportEquipment();
+      const base = templateId ? getTransportEquipment(templateId) : undefined;
+      const template = templateId === current.id ? current : base ? applyTransportEquipmentSpecOverride(base) : current.id.startsWith('custom-') && current.category === nextCategory ? current : undefined;
+      setCustomTemplate(template);
+      if (template) setCustom(editable(template));
+      setMessage(template?.requiresSpecification ? `사용자 규격: ${template.note}` : template ? '사용자 규격을 입력한 뒤 적용하세요.' : '');
       setOpen(true);
     };
     window.addEventListener(OPEN_TRANSPORT_SELECTOR_EVENT, onOpen);
@@ -192,9 +200,12 @@ export default function TransportEquipmentSelector() {
 
   const choose = (item: TransportEquipment) => {
     if (item.id.startsWith('custom-')) {
-      setCustom(editable(item));
+      const current = readTransportEquipment();
+      const template = current.id === item.id ? current : applyTransportEquipmentSpecOverride(item);
+      setCustom(editable(template));
+      setCustomTemplate(template);
       setCategory(item.category);
-      setMessage('사용자 규격을 입력한 뒤 적용하세요.');
+      setMessage(item.requiresSpecification ? `사용자 규격: ${item.note}` : '사용자 규격을 입력한 뒤 적용하세요.');
       return;
     }
     if (!applyToDashboard(item)) {
@@ -202,6 +213,7 @@ export default function TransportEquipmentSelector() {
       return;
     }
     selectTransportEquipment(item);
+    setCustomTemplate(undefined);
     setCustom(editable(item));
     setMessage(item.specializedCargo ? `${item.shortName}은 특수화물 전용 장비입니다. 박스 적재 결과는 참고용입니다.` : `${item.shortName} 규격을 현재 적재계획에 적용했습니다. 자동 적재를 다시 실행하세요.`);
     setOpen(false);
@@ -213,7 +225,7 @@ export default function TransportEquipmentSelector() {
       setMessage('길이·폭·높이·적재중량·바닥하중을 모두 0보다 크게 입력하세요.');
       return;
     }
-    const item = createCustomEquipment(category, values);
+    const item = customTemplate?.id === 'custom-heavy-truck' ? { ...customTemplate, ...values, volumeM3: values.length * values.width * values.height, requiresSpecification: false, sourceLabel: '사용자 등록 실차 제원', sourceUrl: undefined } : createCustomEquipment(category, values);
     if (!applyToDashboard(item)) {
       setMessage('대시보드 입력칸을 찾지 못했습니다.');
       return;
@@ -232,15 +244,16 @@ export default function TransportEquipmentSelector() {
       </header>
 
       <div className="transport-category-tabs" role="tablist">
-        <button type="button" className={category === 'container' ? 'active' : ''} onClick={() => setCategory('container')}>▥ 컨테이너</button>
-        <button type="button" className={category === 'truck' ? 'active' : ''} onClick={() => setCategory('truck')}>▰ 트럭</button>
+        <button type="button" className={category === 'container' ? 'active' : ''} onClick={() => { setCategory('container'); setCustomTemplate(undefined); }}>▥ 컨테이너</button>
+        <button type="button" className={category === 'truck' ? 'active' : ''} onClick={() => { setCategory('truck'); setCustomTemplate(undefined); }}>▰ 트럭</button>
       </div>
+      {category === 'truck' && <p className="transport-selector-message">국내 완성 특장차 대표 사양 · 치수는 화물실 내부 · 적재중량은 화물 허용중량. 대형 특장차는 실차 제원을 등록하세요.</p>}
 
       <div className="transport-equipment-grid">
         {list.map(item => <EditableEquipmentCard key={item.id} item={item} active={selected.id === item.id} onSelect={choose} onMessage={setMessage} />)}
       </div>
 
-      {(selected.id.startsWith('custom-') || message.includes('사용자 규격')) && <section className="transport-custom-editor">
+      {customTemplate && <section className="transport-custom-editor">
         <h3>{category === 'container' ? 'CUSTOM CONTAINER' : 'CUSTOM TRUCK'} 규격</h3>
         <div>
           <label>내부 길이(m)<input type="number" min="0.1" step="0.01" value={custom.length} onChange={e => setCustom(v => ({ ...v, length: Number(e.target.value) }))} /></label>
@@ -254,7 +267,7 @@ export default function TransportEquipmentSelector() {
 
       <footer className="transport-selector-foot">
         <div><b>현재 선택: {selected.shortName}</b><span>{selected.length.toFixed(3)} × {selected.width.toFixed(3)} × {selected.height.toFixed(3)}m · {selected.maxPayloadKg.toLocaleString()}kg</span></div>
-        <div><span>{selected.sourceLabel}</span><small>{selected.note ?? '실제 장비 제원은 제조사·연식·국가별 허용중량에 따라 달라질 수 있으므로 출하 전 실제 장비 데이터를 확인하세요.'}</small></div>
+        <div><span>{selected.sourceLabel}{selected.sourceUrl && <> · <a href={selected.sourceUrl} target="_blank" rel="noreferrer">제조사 제원</a></>}</span><small>{selected.note ?? '실제 장비 제원은 제조사·연식·국가별 허용중량에 따라 달라질 수 있으므로 출하 전 실제 장비 데이터를 확인하세요.'}</small></div>
       </footer>
       {message && <p className="transport-selector-message" role="status">{message}</p>}
     </section>

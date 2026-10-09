@@ -5,6 +5,8 @@ import {
   TRANSPORT_EQUIPMENT,
   createCustomEquipment,
   findMatchingEquipment,
+  getTransportEquipment,
+  selectTransportEquipment,
 } from './transportEquipment';
 
 describe('transport equipment catalog', () => {
@@ -29,12 +31,12 @@ describe('transport equipment catalog', () => {
       'CUSTOM CONTAINER',
     ]));
     expect(TRUCK_EQUIPMENT.map(item => item.name)).toEqual(expect.arrayContaining([
-      'TAUTLINER (CURTAINSIDER)',
-      'REFRIGERATED TRUCK',
-      'ISOTHERM TRUCK',
-      'MEGA-TRAILER',
-      'JUMBO',
-      'CUSTOM TRUCK',
+      '1톤 내장탑차',
+      '2.5톤 윙바디',
+      '2.5톤급 내장탑 (허용 2.4톤)',
+      '5톤급 윙바디 (허용 5.5톤)',
+      '7톤 후2축 윙바디',
+      '대형 윙바디 · 실차 등록',
     ]));
     expect(new Set(TRANSPORT_EQUIPMENT.map(item => item.id)).size).toBe(TRANSPORT_EQUIPMENT.length);
   });
@@ -58,6 +60,29 @@ describe('transport equipment catalog', () => {
   it('marks tank and bulk equipment as specialized cargo', () => {
     expect(CONTAINER_EQUIPMENT.find(item => item.id === '20-tank')?.specializedCargo).toBe(true);
     expect(CONTAINER_EQUIPMENT.find(item => item.id === '20-bulk')?.specializedCargo).toBe(true);
+  });
+
+  it('uses completed-body inner dimensions and cargo payload, not GVW or cargo side-board height', () => {
+    const expected = {
+      'kr-1t-box': [2.83, 1.67, 1.58, 1000], 'kr-2.5t-wing': [5, 2.15, 2.015, 2500],
+      'kr-2.4t-box': [4.33, 1.96, 1.85, 2400], 'kr-5.5t-wing': [7.82, 2.4, 2.56, 5500], 'kr-7t-wing': [9.2, 2.4, 2.6, 7000],
+    };
+    for (const [id, spec] of Object.entries(expected)) {
+      const e = getTransportEquipment(id)!;
+      expect([e.length, e.width, e.height, e.maxPayloadKg], id).toEqual(spec);
+      expect(e.sourceUrl).toContain('hyundai.com/');
+      expect(e.note).toContain('임시 유도값');
+      expect(e.volumeM3).toBeCloseTo(e.length * e.width * e.height);
+    }
+    expect(TRUCK_EQUIPMENT.some(e => e.id === 'tautliner')).toBe(false);
+    expect(getTransportEquipment('tautliner')).toMatchObject({ length: 13.62, maxPayloadKg: 32800 });
+  });
+
+  it('requires actual payload and floor ratings before selecting the large-body reference', () => {
+    const large = getTransportEquipment('custom-heavy-truck')!;
+    expect(large.requiresSpecification).toBe(true);
+    expect(large.maxPayloadKg).toBe(0);
+    expect(() => selectTransportEquipment(large)).toThrow('실차');
   });
 });
 

@@ -66,7 +66,7 @@ it('shows the selected equipment rig and backgrounds in main workspace preview, 
 
 it('switches short custom trucks to the cab and rigid underbody without changing cargo inputs', async () => {
   const original = readTransportEquipment();
-  const equipment = { ...original, id: 'custom-truck', category: 'truck' as const, geometry: 'custom' as const, length: 4, width: 1.8, height: 2.2 };
+  const equipment = { ...original, id: 'custom-truck', category: 'truck' as const, geometry: 'custom' as const, length: 3.1, width: 1.8, height: 2.2, maxPayloadKg: 1000 };
   try {
     act(() => selectTransportEquipment(equipment));
     await act(async () => root.render(<ThreeLoadingViewer container={equipment} result={result} geometry="custom" vehicle preview />));
@@ -80,11 +80,12 @@ it('replaces the container tractor with the selected road truck in the live view
   try {
     await act(async () => root.render(<ThreeLoadingViewer container={original} result={result} preview />));
     expect(captured.scene!.plan.vehicleRig).toBe('articulated');
-    for (const id of ['refrigerated-truck', 'isotherm-truck', 'tautliner', 'custom-truck', 'mega-trailer']) {
+    const rigs = { 'kr-1t-box': 'rigid', 'kr-2.5t-wing': 'medium-rigid', 'kr-2.4t-box': 'medium-rigid', 'kr-5.5t-wing': 'heavy-rigid', 'kr-7t-wing': 'multi-axle-rigid', 'custom-truck': 'rigid' };
+    for (const [id, rig] of Object.entries(rigs)) {
       const equipment = TRUCK_EQUIPMENT.find(item => item.id === id)!;
       act(() => selectTransportEquipment(equipment));
       await act(async () => root.render(<ThreeLoadingViewer container={equipment} result={result} preview />));
-      expect(captured.scene!.plan.vehicleRig, id).toBe(id === 'mega-trailer' ? 'articulated' : 'rigid');
+      expect(captured.scene!.plan.vehicleRig, id).toBe(rig);
       expect(captured.scene!.plan.equipmentId).toBe(id);
       expect(captured.scene!.plan.placements.map(({ cargoId, x, y, z }) => ({ cargoId, x, y, z }))).toEqual(result.placements.map(({ cargoId, x, y, z }) => ({ cargoId, x, y, z })));
     }

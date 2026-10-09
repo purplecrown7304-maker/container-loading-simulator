@@ -1,5 +1,6 @@
 import { useEffect, useState, type ChangeEvent, type MouseEvent } from 'react';
 import EquipmentCard3D from './EquipmentCard3D';
+import TruckCard3D from './TruckCard3D';
 import './equipment-image-editor.css';
 import { ADMIN_ACCESS_EVENT, isAdminSession } from './adminAccess';
 import {
@@ -10,7 +11,7 @@ import {
   removeEquipmentImageOverride,
   setEquipmentImageOverride,
 } from './equipmentImageOverrides';
-import type { EquipmentGeometry, TransportEquipment } from './transportEquipment';
+import type { TransportEquipment } from './transportEquipment';
 
 type Props = {
   item: TransportEquipment;
@@ -20,23 +21,9 @@ type Props = {
   variant?: 'selector' | 'guided';
 };
 
-function EquipmentIcon({ geometry }: { geometry: EquipmentGeometry }) {
-  return <svg viewBox="0 0 200 100" aria-hidden="true">
-    <path d="M72 28h105v48H72z" className="eq-fill"/>
-    <path d="M23 52l18-25h31v49H23z" className="eq-fill"/>
-    <path d="M23 52h49V27H41L23 52zm49-24h105v48H72V28z" className="eq-line"/>
-    <circle cx="52" cy="78" r="9" className="eq-wheel"/>
-    <circle cx="151" cy="78" r="9" className="eq-wheel"/>
-    <circle cx="52" cy="78" r="4" className="eq-fill"/>
-    <circle cx="151" cy="78" r="4" className="eq-fill"/>
-    {geometry === 'reefer-truck' && <text x="120" y="58" className="eq-snow">❄</text>}
-    {geometry === 'jumbo-truck' && <path d="M121 28v48" className="eq-line"/>}
-  </svg>;
-}
-
 function DefaultVisual({ item }: { item: TransportEquipment }) {
   if (item.category === 'container') return <EquipmentCard3D item={item} />;
-  return <EquipmentIcon geometry={item.geometry} />;
+  return <TruckCard3D item={item} />;
 }
 
 export default function EditableEquipmentCard({ item, active, onSelect, onMessage, variant = 'selector' }: Props) {
@@ -110,7 +97,7 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
       <span className="transport-equipment-card-name">{item.name}</span>
       {imageSrc ? <span className="transport-equipment-user-image"><img src={imageSrc} alt="" draggable={false} /></span> : <DefaultVisual item={item} />}
       <span className="transport-equipment-spec">{item.length.toFixed(2)} × {item.width.toFixed(2)} × {item.height.toFixed(2)} m</span>
-      <span className="transport-equipment-payload">적재 {item.maxPayloadKg.toLocaleString()} kg</span>
+      <span className="transport-equipment-payload">{item.requiresSpecification && !item.maxPayloadKg ? '허용중량 · 실차 등록 필요' : `적재 ${item.maxPayloadKg.toLocaleString()} kg`}</span>
       {variant === 'guided' && active && <i className="equipment-card-selected" aria-label="선택됨">✓</i>}
     </button>
     {isAdmin && variant === 'selector' && <div className="transport-equipment-image-actions" onClick={stopCardSelection}>

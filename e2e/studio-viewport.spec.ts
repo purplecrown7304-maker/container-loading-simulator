@@ -46,6 +46,6 @@ test('equipment photo cards, persistent canvas and one font stay inside the view
   await page.locator('.equipment-icon-option[data-equipment-id="20-standard"]').click();
   await expect(page.locator('.equipment-selected-strip')).toContainText('5,900 mm');
   await page.locator('.guided-segmented').getByRole('button', { name: '트럭', exact: true }).click();
-  await page.locator('.equipment-icon-option[data-equipment-id="tautliner"]').click();
-  await expect(page.locator('.equipment-selected-strip')).toContainText('Tautliner / Curtainsider');
+  await page.locator('.equipment-icon-option[data-equipment-id="kr-2.5t-wing"]').click();
+  await expect(page.locator('.equipment-selected-strip')).toContainText('2.5톤 윙바디');
 });
