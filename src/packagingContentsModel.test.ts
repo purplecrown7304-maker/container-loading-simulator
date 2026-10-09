@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { packagingContentsModel, type PackagingInspection } from './packagingContentsModel';
 
 function fixture(): PackagingInspection {
-  return { product: { id: 'P', name: '제품', length: .1, width: .1, height: .1, quantity: 20, weightKg: 1 }, assignment: { productId: 'P', productName: '제품', boxId: 'B', boxName: '박스', source: 'catalog', unitsPerBox: 8, boxesNeeded: 3, innerLength: .2, innerWidth: .2, innerHeight: .2, outerLength: .21, outerWidth: .21, outerHeight: .21, grossWeightKg: 9, productFillRate: 1, containerTileEfficiency: 1, simulatedLoadedBoxes: 0, maxStackLayers: 3, recommendedStackLayers: 3, requiredTopLoadKg: 18, strengthStatus: 'catalog', score: 1 }, units: 8 };
+  return { product: { id: 'P', name: '제품', length: .1, width: .1, height: .1, quantity: 20, weightKg: 1 }, assignment: { productId: 'P', productName: '제품', boxId: 'B', boxName: '박스', source: 'catalog', unitsPerBox: 8, boxesNeeded: 3, innerLength: .201, innerWidth: .201, innerHeight: .201, outerLength: .211, outerWidth: .211, outerHeight: .211, grossWeightKg: 9, productFillRate: 1, containerTileEfficiency: 1, simulatedLoadedBoxes: 0, maxStackLayers: 3, recommendedStackLayers: 3, requiredTopLoadKg: 18, strengthStatus: 'catalog', score: 1 }, units: 8 };
 }
 describe('carton contents display geometry', () => {
   it('uses the full count, real sizes and non-overlapping positions inside the inner walls', () => {
@@ -26,7 +26,7 @@ describe('carton contents display geometry', () => {
   });
   it('preserves cushioning space and declared internal layers', () => {
     const value = fixture(); value.product.cushioningM = .05; value.units = 1;
-    const m = packagingContentsModel(value)!; expect(m.positions[0]).toEqual([.1, .1, .1]);
+    const m = packagingContentsModel(value)!; expect(m.positions[0][0]).toBeCloseTo(.1005); expect(m.positions[0][1]).toBeCloseTo(.1005); expect(m.positions[0][2]).toBeCloseTo(.1);
     value.units = 2; expect(packagingContentsModel(value)).toBeNull();
     value.product.cushioningM = 0; value.product.fragile = true; value.units = 5; expect(packagingContentsModel(value)).toBeNull();
     value.product.maxInternalLayers = 2; expect(packagingContentsModel(value)?.shown).toBe(5);
@@ -34,6 +34,41 @@ describe('carton contents display geometry', () => {
   it('limits rendering while retaining the actual quantity and layers', () => {
     const value = fixture(); const m = packagingContentsModel(value, 3)!;
     expect(m.shown).toBe(3); expect(m.units).toBe(8); expect(m.layers).toBe(2);
+  });
+  it('compacts the registered cushioning grid to exactly 1mm on all axes without changing inputs', () => {
+    const value = fixture(); value.product.cushioningM = .005;
+    value.assignment.innerLength = value.assignment.innerWidth = value.assignment.innerHeight = .22;
+    value.assignment.outerLength = value.assignment.outerWidth = value.assignment.outerHeight = .23;
+    const before = structuredClone(value);
+    const m = packagingContentsModel(value)!;
+    expect(m.shown).toBe(8); expect(m.layers).toBe(2); expect(m.padding).toBe(.005); expect(m.gap).toBe(.001);
+    for (const [index, axis] of [[1, 0], [2, 1], [4, 2]]) {
+      expect(m.positions[index][axis] - m.positions[0][axis] - m.size[axis]).toBeCloseTo(.001, 10);
+    }
+    for (const p of m.positions) p.forEach((v, i) => {
+      expect(v - m.size[i] / 2).toBeGreaterThanOrEqual(m.padding - 1e-9);
+      expect(v + m.size[i] / 2).toBeLessThanOrEqual(m.inner[i] - m.padding + 1e-9);
+    });
+    expect(value).toEqual(before);
+  });
+  it('does not fabricate room for 1mm gaps in an exact-fit carton', () => {
+    const value = fixture(); value.assignment.innerLength = value.assignment.innerWidth = value.assignment.innerHeight = .2;
+    expect(packagingContentsModel(value)).toBeNull();
+    expect(packagingContentsModel(value, 600, 0)?.shown).toBe(8);
+  });
+  it('shows the reported 96-product carton in eight compact layers', () => {
+    // Synthetic reconstruction of the screenshot dimensions, not company inventory.
+    const value = fixture();
+    Object.assign(value.product, { length: .03, width: .04, height: .02, cushioningM: .005, quantity: 96 });
+    Object.assign(value.assignment, { unitsPerBox: 96, innerLength: .227, innerWidth: .122, innerHeight: .257, outerLength: .235, outerWidth: .130, outerHeight: .265 });
+    value.units = 96;
+    const m = packagingContentsModel(value)!;
+    expect(m.shown).toBe(96); expect(m.layers).toBe(8);
+    expect(m.positions[12][2] - m.positions[0][2] - m.size[2]).toBeCloseTo(.001, 10);
+    expect(m.positions[95][2] + m.size[2] / 2).toBeCloseTo(.172, 10);
+  });
+  it.each([-1, NaN, Infinity])('rejects an invalid display gap %s', gap => {
+    expect(packagingContentsModel(fixture(), 600, gap)).toBeNull();
   });
   it.each([0, NaN, Infinity, -1])('rejects invalid dimensions %s rather than inventing products', dimension => {
     const value = fixture(); value.product.length = dimension; expect(packagingContentsModel(value)).toBeNull();
