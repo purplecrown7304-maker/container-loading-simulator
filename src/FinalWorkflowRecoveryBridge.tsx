@@ -34,9 +34,9 @@ function currentTargetIsCertified() {
 
 function guidedResultButton(target: Element) {
   const primary = target.closest('.guided-primary-cta');
-  if (primary instanceof HTMLButtonElement && (primary.textContent ?? '').includes('결과 확인')) return primary;
+  if (primary instanceof HTMLButtonElement && (primary.dataset.workflowAction === 'view-results' || (primary.textContent ?? '').includes('결과 확인'))) return primary;
   const rail = target.closest('.guided-step-list button');
-  if (rail instanceof HTMLButtonElement && (rail.textContent ?? '').includes('결과 확인')) return rail;
+  if (rail instanceof HTMLButtonElement && (rail.dataset.workspaceStep === '6' || (rail.textContent ?? '').includes('결과 확인'))) return rail;
   return null;
 }
 

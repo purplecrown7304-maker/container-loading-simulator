@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { uiText, useUiLanguage } from './uiLanguage';
 import { openProductTool } from './productToolEvents';
 import { openSafetyInspectionCenter } from './SafetyInspectionCenter';
 import { openTransportEquipmentSpecManager } from './TransportEquipmentSpecManager';
@@ -15,6 +16,8 @@ function buttonTitle(button: Element) {
 
 function setButtonCopy(button: HTMLButtonElement | null, title: string, description: string) {
   if (!button) return;
+  title = uiText(title);
+  description = uiText(description);
   const titleNode = button.querySelector('b');
   const descriptionNode = button.querySelector('small');
   if (titleNode && titleNode.textContent !== title) titleNode.textContent = title;
@@ -29,9 +32,9 @@ function createMenuButton(className: string, icon: string, title: string, descri
   iconNode.textContent = icon;
   const copy = document.createElement('div');
   const titleNode = document.createElement('b');
-  titleNode.textContent = title;
+  titleNode.textContent = uiText(title);
   const descriptionNode = document.createElement('small');
-  descriptionNode.textContent = description;
+  descriptionNode.textContent = uiText(description);
   copy.append(titleNode, descriptionNode);
   button.append(iconNode, copy);
   button.addEventListener('click', onClick);
@@ -40,18 +43,19 @@ function createMenuButton(className: string, icon: string, title: string, descri
 
 function syncWorkPreparationMenu() {
   const sections = [...document.querySelectorAll<HTMLElement>('.final-workflow-menu > section')];
-  const workPrep = sections.find(section => (section.querySelector('strong')?.textContent ?? '').includes('작업 준비'));
+  const workPrep = sections.find(section => section.dataset.menuSection === 'preparation')
+    ?? sections.find(section => (section.querySelector('strong')?.textContent ?? '').includes(uiText('작업 준비')));
   if (!workPrep) return;
 
   const directButtons = [...workPrep.querySelectorAll<HTMLButtonElement>(':scope > button')];
-  const equipmentButton = directButtons.find(button => ['컨테이너 · 차량 선택', '적재공간'].includes(buttonTitle(button))) ?? null;
-  const boxButton = directButtons.find(button => ['박스 · 화물 선택', '박스 관리'].includes(buttonTitle(button))) ?? null;
+  const equipmentButton = directButtons.find(button => button.dataset.menuAction === 'equipment' || ['컨테이너 · 차량 선택', '적재공간'].map(uiTextLabel => uiText(uiTextLabel)).includes(buttonTitle(button))) ?? null;
+  const boxButton = directButtons.find(button => button.dataset.menuAction === 'boxes' || ['박스 · 화물 선택', '박스 관리'].map(uiTextLabel => uiText(uiTextLabel)).includes(buttonTitle(button))) ?? null;
 
   setButtonCopy(equipmentButton, '적재공간', '현재 작업에 사용할 컨테이너·트럭 적재공간 선택');
   setButtonCopy(boxButton, '박스 관리', '등록 박스 조회 · 신규 등록 · Excel 업로드 · 적재 투입');
 
   workPrep.querySelectorAll<HTMLButtonElement>(':scope > button').forEach(button => {
-    if (buttonTitle(button).includes('범용 · 추가 박스')) button.remove();
+    if (buttonTitle(button).includes(uiText('범용 · 추가 박스'))) button.remove();
   });
 
   let companyButton = workPrep.querySelector<HTMLButtonElement>(':scope > .product-menu-company-action');
@@ -76,7 +80,7 @@ function syncBoxManagement() {
   const modal = document.querySelector<HTMLElement>('.workspace-modal.box-selector-modal');
   if (!modal) return;
   const title = modal.querySelector<HTMLElement>('header > b');
-  if (title && title.textContent !== '박스 관리') title.textContent = '박스 관리';
+  if (title && title.textContent !== uiText('박스 관리')) title.textContent = uiText('박스 관리');
 
   const actionGroup = modal.querySelector<HTMLElement>('.box-selector-actions > div');
   if (!actionGroup) return;
@@ -85,7 +89,7 @@ function syncBoxManagement() {
     recommendationButton = document.createElement('button');
     recommendationButton.type = 'button';
     recommendationButton.className = 'box-common-recommendation-action';
-    recommendationButton.textContent = '범용 · 추가 박스 추천';
+    recommendationButton.textContent = uiText('범용 · 추가 박스 추천');
     recommendationButton.addEventListener('click', () => openProductTool('cartons'));
     actionGroup.appendChild(recommendationButton);
   }
@@ -95,7 +99,7 @@ function syncVehicleSpecManagement() {
   const sections = [...document.querySelectorAll<HTMLElement>('.final-workflow-menu > section')];
   for (const section of sections) {
     const button = [...section.querySelectorAll<HTMLButtonElement>(':scope > button')]
-      .find(item => buttonTitle(item) === '차량 규격 관리');
+      .find(item => item.dataset.menuAction === 'vehicle-spec' || buttonTitle(item) === uiText('차량 규격 관리'));
     if (!button) continue;
     setButtonCopy(button, '차량 규격 관리', '적재공간에 등록된 컨테이너·트럭의 실제 계산 규격 수정');
     if (button.dataset.transportSpecManagerBound === 'true') return;
@@ -115,7 +119,7 @@ function syncSafetyInspectionMenu() {
   const sections = [...document.querySelectorAll<HTMLElement>('.final-workflow-menu > section')];
   for (const section of sections) {
     const button = [...section.querySelectorAll<HTMLButtonElement>(':scope > button')]
-      .find(item => buttonTitle(item) === '안전 점검');
+      .find(item => buttonTitle(item) === uiText('안전 점검'));
     if (!button) continue;
     setButtonCopy(button, '안전 점검', '자동 적재에서 사용한 제약 · 무게중심 · 바닥하중 · 물리 · 관성 검증을 직접 실행');
     if (button.dataset.manualSafetyCenterBound === 'true') return;
@@ -132,6 +136,7 @@ function syncSafetyInspectionMenu() {
 }
 
 export default function ProductMenuActions() {
+  const language = useUiLanguage();
   useEffect(() => {
     let frame = 0;
     const sync = () => {
@@ -151,7 +156,7 @@ export default function ProductMenuActions() {
       observer.disconnect();
       document.querySelectorAll('.product-menu-company-action,.box-common-recommendation-action').forEach(node => node.remove());
     };
-  }, []);
+  }, [language]);
 
   return null;
 }

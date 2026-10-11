@@ -1,3 +1,4 @@
+import { uiText as uiT, useUiLanguage } from './uiLanguage';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CargoItem, ContainerSpec, LimitReviewConfig, LoadingResult } from './engine/types';
@@ -21,10 +22,11 @@ function draftFor(container: ContainerSpec, cargo: CargoItem[]): Draft {
 function NumberChoice({ label, original, unit, choice, onChange, min = 0, max = 10_000_000, step = 'any' }: {
   label: string; original: string; unit: string; choice: Field; onChange: (field: Field) => void; min?: number; max?: number; step?: string;
 }) {
+  useUiLanguage();
   return <div className="limit-review-choice">
-    <label><input type="checkbox" checked={choice.selected} onChange={e => onChange({ ...choice, selected: e.target.checked })} />{label}</label>
-    <span>원 기준 {original} {unit}</span>
-    <label className="limit-review-value">검토 범위<input aria-label={`${label} 검토 범위`} type="number" min={min} max={max} step={step} disabled={!choice.selected} value={choice.value} onChange={e => onChange({ ...choice, value: e.target.value })} /><span>{unit}</span></label>
+    <label><input type="checkbox" checked={choice.selected} onChange={e => onChange({ ...choice, selected: e.target.checked })} />{uiT(label)}</label>
+    <span>{uiT("원 기준")} {original} {unit}</span>
+    <label className="limit-review-value">{uiT("검토 범위")}<input aria-label={uiT("{0} 검토 범위", [uiT(label)])} type="number" min={min} max={max} step={step} disabled={!choice.selected} value={choice.value} onChange={e => onChange({ ...choice, value: e.target.value })} /><span>{unit}</span></label>
   </div>;
 }
 
@@ -46,6 +48,7 @@ function useHeaderSlot() {
 
 /** Compact header button: strict mode is a status button; review entry stays one deliberate click away. */
 function LimitReviewHeaderButton({ active, supported, onChange }: { active: boolean; supported: boolean; onChange: (config?: LimitReviewConfig) => void }) {
+  useUiLanguage();
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -58,21 +61,22 @@ function LimitReviewHeaderButton({ active, supported, onChange }: { active: bool
   }, [open]);
   return <div className={`limit-review-header${active ? ' is-review' : ''}`} ref={wrap}>
     <button type="button" className="limit-review-header-button" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen(v => !v)}
-      title={active ? '검토 전용 · 출고 승인 불가' : '등록 한도와 기존 규칙을 그대로 적용합니다'}>
-      <i aria-hidden="true" />{active ? 'WHAT-IF 검토' : '기본 엄격 모드'}<span aria-hidden="true">⌄</span>
+      title={active ? uiT("검토 전용 · 출고 승인 불가") : uiT("등록 한도와 기존 규칙을 그대로 적용합니다")}>
+      <i aria-hidden="true" />{active ? uiT("WHAT-IF 검토") : uiT("기본 엄격 모드")}<span aria-hidden="true">⌄</span>
     </button>
-    {open && <div className="limit-review-header-popover" role="dialog" aria-label="적재 한도 모드">
-      <b>{active ? 'WHAT-IF REVIEW · 한도 초과 검토' : '기본 엄격 모드'}</b>
-      <p>{active ? '검토 전용 · 출고 승인 불가. 범위 설정은 화면 상단 검토 패널에서 바꿉니다.' : '등록 한도와 기존 규칙을 그대로 적용합니다.'}</p>
-      {!supported && !active && <p>한도 초과 검토는 기존 규칙의 박스 직접 적재에서 지원합니다. A 규칙·팔레트·혼합은 엄격 모드로 계산하세요.</p>}
+    {open && <div className="limit-review-header-popover" role="dialog" aria-label={uiT("적재 한도 모드")}>
+      <b>{active ? uiT("WHAT-IF REVIEW · 한도 초과 검토") : uiT("기본 엄격 모드")}</b>
+      <p>{active ? uiT("검토 전용 · 출고 승인 불가. 범위 설정은 화면 상단 검토 패널에서 바꿉니다.") : uiT("등록 한도와 기존 규칙을 그대로 적용합니다.")}</p>
+      {!supported && !active && <p>{uiT("한도 초과 검토는 기존 규칙의 박스 직접 적재에서 지원합니다. A 규칙·팔레트·혼합은 엄격 모드로 계산하세요.")}</p>}
       {active
-        ? <button type="button" onClick={() => { setOpen(false); onChange(undefined); }}>엄격 모드로 전환</button>
-        : <button type="button" disabled={!supported} onClick={() => { setOpen(false); onChange({ mode: 'what-if' }); }}>한도 초과 범위 선택</button>}
+        ? <button type="button" onClick={() => { setOpen(false); onChange(undefined); }}>{uiT("엄격 모드로 전환")}</button>
+        : <button type="button" disabled={!supported} onClick={() => { setOpen(false); onChange({ mode: 'what-if' }); }}>{uiT("한도 초과 범위 선택")}</button>}
     </div>}
   </div>;
 }
 
 export default function LimitReviewControls({ container, cargo, result, mode, onChange }: Props) {
+  useUiLanguage();
   const [draft, setDraft] = useState(() => draftFor(container, cargo));
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
@@ -115,35 +119,35 @@ export default function LimitReviewControls({ container, cargo, result, mode, on
   // Strict mode needs no page-wide bar: it is a header button next to the ruleset selector.
   // Review mode keeps its persistent warning panel in the page in addition to the header state.
   if (!active) return slot ? createPortal(headerButton, slot) : headerButton;
-  return <>{slot && createPortal(headerButton, slot)}<section className={`limit-review-controls${active ? ' is-review' : ''}`} aria-label="한도 초과 검토 설정">
-    <div className="limit-review-heading"><strong>{active ? 'WHAT-IF REVIEW · 한도 초과 검토' : '기본 엄격 모드'}</strong>
-      <span>{active ? '검토 전용 · 출고 승인 불가' : '등록 한도와 기존 규칙을 그대로 적용합니다'}</span>
-      {active ? <button type="button" onClick={() => onChange(undefined)}>엄격 모드로 전환</button> : <button type="button" disabled={!supported} onClick={() => onChange({ mode: 'what-if' })}>한도 초과 범위 선택</button>}
+  return <>{slot && createPortal(headerButton, slot)}<section className={`limit-review-controls${active ? ' is-review' : ''}`} aria-label={uiT("한도 초과 검토 설정")}>
+    <div className="limit-review-heading"><strong>{active ? uiT("WHAT-IF REVIEW · 한도 초과 검토") : uiT("기본 엄격 모드")}</strong>
+      <span>{active ? uiT("검토 전용 · 출고 승인 불가") : uiT("등록 한도와 기존 규칙을 그대로 적용합니다")}</span>
+      {active ? <button type="button" onClick={() => onChange(undefined)}>{uiT("엄격 모드로 전환")}</button> : <button type="button" disabled={!supported} onClick={() => onChange({ mode: 'what-if' })}>{uiT("한도 초과 범위 선택")}</button>}
     </div>
-    {!supported && <p role={active ? 'alert' : undefined}>한도 초과 검토는 기존 규칙의 박스 직접 적재에서 지원합니다. A 규칙·팔레트·혼합은 엄격 모드로 계산하세요.</p>}
+    {!supported && <p role={active ? 'alert' : undefined}>{uiT("한도 초과 검토는 기존 규칙의 박스 직접 적재에서 지원합니다. A 규칙·팔레트·혼합은 엄격 모드로 계산하세요.")}</p>}
     {active && <>
-      <p className="limit-review-persistent-warning">선택한 수치 범위 안에서만 초과 계산합니다. 실제 정격·등록 한도와 초과 경고는 유지되며, 이 결과는 실제 운송 안전 인증이나 출고 승인이 아닙니다. 대표 장비값과 미확인 포장 강도는 현장 확인이 필요합니다.</p>
-      <details><summary>검토 범위 선택 및 변경{editing ? ' · 미적용 변경 있음' : ''}</summary>
-        <p>확인란을 선택한 항목만 변경합니다. 최초 값은 원 기준과 같습니다. 계산 상한은 입력 오류를 막는 범위이며 안전 여유를 뜻하지 않습니다. 변경 후 다시 적재해야 합니다.</p>
-        <fieldset disabled={!supported}><legend>적재 수치 한도</legend>
+      <p className="limit-review-persistent-warning">{uiT("선택한 수치 범위 안에서만 초과 계산합니다. 실제 정격·등록 한도와 초과 경고는 유지되며, 이 결과는 실제 운송 안전 인증이나 출고 승인이 아닙니다. 대표 장비값과 미확인 포장 강도는 현장 확인이 필요합니다.")}</p>
+      <details><summary>{uiT("검토 범위 선택 및 변경")}{editing ? uiT(" · 미적용 변경 있음") : ''}</summary>
+        <p>{uiT("확인란을 선택한 항목만 변경합니다. 최초 값은 원 기준과 같습니다. 계산 상한은 입력 오류를 막는 범위이며 안전 여유를 뜻하지 않습니다. 변경 후 다시 적재해야 합니다.")}</p>
+        <fieldset disabled={!supported}><legend>{uiT("적재 수치 한도")}</legend>
           <NumberChoice label="총 적재중량(고정재 포함)" original={String(container.maxPayloadKg)} unit="kg" choice={draft.payload} min={container.maxPayloadKg} onChange={f => update('payload', f)} />
           <NumberChoice label="바닥하중" original={String(container.floorLoadLimitKgPerM2 ?? '미등록 · 근거 미확인')} unit="kg/m²" choice={draft.floor} min={container.floorLoadLimitKgPerM2 ?? 0.001} onChange={f => update('floor', f)} />
           <NumberChoice label="최소 지지율" original="80" unit="%" choice={draft.support} min={0.001} max={80} onChange={f => update('support', f)} />
-          <small>경계·충돌·실제 지지 접촉·지지영역 안의 무게중심·유효 입력·하역 경로는 면제되지 않습니다.</small>
+          <small>{uiT("경계·충돌·실제 지지 접촉·지지영역 안의 무게중심·유효 입력·하역 경로는 면제되지 않습니다.")}</small>
         </fieldset>
-        <fieldset disabled={!supported}><legend>품목별 적층 / 상부하중</legend>
-          {cargo.map(item => <div className="limit-review-cargo" key={item.id}><b>{item.id} · {item.name}{item.strengthUnverified ? ' · 강도 미확인' : ''}</b>
+        <fieldset disabled={!supported}><legend>{uiT("품목별 적층 / 상부하중")}</legend>
+          {cargo.map(item => <div className="limit-review-cargo" key={item.id}><b>{item.id} · {item.name}{item.strengthUnverified ? uiT(" · 강도 미확인") : ''}</b>
             <NumberChoice label={`${item.id} 적층단`} original={item.strengthUnverified ? '1 (강도 미확인)' : String(item.maxStackLayers ?? '미등록')} unit="단" choice={draft.cargo[item.id]?.layers ?? field(undefined, 1)} min={item.strengthUnverified ? 1 : item.maxStackLayers ?? 1} max={10_000} step="1" onChange={f => updateCargo(item.id, 'layers', f)} />
             <NumberChoice label={`${item.id} 상부하중`} original={item.strengthUnverified ? '0 (강도 미확인)' : String(item.maxTopLoadKg ?? '미등록')} unit="kg" choice={draft.cargo[item.id]?.topLoad ?? field(undefined, 0)} min={item.strengthUnverified ? 0 : item.maxTopLoadKg ?? 0} onChange={f => updateCargo(item.id, 'topLoad', f)} />
           </div>)}
         </fieldset>
-        <fieldset disabled={!supported}><legend>내부 시뮬레이션 비교선</legend>
-          <p>이동·기울기는 앱의 비교 기준입니다. 실제 장비 정격과 다르며, 범위를 바꿔도 원 기준의 미달 기록과 검토 전용 상태가 유지됩니다.</p>
+        <fieldset disabled={!supported}><legend>{uiT("내부 시뮬레이션 비교선")}</legend>
+          <p>{uiT("이동·기울기는 앱의 비교 기준입니다. 실제 장비 정격과 다르며, 범위를 바꿔도 원 기준의 미달 기록과 검토 전용 상태가 유지됩니다.")}</p>
           <NumberChoice label="수평 이동" original="12" unit="mm" choice={draft.displacement} min={12} max={1_000_000} onChange={f => update('displacement', f)} />
           <NumberChoice label="기울기" original="1.8" unit="°" choice={draft.rotation} min={1.8} max={180} onChange={f => update('rotation', f)} />
         </fieldset>
         {error && <p role="alert">{error}</p>}
-        <div className="limit-review-actions"><button type="button" disabled={!supported} onClick={apply}>검토 범위 적용</button><button type="button" onClick={() => { setDraft(draftFor(container, cargo)); setEditing(false); setError(''); }}>변경 취소</button></div>
+        <div className="limit-review-actions"><button type="button" disabled={!supported} onClick={apply}>{uiT("검토 범위 적용")}</button><button type="button" onClick={() => { setDraft(draftFor(container, cargo)); setEditing(false); setError(''); }}>{uiT("변경 취소")}</button></div>
       </details>
       {result.limitReview?.errors.length ? <p role="alert">{result.limitReview.errors.join(' ')}</p> : null}
     </>}
@@ -151,18 +155,19 @@ export default function LimitReviewControls({ container, cargo, result, mode, on
 }
 
 export function LimitReviewBanner({ container, result, cargo }: Pick<Props, 'container' | 'result'> & { cargo?: CargoItem[] }) {
+  useUiLanguage();
   const [certification, setCertification] = useState(readLatestInertiaCertification);
   useEffect(() => { const refresh = () => setCertification(readLatestInertiaCertification()); window.addEventListener(INERTIA_CERTIFICATION_EVENT, refresh); return () => window.removeEventListener(INERTIA_CERTIFICATION_EVENT, refresh); }, []);
   if (container.limitReview?.mode !== 'what-if') return null;
   const metrics = cargo ? limitReviewMetrics({ container, cargo, result, mode: 'boxes' }, certification) : result.limitReview?.metrics ?? [];
-  return <section className="limit-review-result-banner" aria-label="검토 전용 적재 경고" role="status">
-    <strong>WHAT-IF REVIEW · 검토 전용 · 출고 승인 불가</strong>
-    <span>원 기준 초과 경고는 창을 닫거나 저장해도 유지됩니다. 장비 정격 및 포장 강도의 확인 상태는 별도입니다.</span>
-    {metrics.length > 0 && <details><summary>원 기준 / 선택 범위 / 실제 계산값 / 초과량</summary><ul>{metrics.map((metric, index) => <li key={`${metric.key}-${metric.cargoId ?? ''}-${index}`}>
-      {metric.cargoId ? `${metric.cargoId} · ` : ''}{({payload:'총중량','floor-load':'바닥하중',support:'최소 지지율','stack-layers':'적층단','top-load':'상부하중',displacement:'내부 수평 이동',rotation:'내부 기울기'})[metric.key]}:
-      {' '}원 기준 {metric.originalLimit ?? '미확인'} / 선택 {metric.scenarioLimit} / 실제 {Number(metric.actual.toFixed(3))} {metric.unit}
-      {' '}· 초과 {metric.excess === null ? '산정 불가' : `${Number(metric.excess.toFixed(3))} ${metric.unit}${metric.excessPercent === null ? ' (비율 산정 불가)' : ` (${metric.excessPercent.toFixed(2)}%)`}`}
-      {metric.provenance === 'unknown' || metric.provenance === 'unverified' ? ' · 한도 근거 미확인' : metric.provenance === 'app-default' ? ' · 앱 기본 비교값' : ' · 등록값, 실제 정격 확인 필요'}
+  return <section className="limit-review-result-banner" aria-label={uiT("검토 전용 적재 경고")} role="status">
+    <strong>{uiT("WHAT-IF REVIEW · 검토 전용 · 출고 승인 불가")}</strong>
+    <span>{uiT("원 기준 초과 경고는 창을 닫거나 저장해도 유지됩니다. 장비 정격 및 포장 강도의 확인 상태는 별도입니다.")}</span>
+    {metrics.length > 0 && <details><summary>{uiT("원 기준 / 선택 범위 / 실제 계산값 / 초과량")}</summary><ul>{metrics.map((metric, index) => <li key={`${metric.key}-${metric.cargoId ?? ''}-${index}`}>
+      {metric.cargoId ? `${metric.cargoId} · ` : ''}{({payload:uiT("총중량"),'floor-load':uiT("바닥하중"),support:uiT("최소 지지율"),'stack-layers':uiT("적층단"),'top-load':uiT("상부하중"),displacement:uiT("내부 수평 이동"),rotation:uiT("내부 기울기")})[metric.key]}:
+      {' '}{uiT("원 기준")} {metric.originalLimit ?? uiT("미확인")} {uiT("/ 선택")} {metric.scenarioLimit} {uiT("/ 실제")} {Number(metric.actual.toFixed(3))} {metric.unit}
+      {' '}{uiT("· 초과")} {metric.excess === null ? uiT("산정 불가") : `${Number(metric.excess.toFixed(3))} ${metric.unit}${metric.excessPercent === null ? uiT(" (비율 산정 불가)") : ` (${metric.excessPercent.toFixed(2)}%)`}`}
+      {metric.provenance === 'unknown' || metric.provenance === 'unverified' ? uiT(" · 한도 근거 미확인") : metric.provenance === 'app-default' ? uiT(" · 앱 기본 비교값") : uiT(" · 등록값, 실제 정격 확인 필요")}
     </li>)}</ul></details>}
   </section>;
 }

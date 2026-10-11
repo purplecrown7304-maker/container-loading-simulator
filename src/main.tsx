@@ -49,6 +49,7 @@ import EquipmentVisualAdminEditor from './EquipmentVisualAdminEditor';
 import WorkflowIntegrationBridge from './WorkflowIntegrationBridge';
 import { cleanupLegacyUnregisteredBoxes } from './legacyBoxCleanup';
 import { initializeSupabasePersistence } from './supabasePersistence';
+import { initializeUiLanguage } from './uiLanguage';
 import './tokens.css';
 import './styles.css';
 import './mode.css';
@@ -186,6 +187,7 @@ function renderApplication() {
 }
 
 async function bootstrap() {
+  initializeUiLanguage();
   const root = document.getElementById('root');
   if (isMobileServiceClient()) {
     renderMobileServiceNotice();

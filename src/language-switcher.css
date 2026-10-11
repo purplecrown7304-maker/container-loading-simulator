@@ -1,0 +1,22 @@
+.header-language-switcher{display:flex;align-items:center;flex:0 0 auto;gap:2px;padding:3px;border:1px solid #e1e7ee;border-radius:9px;background:#f4f6f9}
+.header-language-switcher button{min-height:28px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:#637083;font:inherit;font-size:11px;font-weight:600;white-space:nowrap;transition:background .16s,color .16s,box-shadow .16s}
+.header-language-switcher button:hover{background:#e8eef6;color:#172033}
+.header-language-switcher button[aria-pressed="true"]{background:#fff;color:#1263d6;box-shadow:0 1px 4px #0f172a18}
+.header-language-switcher button:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+html[data-guided-workflow="true"] .reference-utility.clean-single-header:has(.header-scene-controls):has(.header-language-switcher){grid-template-columns:minmax(95px,1fr) minmax(0,auto) auto!important;gap:10px!important}
+.reference-utility .header-right-actions{min-width:0;gap:8px;flex-shrink:0}
+html[lang="en"] .guided-step-copy b,html[lang="vi"] .guided-step-copy b{white-space:normal;line-height:1.35}
+html[lang="en"] .guided-step-copy small,html[lang="vi"] .guided-step-copy small{white-space:normal}
+html[lang="en"] .guided-primary-cta,html[lang="vi"] .guided-primary-cta{white-space:normal}
+@media(max-width:1440px){
+ html[data-guided-workflow="true"] .reference-utility .ref-brand-text small{display:none!important}
+ html[data-guided-workflow="true"] .header-scene-controls{gap:5px}
+ .header-scene-controls .viewer-background-selector>span,.header-scene-controls .loading-rules-selector>label{display:none}
+ html[data-guided-workflow="true"] .header-scene-controls .header-equipment-pill{max-width:160px!important}
+ .header-scene-controls .viewer-background-selector select{width:100px;min-width:0}
+ .header-scene-controls .loading-rules-selector select{width:105px;min-width:0}
+ .header-scene-controls .limit-review-header-button{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
+@media(max-width:1100px){.header-language-switcher button{padding:0 6px;font-size:10px}}
+@media(max-width:760px){html[data-guided-workflow="true"] .reference-utility.clean-single-header:has(.header-scene-controls):has(.header-language-switcher){grid-template-columns:minmax(70px,1fr) auto!important}.reference-utility .header-scene-controls{grid-column:1/-1;grid-row:2}.header-language-switcher button{min-height:32px;padding:0 5px}.reference-utility .header-right-actions{gap:4px}.reference-utility .header-user-name{max-width:65px}}
+@media(prefers-reduced-motion:reduce){.header-language-switcher button{transition:none}}

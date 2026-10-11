@@ -1,9 +1,11 @@
+import { uiText as uiT, useUiLanguage } from './uiLanguage';
 import { useEffect, useRef, type ReactNode } from 'react';
 
 type Props = { open: boolean; title: string; onClose: () => void; children: ReactNode; footer: ReactNode };
 
 /** Closing a workspace hides it; input drafts and the main canvas stay mounted. */
 export default function WorkspaceModal({ open, title, onClose, children, footer }: Props) {
+  useUiLanguage();
   const dialog = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
@@ -33,11 +35,11 @@ export default function WorkspaceModal({ open, title, onClose, children, footer 
     };
   }, [open]);
   return <div className="workspace-modal-backdrop" hidden={!open} onPointerDown={event => { if (event.target === event.currentTarget) { event.preventDefault(); close.current(); } }}>
-    <div ref={dialog} className="workspace-modal" role="dialog" aria-modal="true" aria-label={`${title} 설정`} tabIndex={-1}>
-      <header className="workspace-modal-header"><span>WORKSPACE · {title}</span><button type="button" className="workspace-modal-close" aria-label="설정 닫기" onClick={onClose}>닫기 ×</button></header>
+    <div ref={dialog} className="workspace-modal" role="dialog" aria-modal="true" aria-label={uiT("{0} 설정", [title])} tabIndex={-1}>
+      <header className="workspace-modal-header"><span>WORKSPACE · {title}</span><button type="button" className="workspace-modal-close" aria-label={uiT("설정 닫기")} onClick={onClose}>{uiT("닫기 ×")}</button></header>
       <div className="workspace-modal-content">{children}</div>
       <div className="workspace-modal-footer">{footer}</div>
-      <p className="workspace-modal-note">입력과 선택은 닫아도 유지됩니다. 유효한 변경은 메인 3D 미리보기에 반영됩니다.</p>
+      <p className="workspace-modal-note">{uiT("입력과 선택은 닫아도 유지됩니다. 유효한 변경은 메인 3D 미리보기에 반영됩니다.")}</p>
     </div>
   </div>;
 }
