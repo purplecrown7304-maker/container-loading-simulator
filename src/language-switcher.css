@@ -11,7 +11,7 @@ html[lang="en"] .guided-primary-cta,html[lang="vi"] .guided-primary-cta{white-sp
 @media(max-width:1440px){
  html[data-guided-workflow="true"] .reference-utility .ref-brand-text small{display:none!important}
  html[data-guided-workflow="true"] .header-scene-controls{gap:5px}
- .header-scene-controls .viewer-background-selector>span,.header-scene-controls .loading-rules-selector>label{display:none}
+ .header-scene-controls .viewer-background-selector>span{display:none}
  html[data-guided-workflow="true"] .header-scene-controls .header-equipment-pill{max-width:160px!important}
  .header-scene-controls .viewer-background-selector select{width:100px;min-width:0}
  .header-scene-controls .loading-rules-selector select{width:105px;min-width:0}

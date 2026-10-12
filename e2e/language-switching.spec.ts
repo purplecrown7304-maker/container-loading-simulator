@@ -5,6 +5,36 @@ test.beforeEach(async ({ context, baseURL }) => {
   await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
 });
 
+test('compact desktop header keeps the rules label and language controls visible in every language', async ({ page }) => {
+  await page.goto('/');
+  for (const width of [1440, 1280, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const language of ['한국어', 'English', 'Tiếng Việt']) {
+      await page.getByRole('group', { name: 'Language / 언어 / Ngôn ngữ', exact: true })
+        .getByRole('button', { name: language, exact: true }).click();
+      const label = page.locator('.header-scene-controls .loading-rules-selector > label');
+      await expect(label).toBeVisible();
+      await expect(label).toBeInViewport();
+      const layout = await page.evaluate(() => {
+        const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        const controls = rect('.header-scene-controls');
+        const languages = rect('.header-language-switcher');
+        const login = rect('.header-login-button');
+        const rules = rect('.loading-rules-selector > label');
+        return { controlsRight: controls.right, languagesLeft: languages.left,
+          languagesRight: languages.right, loginLeft: login.left,
+          labelWidth: rules.width, labelHeight: rules.height,
+          fits: document.documentElement.scrollWidth <= innerWidth + 1 };
+      });
+      expect(layout.labelWidth).toBeGreaterThan(20);
+      expect(layout.labelHeight).toBeGreaterThan(10);
+      expect(layout.controlsRight).toBeLessThanOrEqual(layout.languagesLeft);
+      expect(layout.languagesRight).toBeLessThanOrEqual(layout.loginLeft);
+      expect(layout.fits).toBe(true);
+    }
+  }
+});
+
 test('language switch sits before login and retains login drafts, canvas and loading inputs', async ({ page, isMobile }, testInfo) => {
   test.skip(isMobile, 'The simulator retains its existing PC-only gate.');
   test.setTimeout(90000);
