@@ -55,12 +55,12 @@ describe('buildPalletSecuringPlan', () => {
     expect(plan.totalAddedWeightKg).toBeCloseTo(usage.estimatedAddedWeightKg, 6);
   });
 
-  it('keeps container-level load bars separate from pallet-specific quantities', () => {
+  it('does not invent container-level load bars while reconciling pallet materials', () => {
     const usage = buildSecuringUsage(target, 3);
     const plan = buildPalletSecuringPlan(target, usage);
 
-    expect(plan.sharedLoadBars).toBe(2);
-    expect(plan.sharedLoadBarWeightKg).toBeGreaterThan(0);
+    expect(plan.sharedLoadBars).toBe(0);
+    expect(plan.sharedLoadBarWeightKg).toBe(0);
     expect(plan.totalAddedWeightKg).toBeCloseTo(usage.estimatedAddedWeightKg, 6);
   });
 

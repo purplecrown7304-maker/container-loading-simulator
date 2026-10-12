@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadContainer } from './loadingEngine';
+import { auditLoading } from './loadingAudit';
+import { heavyInnerOrderViolations } from './heavyInnerPolicy';
+import { createPhysicsTargetSignature } from '../inertiaCertification';
 import type { CargoItem, ContainerSpec } from './types';
 import {
   buildDirectReoptimizationCargoProfiles,
@@ -45,12 +48,19 @@ function smallTarget(): PhysicsTarget {
 }
 
 describe('final result inertia re-layout search', () => {
-  it('does not invent different recovery plans after the heavy-inner portfolio converges', async () => {
+  it('keeps only unique order-preserving orientation recovery plans after the height portfolio converges', async () => {
     const current = smallTarget();
     const { candidates } = await buildDirectResultReoptimizationCandidatesAsync(current, 6, () => false, { strategy: 'capacity' });
-    // The initial run already searched these safe height profiles. Returning
-    // duplicate or reordered plans would bypass the inner-first work policy.
-    expect(candidates).toEqual([]);
+    // Height-only search converges, but allowed floor directions must remain available.
+    // Every published alternative preserves the work sequence and original demand.
+    expect(candidates.length).toBeGreaterThan(0);
+    const signatures = [createPhysicsTargetSignature(current), ...candidates.map(c => createPhysicsTargetSignature(c.target))];
+    expect(new Set(signatures).size).toBe(signatures.length);
+    for (const candidate of candidates) {
+      expect(candidate.result.placements).toHaveLength(12);
+      expect(auditLoading(current.container, current.cargo, candidate.result.placements)).toEqual([]);
+      expect(heavyInnerOrderViolations(current.container, current.cargo, candidate.result.placements, 'capacity')).toBe(0);
+    }
     expect(current.result.placements).toHaveLength(12);
     expect(current.result.validationIssues).toEqual([]);
   }, 30000);
@@ -60,7 +70,7 @@ describe('final result inertia re-layout search', () => {
     expect(profiles.some((profile) => profile.label.includes('저층') || profile.label.includes('층수') || profile.label.includes('높이'))).toBe(true);
 
     const keys = profiles.map((profile) => profile.cargo
-      .map((item) => `${item.id}:${item.maxStackLayers ?? 'auto'}`)
+      .map((item) => `${item.id}:${item.maxStackLayers ?? 'auto'}:${item.allowedOrientations?.slice().sort().join(',') ?? 'auto'}`)
       .sort()
       .join('|'));
     expect(new Set(keys).size).toBe(keys.length);

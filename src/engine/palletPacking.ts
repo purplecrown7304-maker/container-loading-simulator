@@ -678,14 +678,25 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
 
   for (const item of active) {
     let left = remaining.get(item.id) ?? 0;
+    // A failed load is unchanged for the rest of this SKU's append-only loop.
+    // Retry it for the next SKU (including partial cartons), and in every later
+    // consolidation/repacking pass: other cartons can create new support surfaces.
+    const unavailable = new Set<PalletLoad>();
     while (left > 0) {
-      let target = pallets.find((load) => {
+      let target: PalletLoad | undefined;
+      let placement: Placement | null = null;
+      for (const load of pallets) {
         // Fill compatible residual space before paying for another pallet base.
         // Unloading keeps each pallet within one stop so it can be removed intact.
-        if (strategy === 'unloading' && stopOf(load, cargoMap) !== (item.unloadPriority ?? 0)) return false;
-        if (!slotFor(load, item, pallet, container, cargoMap)) return false;
-        return totalPalletizedWeight + item.weightKg <= container.maxPayloadKg + EPS;
-      });
+        if (unavailable.has(load)) continue;
+        if (strategy === 'unloading' && stopOf(load, cargoMap) !== (item.unloadPriority ?? 0)) continue;
+        const candidate = slotFor(load, item, pallet, container, cargoMap);
+        if (!candidate) { unavailable.add(load); continue; }
+        if (!(totalPalletizedWeight + item.weightKg <= container.maxPayloadKg + EPS)) continue;
+        target = load;
+        placement = candidate;
+        break;
+      }
       if (!target) {
         const empty = makeLoad();
         const candidate = slotFor(empty, item, pallet, container, cargoMap);
@@ -694,8 +705,8 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
         pallets.push(empty);
         totalPalletizedWeight += pallet.tareWeightKg + packagingReserveWeight;
         target = empty;
+        placement = candidate;
       }
-      const placement = slotFor(target, item, pallet, container, cargoMap);
       if (!placement) break;
       target.cargoPlacements.push(placement);
       target.cargoWeightKg += item.weightKg;

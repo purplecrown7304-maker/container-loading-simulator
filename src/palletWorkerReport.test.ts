@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CargoItem, ContainerSpec } from './engine/types';
-import type { InertiaCertification } from './inertiaCertification';
+import { buildSecuringUsage, type InertiaCertification } from './inertiaCertification';
+import { physicsTargetFromPalletSnapshot } from './certifiedExport';
 import { buildPalletLoadingReportHtml, type PalletWorkSnapshot } from './palletWorkerReport';
 
 const container: ContainerSpec = { length: 4.4, width: 2.2, height: 2.6, maxPayloadKg: 5000 };
@@ -135,4 +136,16 @@ describe('pallet worker report', () => {
     expect(html).toContain('관성 검증 조건: 출발 0.30g · 제동 0.50g · 회전 0.35g');
   });
 
+});
+
+
+it('does not direct workers to install unverified generic bars in a fresh maximum reinforcement plan', () => {
+  const target = physicsTargetFromPalletSnapshot(container, cargo, snapshot);
+  const usage = buildSecuringUsage(target, 3);
+  const html = buildPalletLoadingReportHtml(container, cargo, snapshot, { ...certification, securing: usage });
+  const doc = new DOMParser().parseFromString(html.replace(/<link\b[^>]*>/g, ''), 'text/html');
+  expect(usage.loadBars).toBe(0);
+  expect(doc.querySelector('.materials')?.textContent).not.toContain('고정바');
+  expect(html).not.toContain('고정바 포함 최대 결속');
+  expect(html).toContain('밴딩 4줄 결속');
 });

@@ -164,12 +164,14 @@ export function createPhysicsTargetSignature(target: PhysicsTarget) {
       item.maxTopLoadKg ?? null,
       item.allowRotation !== false,
       item.unloadPriority ?? null,
+      item.allowedOrientations?.slice().sort() ?? null,
+      item.thisSideUp ?? null,
     ]);
   const remaining = [...target.result.remaining]
     .sort((a, b) => a.cargoId.localeCompare(b.cargoId) || a.quantity - b.quantity || a.reason.localeCompare(b.reason))
     .map(item => [item.cargoId, item.quantity, item.reason]);
   return JSON.stringify({
-    physicsModel: 'restraint-v5-unit-load',
+    physicsModel: 'restraint-v6-explicit-supports',
     limitReview: target.container.limitReview ?? target.result.limitReview?.config,
     rulesMetadata: target.container.rules ? { cargo: target.cargo, ruleset: target.result.ruleset, orientation: target.result.placements.map(p=>[p.unitId,p.orientation]) } : undefined,
     bandingLayout: target.mode === 'pallets' ? 'grid-v1' : undefined,
@@ -207,18 +209,6 @@ export function isInertiaStable(result: InertiaAnimationResult, mode: PhysicsTar
   return true;
 }
 
-export function securingProfileForLevel(mode: PhysicsTarget['mode'], level: SecuringLevel): InertiaSecuringProfile {
-  if (level === 0) return { frictionCoefficient: 0.62, cargoRetentionRatio: 0, supportRetentionRatio: 0 };
-  if (mode === 'pallets') {
-    if (level === 1) return { frictionCoefficient: 0.74, cargoRetentionRatio: 0.36, supportRetentionRatio: 0.16 };
-    if (level === 2) return { frictionCoefficient: 0.74, cargoRetentionRatio: 0.58, supportRetentionRatio: 0.16 };
-    return { frictionCoefficient: 0.82, cargoRetentionRatio: 0.78, supportRetentionRatio: 0.48 };
-  }
-  if (level === 1) return { frictionCoefficient: 0.72, cargoRetentionRatio: 0.16, supportRetentionRatio: 0 };
-  if (level === 2) return { frictionCoefficient: 0.82, cargoRetentionRatio: 0.34, supportRetentionRatio: 0 };
-  return { frictionCoefficient: 0.90, cargoRetentionRatio: 0.54, supportRetentionRatio: 0 };
-}
-
 export function securingProfileForUsage(mode: PhysicsTarget['mode'], usage: SecuringUsage): InertiaSecuringProfile {
   if (usage.level === 0) return { frictionCoefficient: 0.62 };
 
@@ -226,7 +216,6 @@ export function securingProfileForUsage(mode: PhysicsTarget['mode'], usage: Secu
     const strapsPerPallet = usage.palletCount > 0 ? usage.bandingStraps / usage.palletCount : 0;
     const hasWrap = usage.wrappingLengthM > EPS;
     const hasAntiSlip = usage.antiSlipMats > 0;
-    const hasLoadBars = usage.loadBars > 0;
     const cargoCapacityG = Math.min(0.78, Math.max(0.12, strapsPerPallet * 0.11 + (hasWrap ? 0.14 : 0)));
     const cargoSpring = 8 + strapsPerPallet * 4.5 + (hasWrap ? 7 : 0);
     const cargoDamping = 3 + strapsPerPallet * 0.8 + (hasWrap ? 1.5 : 0);
@@ -237,23 +226,23 @@ export function securingProfileForUsage(mode: PhysicsTarget['mode'], usage: Secu
         dampingPerSecond: cargoDamping,
         maxAccelerationG: cargoCapacityG,
       } : undefined,
-      supportRestraint: hasLoadBars ? {
-        springAccelerationPerM: 20 + usage.loadBars * 7,
-        dampingPerSecond: 6 + usage.loadBars,
-        maxAccelerationG: Math.min(0.72, 0.24 + usage.loadBars * 0.22),
-      } : undefined,
+      // Generic bar counts have no installation evidence. They cannot supply an
+      // invisible pallet-to-container spring, including in old saved usage records.
+      // Pallet banding/wrap and floor friction remain modelled above.
+      supportRestraint: undefined,
     };
   }
 
   const hasAntiSlip = usage.antiSlipMats > 0;
   const blockingStrength = usage.dunnageBlocks * 0.035;
-  const barStrength = usage.loadBars * 0.18;
-  const capacityG = Math.min(0.62, blockingStrength + barStrength);
+  // Actual eligible void-fill/door bars act through buildInertiaSimulationSupports.
+  // Do not also credit unlocated generic bars with a virtual spring or damping.
+  const capacityG = Math.min(0.62, blockingStrength);
   return {
     frictionCoefficient: hasAntiSlip ? (usage.level >= 3 ? 0.88 : 0.76) : 0.62,
     cargoRestraint: capacityG > 0 ? {
-      springAccelerationPerM: 7 + usage.dunnageBlocks * 1.3 + usage.loadBars * 6,
-      dampingPerSecond: 3 + usage.dunnageBlocks * 0.18 + usage.loadBars * 1.2,
+      springAccelerationPerM: 7 + usage.dunnageBlocks * 1.3,
+      dampingPerSecond: 3 + usage.dunnageBlocks * 0.18,
       maxAccelerationG: capacityG,
     } : undefined,
   };
@@ -288,7 +277,7 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
     bandingStraps = palletCount * strapsPerPallet;
     cornerGuards = palletCount * 4;
     antiSlipMats = palletCount * (level === 3 ? 2 : 1);
-    loadBars = level === 3 && palletCount > 0 ? 2 : 0;
+    // Generic load bars have no verified span or anchoring model; do not install them automatically.
 
     supports.forEach(support => {
       const loadHeight = supportLoadHeight(target, support);
@@ -325,9 +314,9 @@ export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel):
   return {
     level,
     levelLabel: target.mode === 'pallets' && level > 0
-      ? level === 1 ? '기본 운송 고정 · 밴딩+각대+랩핑' : level === 2 ? '2차 보강 · 강화 밴딩+각대+랩핑' : '3차 보강 · 고정바 포함 최대 결속'
+      ? level === 1 ? '기본 운송 고정 · 밴딩+각대+랩핑' : level === 2 ? '2차 보강 · 강화 밴딩+각대+랩핑' : '3차 보강 · 최대 결속'
       : target.mode === 'boxes' && level > 0
-        ? level === 1 ? '기본 운송 고정 · 미끄럼방지+블로킹' : level === 2 ? '2차 보강 · 블로킹+고정바' : '3차 보강 · 최대 블로킹'
+        ? level === 1 ? '기본 운송 고정 · 미끄럼방지+블로킹' : level === 2 ? '2차 보강 · 강화 고정' : '3차 보강 · 최대 블로킹'
         : LEVEL_LABEL[level],
     palletCount,
     palletWeightKg,

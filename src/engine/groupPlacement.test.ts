@@ -96,15 +96,22 @@ describe('group placement', () => {
   it('preserves level 3 securing weight and reserve for a non-worsening no-op group edit', () => {
     const current = baseResult();
     current.placements = [
-      {...current.placements[0],x:2,y:.3},
-      {...current.placements[1],x:2,y:1.3},
-      {...current.placements[2],x:3,y:.3},
+      {...current.placements[0],x:2,y:0},
+      {...current.placements[1],x:2,y:1},
+      {...current.placements[2],x:3,y:.5},
     ];
-    current.securingBudget = {level:3,reservedWeightKg:30,requiredWeightKg:14.2,totalTransportWeightKg:314.2};
-    const assessment = assessGroupMove({...container,maxPayloadKg:310},cargo,current,[0,1,2],{x:0,y:0,z:0});
+    // No eligible door bar or side filler: 2 mats + 6 blocking pieces weigh 5.2 kg.
+    // The 305 kg boundary admits level 1 (302.2 kg), but must retain the level-3 excess.
+    const spec = {...container,width:2,maxPayloadKg:305};
+    current.securingBudget = {level:3,reservedWeightKg:30,requiredWeightKg:5.2,totalTransportWeightKg:305.2};
+    const levelOne = assessGroupMove(spec,cargo,{...current,securingBudget:{...current.securingBudget,level:1}},[0,1,2],{x:0,y:0,z:0});
+    expect(levelOne.result.securingBudget?.totalTransportWeightKg).toBeCloseTo(302.2);
+    expect(levelOne.result.validationIssues.some(issue => issue.type === 'PAYLOAD')).toBe(false);
+    const assessment = assessGroupMove(spec,cargo,current,[0,1,2],{x:0,y:0,z:0});
     expect(assessment.valid).toBe(true);
     expect(assessment.result.validationIssues.some(issue => issue.type === 'PAYLOAD')).toBe(true);
     expect(assessment.result.securingBudget).toMatchObject({level:3,reservedWeightKg:30});
-    expect(assessment.result.securingBudget?.totalTransportWeightKg).toBeCloseTo(314.2);
+    expect(assessment.result.securingBudget?.requiredWeightKg).toBeCloseTo(5.2);
+    expect(assessment.result.securingBudget?.totalTransportWeightKg).toBeCloseTo(305.2);
   });
 });
