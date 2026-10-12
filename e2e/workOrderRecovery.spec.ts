@@ -1,5 +1,6 @@
 import { openWorkspace } from './helpers/workspace';
 import { expect, test } from '@playwright/test';
+import { expectSecuredPhysicsEvidence } from './helpers/certification';
 import { directLoadingFixtures } from './helpers/loadingFixtures';
 
 test('stalled optional re-layout completes and a blocked warning report opens without recalculation', async ({ page, context, baseURL }) => {
@@ -89,6 +90,7 @@ test('stalled optional re-layout completes and a blocked warning report opens wi
   expect(before.started).toBe(before.terminated);
   expect(before.certification.status).toBe('failed');
   expect(before.certification.testedScenarios).toBe(3);
+  await expectSecuredPhysicsEvidence(page);
   await expect(page.locator('.guided-status-row')).toHaveAttribute('data-verification-status', 'failed');
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   const popupPromise = page.waitForEvent('popup');
@@ -98,6 +100,8 @@ test('stalled optional re-layout completes and a blocked warning report opens wi
   await expect(popup.locator('aside.technical-note')).toContainText('모든 후보를 탐색한 결과는 아닙니다');
   await expect(popup.locator('.recommendations')).toContainText('위험 기준을 초과');
   await expect(popup.locator('.summary')).toContainText('2 EA');
+  await expect(popup.locator('.watermark')).toContainText('검토용');
+  await expect(popup.locator('.footer')).not.toContainText('완료 · PASS');
   await expect(modal).toHaveCount(0);
   const after = await page.evaluate(() => (window as any).__workOrderRecovery);
   expect(after.started).toBe(before.started);

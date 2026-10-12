@@ -1,5 +1,6 @@
 import { openWorkspace } from './helpers/workspace';
 import { expect, test } from '@playwright/test';
+import { expectSecuredPhysicsEvidence } from './helpers/certification';
 
 test('registered stacking updates without reload and bulk packaging advances before loading', async ({ page, context, baseURL }) => {
   // Measured locally: ~234 s end to end, of which ~67 s is the work-order inertia re-check.
@@ -124,7 +125,12 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   await expect(report.getByRole('heading', { name: /통합 출하·적재 작업지시서/ })).toBeVisible();
   await expect(report.locator('.summary')).toContainText(`${loaded.count} EA`);
-  await expect(report.locator('aside.technical-note')).toContainText('검증 판정: 위험');
+  await expectSecuredPhysicsEvidence(page);
+  // Full physics may supply the stronger failure label instead of inertia's
+  // generic danger label. Both must block approval and retain the review mark.
+  await expect(report.locator('aside.technical-note > b')).toHaveText(/검증 판정: (위험|물리검증 실패 · 출고 차단)/);
+  await expect(report.locator('.watermark')).toContainText('검토용');
+  await expect(report.locator('.footer')).not.toContainText('완료 · PASS');
   await expect(report.locator('aside.technical-note')).toContainText('관성 결과가 위험 기준을 초과했습니다');
   await expect(report.locator('aside.technical-note')).toContainText('출고 승인을 의미하지 않습니다');
   console.log('bulk danger work order opened with matching loaded quantity; measured danger and failed inertia remain blocked', metrics);
