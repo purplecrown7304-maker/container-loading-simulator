@@ -19,4 +19,6 @@ html[lang="en"] .guided-primary-cta,html[lang="vi"] .guided-primary-cta{white-sp
 }
 @media(max-width:1100px){.header-language-switcher button{padding:0 6px;font-size:10px}}
 @media(max-width:760px){html[data-guided-workflow="true"] .reference-utility.clean-single-header:has(.header-scene-controls):has(.header-language-switcher){grid-template-columns:minmax(70px,1fr) auto!important}.reference-utility .header-scene-controls{grid-column:1/-1;grid-row:2}.header-language-switcher button{min-height:32px;padding:0 5px}.reference-utility .header-right-actions{gap:4px}.reference-utility .header-user-name{max-width:65px}}
+/* Keep the selector pair adjacent when the review button widens the first grid column. */
+@media(max-width:480px){.header-scene-controls .viewer-background-selector{justify-self:end}}
 @media(prefers-reduced-motion:reduce){.header-language-switcher button{transition:none}}

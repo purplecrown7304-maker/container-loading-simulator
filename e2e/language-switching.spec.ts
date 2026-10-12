@@ -5,7 +5,8 @@ test.beforeEach(async ({ context, baseURL }) => {
   await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
 });
 
-test('compact desktop header keeps the rules label and language controls visible in every language', async ({ page }) => {
+test('compact desktop header keeps the rules label and language controls visible in every language', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'The simulator retains its existing PC-only gate.');
   await page.goto('/');
   for (const width of [1440, 1280, 1024]) {
     await page.setViewportSize({ width, height: 900 });
