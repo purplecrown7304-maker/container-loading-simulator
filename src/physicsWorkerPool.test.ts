@@ -81,6 +81,18 @@ describe('physics worker pool', () => {
     expect(pooled).toEqual(direct);
   }, 60_000);
 
+  it('preserves the selected securing configuration across the full worker suite', async () => {
+    const current = target();
+    const usage = buildSecuringUsage(current, 2);
+    const supports = buildInertiaSimulationSupports(current, usage);
+    const securing = securingProfileForUsage('boxes', usage);
+    const direct = await runPhysicsValidationSuite(container, current.result.placements, undefined, supports, undefined, securing);
+    const pooled = await runPhysicsValidationSuiteParallel(container, current.result.placements, undefined, supports, undefined, securing);
+    expect(pooled).toEqual(direct);
+    expect(pooled.securingProfile).toEqual(securing);
+    expect(pooled.scenarios.every(result => JSON.stringify(result.securingProfile) === JSON.stringify(securing))).toBe(true);
+  }, 60_000);
+
   it('removes a cancelled queued job and terminates a cancelled running job', async () => {
     vi.stubGlobal('navigator', { hardwareConcurrency: 2 });
     const placements = stackedPlacements();

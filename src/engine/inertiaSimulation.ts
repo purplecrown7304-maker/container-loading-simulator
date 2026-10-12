@@ -31,6 +31,15 @@ export type InertiaRunOptions = {
   captureFrames?: boolean;
   /** Allows UI/certification callers to stop stale simulations when a new run replaces them. */
   shouldCancel?: () => boolean;
+  /** Full physics validation reuses this exact world, including its securing configuration. */
+  captureFinalMotion?: boolean;
+};
+
+export type InertiaBodyMotion = {
+  position: { x: number; y: number; z: number };
+  rotation: { x: number; y: number; z: number; w: number };
+  linearVelocity: { x: number; y: number; z: number };
+  angularVelocity: { x: number; y: number; z: number };
 };
 
 export type InertiaAnimationFrame = {
@@ -68,6 +77,8 @@ export type InertiaAnimationResult = {
   scenarioDemandG?: number;
   /** Cargo restraint (banding/wrap) capacity used for the unit-load decision, in g. */
   cargoRestraintCapacityG?: number;
+  /** Detached numeric snapshots; no Rapier handles survive world.free(). */
+  finalMotion?: { cargo: InertiaBodyMotion[]; supports: InertiaBodyMotion[] };
 };
 
 let rapierPromise: ReturnType<typeof loadRapier> | null = null;
@@ -89,6 +100,13 @@ function chooseStepCount(count: number) {
   if (count >= 400) return 180;
   if (count >= 200) return 210;
   return 240;
+}
+
+/** Validate persisted full-suite timing against the same deterministic duration used here. */
+export function isCompleteSecuredPhysicsDuration(bodyCount: number, steps: number, simulatedSeconds: number) {
+  if (!Number.isInteger(bodyCount) || bodyCount < 0) return false;
+  const expectedSteps = bodyCount === 0 ? 0 : chooseStepCount(bodyCount);
+  return steps === expectedSteps && simulatedSeconds === expectedSteps / SIMULATION_HZ;
 }
 
 function frameEverySteps(count: number) {
@@ -411,6 +429,16 @@ export async function runInertiaAnimation(
       }
     }
     onProgress?.(1);
+    const motionFor = (entry: (typeof cargoBodies)[number] | (typeof supportBodies)[number]): InertiaBodyMotion => {
+      const position = entry.collider.translation();
+      return {
+        position: { ...position },
+        rotation: { ...entry.collider.rotation() },
+        // A compound carton's velocity includes rotation about the pallet's centre of mass.
+        linearVelocity: { ...entry.body.velocityAtPoint(position) },
+        angularVelocity: { ...entry.body.angvel() },
+      };
+    };
     return {
       scenario,
       fps: captureFrames ? SIMULATION_HZ / frameEvery : 0,
@@ -427,6 +455,9 @@ export async function runInertiaAnimation(
       restraintMode: unitLoad ? 'unit-load' : 'per-carton',
       scenarioDemandG: scenarioDemandG(scenario),
       cargoRestraintCapacityG: cargoRestraint ? Math.max(0, cargoRestraint.maxAccelerationG) : 0,
+      ...(options.captureFinalMotion ? {
+        finalMotion: { cargo: cargoBodies.map(motionFor), supports: supportBodies.map(motionFor) },
+      } : {}),
     };
   } finally {
     world.free();

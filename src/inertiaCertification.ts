@@ -1,7 +1,8 @@
+import { completeSecuredPhysicsValidation } from './securedPhysicsCertification';
 import { resolveLimitReview, reviewPlacementBlockers } from './engine/limitReview';
 import type { InertiaAnimationResult, InertiaSecuringProfile } from './engine/inertiaSimulation';
 import { createInertiaRunSession, inertiaTargetKey, waitForInertiaRun, type InertiaRunHandle } from './inertiaScenarioRuns';
-import type { PhysicsScenario, PhysicsSupport } from './engine/physicsValidation';
+import type { PhysicsScenario, PhysicsSupport, PhysicsValidationSuite } from './engine/physicsValidation';
 import type { CargoItem, ContainerSpec, LimitReviewConfig, LoadingResult, Placement } from './engine/types';
 import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { readSecuringMaterialSettings, type SecuringMaterialSettings } from './securingMaterialSettings';
@@ -50,6 +51,9 @@ export type InertiaReinforcementAttempt = {
 };
 
 export type InertiaCertification = {
+  /** Full motion/bounds checks in the exact selected securing world. Legacy records remain review-only. */
+  physicsValidation?: PhysicsValidationSuite;
+  physicsValidationSignature?: string;
   /** Persistent review provenance: never eligible for dispatch/PASS. */
   limitReview?: LimitReviewConfig;
   /** Discloses a bounded or operator-stopped optional layout search on the work order. */
@@ -82,9 +86,10 @@ export type CertificationRequestDetail = {
 };
 
 export type CertificationProgress = {
+  stage?: 'secured-physics';
   level: SecuringLevel;
   levelLabel: string;
-  scenario: InertiaScenario;
+  scenario: PhysicsScenario;
   scenarioIndex: number;
   scenarioCount: number;
   physicsProgress: number;
@@ -473,7 +478,7 @@ async function certifyLevels(
   const payloadOk = payloadWithinLimit(target, usage);
   const passed = failedScenarios.length === 0 && results.length === SCENARIOS.length && payloadOk;
 
-  const certification: InertiaCertification = {
+  let certification: InertiaCertification = {
     status: passed ? (limitReview ? 'review' : 'passed') : 'failed',
     limitReview,
     mode: target.mode,
@@ -493,6 +498,8 @@ async function certifyLevels(
     payloadWithinLimit: payloadOk,
     attempts,
   };
+
+  certification = await completeSecuredPhysicsValidation(target, certification, onProgress, shouldCancel);
 
   if (typeof window !== 'undefined') {
     const currentTarget = readPhysicsTarget();

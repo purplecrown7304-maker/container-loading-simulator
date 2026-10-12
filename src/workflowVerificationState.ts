@@ -1,3 +1,4 @@
+import { assessPhysicsVerification } from './physicsVerificationPolicy';
 import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 import { createPhysicsTargetSignature, type InertiaCertification } from './inertiaCertification';
 import { assessWorkOrderCertification, isInertiaCertificationComplete, isPhysicsTargetVerified, physicsTargetHardFailureReasons } from './inertiaWorkOrderPolicy';
@@ -32,6 +33,8 @@ export function certificationVerificationState(certification: InertiaCertificati
   }
   const hardFailures = physicsTargetHardFailureReasons(target);
   if (hardFailures.length) return { status: 'failed', reason: `적재 제약 검증 실패: ${hardFailures.join(' · ')}` };
+  const physics = assessPhysicsVerification(target, certification);
+  if (physics.status !== 'passed') return { status: 'failed', reason: `${physics.reasons.join(' · ')} 출고 승인은 차단되며 검토용 문서만 사용할 수 있습니다.` };
   if (!isInertiaCertificationComplete(certification)) {
     return { status: 'failed', reason: `관성 3종 검사 미완료 (${Object.keys(certification.results).length}/3). 현재 적재안으로 다시 검사하세요.` };
   }

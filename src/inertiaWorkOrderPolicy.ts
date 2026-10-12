@@ -1,3 +1,4 @@
+import { completeSecuredPhysicsValidation } from './securedPhysicsCertification';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import { createInertiaRunSession, inertiaTargetKey, waitForInertiaRun } from './inertiaScenarioRuns';
 import {
@@ -16,6 +17,7 @@ import {
   type InertiaScenario,
   type SecuringLevel,
 } from './inertiaCertification';
+import { assessPhysicsVerification } from './physicsVerificationPolicy';
 import type { PhysicsTarget } from './physicsTarget';
 import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 
@@ -65,7 +67,8 @@ export function isPhysicsTargetVerified(target: PhysicsTarget | undefined, certi
     && target.mode === certification.mode
     && certification.targetSignature === createPhysicsTargetSignature(target)
     && isInertiaCertificationPassed(certification)
-    && physicsTargetHardFailureReasons(target).length === 0);
+    && physicsTargetHardFailureReasons(target).length === 0
+    && assessPhysicsVerification(target, certification).status === 'passed');
 }
 
 export function isInertiaResultDangerous(
@@ -114,6 +117,10 @@ export function workOrderTargetApprovalLabel(target: PhysicsTarget, certificatio
   }
   if (physicsTargetHardFailureReasons(target).length) return '적재 제약 실패';
   if (target.mode !== certification.mode || createPhysicsTargetSignature(target) !== certification.targetSignature) return '검증 미완료';
+  if (assessWorkOrderCertification(certification) === 'danger') return '위험';
+  const physics = assessPhysicsVerification(target, certification);
+  if (physics.status === 'failed') return '물리검증 실패 · 출고 차단';
+  if (physics.status !== 'passed') return '물리검증 미완료 · 출고 차단';
   if (assessWorkOrderCertification(certification) === 'pass' && !isPhysicsTargetVerified(target, certification)) return '검증 미완료';
   return workOrderApprovalLabel(certification);
 }
@@ -196,7 +203,8 @@ export async function completeCertificationForWorkOrder(
   const limitReview = target.container.limitReview ?? target.result.limitReview?.config ?? certification.limitReview;
   const numericalReview = isNumericalLimitReviewTarget(target)
     && target.result.loadedWeightKg + certification.securing.estimatedAddedWeightKg <= (limitReview?.maxPayloadKg ?? target.container.maxPayloadKg) + 1e-9;
-  if ((limitReview && !numericalReview) || (!certification.payloadWithinLimit && !numericalReview) || isInertiaCertificationPassed(certification)) return certification;
+  if ((limitReview && !numericalReview) || (!certification.payloadWithinLimit && !numericalReview)) return certification;
+  if (isInertiaCertificationPassed(certification)) return completeSecuredPhysicsValidation(target, certification, onProgress, shouldCancel);
 
   const level = certification.securing.level;
   const profile = securingProfileForUsage(target.mode, certification.securing);
@@ -259,7 +267,7 @@ export async function completeCertificationForWorkOrder(
     });
   }
 
-  return {
+  return completeSecuredPhysicsValidation(target, {
     ...certification,
     status: strictPassed ? (limitReview ? 'review' : 'passed') : 'failed',
     limitReview,
@@ -275,5 +283,5 @@ export async function completeCertificationForWorkOrder(
     maxSupportRestraintForceN: values.reduce((max, result) => Math.max(max, result.maxSupportRestraintForceN ?? 0), 0),
     results,
     attempts,
-  };
+  }, onProgress, shouldCancel);
 }

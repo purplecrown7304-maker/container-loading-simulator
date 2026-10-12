@@ -1,3 +1,4 @@
+import { withSecuredPhysicsFixture } from './testFixtures/physicsVerification';
 import { describe, expect, it } from 'vitest';
 import type { InertiaCertification } from './inertiaCertification';
 import { createPhysicsTargetSignature } from './inertiaCertification';
@@ -18,7 +19,7 @@ const target: PhysicsTarget = {
 };
 
 function certification(overrides: Partial<InertiaCertification> = {}): InertiaCertification {
-  return {
+  return withSecuredPhysicsFixture(target, {
     status: 'passed',
     mode: 'boxes',
     targetSignature: createPhysicsTargetSignature(target),
@@ -47,7 +48,7 @@ function certification(overrides: Partial<InertiaCertification> = {}): InertiaCe
     results: Object.fromEntries(['acceleration', 'braking', 'cornering'].map(scenario => [scenario, { scenario, fps: 30, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: .001, maxTiltDeg: .1 }])),
     payloadWithinLimit: true,
     ...overrides,
-  };
+  });
 }
 
 describe('final results certification gate', () => {

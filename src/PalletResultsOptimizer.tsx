@@ -124,7 +124,7 @@ export default function PalletResultsOptimizer() {
 
       {progress && <div className="final-cert-metrics">
         <span>현재 보강 <b>{progress.levelLabel}</b></span>
-        <span>관성 시나리오 <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
+        <span>{progress.stage === 'secured-physics' ? '보강 물리 시나리오' : '관성 시나리오'} <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
         <span>물리 계산 <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
         <span>종료 조건 <b>첫 PASS 또는 유효 배치 소진</b></span>
       </div>}

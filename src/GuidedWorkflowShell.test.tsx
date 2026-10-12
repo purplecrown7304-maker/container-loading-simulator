@@ -1,3 +1,4 @@
+import { withSecuredPhysicsFixture } from './testFixtures/physicsVerification';
 import { act, Profiler } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -83,6 +84,7 @@ function publishCertification(overrides: Partial<InertiaCertification> = {}) {
     results: Object.fromEntries(['acceleration', 'braking', 'cornering'].map(scenario => [scenario, { scenario, fps: 30, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: .005, maxTiltDeg: .5 }])),
     ...overrides,
   };
+  withSecuredPhysicsFixture(target, certification);
   (window as Window & { __containerLoadingLatestCertification?: InertiaCertification }).__containerLoadingLatestCertification = certification;
   window.dispatchEvent(new CustomEvent('container-loading:inertia-certification-result', { detail: certification }));
 }

@@ -1,3 +1,4 @@
+import { withSecuredPhysicsFixture } from './testFixtures/physicsVerification';
 import { describe, expect, it } from 'vitest';
 import { defaultPalletSpec, type OptimizedPalletPackingResult } from './engine/palletOptimization';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
@@ -75,14 +76,14 @@ describe('certified direct output identity', () => {
   it('accepts only a direct result that is also the current live certified target', () => {
     const directResult = boxResult();
     const target: PhysicsTarget = { mode: 'boxes', container, cargo, result: directResult };
-    const cert = certification(createPhysicsTargetSignature(target), 'boxes');
+    const cert = withSecuredPhysicsFixture(target, certification(createPhysicsTargetSignature(target), 'boxes'));
     expect(boxResultMatchesCertification({ container, cargo, result: directResult }, target, cert)).toBe(true);
   });
 
   it('rejects a stale direct detail even when the live target still has a valid PASS', () => {
     const liveResult = boxResult();
     const target: PhysicsTarget = { mode: 'boxes', container, cargo, result: liveResult };
-    const cert = certification(createPhysicsTargetSignature(target), 'boxes');
+    const cert = withSecuredPhysicsFixture(target, certification(createPhysicsTargetSignature(target), 'boxes'));
     expect(boxResultMatchesCertification({ container, cargo, result: boxResult(0.5) }, target, cert)).toBe(false);
   });
 
@@ -98,14 +99,14 @@ describe('certified pallet export identity', () => {
   it('accepts only the pallet snapshot that reconstructs the certified target', () => {
     const snapshot: CertifiedPalletSnapshot = { spec: defaultPalletSpec, result: result() };
     const target = physicsTargetFromPalletSnapshot(container, cargo, snapshot);
-    const cert = certification(createPhysicsTargetSignature(target));
+    const cert = withSecuredPhysicsFixture(target, certification(createPhysicsTargetSignature(target)));
     expect(palletSnapshotMatchesCertification(snapshot, target, cert)).toBe(true);
   });
 
   it('rejects a stale snapshot whose exported coordinates differ from the certified target', () => {
     const certifiedSnapshot: CertifiedPalletSnapshot = { spec: defaultPalletSpec, result: result() };
     const target = physicsTargetFromPalletSnapshot(container, cargo, certifiedSnapshot);
-    const cert = certification(createPhysicsTargetSignature(target));
+    const cert = withSecuredPhysicsFixture(target, certification(createPhysicsTargetSignature(target)));
 
     const staleResult = result();
     staleResult.pallets[0] = {
@@ -122,7 +123,7 @@ describe('certified pallet export identity', () => {
   it('rejects a snapshot whose displayed pallet dimensions differ from the certified result', () => {
     const certifiedSnapshot: CertifiedPalletSnapshot = { spec: defaultPalletSpec, result: result() };
     const target = physicsTargetFromPalletSnapshot(container, cargo, certifiedSnapshot);
-    const cert = certification(createPhysicsTargetSignature(target));
+    const cert = withSecuredPhysicsFixture(target, certification(createPhysicsTargetSignature(target)));
     const staleSpecSnapshot: CertifiedPalletSnapshot = {
       spec: { ...defaultPalletSpec, length: 1.2 },
       result: result(),
@@ -136,7 +137,7 @@ describe('certified pallet export identity', () => {
     stackedResult.maxUsedStackLevel = 4;
     const certifiedSnapshot: CertifiedPalletSnapshot = { spec: { ...defaultPalletSpec, maxStackLevels: 4 }, result: stackedResult };
     const target = physicsTargetFromPalletSnapshot(container, cargo, certifiedSnapshot);
-    const cert = certification(createPhysicsTargetSignature(target));
+    const cert = withSecuredPhysicsFixture(target, certification(createPhysicsTargetSignature(target)));
     const staleSpecSnapshot: CertifiedPalletSnapshot = { spec: { ...defaultPalletSpec, maxStackLevels: 3 }, result: stackedResult };
     expect(palletSnapshotMatchesCertification(staleSpecSnapshot, target, cert)).toBe(false);
   });

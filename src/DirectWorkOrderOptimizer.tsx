@@ -301,14 +301,14 @@ export default function DirectWorkOrderOptimizer() {
   // A completed scenario is not a completed optimization. Never show overall 100% while running.
   const percent = !running ? (readyReport ? 100 : 0) : search
     ? Math.min(99, Math.round(search.completed / Math.max(1, search.total) * 100))
-    : Math.min(99, Math.round(((progress?.scenarioIndex ?? 1) - 1 + (progress?.physicsProgress ?? 0)) / 3 * 100));
+    : Math.min(99, Math.round(((progress?.scenarioIndex ?? 1) - 1 + (progress?.physicsProgress ?? 0)) / (progress?.scenarioCount ?? 3) * 100));
   return <div className="final-cert-backdrop">
     <section className="final-cert-modal" role="dialog" aria-modal="true" aria-labelledby="direct-work-order-title">
       <header>
         <div>
           <span>FINAL WORK ORDER OPTIMIZER · DIRECT BOX</span>
           <h2 id="direct-work-order-title">작업지시서 전 상자 안전 후보 비교</h2>
-          <p>출발 가속 · 급정거 · 급회전 3종을 비교해 더 안전한 배치를 우선합니다. 모든 후보가 위험이어도 가장 낮은 위험안을 적용하고 위험 경고·보강 권장사항을 포함한 작업지시서를 생성합니다.</p>
+          <p>출발 가속 · 급정거 · 급회전 3종을 비교해 더 안전한 배치를 우선합니다. 미통과 결과는 출고 승인 없이 위험 경고·보강 권장사항을 포함한 검토용 문서로만 생성합니다.</p>
         </div>
         <button type="button" onClick={() => { if (running) publishVerificationCancelled(); cancel(); }}>{running ? '계산 취소' : '닫기'}</button>
       </header>
@@ -322,9 +322,9 @@ export default function DirectWorkOrderOptimizer() {
 
       {progress && <div className="final-cert-metrics">
         <span>현재 보강 <b>{progress.levelLabel}</b></span>
-        <span>관성 시나리오 <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
+        <span>{progress.stage === 'secured-physics' ? '보강 물리 시나리오' : '관성 시나리오'} <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
         <span>현재 계산 <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
-        <span>출력 정책 <b>등급과 무관하게 발급</b></span>
+        <span>출력 정책 <b>미통과는 검토용만</b></span>
       </div>}
 
       <article className="final-cert-materials">

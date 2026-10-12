@@ -1,3 +1,5 @@
+import { runPhysicsValidationSuiteParallel } from './physicsParallel';
+import { stablePhysicsFixture } from './testFixtures/physicsVerification';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fixedGapSupports, gapSecuringPlan } from './engine/gapSecuring';
 import { runInertiaAnimation } from './engine/inertiaSimulation';
@@ -11,6 +13,8 @@ import {
 import type { PhysicsTarget } from './physicsTarget';
 import { clearInertiaScenarioRuns } from './inertiaScenarioRuns';
 import { defaultSecuringMaterialSettings, writeSecuringMaterialSettings } from './securingMaterialSettings';
+
+vi.mock('./physicsParallel', () => ({ runPhysicsValidationSuiteParallel: vi.fn() }));
 
 vi.mock('./engine/inertiaSimulation', () => ({ runInertiaAnimation: vi.fn() }));
 
@@ -44,6 +48,11 @@ function mockSimulation(brakingShiftM = 0.02) {
 }
 
 beforeEach(() => {
+  vi.mocked(runPhysicsValidationSuiteParallel).mockImplementation(async (container, placements, _progress, supports, _signal, securing) => {
+    const result = stablePhysicsFixture({ mode: 'boxes', container, cargo: [], supports, result: { placements, remaining: [], loadedWeightKg: 0, usedVolumeM3: 0, validationIssues: [] } });
+    for (const row of result.scenarios) row.securingProfile = securing;
+    return { ...result, securingProfile: securing };
+  });
   localStorage.clear();
   clearInertiaScenarioRuns();
   mockSimulation();

@@ -1,3 +1,4 @@
+import { withSecuredPhysicsFixture } from './testFixtures/physicsVerification';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
@@ -50,6 +51,7 @@ it.each([true, false])('automatic=%s preserves the canvas while manual certifica
     placements: [{ cargoId: 'A', x: 0, y: 0, z: 0, length: .3, width: .3, height: .3, weightKg: 1 }], remaining: [], loadedWeightKg: 1, usedVolumeM3: .027, validationIssues: [],
   } };
   const passed: InertiaCertification = { mode: 'pallets', status: 'passed', targetSignature: createPhysicsTargetSignature(target), securing: buildSecuringUsage(target, 0), testedAt: new Date(0).toISOString(), testedScenarios: 3, passedScenarios: 3, failedScenarios: [], payloadWithinLimit: true, maxHorizontalShiftM: .005, maxTiltDeg: .5, results: Object.fromEntries(['acceleration', 'braking', 'cornering'].map(scenario => [scenario, { scenario, fps: 30, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: .005, maxTiltDeg: .5 }])) };
+  withSecuredPhysicsFixture(target, passed);
   vi.mocked(runInertiaCertification).mockResolvedValue(passed);
   try {
     await act(async () => root.render(<FinalCertificationGate />));
@@ -88,6 +90,7 @@ it.each([true, false])('retries securing-payload failure once and prefers its pa
   const adjusted: PhysicsTarget = { ...target, result };
   const shift = passed ? .005 : .05;
   const certification: InertiaCertification = { ...failed, status: passed ? 'passed' : 'failed', payloadWithinLimit: true, testedScenarios: 3, passedScenarios: passed ? 3 : 0, failedScenarios: passed ? [] : ['acceleration', 'braking', 'cornering'], targetSignature: createPhysicsTargetSignature(adjusted), maxHorizontalShiftM: shift, maxTiltDeg: .5, results: Object.fromEntries(['acceleration', 'braking', 'cornering'].map(scenario => [scenario, { scenario, fps: 30, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: shift, maxTiltDeg: .5 }])) };
+  withSecuredPhysicsFixture(adjusted, certification);
   vi.mocked(buildSecuringPayloadAdjustmentCandidateAsync).mockResolvedValue({ target: adjusted, result, label: '보강재 확보', staticPenalty: 0 });
   vi.mocked(runInertiaCertification).mockResolvedValueOnce(failed).mockResolvedValueOnce(certification);
   try {

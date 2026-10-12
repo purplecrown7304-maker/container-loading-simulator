@@ -1,3 +1,4 @@
+import { withSecuredPhysicsFixture } from './testFixtures/physicsVerification';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -18,9 +19,10 @@ const base: PhysicsTarget = {
   result: { placements: [{ cargoId: 'A', x: 0, y: 0, z: 0, length: .3, width: .3, height: .3, weightKg: 1 }], remaining: [], loadedWeightKg: 1, usedVolumeM3: .027, validationIssues: [] },
 };
 function certification(target: PhysicsTarget, overrides: Partial<InertiaCertification> = {}): InertiaCertification {
-  return { status: 'passed', mode: target.mode, targetSignature: createPhysicsTargetSignature(target), testedAt: new Date(0).toISOString(),
+  const cert: InertiaCertification = { status: 'passed', mode: target.mode, targetSignature: createPhysicsTargetSignature(target), testedAt: new Date(0).toISOString(),
     securing: buildSecuringUsage(target, 1), testedScenarios: 3, passedScenarios: 3, failedScenarios: [], maxHorizontalShiftM: .005, maxTiltDeg: .5, payloadWithinLimit: true,
     results: Object.fromEntries(['acceleration', 'braking', 'cornering'].map(scenario => [scenario, { scenario, fps: 30, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: .005, maxTiltDeg: .5 }])), ...overrides };
+  return cert.payloadWithinLimit && cert.testedScenarios === 3 ? withSecuredPhysicsFixture(target, cert) : cert;
 }
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('alert', vi.fn());

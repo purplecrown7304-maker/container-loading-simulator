@@ -1,3 +1,5 @@
+import { runInertiaAnimation, type InertiaBodyMotion, type InertiaSecuringProfile } from './inertiaSimulation';
+export { isCompleteSecuredPhysicsDuration } from './inertiaSimulation';
 import type { ContainerSpec, Placement } from './types';
 
 const EPS = 1e-6;
@@ -48,6 +50,8 @@ export type PhysicsSupportResult = MotionMetrics & {
 };
 
 export type PhysicsValidationResult = {
+  /** Absent means the original unsecured baseline. */
+  securingProfile?: InertiaSecuringProfile;
   engine: 'Rapier 3D';
   scenario: PhysicsScenario;
   simulatedSeconds: number;
@@ -73,6 +77,8 @@ export type PhysicsValidationResult = {
 };
 
 export type PhysicsValidationSuite = {
+  /** Exact profile used by all four worlds; never infer it from a later inertia PASS. */
+  securingProfile?: InertiaSecuringProfile;
   engine: 'Rapier 3D';
   score: number;
   stableCount: number;
@@ -147,7 +153,10 @@ function isCenterOutOfBounds(
   );
 }
 
-function describeMotion(input: Omit<MotionMetrics, 'reason' | 'severity'>): Pick<MotionMetrics, 'severity' | 'reason'> {
+export function describePhysicsMotion(input: Omit<MotionMetrics, 'reason' | 'severity'>): Pick<MotionMetrics, 'severity' | 'reason'> {
+  if (![input.horizontalShiftM, input.verticalShiftM, input.tiltDeg, input.linearSpeedMps, input.angularSpeedRadps].every(Number.isFinite)) {
+    throw new Error('PHYSICS_NON_FINITE_MOTION');
+  }
   const reasons: string[] = [];
   if (input.outOfBounds) reasons.push('컨테이너 경계 이탈');
   if (input.horizontalShiftM > 0.03) reasons.push(`수평 이동 ${(input.horizontalShiftM * 1000).toFixed(0)}mm`);
@@ -162,6 +171,13 @@ function describeMotion(input: Omit<MotionMetrics, 'reason' | 'severity'>): Pick
   if (warning) return { severity: 'warning', reason: reasons.join(' · ') || '미세 이동/기울기 재확인 필요' };
 
   return { severity: 'stable', reason: '중력·충돌·마찰 시뮬레이션에서 안정' };
+}
+
+/** Shared with evidence validation so stored results cannot bypass the live motion criteria. */
+export function isPhysicsMotionSettled(maxLinearSpeedMps: number, maxAngularSpeedRadps: number) {
+  return Number.isFinite(maxLinearSpeedMps) && Number.isFinite(maxAngularSpeedRadps)
+    && maxLinearSpeedMps >= 0 && maxAngularSpeedRadps >= 0
+    && maxLinearSpeedMps <= 0.05 && maxAngularSpeedRadps <= 0.08;
 }
 
 function chooseStepCount(count: number) {
@@ -197,6 +213,52 @@ function worstMotion<T extends MotionMetrics>(candidates: T[]): T {
   )[0];
 }
 
+function summarizePhysicsMotion(
+  scenario: PhysicsScenario,
+  steps: number,
+  placementResults: PhysicsPlacementResult[],
+  supportResults: PhysicsSupportResult[],
+): PhysicsValidationResult {
+  const simulatedSeconds = steps / 60;
+  const stableCount = placementResults.filter(x => x.severity === 'stable').length;
+  const warningCount = placementResults.filter(x => x.severity === 'warning').length;
+  const unstableCount = placementResults.filter(x => x.severity === 'unstable').length;
+  const supportStableCount = supportResults.filter(x => x.severity === 'stable').length;
+  const supportWarningCount = supportResults.filter(x => x.severity === 'warning').length;
+  const supportUnstableCount = supportResults.filter(x => x.severity === 'unstable').length;
+  const all = [...placementResults, ...supportResults];
+  const maxHorizontalShiftM = Math.max(0, ...all.map(x => x.horizontalShiftM));
+  const maxVerticalShiftM = Math.max(0, ...all.map(x => Math.abs(x.verticalShiftM)));
+  const maxTiltDeg = Math.max(0, ...all.map(x => x.tiltDeg));
+  const maxLinearSpeedMps = Math.max(0, ...all.map(x => x.linearSpeedMps));
+  const maxAngularSpeedRadps = Math.max(0, ...all.map(x => x.angularSpeedRadps));
+  const settled = isPhysicsMotionSettled(maxLinearSpeedMps, maxAngularSpeedRadps);
+  const weightedPenalty = unstableCount + supportUnstableCount + (warningCount + supportWarningCount) * 0.35;
+  const score = Math.round(clamp(100 - weightedPenalty / Math.max(1, all.length) * 100, 0, 100));
+
+  const scenarioName = scenario === 'settle'
+    ? '정적 중력'
+    : scenario === 'acceleration'
+      ? `출발 가속 ${START_ACCELERATION_G.toFixed(2)}g`
+      : scenario === 'braking'
+        ? `급제동 ${BRAKING_G.toFixed(2)}g`
+        : `횡가속 ${CORNERING_G.toFixed(2)}g`;
+  const totalUnstable = unstableCount + supportUnstableCount;
+  const totalWarning = warningCount + supportWarningCount;
+  const summary = totalUnstable
+    ? `${scenarioName}: 불안정 ${totalUnstable}개 · 주의 ${totalWarning}개 감지. 재배치가 필요합니다.`
+    : totalWarning
+      ? `${scenarioName}: 붕괴 수준의 이동은 없지만 ${totalWarning}개 위치 재확인이 필요합니다.`
+      : `${scenarioName}: 전체 적재물이 안정적으로 유지되었습니다.`;
+
+  return {
+    engine: 'Rapier 3D', scenario, simulatedSeconds, steps, simulatedCount: placementResults.length, supportCount: supportResults.length,
+    stableCount, warningCount, unstableCount, supportStableCount, supportWarningCount, supportUnstableCount,
+    score, settled, maxHorizontalShiftM, maxVerticalShiftM, maxTiltDeg, maxLinearSpeedMps, maxAngularSpeedRadps,
+    placements: placementResults, supports: supportResults, summary,
+  };
+}
+
 /** 현재 적재 좌표를 Rapier 월드에 복제해 중력/운송가속도에서 유지되는지 검증한다. */
 export async function runPhysicsValidation(
   container: ContainerSpec,
@@ -204,9 +266,12 @@ export async function runPhysicsValidation(
   onProgress?: (progress: number) => void,
   scenario: PhysicsScenario = 'settle',
   supports: PhysicsSupport[] = [],
+  securing?: InertiaSecuringProfile,
+  shouldCancel?: () => boolean,
 ): Promise<PhysicsValidationResult> {
   if (!placements.length && !supports.length) {
     return {
+      ...(securing ? { securingProfile: securing } : {}),
       engine: 'Rapier 3D', scenario, simulatedSeconds: 0, steps: 0, simulatedCount: 0, supportCount: 0,
       stableCount: 0, warningCount: 0, unstableCount: 0,
       supportStableCount: 0, supportWarningCount: 0, supportUnstableCount: 0,
@@ -216,11 +281,34 @@ export async function runPhysicsValidation(
     };
   }
 
+  if (securing) {
+    const result = await runInertiaAnimation(container, placements, scenario, supports, onProgress, securing,
+      { captureFrames: false, captureFinalMotion: true, shouldCancel });
+    if (!result.finalMotion || result.finalMotion.cargo.length !== placements.length || result.finalMotion.supports.length !== supports.length) {
+      throw new Error('PHYSICS_MOTION_INCOMPLETE');
+    }
+    const motionFor = (item: Placement | PhysicsSupport, motion: InertiaBodyMotion): MotionMetrics => {
+      const center = toPhysicsCenter(container, item);
+      const values = [...Object.values(motion.position), ...Object.values(motion.rotation), ...Object.values(motion.linearVelocity), ...Object.values(motion.angularVelocity)];
+      if (!values.every(Number.isFinite)) throw new Error('PHYSICS_NON_FINITE_MOTION');
+      const base = {
+        horizontalShiftM: Math.hypot(motion.position.x - center.x, motion.position.z - center.z),
+        verticalShiftM: motion.position.y - center.y,
+        tiltDeg: tiltFromQuaternion(motion.rotation),
+        linearSpeedMps: magnitude(motion.linearVelocity),
+        angularSpeedRadps: magnitude(motion.angularVelocity),
+        outOfBounds: isCenterOutOfBounds(container, item, motion.position),
+      };
+      return { ...base, ...describePhysicsMotion(base) };
+    };
+    const cargoMotion = result.finalMotion.cargo.map((motion, index): PhysicsPlacementResult => ({ index, cargoId: placements[index].cargoId, ...motionFor(placements[index], motion) }));
+    const supportMotion = result.finalMotion.supports.map((motion, index): PhysicsSupportResult => ({ index, id: supports[index].id, ...motionFor(supports[index], motion) }));
+    return { ...summarizePhysicsMotion(scenario, Math.round(result.simulatedSeconds * 60), cargoMotion, supportMotion), securingProfile: securing };
+  }
+
   const RAPIER = await getRapier();
   const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   const steps = chooseStepCount(placements.length + supports.length);
-  const simulatedSeconds = steps / 60;
-
   const fixed = (hx: number, hy: number, hz: number, x: number, y: number, z: number) => {
     world.createCollider(
       RAPIER.ColliderDesc.cuboid(hx, hy, hz)
@@ -261,6 +349,7 @@ export async function runPhysicsValidation(
   try {
     onProgress?.(0);
     for (let step = 0; step < steps; step += 1) {
+      if (shouldCancel?.()) throw new Error('PHYSICS_SIMULATION_CANCELLED');
       const accel = scenarioAcceleration(scenario, step, steps);
       for (const entry of dynamicBodies) {
         // Rapier user forces persist across simulation steps. Clear them first so
@@ -291,49 +380,14 @@ export async function runPhysicsValidation(
         angularSpeedRadps: magnitude(angvel),
         outOfBounds: isCenterOutOfBounds(container, entry.item, position),
       };
-      return { ...base, ...describeMotion(base) };
+      return { ...base, ...describePhysicsMotion(base) };
     };
 
     const placementResults = cargoBodies.map((entry, index): PhysicsPlacementResult => ({ index, cargoId: placements[index].cargoId, ...motionFor(entry) }));
     const supportResults = supportBodies.map((entry, index): PhysicsSupportResult => ({ index, id: supports[index].id, ...motionFor(entry) }));
 
-    const stableCount = placementResults.filter(x => x.severity === 'stable').length;
-    const warningCount = placementResults.filter(x => x.severity === 'warning').length;
-    const unstableCount = placementResults.filter(x => x.severity === 'unstable').length;
-    const supportStableCount = supportResults.filter(x => x.severity === 'stable').length;
-    const supportWarningCount = supportResults.filter(x => x.severity === 'warning').length;
-    const supportUnstableCount = supportResults.filter(x => x.severity === 'unstable').length;
-    const all = [...placementResults, ...supportResults];
-    const maxHorizontalShiftM = Math.max(0, ...all.map(x => x.horizontalShiftM));
-    const maxVerticalShiftM = Math.max(0, ...all.map(x => Math.abs(x.verticalShiftM)));
-    const maxTiltDeg = Math.max(0, ...all.map(x => x.tiltDeg));
-    const maxLinearSpeedMps = Math.max(0, ...all.map(x => x.linearSpeedMps));
-    const maxAngularSpeedRadps = Math.max(0, ...all.map(x => x.angularSpeedRadps));
-    const settled = maxLinearSpeedMps <= 0.05 && maxAngularSpeedRadps <= 0.08;
-    const weightedPenalty = unstableCount + supportUnstableCount + (warningCount + supportWarningCount) * 0.35;
-    const score = Math.round(clamp(100 - weightedPenalty / Math.max(1, all.length) * 100, 0, 100));
+    return summarizePhysicsMotion(scenario, steps, placementResults, supportResults);
 
-    const scenarioName = scenario === 'settle'
-      ? '정적 중력'
-      : scenario === 'acceleration'
-        ? `출발 가속 ${START_ACCELERATION_G.toFixed(2)}g`
-        : scenario === 'braking'
-          ? `급제동 ${BRAKING_G.toFixed(2)}g`
-          : `횡가속 ${CORNERING_G.toFixed(2)}g`;
-    const totalUnstable = unstableCount + supportUnstableCount;
-    const totalWarning = warningCount + supportWarningCount;
-    const summary = totalUnstable
-      ? `${scenarioName}: 불안정 ${totalUnstable}개 · 주의 ${totalWarning}개 감지. 재배치가 필요합니다.`
-      : totalWarning
-        ? `${scenarioName}: 붕괴 수준의 이동은 없지만 ${totalWarning}개 위치 재확인이 필요합니다.`
-        : `${scenarioName}: 전체 적재물이 안정적으로 유지되었습니다.`;
-
-    return {
-      engine: 'Rapier 3D', scenario, simulatedSeconds, steps, simulatedCount: placements.length, supportCount: supports.length,
-      stableCount, warningCount, unstableCount, supportStableCount, supportWarningCount, supportUnstableCount,
-      score, settled, maxHorizontalShiftM, maxVerticalShiftM, maxTiltDeg, maxLinearSpeedMps, maxAngularSpeedRadps,
-      placements: placementResults, supports: supportResults, summary,
-    };
   } finally {
     world.free();
   }
@@ -347,12 +401,14 @@ export async function runPhysicsValidationSuite(
   placements: Placement[],
   onProgress?: (progress: number, scenario: PhysicsScenario) => void,
   supports: PhysicsSupport[] = [],
+  signal?: AbortSignal,
+  securing?: InertiaSecuringProfile,
 ): Promise<PhysicsValidationSuite> {
   const scenarios = PHYSICS_SUITE_SCENARIOS;
   const results: PhysicsValidationResult[] = [];
   for (let i = 0; i < scenarios.length; i += 1) {
     const scenario = scenarios[i];
-    const result = await runPhysicsValidation(container, placements, p => onProgress?.((i + p) / scenarios.length, scenario), scenario, supports);
+    const result = await runPhysicsValidation(container, placements, p => onProgress?.((i + p) / scenarios.length, scenario), scenario, supports, securing, () => signal?.aborted ?? false);
     results.push(result);
   }
   return combinePhysicsValidationResults(placements, supports, results);
@@ -364,6 +420,10 @@ export function combinePhysicsValidationResults(
   supports: PhysicsSupport[],
   results: PhysicsValidationResult[],
 ): PhysicsValidationSuite {
+  const securingProfile = results[0]?.securingProfile;
+  if (results.some(result => JSON.stringify(result.securingProfile) !== JSON.stringify(securingProfile))) {
+    throw new Error('PHYSICS_CONFIGURATION_MISMATCH');
+  }
   const placementWorst = placements.map((_, index) => worstMotion(results.map(result => result.placements[index]).filter(Boolean)));
   const supportWorst = supports.map((_, index) => worstMotion(results.map(result => result.supports[index]).filter(Boolean)));
   const stableCount = placementWorst.filter(x => x.severity === 'stable').length;
@@ -384,6 +444,7 @@ export function combinePhysicsValidationResults(
       : '정적 중력·출발 가속·급제동·횡가속 시나리오를 모두 통과했습니다.';
 
   return {
+    ...(securingProfile ? { securingProfile } : {}),
     engine: 'Rapier 3D', score, stableCount, warningCount, unstableCount,
     supportStableCount, supportWarningCount, supportUnstableCount,
     worstScenario: worstScenarioResult.scenario,

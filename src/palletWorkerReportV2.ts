@@ -1,3 +1,4 @@
+import { assessPhysicsVerification } from './physicsVerificationPolicy';
 import { buildLimitReviewHtml, isLimitReviewTarget } from './limitReviewPresentation';
 import { buildReportDocument, reportTable, REPORT_SIGNOFF } from './reportLayout';
 import { cargoColor } from './cargoColors';
@@ -239,9 +240,12 @@ export function buildPalletLoadingReportHtml(container: ContainerSpec, cargo: Ca
   const reportTarget = matches && currentTarget ? currentTarget : target;
   const hardFailures = physicsTargetHardFailureReasons(reportTarget);
   const review = isLimitReviewTarget(reportTarget);
-  const approval = hardFailures.length ? 'danger' : assessWorkOrderCertification(certification);
+  const physicsState = assessPhysicsVerification(reportTarget, certification);
+  const inertiaApproval = assessWorkOrderCertification(certification);
+  const approval = hardFailures.length || physicsState.status === 'failed' || inertiaApproval === 'danger' ? 'danger'
+    : physicsState.status !== 'passed' ? 'incomplete' : inertiaApproval;
   const approvalLabel = workOrderTargetApprovalLabel(reportTarget, certification);
-  const recommendations = [...hardFailures, ...buildWorkOrderRecommendations(certification)];
+  const recommendations = [...hardFailures, ...physicsState.reasons, ...buildWorkOrderRecommendations(certification)];
   const recommendationItems = recommendations.map((item, index) => `<li><b>${index + 1}</b><span>${escapeHtml(item)}</span></li>`).join('');
   const physicsVerified = matches && isPhysicsTargetVerified(reportTarget, certification);
   const remaining = snapshot.result.remaining.length ? snapshot.result.remaining.map((item) => `${item.cargoId} ${item.quantity}EA`).join(' · ') : '없음';

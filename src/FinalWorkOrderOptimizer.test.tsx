@@ -1,3 +1,4 @@
+import { withSecuredPhysicsFixture } from './testFixtures/physicsVerification';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -25,7 +26,7 @@ beforeEach(async () => {
   vi.mocked(readPalletSnapshot).mockReturnValue({ spec: defaultPalletSpec, result: candidate(target).result });
   vi.mocked(baselinePalletCandidate).mockReturnValue(candidate(target));
   vi.mocked(buildPalletAdaptiveCandidates).mockReturnValue([]);
-  vi.mocked(runInertiaCertification).mockImplementation(async current => certification(current));
+  vi.mocked(runInertiaCertification).mockImplementation(async current => withSecuredPhysicsFixture(current, certification(current)));
   vi.mocked(completeCertificationForWorkOrder).mockImplementation(async (_target, cert) => cert);
   vi.mocked(openPalletLoadingReport).mockReturnValue(false);
   await act(async () => root.render(<FinalWorkOrderOptimizer />));

@@ -1,3 +1,4 @@
+import { withSecuredPhysicsFixture } from './testFixtures/physicsVerification';
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaultPalletSpec, type OptimizedPalletPackingResult, type PalletLoad } from './engine/palletOptimization';
 import type { CargoItem, ContainerSpec, Placement } from './engine/types';
@@ -142,6 +143,7 @@ describe('pallet target restoration', () => {
         maxCargoRelativeSlipM:0,maxSupportShiftM:0,
       }])),
     };
+    withSecuredPhysicsFixture(unchecked, certification);
     expect(isPhysicsTargetVerified(unchecked,certification)).toBe(true);
     publishPhysicsTarget(unchecked);
     const restored = restorePalletPhysicsTarget(container,cargo)!;

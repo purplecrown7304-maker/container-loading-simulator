@@ -1,3 +1,4 @@
+import { assessPhysicsVerification } from './physicsVerificationPolicy';
 import { isLimitReviewTarget, limitReviewRows, LIMIT_REVIEW_WARNING, LIMIT_REVIEW_PROVENANCE } from './limitReviewPresentation';
 import { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
@@ -139,7 +140,7 @@ function exportBoxWorkbook(detail: Detail, certification: InertiaCertification) 
     ['바닥 평균 하중(kg/m2)', Number(floor.averageKgPerM2.toFixed(1))], ['바닥 최대 하중(kg/m2)', Number(floor.maxKgPerM2.toFixed(1))],
     ['물리 안정성 검증', physicsVerified ? '검증 완료' : '검증 확인 필요'],
     ['문서 용도', physicsVerified ? '검증 결과' : '검토용 · 출고 승인 아님'],
-    ['검증 경고', [...physicsTargetHardFailureReasons(target), ...buildWorkOrderRecommendations(certification)].join(' / ')],
+    ['검증 경고', [...physicsTargetHardFailureReasons(target), ...assessPhysicsVerification(target, certification).reasons, ...buildWorkOrderRecommendations(certification)].join(' / ')],
     ['최종 관성검증', `${approvalLabel} · 전체 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)}mm · 기울기 ${certification.maxTiltDeg.toFixed(1)}°`],
     ['내부 최대 화물 구속력(kN)', Number(((certification.maxCargoRestraintForceN ?? 0) / 1000).toFixed(3))],
     ['보강 단계', securing.levelLabel], ['박스 제외 보조자재 중량(kg)', Number(securing.estimatedNonCargoWeightKg.toFixed(2))],
@@ -203,7 +204,7 @@ function exportPalletWorkbook(target: CurrentTarget, snapshot: PalletSnapshot, c
     ['적재 화물(EA)', result.placements.length], ['화물 중량(kg)', Number(result.loadedCargoWeightKg.toFixed(2))], ['총 팔레트화 중량(kg)', Number(result.totalPalletizedWeightKg.toFixed(2))],
     ['좌우 편차(kg)', Number(result.lateralImbalanceKg.toFixed(2))],
     ['문서 용도', physicsVerified ? '검증 결과' : '검토용 · 출고 승인 아님'],
-    ['검증 경고', [...physicsTargetHardFailureReasons(target), ...buildWorkOrderRecommendations(certification)].join(' / ')],
+    ['검증 경고', [...physicsTargetHardFailureReasons(target), ...assessPhysicsVerification(target, certification).reasons, ...buildWorkOrderRecommendations(certification)].join(' / ')],
     ['관성검증', `${approvalLabel} · 전체 ${(certification.maxHorizontalShiftM * 1000).toFixed(1)}mm · 화물↔팔레트 ${((certification.maxCargoRelativeSlipM ?? 0) * 1000).toFixed(1)}mm · 팔레트 ${((certification.maxSupportShiftM ?? 0) * 1000).toFixed(1)}mm · ${certification.maxTiltDeg.toFixed(1)}°`],
     ['내부 최대 화물 구속력(kN)', Number(((certification.maxCargoRestraintForceN ?? 0) / 1000).toFixed(3))],
     ['내부 최대 팔레트 구속력(kN)', Number(((certification.maxSupportRestraintForceN ?? 0) / 1000).toFixed(3))],
