@@ -69,7 +69,8 @@ function LoadingFallback() {
 }
 
 export default function App() {
-  useUiLanguage();
+  const language = useUiLanguage();
+  useEffect(() => { document.title = uiText('컨테이너 적재 시뮬레이터', [], language); }, [language]);
   const equipment = useTransportEquipment();
   const ruleset = useLoadingRuleset();
   const stored = useMemo(() => readStoredState(), []);

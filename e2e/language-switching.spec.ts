@@ -43,6 +43,7 @@ test('language switch sits before login and retains login drafts, canvas and loa
   await page.goto('/');
   const switcher = page.getByRole('group', { name: 'Language / 언어 / Ngôn ngữ', exact: true });
   await expect(switcher).toBeVisible();
+  await expect(page).toHaveTitle('컨테이너 적재 시뮬레이터');
   const mainCanvas = page.locator('.viewer-host canvas').first(); await expect(mainCanvas).toBeVisible();
   await page.waitForFunction(() => document.querySelector('.three-comparison-viewer')?.getAttribute('data-three-ready') === 'true');
   const before = await page.evaluate(() => {
@@ -58,6 +59,7 @@ test('language switch sits before login and retains login drafts, canvas and loa
   expect(buttonGeometry.languageRight).toBeLessThanOrEqual(buttonGeometry.loginLeft);
   await switcher.getByRole('button', { name: 'English', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page).toHaveTitle('Container Loading Simulator');
   await expect(page.locator('.guided-step-list')).toContainText('Select loading space');
   await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
@@ -67,6 +69,7 @@ test('language switch sits before login and retains login drafts, canvas and loa
   await page.getByRole('button', { name: 'Close sign-in dialog', exact: true }).click();
   await switcher.getByRole('button', { name: 'Tiếng Việt', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'vi');
+  await expect(page).toHaveTitle('Mô phỏng xếp hàng container');
   await expect(page.locator('.guided-step-list')).toContainText('Chọn không gian xếp hàng');
   await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
   await expect(page.getByLabel('Email', { exact: true })).toHaveValue('operator@example.invalid');
@@ -86,6 +89,7 @@ test('language switch sits before login and retains login drafts, canvas and loa
   expect(after.sameCanvas).toBe(true); expect(after.inputs).toEqual(before.inputs); expect(after.revision).toEqual(before.revision); expect(after.overflow).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('vietnamese-switch.png') });
   await page.reload(); await expect(page.locator('html')).toHaveAttribute('lang', 'vi');
+  await expect(page).toHaveTitle('Mô phỏng xếp hàng container');
   await expect(page.locator('.header-login-button')).toHaveText('Đăng nhập');
   await page.locator('.guided-step-list button[data-workspace-step="1"]').click();
   await expect(page.getByRole('heading', { name: 'Chọn không gian xếp hàng', exact: true })).toBeVisible();
@@ -97,6 +101,7 @@ test('language switch sits before login and retains login drafts, canvas and loa
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await switcher.getByRole('button', { name: '한국어', exact: true }).click();
   await expect(page.locator('.header-login-button')).toHaveText('로그인');
+  await expect(page).toHaveTitle('컨테이너 적재 시뮬레이터');
   expect(errors).toEqual([]);
 });
 
