@@ -6,6 +6,7 @@ import {
   type PhysicsValidationSuite,
 } from './engine/physicsValidation';
 import type { ContainerSpec, Placement } from './engine/types';
+import type { InertiaSecuringProfile } from './engine/inertiaSimulation';
 import { runPhysicsScenarioPooled } from './physicsWorkerPool';
 
 /**
@@ -18,6 +19,7 @@ export async function runPhysicsValidationSuiteParallel(
   onProgress?: (progress: number, scenario: PhysicsScenario) => void,
   supports: PhysicsSupport[] = [],
   signal?: AbortSignal,
+  securing?: InertiaSecuringProfile,
 ): Promise<PhysicsValidationSuite> {
   const scenarios = PHYSICS_SUITE_SCENARIOS;
   const progress = scenarios.map(() => 0);
@@ -32,7 +34,7 @@ export async function runPhysicsValidationSuiteParallel(
   try {
     report();
     const results = await Promise.all(scenarios.map((scenario, index) => runPhysicsScenarioPooled(
-      { kind: 'physics', container, placements, scenario, supports },
+      { kind: 'physics', container, placements, scenario, supports, securing },
       value => { progress[index] = Math.max(progress[index], value); report(); },
       controller.signal,
     ).catch(error => { controller.abort(); throw error; })));

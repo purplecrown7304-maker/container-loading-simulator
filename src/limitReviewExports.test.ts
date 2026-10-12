@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { runPhysicsValidationSuiteParallel } from './physicsParallel';
+import { stablePhysicsFixture } from './testFixtures/physicsVerification';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PhysicsTarget } from './physicsTarget';
 import { clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
 import { decorateLimitReview } from './engine/limitReview';
@@ -10,6 +12,8 @@ import { diagnosticCsv } from './diagnosticExportV2';
 import { buildLoadingReportHtml } from './report';
 import { readStoredState, writeStoredState } from './storage';
 import { certificationVerificationState } from './workflowVerificationState';
+
+vi.mock('./physicsParallel', () => ({ runPhysicsValidationSuiteParallel: vi.fn() }));
 
 vi.mock('./engine/inertiaSimulation', async importOriginal => ({
   ...await importOriginal<object>(), runInertiaAnimation: vi.fn(async (_container, _placements, scenario) => ({
@@ -28,6 +32,13 @@ function target(maxPayloadKg = 100): PhysicsTarget {
   t.result = decorateLimitReview(t.container, t.cargo, t.result);
   return t;
 }
+beforeEach(() => {
+  vi.mocked(runPhysicsValidationSuiteParallel).mockImplementation(async (container, placements, _progress, supports, _signal, securing) => {
+    const result = stablePhysicsFixture({ mode: 'boxes', container, cargo: [], supports, result: { placements, remaining: [], loadedWeightKg: 0, usedVolumeM3: 0, validationIssues: [] } });
+    for (const row of result.scenarios) row.securingProfile = securing;
+    return { ...result, securingProfile: securing };
+  });
+});
 afterEach(() => { vi.clearAllMocks(); clearLatestInertiaCertification(); clearPhysicsTarget(); localStorage.clear(); });
 
 describe('persistent WHAT-IF review-only exports', () => {

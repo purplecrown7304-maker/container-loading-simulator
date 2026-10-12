@@ -1,3 +1,4 @@
+import { withSecuredPhysicsFixture } from './testFixtures/physicsVerification';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, it } from 'vitest';
 import CertificationResultSummary from './CertificationResultSummary';
@@ -9,6 +10,7 @@ const certification: InertiaCertification = { mode: 'boxes', status: 'passed', t
 afterEach(() => clearPhysicsTarget());
 it('shows the PASS card only for the exact accepted current detail', () => {
   publishPhysicsTarget(target);
+  withSecuredPhysicsFixture(target, certification);
   expect(renderToStaticMarkup(<CertificationResultSummary detail={{ ...target, certification }} />)).toContain('<strong>PASS</strong>');
 });
 it.each(['incomplete', 'static-failure', 'stale-detail'])('suppresses misleading PASS for %s evidence', reason => {

@@ -1,3 +1,4 @@
+import { assessPhysicsVerification } from './physicsVerificationPolicy';
 import { buildLimitReviewHtml, isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 import { buildReportDocument, REPORT_SIGNOFF } from './reportLayout';
 import { boxResultMatchesWorkOrderCertification } from './certifiedExport';
@@ -8,7 +9,6 @@ import {
   assessWorkOrderCertification,
   buildWorkOrderRecommendations,
   canCreateWorkOrder,
-  isInertiaCertificationComplete,
   isPhysicsTargetVerified,
   physicsTargetHardFailureReasons,
   workOrderTargetApprovalLabel,
@@ -45,12 +45,15 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
   const securing = certification?.securing;
   const reportTarget = { mode: 'boxes' as const, container, cargo, result };
   const hardFailures = physicsTargetHardFailureReasons(reportTarget);
-  const approval = hardFailures.length ? 'danger' : certification ? assessWorkOrderCertification(certification) : 'incomplete';
+  const physicsState = assessPhysicsVerification(reportTarget, certification);
+  const inertiaApproval = certification ? assessWorkOrderCertification(certification) : 'incomplete';
+  const approval = hardFailures.length || physicsState.status === 'failed' || inertiaApproval === 'danger' ? 'danger'
+    : physicsState.status !== 'passed' ? 'incomplete' : inertiaApproval;
   const review = isLimitReviewTarget(reportTarget);
   const approvalLabel = certification ? workOrderTargetApprovalLabel(reportTarget, certification) : review ? LIMIT_REVIEW_WARNING : hardFailures.length ? '적재 제약 실패' : '확인 필요';
   // Use this document's matching certification, never another live result's PASS.
   const physicsVerified = isPhysicsTargetVerified(reportTarget, certification);
-  const physicsComplete = Boolean(certification && isInertiaCertificationComplete(certification));
+  const physicsComplete = physicsState.status === 'passed' || physicsState.status === 'failed';
   const equipment = readTransportEquipment();
   const equipmentKind = equipment.category === 'truck' ? '트럭' : '컨테이너';
   const title = `${equipmentKind} 통합 출하·적재 작업지시서`;
@@ -83,7 +86,7 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
     : `<div><span>추가 보강재</span><b>${securing ? '없음' : '미확인'}</b><i>${securing ? '기본 적재안' : '보강 계획을 확인하세요'}</i></div>`;
 
   const recommendations = hardFailures.length ? ['적재 제약 위반이 있어 출고할 수 없습니다. 이 문서는 검토용입니다.', ...hardFailures] : certification
-    ? buildWorkOrderRecommendations(certification)
+    ? [...physicsState.reasons, ...buildWorkOrderRecommendations(certification)]
     : ['관성 3종 검증을 완료하고 위험 여부를 확인한 뒤 작업을 진행하세요.'];
   const actions = [
     approval === 'danger' ? '위험 기준을 초과했습니다. 출고 전 재배치·고정 보강 후 책임자의 확인을 받으세요.'

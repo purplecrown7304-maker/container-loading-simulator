@@ -154,6 +154,31 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   await expect(page.locator('iframe[src*="unity-viewer"]')).toHaveCount(0);
   await expect(page.getByText('3D 엔진 · 동일 적재 결과', { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget))).toBe(targetBeforeBackground);
+  // Fault injection affects copies of genuine completed evidence only. A legacy
+  // missing suite or a changed securing quantity must not reuse the prior PASS.
+  await page.evaluate(() => {
+    (window as any).__originalSecuredCertification = structuredClone((window as any).__containerLoadingLatestCertification);
+  });
+  const preservedTarget = await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget));
+  for (const fault of ['missing-suite', 'changed-materials']) {
+    await page.evaluate(kind => {
+      const certification = structuredClone((window as any).__originalSecuredCertification);
+      if (kind === 'missing-suite') delete certification.physicsValidation;
+      else certification.securing.loadBars += 1;
+      (window as any).__containerLoadingLatestCertification = certification;
+      window.dispatchEvent(new CustomEvent('container-loading:inertia-certification-result', { detail: certification }));
+    }, fault);
+    await expect(page.locator('.guided-status-row')).toHaveAttribute('data-verification-status', 'failed');
+    await expect(page.locator('[data-workspace-step="6"]')).toBeDisabled();
+    await expect(page.locator('.inspection-flow-card')).toContainText('검토용만 가능');
+    expect(await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget))).toBe(preservedTarget);
+    await page.evaluate(() => {
+      const certification = structuredClone((window as any).__originalSecuredCertification);
+      (window as any).__containerLoadingLatestCertification = certification;
+      window.dispatchEvent(new CustomEvent('container-loading:inertia-certification-result', { detail: certification }));
+    });
+    await expectVerifiedLoading(page);
+  }
   await page.getByRole('button', { name: '이전 단계', exact: true }).click();
   await page.getByRole('button', { name: '이전 단계', exact: true }).click();
   await page.getByRole('button', { name: '이전 단계', exact: true }).click();

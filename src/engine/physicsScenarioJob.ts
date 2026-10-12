@@ -7,7 +7,7 @@ import type { ContainerSpec, Placement } from './types';
  * so running it on the UI thread or in any worker gives the same deterministic result.
  */
 export type PhysicsScenarioJob =
-  | { kind: 'physics'; container: ContainerSpec; placements: Placement[]; scenario: PhysicsScenario; supports: PhysicsSupport[] }
+  | { kind: 'physics'; container: ContainerSpec; placements: Placement[]; scenario: PhysicsScenario; supports: PhysicsSupport[]; securing?: InertiaSecuringProfile }
   | { kind: 'inertia'; container: ContainerSpec; placements: Placement[]; scenario: PhysicsScenario; supports: PhysicsSupport[]; securing?: InertiaSecuringProfile };
 
 export type PhysicsScenarioJobResult<J extends PhysicsScenarioJob> =
@@ -19,7 +19,7 @@ export function runPhysicsScenarioJob<J extends PhysicsScenarioJob>(
   shouldCancel?: () => boolean,
 ): Promise<PhysicsScenarioJobResult<J>> {
   if (job.kind === 'physics') {
-    return runPhysicsValidation(job.container, job.placements, onProgress, job.scenario, job.supports) as Promise<PhysicsScenarioJobResult<J>>;
+    return runPhysicsValidation(job.container, job.placements, onProgress, job.scenario, job.supports, job.securing, shouldCancel) as Promise<PhysicsScenarioJobResult<J>>;
   }
   // Certification only needs motion metrics; frames are never transferred.
   return runInertiaAnimation(job.container, job.placements, job.scenario, job.supports, onProgress, job.securing,

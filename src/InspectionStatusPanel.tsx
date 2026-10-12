@@ -5,7 +5,6 @@ import {
   FINAL_PHYSICS_VALIDATION_ERROR_EVENT,
   FINAL_PHYSICS_VALIDATION_PROGRESS_EVENT,
   readFinalPhysicsValidation,
-  requestExactCertification,
   type FinalPhysicsComplete,
   type FinalPhysicsProgress,
 } from './autoCertification';
@@ -17,12 +16,12 @@ import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { FINAL_LOADING_WORKFLOW_START_EVENT } from './finalWorkflowEvents';
 import {
   INERTIA_CERTIFICATION_EVENT,
-  clearLatestInertiaCertification,
   createPhysicsTargetSignature,
   readLatestInertiaCertification,
   type InertiaCertification,
 } from './inertiaCertification';
-import { assessWorkOrderCertification } from './inertiaWorkOrderPolicy';
+import { assessPhysicsVerification } from './physicsVerificationPolicy';
+import { isPhysicsTargetVerified, assessWorkOrderCertification } from './inertiaWorkOrderPolicy';
 import { PHYSICS_TARGET_EVENT, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
 const PALLET_SNAPSHOT_EVENT = 'container-loading:pallet-snapshot-updated';
@@ -77,14 +76,10 @@ function toneLabel(tone: Tone) {
 export default function InspectionStatusPanel() {
   const initialTarget = currentTarget();
   const initialPhysics = readFinalPhysicsValidation();
-  const initialSignature = initialTarget ? createPhysicsTargetSignature(initialTarget) : '';
 
   const [host, setHost] = useState<HTMLElement | null>(null);
   const [target, setTarget] = useState<PhysicsTarget | undefined>(initialTarget);
-  const [certification, setCertification] = useState<InertiaCertification | undefined>(() => {
-    if (!initialPhysics || initialPhysics.signature !== initialSignature) return undefined;
-    return matchingCertification(initialTarget);
-  });
+  const [certification, setCertification] = useState<InertiaCertification | undefined>(() => matchingCertification(initialTarget));
   const [finalPhysicsSignature, setFinalPhysicsSignature] = useState(initialPhysics?.signature ?? '');
   const [physicsResult, setPhysicsResult] = useState<PhysicsValidationSuite | undefined>(initialPhysics?.result);
   const [physicsProgress, setPhysicsProgress] = useState(0);
@@ -92,7 +87,6 @@ export default function InspectionStatusPanel() {
   const [physicsError, setPhysicsError] = useState('');
   const [workflowStage, setWorkflowStage] = useState<WorkflowStage>(null);
   const workflowActive = useRef(false);
-  const repairingSignature = useRef('');
 
   useEffect(() => {
     setHost(document.querySelector<HTMLElement>('.dashboard-right'));
@@ -108,7 +102,6 @@ export default function InspectionStatusPanel() {
 
     const onWorkflowStart = () => {
       workflowActive.current = true;
-      repairingSignature.current = '';
       setWorkflowStage(1);
       setCertification(undefined);
       setFinalPhysicsSignature('');
@@ -163,7 +156,6 @@ export default function InspectionStatusPanel() {
       setPhysicsProgress(100);
       setPhysicsError('');
       setCertification(undefined);
-      repairingSignature.current = '';
       workflowActive.current = true;
       setWorkflowStage(4);
     };
@@ -191,28 +183,11 @@ export default function InspectionStatusPanel() {
       if (nextCertification.targetSignature !== targetSignature) return;
 
       const finalPhysics = readFinalPhysicsValidation();
-      if (!finalPhysics || finalPhysics.signature !== targetSignature) {
-        setTarget(nextTarget);
-        setCertification(undefined);
-        setFinalPhysicsSignature('');
-        setPhysicsResult(undefined);
-        setPhysicsError('');
-        workflowActive.current = true;
-        setWorkflowStage(3);
-
-        if (repairingSignature.current !== targetSignature) {
-          repairingSignature.current = targetSignature;
-          clearLatestInertiaCertification();
-          window.setTimeout(() => requestExactCertification(nextTarget), 0);
-        }
-        return;
-      }
-
+      const matchingBaseline = finalPhysics?.signature === targetSignature ? finalPhysics : undefined;
       setTarget(nextTarget);
-      setFinalPhysicsSignature(finalPhysics.signature);
-      setPhysicsResult(finalPhysics.result);
+      setFinalPhysicsSignature(matchingBaseline?.signature ?? '');
+      setPhysicsResult(matchingBaseline?.result);
       setCertification(nextCertification);
-      repairingSignature.current = '';
       workflowActive.current = false;
       setWorkflowStage(5);
     };
@@ -247,7 +222,7 @@ export default function InspectionStatusPanel() {
 
   const targetSignature = target ? createPhysicsTargetSignature(target) : '';
   const physicsDone = Boolean(targetSignature && finalPhysicsSignature === targetSignature && physicsResult);
-  const acceptedCertification = physicsDone && certification?.targetSignature === targetSignature ? certification : undefined;
+  const acceptedCertification = certification?.mode === target?.mode && certification?.targetSignature === targetSignature ? certification : undefined;
 
   const checks = useMemo(() => {
     if (!target) return [];
@@ -273,15 +248,12 @@ export default function InspectionStatusPanel() {
             ? 'pass'
             : 'running';
 
-    const workTone: Tone = !acceptedCertification
-      ? 'pending'
-      : approval === 'danger'
-        ? 'danger'
-        : approval === 'incomplete'
-          ? 'running'
-          : approval === 'caution'
-            ? 'warning'
-            : 'pass';
+    const physicsState = target ? assessPhysicsVerification(target, acceptedCertification) : undefined;
+    const verified = isPhysicsTargetVerified(target, acceptedCertification);
+    const physicsFailed = physicsState?.status === 'failed';
+    const baselineUnstable = physicsDone && physicsResult && (physicsUnstable > 0 || !physicsResult.settled);
+    const workTone: Tone = constraintFail || physicsFailed || approval === 'danger' ? 'danger'
+      : verified ? 'pass' : placements ? 'warning' : 'pending';
 
     return [
       {
@@ -300,47 +272,39 @@ export default function InspectionStatusPanel() {
       },
       {
         step: 3,
-        label: '물리 검증',
+        label: '무보강 물리 검증',
         note: physicsError
           ? `Rapier 실패 · ${physicsError}`
           : physicsDone && physicsResult
-            ? `Rapier ${physicsResult.score}점 · 불안정 ${physicsUnstable}건 · ${physicsResult.settled ? '정지 확인' : '잔류 움직임 감지'}`
+            ? `무보강 Rapier ${physicsResult.score}점 · 불안정 ${physicsUnstable}건 · ${physicsResult.settled ? '정지 확인' : '잔류 움직임 감지'}${baselineUnstable ? ' · 최종 보강 조건과 별도' : ''}`
             : placements ? '최종 배치에 정적 중력·급제동·횡가속 적용' : '적재 계산 후 검사',
-        status: physicsError ? '실패' : physicsDone ? '완료' : '대기',
-        tone: physicsError ? 'danger' : physicsDone ? 'pass' : 'pending',
+        status: physicsError ? '실패' : physicsDone ? baselineUnstable ? '보강 필요' : '기준 검사 완료' : '대기',
+        tone: physicsError ? 'danger' : physicsDone ? baselineUnstable ? 'warning' : 'pass' : 'pending',
       },
       {
         step: 4,
-        label: '관성 3종',
+        label: '최종 보강 검증',
         note: acceptedCertification
-          ? `출발 0.30g · 급정거 0.50g · 급회전 0.35g · ${acceptedCertification.testedScenarios}/3`
+          ? `${acceptedCertification.securing.levelLabel} · 관성 ${acceptedCertification.testedScenarios}/3 · ${physicsState?.status === 'passed' ? '보강 물리 4종 완료' : physicsState?.reasons.join(' · ')}`
           : physicsDone ? 'Rapier 완료 · 관성 3종 검사 대기' : '물리 검증 완료 후 실행',
         status: acceptedCertification
-          ? approval === 'pass' ? '통과' : approval === 'caution' ? '보완 권장' : approval === 'danger' ? '위험' : '진행'
+          ? physicsState?.status === 'failed' ? '위험' : physicsState?.status !== 'passed' ? '물리검증 미완료' : approval === 'pass' ? '통과' : approval === 'caution' ? '보완 권장' : approval === 'danger' ? '위험' : '진행'
           : '대기',
-        tone: inertiaTone,
+        tone: physicsFailed ? 'danger' : acceptedCertification && physicsState?.status !== 'passed' ? 'warning' : inertiaTone,
       },
       {
         step: 5,
         label: '작업지시서',
-        note: approval === 'caution'
-          ? '주의사항 포함 발급 가능'
-          : approval === 'pass'
-            ? '최종 물리·관성 검사 완료 · 발급 가능'
-            : approval === 'danger'
-              ? '위험 경고·보강 권장사항 포함 발급 가능'
-              : '검증 미완료 경고를 포함해 발급 가능',
-        status: !acceptedCertification
-          ? '경고 발급 가능'
-          : approval === 'danger'
-            ? '경고 발급'
-            : approval === 'incomplete'
-              ? '미검증 발급'
-              : '발급 가능',
+        note: verified
+          ? '현재 보강 물리·관성 통과 · 표시된 보강자재·설치 조건 적용 필요'
+          : constraintFail ? '적재 제약 실패 · 출고 차단 · 검토용 문서만 가능'
+            : physicsState?.status !== 'passed' ? `${physicsState?.reasons.join(' · ') ?? '물리검증 대기'} · 출고 차단 · 검토용 문서만 가능`
+              : '보강 관성 PASS 미확인 · 출고 차단 · 검토용 문서만 가능',
+        status: verified ? '보강 조건부 발급' : placements ? '검토용만 가능' : '대기',
         tone: workTone,
       },
     ];
-  }, [target, checks, physicsDone, physicsResult, physicsError, acceptedCertification]);
+  }, [target, checks, physicsDone, physicsResult, physicsError, finalPhysicsSignature, acceptedCertification]);
 
   const displayedRows = useMemo(() => {
     if (workflowStage === null || workflowStage === 5) return rows;
@@ -377,7 +341,7 @@ export default function InspectionStatusPanel() {
       <div className="inspection-flow-head">
         <div>
           <h2 id="inspection-flow-title">검사 진행 상황</h2>
-          <span>적재 → 제약 → 최종 Rapier 물리 → 관성 3종 → 작업지시서</span>
+          <span>적재 → 제약 → 무보강 Rapier → 최종 보강 검증 → 작업지시서</span>
         </div>
         <b className={`inspection-overall tone-${current.tone}`}>{toneLabel(current.tone)}</b>
       </div>

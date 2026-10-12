@@ -1,3 +1,4 @@
+import { withSecuredPhysicsFixture } from './testFixtures/physicsVerification';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { confirmUnverifiedExport, hasCurrentInertiaCompletion, hasCurrentInertiaVerification, hasCurrentPhysicsVerification, hasCurrentWorkOrderResult } from './exportVerification';
 import { buildSecuringUsage, clearLatestInertiaCertification, createPhysicsTargetSignature, type InertiaCertification } from './inertiaCertification';
@@ -18,6 +19,7 @@ function current(overrides: Partial<InertiaCertification> = {}, currentTarget = 
     results: Object.fromEntries(['acceleration', 'braking', 'cornering'].map(scenario => [scenario, { scenario, fps: 30, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: .005, maxTiltDeg: .5 }])),
     ...overrides,
   };
+  if (certification.payloadWithinLimit && certification.testedScenarios === 3) withSecuredPhysicsFixture(currentTarget, certification);
   (window as Window & { __containerLoadingLatestCertification?: InertiaCertification }).__containerLoadingLatestCertification = certification;
   return certification;
 }

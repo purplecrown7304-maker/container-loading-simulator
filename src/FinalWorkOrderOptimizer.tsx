@@ -162,9 +162,9 @@ export default function FinalWorkOrderOptimizer() {
 
       {progress && <div className="final-cert-metrics">
         <span>현재 보강 <b>{progress.levelLabel}</b></span>
-        <span>관성 시나리오 <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
+        <span>{progress.stage === 'secured-physics' ? '보강 물리 시나리오' : '관성 시나리오'} <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
         <span>현재 계산 <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
-        <span>출력 정책 <b>등급과 무관하게 발급</b></span>
+        <span>출력 정책 <b>미통과는 검토용만</b></span>
       </div>}
 
       <article className="final-cert-materials">

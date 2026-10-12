@@ -3,6 +3,11 @@ import { readFinalPhysicsValidation } from './autoCertification';
 import { analyzeConstraints, type ConstraintCheck } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
 import type { PhysicsSupport } from './engine/physicsValidation';
+import { assessPlacementSupport, CONTACT_TOLERANCE_M, MIN_SUPPORT_RATIO, supportContactArea } from './engine/support';
+import { aConfig, isARules } from './engine/loadingRuleset';
+import { toAPlacements } from './engine/loadSimAdapter';
+import { DEFAULT_CONFIG as DEFAULT_A_CONFIG } from './engine/loadSimA/presets';
+import { checkSupport as checkASupport, itemCg, propagateLoads, supportersOf as aSupportersOf } from './engine/loadSimA/validate';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
 import { readEnterprisePackagingPlannerState } from './enterprisePackagingPlannerStore';
@@ -14,6 +19,9 @@ import { readShipmentInstructionSnapshot } from './shipmentInstruction';
 import { readTransportEquipment, type TransportEquipment } from './transportEquipment';
 import { readDiagnosticTrace, runtimeSnapshot } from './runtimeDiagnostics';
 import { cartonStrengthChecks } from './cargoStackRestrictions';
+import { readPalletSnapshot } from './palletSnapshotStore';
+import { physicsTargetFromPalletSnapshot } from './certifiedExport';
+import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 
 export type DiagnosticSeverity = 'OK' | 'WARNING' | 'CRITICAL';
 export type DiagnosticCheck = {
@@ -39,13 +47,6 @@ function overlap1d(a0: number, a1: number, b0: number, b1: number) {
   return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
 }
 
-type FootprintRect = Pick<Placement, 'x' | 'y' | 'length' | 'width'>;
-
-function overlapArea(a: FootprintRect, b: FootprintRect) {
-  return overlap1d(a.x, a.x + a.length, b.x, b.x + b.length)
-    * overlap1d(a.y, a.y + a.width, b.y, b.y + b.width);
-}
-
 export function equipmentAwareConstraints(
   equipment: TransportEquipment,
   container: ContainerSpec,
@@ -60,36 +61,69 @@ export function equipmentAwareConstraints(
   return checks;
 }
 
-export function buildStackAnalysis(cargo: CargoItem[], result: LoadingResult, supports: PhysicsSupport[] = []) {
+/** Diagnostic margins are warnings, separate from the selected engine's hard rules. */
+const SUPPORT_WARNING_RATIO = 0.95;
+const OVERHANG_WARNING_M = 0.02;
+
+export function buildStackAnalysis(
+  cargo: CargoItem[],
+  result: LoadingResult,
+  supports: PhysicsSupport[] = [],
+  container?: ContainerSpec,
+) {
   const cargoMap = new Map(cargo.map(item => [item.id, item]));
-  const directCargoSupporters = result.placements.map((placement, index) => result.placements.flatMap((candidate, supporterIndex) => {
-    if (supporterIndex === index) return [];
-    if (Math.abs(candidate.z + candidate.height - placement.z) > 1e-5) return [];
-    const area = overlapArea(placement, candidate);
-    if (area <= EPS) return [];
-    return [{ index: supporterIndex, cargoId: candidate.cargoId, overlapAreaM2: area }];
+  const placements = result.placements;
+  const bodies: Placement[] = [...placements, ...supports.map(support => ({ ...support, cargoId: support.id }))];
+  const useARules = container ? isARules(container) : result.ruleset === 'a-v1';
+  const config = useARules ? (container ? aConfig(container) : DEFAULT_A_CONFIG) : undefined;
+  const contactToleranceM = config ? config.heightTolerance / 1000 : CONTACT_TOLERANCE_M;
+  const minimumSupportRatio = config?.minSupportRatio ?? MIN_SUPPORT_RATIO;
+  // Use A's oriented geometry, CG offsets and configured tolerances only on its path.
+  const aBodies = config ? [
+    ...toAPlacements(cargo, placements.map((placement, index) => ({ ...placement, unitId: `diagnostic:${index}` }))),
+    ...toAPlacements([], bodies.slice(placements.length).map((placement, index) => ({ ...placement, unitId: `diagnostic-support:${index}` }))),
+  ] : undefined;
+  const aContacts = aBodies && config ? aSupportersOf(aBodies, config) : undefined;
+  const aSupportFailures = new Set(aBodies && config
+    ? checkASupport(aBodies, config).flatMap(finding => finding.itemIds)
+    : []);
+  const aLoads = aBodies && config ? propagateLoads(aBodies, config, aContacts) : undefined;
+  const contacts = aContacts
+    ? aContacts.map(links => links.map(link => ({ index: link.index, overlapAreaM2: link.area / 1e6 })))
+    : bodies.map(placement => bodies.flatMap((candidate, index) => {
+      const area = supportContactArea(candidate, placement);
+      return area > 0 ? [{ index, overlapAreaM2: area }] : [];
+    }));
+  const upper = bodies.map(() => [] as number[]);
+  contacts.forEach((links, index) => links.forEach(link => {
+    // Valid physical contact is acyclic. A's retained audit also requires a lower Z.
+    if (bodies[link.index].z < bodies[index].z) upper[link.index].push(index);
   }));
-  const directPalletSupporters = result.placements.map((placement) => supports.flatMap((support, supportIndex) => {
-    if (Math.abs(support.z + support.height - placement.z) > 1e-5) return [];
-    const area = overlapArea(placement, support);
-    if (area <= EPS) return [];
-    return [{ index: supportIndex, supportId: support.id, overlapAreaM2: area }];
-  }));
+  const descendantLoad = (index: number, cargoOnly = false) => {
+    const descendants = new Set<number>();
+    const queue = [...upper[index]];
+    while (queue.length) {
+      const next = queue.pop()!;
+      if (descendants.has(next) || (cargoOnly && next >= placements.length)) continue;
+      descendants.add(next);
+      queue.push(...upper[next]);
+    }
+    return [...descendants].reduce((sum, next) => sum + bodies[next].weightKg, 0);
+  };
+  const directCargoSupporters = contacts.slice(0, placements.length).map(links => links
+    .filter(link => link.index < placements.length)
+    .map(link => ({ ...link, cargoId: placements[link.index].cargoId })));
+  const directPalletSupporters = contacts.slice(0, placements.length).map(links => links
+    .filter(link => link.index >= placements.length)
+    .map(link => ({ index: link.index - placements.length, supportId: bodies[link.index].cargoId, overlapAreaM2: link.overlapAreaM2 })));
 
   const layerMemo = new Map<number, number>();
   const layerOf = (index: number, visiting = new Set<number>()): number => {
     const cached = layerMemo.get(index);
     if (cached) return cached;
-    const placement = result.placements[index];
-    if (!placement) return 1;
     const cargoSupporters = directCargoSupporters[index] ?? [];
-    // A pallet is the base of carton layer 1. Only cargo-on-cargo support increments
-    // the carton stack level.
-    if (!cargoSupporters.length) {
-      layerMemo.set(index, 1);
-      return 1;
-    }
-    if (visiting.has(index)) return 1;
+    // A pallet is the base of carton layer 1, not another carton layer.
+    if (!cargoSupporters.length || visiting.has(index)) return 1;
     visiting.add(index);
     const layer = 1 + Math.max(...cargoSupporters.map(item => layerOf(item.index, visiting)));
     visiting.delete(index);
@@ -97,42 +131,30 @@ export function buildStackAnalysis(cargo: CargoItem[], result: LoadingResult, su
     return layer;
   };
 
-  return result.placements.map((placement, index) => {
+  return placements.map((placement, index) => {
     const footprint = Math.max(EPS, placement.length * placement.width);
-    const cargoSupporters = directCargoSupporters[index] ?? [];
-    const palletSupporters = directPalletSupporters[index] ?? [];
-    const supportArea = Math.min(
-      footprint,
-      cargoSupporters.reduce((sum, item) => sum + item.overlapAreaM2, 0)
-        + palletSupporters.reduce((sum, item) => sum + item.overlapAreaM2, 0),
-    );
-    const supportRatio = placement.z <= EPS ? 1 : supportArea / footprint;
-    const centerX = placement.x + placement.length / 2;
-    const centerY = placement.y + placement.width / 2;
-    const cargoCenterSupported = cargoSupporters.some(item => {
-      const support = result.placements[item.index];
-      return Boolean(support)
-        && centerX >= support.x - EPS && centerX <= support.x + support.length + EPS
-        && centerY >= support.y - EPS && centerY <= support.y + support.width + EPS;
-    });
-    const palletCenterSupported = palletSupporters.some(item => {
-      const support = supports[item.index];
-      return Boolean(support)
-        && centerX >= support.x - EPS && centerX <= support.x + support.length + EPS
-        && centerY >= support.y - EPS && centerY <= support.y + support.width + EPS;
-    });
-    const centerSupported = placement.z <= EPS || cargoCenterSupported || palletCenterSupported;
-
-    const supportObjects: FootprintRect[] = [
-      ...cargoSupporters.map(item => result.placements[item.index]).filter((item): item is Placement => Boolean(item)),
-      ...palletSupporters.map(item => supports[item.index]).filter((item): item is PhysicsSupport => Boolean(item)),
-    ];
+    const cargoSupporters = directCargoSupporters[index];
+    const palletSupporters = directPalletSupporters[index];
+    const onFloor = placement.z <= contactToleranceM;
+    const supportObjects = contacts[index].map(link => bodies[link.index]);
     const supportBounds = supportObjects.length ? {
-      minX: Math.min(...supportObjects.map(item => item.x)),
-      maxX: Math.max(...supportObjects.map(item => item.x + item.length)),
-      minY: Math.min(...supportObjects.map(item => item.y)),
-      maxY: Math.max(...supportObjects.map(item => item.y + item.width)),
+      minX: Math.min(...supportObjects.map(item => Math.max(placement.x, item.x))),
+      maxX: Math.max(...supportObjects.map(item => Math.min(placement.x + placement.length, item.x + item.length))),
+      minY: Math.min(...supportObjects.map(item => Math.max(placement.y, item.y))),
+      maxY: Math.max(...supportObjects.map(item => Math.min(placement.y + placement.width, item.y + item.width))),
     } : null;
+    const center = aBodies ? itemCg(aBodies[index]) : undefined;
+    const centerX = center ? center.x / 1000 : placement.x + placement.length / 2;
+    const centerY = center ? center.y / 1000 : placement.y + placement.width / 2;
+    const legacyAssessment = config ? undefined : assessPlacementSupport(placement, bodies);
+    const supportRatio = legacyAssessment?.supportRatio ?? (onFloor ? 1
+      : contacts[index].reduce((sum, link) => sum + link.overlapAreaM2, 0) / footprint);
+    const centerSupported = legacyAssessment?.centerInsideSupportEnvelope ?? (onFloor || Boolean(supportBounds
+      && centerX >= supportBounds.minX && centerX <= supportBounds.maxX
+      && centerY >= supportBounds.minY && centerY <= supportBounds.maxY));
+    const centerDirectlySupported = onFloor || supportObjects.some(support =>
+      centerX >= support.x - EPS && centerX <= support.x + support.length + EPS
+      && centerY >= support.y - EPS && centerY <= support.y + support.width + EPS);
     const overhang = supportBounds ? {
       innerM: Math.max(0, supportBounds.minX - placement.x),
       doorM: Math.max(0, placement.x + placement.length - supportBounds.maxX),
@@ -140,26 +162,26 @@ export function buildStackAnalysis(cargo: CargoItem[], result: LoadingResult, su
       rightM: Math.max(0, placement.y + placement.width - supportBounds.maxY),
     } : { innerM: 0, doorM: 0, leftM: 0, rightM: 0 };
     const maxOverhangM = Math.max(overhang.innerM, overhang.doorM, overhang.leftM, overhang.rightM);
-
-    const upper = result.placements.flatMap((candidate, upperIndex) => {
-      if (upperIndex === index || candidate.z + EPS < placement.z + placement.height) return [];
-      const area = overlapArea(placement, candidate);
-      if (area <= EPS) return [];
-      const ratio = Math.min(1, area / Math.max(EPS, candidate.length * candidate.width));
-      return [{ index: upperIndex, cargoId: candidate.cargoId, transferredWeightKg: candidate.weightKg * ratio }];
-    });
-    const topLoadKg = upper.reduce((sum, item) => sum + item.transferredWeightKg, 0);
+    // Legacy charges every reachable descendant once to each support, including decks.
+    // A retains its distributed model AND its independent conservative cargo audit.
+    const topLoadKg = config
+      ? Math.max(descendantLoad(index, true), aLoads!.carried[index])
+      : descendantLoad(index);
     const spec = cargoMap.get(placement.cargoId);
-    const topLoadUtilizationPct = spec?.maxTopLoadKg != null && spec.maxTopLoadKg > 0 ? topLoadKg / spec.maxTopLoadKg * 100 : null;
-    const unsupported = placement.z > EPS && supportRatio < 0.95;
-    const tippingRisk = unsupported || !centerSupported || maxOverhangM > 0.02 || (topLoadUtilizationPct ?? 0) > 100;
-    const supportType = placement.z <= EPS
-      ? 'floor'
-      : cargoSupporters.length
-        ? 'cargo'
-        : palletSupporters.length
-          ? 'pallet'
-          : 'unsupported';
+    const maxTopLoadKg = !config && spec?.strengthUnverified ? 0 : spec?.maxTopLoadKg;
+    const topLoadUtilizationPct = maxTopLoadKg != null && maxTopLoadKg > 0 ? topLoadKg / maxTopLoadKg * 100 : null;
+    const topLoadExceeded = maxTopLoadKg != null && topLoadKg > maxTopLoadKg + 1e-6;
+    const unsupported = !onFloor && supportRatio + 1e-9 < minimumSupportRatio;
+    const hardSupportFailure = legacyAssessment ? !legacyAssessment.supported
+      : aSupportFailures.has(aBodies![index].item.id);
+    const hardConstraintViolation = hardSupportFailure || topLoadExceeded;
+    const supportWarnings = [
+      ...(!onFloor && supportRatio < SUPPORT_WARNING_RATIO ? ['LOW_SUPPORT_MARGIN'] : []),
+      ...(maxOverhangM > OVERHANG_WARNING_M ? ['OVERHANG_MARGIN'] : []),
+      ...(!centerDirectlySupported ? ['CENTER_NOT_DIRECTLY_SUPPORTED'] : []),
+    ];
+    const tippingRisk = hardConstraintViolation || supportWarnings.length > 0;
+    const supportType = onFloor ? 'floor' : cargoSupporters.length ? 'cargo' : palletSupporters.length ? 'pallet' : 'unsupported';
 
     return {
       placementIndex: index,
@@ -169,17 +191,25 @@ export function buildStackAnalysis(cargo: CargoItem[], result: LoadingResult, su
       stackLevel: layerOf(index),
       zM: placement.z,
       supportType,
+      supportRuleset: config ? 'a-v1' : 'legacy',
+      minimumSupportRatioPct: minimumSupportRatio * 100,
+      contactToleranceM,
       supportRatioPct: supportRatio * 100,
       centerSupported,
+      centerDirectlySupported,
       supporters: cargoSupporters,
       palletSupporters,
       overhang,
       maxOverhangM,
       upperLoadKg: topLoadKg,
-      maxTopLoadKg: spec?.maxTopLoadKg ?? null,
+      upperLoadModel: config ? 'a-distributed-with-retained-cargo-limit' : 'conservative-contact-descendants',
+      maxTopLoadKg: maxTopLoadKg ?? null,
       topLoadUtilizationPct,
+      topLoadExceeded,
       maxStackLayers: spec?.maxStackLayers ?? null,
       unsupported,
+      hardConstraintViolation,
+      supportWarnings,
       tippingRisk,
     };
   });
@@ -391,8 +421,9 @@ export function buildConsistencyReport(container: ContainerSpec, cargo: CargoIte
   const cargoWeightKg = result.placements.reduce((sum, item) => sum + item.weightKg, 0);
   const supportWeightKg = supports.reduce((sum, item) => sum + item.weightKg, 0);
   const recalculatedLoadedWeightKg = cargoWeightKg + supportWeightKg;
-  const stack = buildStackAnalysis(cargo, result, supports);
-  const unstableStack = stack.filter(item => item.unsupported || item.tippingRisk);
+  const stack = buildStackAnalysis(cargo, result, supports, container);
+  const unsafeStack = stack.filter(item => item.hardConstraintViolation);
+  const warningStack = stack.filter(item => item.supportWarnings.length > 0);
   const checks: DiagnosticCheck[] = [
     ...equipmentChecks(equipment, container, cargo),
     ...identityChecks(),
@@ -413,9 +444,13 @@ export function buildConsistencyReport(container: ContainerSpec, cargo: CargoIte
     {
       id: 'stack-support-integrity',
       label: '적층 지지 안정성',
-      severity: unstableStack.length ? 'CRITICAL' : 'OK',
-      detail: unstableStack.length ? `지지/전도 재확인이 필요한 배치 ${unstableStack.length}건` : '모든 상부 화물이 충분한 지지를 받습니다.',
-      actual: unstableStack.map(item => item.placementIndex),
+      severity: unsafeStack.length ? 'CRITICAL' : warningStack.length ? 'WARNING' : 'OK',
+      detail: unsafeStack.length
+        ? `선택 규칙의 지지·무게중심·누적 상부하중 한도 위반 ${unsafeStack.length}건`
+        : warningStack.length
+          ? `엔진 지지·상부하중 기준 이내. 보수적 재확인 경고 ${warningStack.length}건 (지지율 95% 미만, 돌출 20 mm 초과 또는 중심 직하 접촉 없음). 동적 안정성은 별도 검증합니다.`
+          : '선택 규칙의 지지·상부하중 기준과 진단 여유 기준 이내입니다. 동적 안정성은 별도 검증합니다.',
+      actual: (unsafeStack.length ? unsafeStack : warningStack).map(item => item.placementIndex),
     },
   ];
   return {
@@ -452,8 +487,13 @@ export function buildBlackboxSnapshots(container: ContainerSpec, cargo: CargoIte
     cargo,
     result,
     targetMatchesCurrentResult && target?.mode === 'pallets' ? (target.supports ?? []) : [],
+    container,
   );
   const consistency = buildConsistencyReport(container, cargo, result);
+  const palletSnapshot = targetMatchesCurrentResult && target?.mode === 'pallets' ? readPalletSnapshot() : undefined;
+  const palletSnapshotTarget = palletSnapshot ? physicsTargetFromPalletSnapshot(container, cargo, palletSnapshot) : undefined;
+  const palletSnapshotMatches = Boolean(palletSnapshotTarget
+    && createPhysicsTargetSignature(palletSnapshotTarget) === expectedTargetSignature);
 
   const selectedProducts = (planner?.products ?? []).flatMap(product => {
     const quantity = selection[product.id] ?? 0;
@@ -485,6 +525,16 @@ export function buildBlackboxSnapshots(container: ContainerSpec, cargo: CargoIte
       schema: 'container-loading-input-v2',
       container,
       cargo,
+      // A preference may change after a run; never label it the effective strategy.
+      strategyPreferenceAtExport: readLoadingStrategyPreference(),
+      palletPlanningStatus: target?.mode !== 'pallets' ? 'not-applicable'
+        : !targetMatchesCurrentResult ? 'stale-target'
+          : !palletSnapshot ? 'missing-snapshot' : palletSnapshotMatches ? 'matched-current-target' : 'stale-snapshot',
+      palletPlanning: palletSnapshotMatches && palletSnapshot ? {
+        spec: palletSnapshot.spec,
+        strategy: palletSnapshot.result.optimization.strategy ?? null,
+        optimization: palletSnapshot.result.optimization,
+      } : null,
     },
     placements: {
       schema: 'container-loading-placements-v2',

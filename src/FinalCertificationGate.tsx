@@ -1,3 +1,4 @@
+import { assessPhysicsVerification } from './physicsVerificationPolicy';
 import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -29,6 +30,7 @@ import { isInertiaCertificationComplete, isPhysicsTargetVerified } from './inert
 import { publishVerificationCancelled, publishVerificationFailure } from './workflowVerificationState';
 
 const SCENARIO_LABEL = {
+  settle: '보강 정적 중력',
   acceleration: '출발 가속',
   braking: '급정거',
   cornering: '급회전',
@@ -202,7 +204,7 @@ export default function FinalCertificationGate() {
 
       if (nextTarget.mode !== 'boxes') {
         setRunning(false);
-        setError('최대 보강까지 적용했지만 전체 이동·기울기·화물-팔레트 상대 미끄럼·팔레트 자체 이동 중 하나 이상이 내부 안정 기준을 넘었습니다. 팔레트 작업지시서 최종화에서 제한된 상위 재배치 후보를 비교할 수 있습니다.');
+        setError(assessPhysicsVerification(nextTarget, result).reasons.join(' ') || '최대 보강까지 적용했지만 전체 이동·기울기·화물-팔레트 상대 미끄럼·팔레트 자체 이동 중 하나 이상이 내부 안정 기준을 넘었습니다. 팔레트 작업지시서 최종화에서 제한된 상위 재배치 후보를 비교할 수 있습니다.');
         return;
       }
 
@@ -349,8 +351,8 @@ export default function FinalCertificationGate() {
       <header>
         <div>
           <span>{review ? 'WHAT-IF REVIEW' : 'FINAL SAFETY GATE'} · RAPIER 3D · {palletMode ? 'PALLET' : 'DIRECT BOX'}</span>
-          <h2 id="final-cert-title">최종 적재 결과 전 관성 검증</h2>
-          <p>출발 가속 · 급정거 · 급회전을 모두 검증합니다. 기본 적재안이 실패하면 DIRECT BOX는 정적 안전점수가 높은 상위 {MAX_DIRECT_REPOSITION_CANDIDATES}개 재배치만 추가 비교해 브라우저가 장시간 멈추는 것을 방지합니다.</p>
+          <h2 id="final-cert-title">최종 적재 결과 전 보강 안전 검증</h2>
+          <p>출발 가속 · 급정거 · 급회전과 동일한 보강 조건의 물리 4종을 검증합니다. 기본 적재안이 실패하면 DIRECT BOX는 정적 안전점수가 높은 상위 {MAX_DIRECT_REPOSITION_CANDIDATES}개 재배치만 추가 비교해 브라우저가 장시간 멈추는 것을 방지합니다.</p>
         </div>
         <button type="button" onClick={() => { if (running) publishVerificationCancelled(); cancel(); }}>{running ? '계산 취소' : '닫기'}</button>
       </header>

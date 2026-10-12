@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { expectVerifiedLoading } from './helpers/certification';
 import { expectGlobalBackgroundControl, expectThreeOnly } from './helpers/viewer';
 
 test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
@@ -15,6 +16,20 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
       return route.continue({ headers: { accept: '*/*' } });
     }
     return route.abort('blockedbyclient');
+  });
+  // Hold only the selected secured stage at its real Worker boundary. The jobs
+  // and results are unchanged; releasing this gate runs the production workers.
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
+    const gate = { holding: true, queued: [] as Array<() => void> };
+    (window as any).__securedPhysicsGate = gate;
+    window.Worker = class extends NativeWorker {
+      postMessage(message: any, transfer?: any) {
+        if (gate.holding && message?.job?.kind === 'physics' && message.job.securing) {
+          gate.queued.push(() => super.postMessage(message, transfer));
+        } else super.postMessage(message, transfer);
+      }
+    };
   });
   await page.goto('/');
   await expect(page.locator('.guided-step-list button')).toHaveCount(6);
@@ -48,7 +63,20 @@ test('pallet workflow stacks cartons and keeps run instructions outside the canv
   await expect(confirmation).toBeVisible();
   await expect(page.locator('.viewer-host .guided-loading-run-confirmation')).toHaveCount(0);
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
-  await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled({ timeout: 60_000 });
+  try {
+    await expect.poll(() => page.evaluate(() => (window as any).__securedPhysicsGate.queued.length), { timeout: 60_000 }).toBeGreaterThan(0);
+    await expect(page.locator('.guided-status-row')).not.toHaveAttribute('data-verification-status', 'passed');
+    await expect(page.locator('[data-workspace-step="6"]')).toBeDisabled();
+    expect(await page.evaluate(() => Boolean((window as any).__containerLoadingLatestCertification?.physicsValidation))).toBe(false);
+  } finally {
+    await page.evaluate(() => {
+      const gate = (window as any).__securedPhysicsGate;
+      gate.holding = false;
+      for (const send of gate.queued.splice(0)) send();
+    });
+  }
+  await expectVerifiedLoading(page);
+  await expect(page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ })).toBeEnabled();
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.optimization?.strategy)).toBe('capacity');
   await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-applied', 'true', { timeout: 100_000 });
   await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-supports', '1');

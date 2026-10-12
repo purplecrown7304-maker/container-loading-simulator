@@ -195,8 +195,6 @@ function slotFor(
         ...o,
         colsX,
         colsY,
-        offsetX: Math.max(0, (pallet.length - colsX * o.length) / 2),
-        offsetY: Math.max(0, (pallet.width - colsY * o.width) / 2),
       };
     })
     .filter((o) => o.colsX > 0 && o.colsY > 0)
@@ -210,27 +208,44 @@ function slotFor(
     .sort((a, b) => a - b);
 
   for (const z of surfaces) {
-    for (const option of options) {
-      for (let row = 0; row < option.colsX; row += 1) {
-        for (let col = 0; col < option.colsY; col += 1) {
-          const candidate: Placement = {
-            cargoId: item.id,
-            x: load.x + option.offsetX + row * option.length,
-            y: load.y + option.offsetY + col * option.width,
-            z,
-            length: option.length,
-            width: option.width,
-            height: item.height,
-            weightKg: item.weightKg,
-            rotated: option.rotated,
-          };
-          const collides = load.cargoPlacements.some((p) => candidate.x < p.x + p.length - EPS && candidate.x + candidate.length > p.x + EPS && candidate.y < p.y + p.width - EPS && candidate.y + candidate.width > p.y + EPS && candidate.z < p.z + p.height - EPS && candidate.z + candidate.height > p.z + EPS);
-          if (collides || candidate.z + candidate.height > container.height + EPS) continue;
-          if (!hasAdequateSupport(candidate, load.cargoPlacements, baseSurface)) continue;
-          if (!canPlaceByStackingRules(item, candidate, load.cargoPlacements, cargoMap)) continue;
-          return candidate;
+    const supporters = load.cargoPlacements
+      .filter(placement => Math.abs(placement.z + placement.height - z) <= EPS)
+      .sort((a, b) => a.x - b.x || a.y - b.y || a.length - b.length || a.width - b.width);
+    function* gridCandidates(surface: { x: number; y: number; length: number; width: number }, option: typeof options[number]): Generator<Placement> {
+      const colsX = fitCount(surface.length, option.length);
+      const colsY = fitCount(surface.width, option.width);
+      const offsetX = Math.max(0, (surface.length - colsX * option.length) / 2);
+      const offsetY = Math.max(0, (surface.width - colsY * option.width) / 2);
+      for (let row = 0; row < colsX; row += 1) {
+        for (let col = 0; col < colsY; col += 1) {
+          yield { cargoId: item.id, x: surface.x + offsetX + row * option.length,
+            y: surface.y + offsetY + col * option.width, z, length: option.length,
+            width: option.width, height: item.height, weightKg: item.weightKg, rotated: option.rotated };
         }
       }
+    }
+    // At an elevated surface, first align cartons within real supporters. A single
+    // pallet-centred grid can unnecessarily bridge adjacent larger cartons, spreading
+    // cumulative compression through several support chains and stranding a legal
+    // next tier. Keep the original grid too for boxes that need several supporters.
+    function* candidates(): Generator<Placement> {
+      for (const option of options) for (const supporter of supporters) yield* gridCandidates(supporter, option);
+      for (const option of options) yield* gridCandidates(baseSurface, option);
+    }
+    // Generate lazily: one tiny carton must not allocate every cell on the deck.
+    const seen = new Set<string>();
+    for (const candidate of candidates()) {
+      const key = [candidate.x, candidate.y, candidate.length, candidate.width].map(value => value.toFixed(9)).join(':');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (candidate.x < load.x - EPS || candidate.y < load.y - EPS
+        || candidate.x + candidate.length > load.x + pallet.length + EPS
+        || candidate.y + candidate.width > load.y + pallet.width + EPS) continue;
+      const collides = load.cargoPlacements.some((p) => candidate.x < p.x + p.length - EPS && candidate.x + candidate.length > p.x + EPS && candidate.y < p.y + p.width - EPS && candidate.y + candidate.width > p.y + EPS && candidate.z < p.z + p.height - EPS && candidate.z + candidate.height > p.z + EPS);
+      if (collides || candidate.z + candidate.height > container.height + EPS) continue;
+      if (!hasAdequateSupport(candidate, load.cargoPlacements, baseSurface)) continue;
+      if (!canPlaceByStackingRules(item, candidate, load.cargoPlacements, cargoMap)) continue;
+      return candidate;
     }
   }
   return null;
