@@ -17,6 +17,7 @@ import { cancelPendingCertification, requestExactCertification } from './autoCer
 import { readLoadingRuleset, setLoadingRuleset } from './loadingRulesPreference';
 import { createCustomEquipment, selectTransportEquipment } from './transportEquipment';
 import { OPEN_PACKAGING_CONTENTS_EVENT } from './packagingContentsModel';
+import { setUiLanguage } from './uiLanguage';
 
 const captured = vi.hoisted(() => ({ mounts: 0, unmounts: 0, props: null as LoadingViewerProps | null,
   runs: [] as Array<{ resolve: (value: PhysicsOptimizedLoading) => void; signal: AbortSignal; container: ContainerSpec }> }));
@@ -48,7 +49,7 @@ const run = () => act(async () => { window.dispatchEvent(new CustomEvent(APP_ACT
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   captured.mounts = 0; captured.unmounts = 0; captured.runs = []; captured.props = null;
-  vi.clearAllMocks(); localStorage.clear();
+  vi.clearAllMocks(); localStorage.clear(); setUiLanguage('ko');
   setLoadingRuleset('legacy'); selectTransportEquipment(createCustomEquipment('container', container));
   publishGuidedWorkflowState({ active: true, step: 1 }); publishGuidedLoadingUnit('boxes'); publishWorkflowPreview(null);
   writeLoadingStrategyPreference('capacity'); writeStoredState({ container, cargo });
@@ -58,7 +59,28 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await act(async () => root.unmount()); host.remove(); publishWorkflowPreview(null);
+  setUiLanguage('ko');
   publishGuidedWorkflowState({ active: false, step: 1 }); vi.unstubAllGlobals();
+});
+
+it('localizes the main document title without remounting the canvas or changing loading data', async () => {
+  const canvas = host.querySelector('canvas');
+  const result = captured.props?.result;
+  const stored = readStoredState();
+  expect(document.title).toBe('컨테이너 적재 시뮬레이터');
+  for (const [language, title] of [
+    ['en', 'Container Loading Simulator'],
+    ['vi', 'Mô phỏng xếp hàng container'],
+    ['ko', '컨테이너 적재 시뮬레이터'],
+  ] as const) {
+    await act(async () => setUiLanguage(language));
+    expect(document.title).toBe(title);
+    expect(host.querySelector('canvas')).toBe(canvas);
+    expect(captured.props?.result).toBe(result);
+    expect(readStoredState()).toEqual(stored);
+  }
+  expect(captured.mounts).toBe(1);
+  expect(captured.unmounts).toBe(0);
 });
 
 it('mounts the main canvas on entry and preserves it through every workspace stage and mode', async () => {

@@ -4,6 +4,7 @@ import type { CargoItem, LoadingResult } from './types';
 import type { PhysicsTarget } from '../physicsTarget';
 import { createPhysicsTargetSignature } from '../inertiaCertification';
 import { operationalQuality, unloadingObstructions } from './operationalQuality';
+import { usesHeavyInnerLoading } from './heavyInnerPolicy';
 
 const EPS = 1e-9;
 const STRATEGIES: LoadingStrategy[] = ['stability', 'capacity', 'unloading'];
@@ -38,6 +39,7 @@ type LayerProfileMode = 'all' | 'heavy' | 'tall' | 'staggered';
 type CargoSearchProfile = {
   label: string;
   cargo: CargoItem[];
+  kind?: 'orientation';
 };
 
 export type DirectResultReoptimizationCandidate = {
@@ -106,7 +108,7 @@ function reducedCargo(target: PhysicsTarget, reduction: number, mode: LayerProfi
 
 function stackProfileKey(cargo: CargoItem[]) {
   return cargo
-    .map(item => `${item.id}:${item.maxStackLayers ?? 'auto'}`)
+    .map(item => `${item.id}:${item.maxStackLayers ?? 'auto'}:${item.allowedOrientations?.slice().sort().join(',') ?? 'auto'}`)
     .sort()
     .join('|');
 }
@@ -116,12 +118,26 @@ export function buildDirectReoptimizationCargoProfiles(current: PhysicsTarget): 
   if (current.mode !== 'boxes') return [];
   const profiles: CargoSearchProfile[] = [];
   const seen = new Set<string>();
-  const add = (label: string, cargo: CargoItem[]) => {
+  const add = (label: string, cargo: CargoItem[], kind?: 'orientation') => {
     const key = stackProfileKey(cargo);
     if (seen.has(key)) return;
     seen.add(key);
-    profiles.push({ label, cargo });
+    profiles.push({ label, cargo, ...(kind ? { kind } : {}) });
   };
+
+  // A low single tier can still tip in braking when its short edge faces +X.
+  // Restrict only originally permitted floor rotations; never invent side-on poses,
+  // change fixed cartons, drop demand, or treat this geometric search as certification.
+  const flexible = (item: CargoItem) => item.allowRotation !== false
+    && Math.abs(item.length - item.width) > EPS
+    && (!item.allowedOrientations || (item.allowedOrientations.includes('LWH') && item.allowedOrientations.includes('WLH')));
+  if (usesHeavyInnerLoading(current.container, current.cargo) && current.cargo.some(flexible)) {
+    for (const orientation of ['LWH', 'WLH'] as const) {
+      add(orientation === 'LWH' ? '기본 방향' : '90° 회전', current.cargo.map(item => flexible(item)
+        ? { ...item, allowedOrientations: [orientation] }
+        : item), 'orientation');
+    }
+  }
 
   for (const ratio of HEIGHT_RATIOS) add(`전체 높이 ${Math.round(ratio * 100)}%`, cappedCargo(current, ratio));
 
@@ -139,6 +155,7 @@ export function buildDirectReoptimizationCargoProfiles(current: PhysicsTarget): 
 }
 
 function sampleProfiles<T>(profiles: T[], budget: number) {
+  if (budget <= 0) return [];
   if (budget >= profiles.length) return profiles;
   if (budget <= 1) return profiles.slice(0, 1);
   const selected: T[] = [];
@@ -188,11 +205,19 @@ function* candidateSearch(
   const strategies = preferredStrategy ? [preferredStrategy] : STRATEGIES;
   // Bound actual solver invocations, not just the returned candidate count.
   // Sample stack heights and strategies deterministically without relaxing constraints.
-  const profileBudget = Number.isFinite(limit)
-    ? Math.min(allProfiles.length, Math.ceil(limit / strategies.length))
-    : allProfiles.length;
-  const profiles = sampleProfiles(allProfiles, profileBudget);
-  const jobs = sampleProfiles(profiles.flatMap(profile => strategies.map(strategy => ({ profile, strategy }))), limit);
+  // Reserve one solver invocation per permitted floor direction before sampling heights.
+  // Otherwise a bounded height-only portfolio repeatedly returns the same failed layout.
+  // The remaining budget still covers height profiles, rather than spending every slot
+  // rerunning each orientation under all three strategies.
+  const orientationJobs = allProfiles.filter(profile => profile.kind === 'orientation')
+    .map(profile => ({ profile, strategy: strategies[0] })).slice(0, limit);
+  const remainingBudget = limit - orientationJobs.length;
+  const heightProfiles = allProfiles.filter(profile => profile.kind !== 'orientation');
+  const profileBudget = Number.isFinite(remainingBudget)
+    ? Math.min(heightProfiles.length, Math.ceil(remainingBudget / strategies.length))
+    : heightProfiles.length;
+  const profiles = sampleProfiles(heightProfiles, profileBudget);
+  const jobs = [...orientationJobs, ...sampleProfiles(profiles.flatMap(profile => strategies.map(strategy => ({ profile, strategy }))), remainingBudget)];
   for (const { profile, strategy } of jobs) {
     const label = `${strategy === 'stability' ? '안정성 우선' : strategy === 'capacity' ? '적재율 우선' : '하역 우선'} · ${profile.label}`;
     const result = yield { cargo: profile.cargo, strategy, label, total: jobs.length };

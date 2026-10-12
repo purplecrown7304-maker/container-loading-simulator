@@ -41,13 +41,16 @@ describe('securing-inclusive payload budget', ()=>{
   });
   it('re-packs a higher-level payload failure with waiting cargo instead of permuting the same count', async()=>{
     vi.stubGlobal('Worker',undefined);
-    const result=loadContainer(container,cargo,{publish:false});
-    const target={mode:'boxes' as const,container,cargo,result};
-    expect(result.loadedWeightKg+buildSecuringUsage(target,3).estimatedAddedWeightKg).toBeGreaterThan(100);
+    // A real blocking-material mass increase must still trigger a lower safe quantity.
+    // Generic bars without installation evidence are no longer automatically reserved.
+    const constrained = { ...container, maxPayloadKg: 95 };
+    const result=loadContainer(constrained,cargo,{publish:false});
+    const target={mode:'boxes' as const,container:constrained,cargo,result};
+    expect(result.loadedWeightKg+buildSecuringUsage(target,3).estimatedAddedWeightKg).toBeGreaterThan(95);
     const adjusted=await buildSecuringPayloadAdjustmentCandidateAsync(target);
     expect(adjusted).not.toBeNull();
     expect(adjusted!.result.placements.length).toBeLessThan(result.placements.length);
-    expect(adjusted!.result.loadedWeightKg+buildSecuringUsage(adjusted!.target,3).estimatedAddedWeightKg).toBeLessThanOrEqual(100);
+    expect(adjusted!.result.loadedWeightKg+buildSecuringUsage(adjusted!.target,3).estimatedAddedWeightKg).toBeLessThanOrEqual(95);
     expect(adjusted!.result.placements.length+adjusted!.result.remaining.reduce((sum,row)=>sum+row.quantity,0)).toBe(20);
   });
 });

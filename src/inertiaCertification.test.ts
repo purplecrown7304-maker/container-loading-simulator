@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import type { PhysicsTarget } from './physicsTarget';
-import { buildSecuringUsage, createPhysicsTargetSignature, isInertiaStable, securingProfileForLevel, securingProfileForUsage } from './inertiaCertification';
+import { buildSecuringUsage, createPhysicsTargetSignature, isInertiaStable, securingProfileForUsage } from './inertiaCertification';
 
 function animation(shift: number, tilt: number, extra: Partial<InertiaAnimationResult> = {}): InertiaAnimationResult {
   return {
@@ -95,15 +95,16 @@ describe('inertia certification', () => {
   });
 
   it('does not invent stronger pallet-floor restraint when level 2 only adds wrap', () => {
-    const level1 = securingProfileForLevel('pallets', 1);
-    const level2 = securingProfileForLevel('pallets', 2);
-    const level3 = securingProfileForLevel('pallets', 3);
-    expect(level2.cargoRetentionRatio).toBeGreaterThan(level1.cargoRetentionRatio ?? 0);
-    expect(level2.supportRetentionRatio).toBe(level1.supportRetentionRatio);
-    expect(level3.supportRetentionRatio).toBeGreaterThan(level2.supportRetentionRatio ?? 0);
+    const level1 = securingProfileForUsage('pallets', buildSecuringUsage(palletTarget, 1));
+    const level2 = securingProfileForUsage('pallets', buildSecuringUsage(palletTarget, 2));
+    const level3 = securingProfileForUsage('pallets', buildSecuringUsage(palletTarget, 3));
+    expect(level2.cargoRestraint!.maxAccelerationG).toBeGreaterThan(level1.cargoRestraint!.maxAccelerationG);
+    expect(level1.supportRestraint).toBeUndefined();
+    expect(level2.supportRestraint).toBeUndefined();
+    expect(level3.supportRestraint).toBeUndefined();
   });
 
-  it('derives cargo restraint from straps and wrap, and support restraint only from load bars', () => {
+  it('derives pallet cargo restraint from straps and wrap without unverified container anchors', () => {
     const usage1 = buildSecuringUsage(palletTarget, 1);
     const usage2 = buildSecuringUsage(palletTarget, 2);
     const usage3 = buildSecuringUsage(palletTarget, 3);
@@ -115,7 +116,8 @@ describe('inertia certification', () => {
     expect(profile2.cargoRestraint?.maxAccelerationG).toBeGreaterThan(profile1.cargoRestraint?.maxAccelerationG ?? 0);
     expect(profile1.supportRestraint).toBeUndefined();
     expect(profile2.supportRestraint).toBeUndefined();
-    expect(profile3.supportRestraint).toBeDefined();
+    expect(profile3.supportRestraint).toBeUndefined();
+    expect(usage3.loadBars).toBe(0);
     expect(profile3.frictionCoefficient).toBeGreaterThan(profile2.frictionCoefficient ?? 0);
   });
 
@@ -126,16 +128,17 @@ describe('inertia certification', () => {
     expect(usage.cornerGuards).toBe(0);
     expect(usage.cornerGuardLengthM).toBe(0);
     expect(usage.dunnageBlocks).toBeGreaterThanOrEqual(4);
-    expect(usage.loadBars).toBe(2);
+    expect(usage.loadBars).toBe(0);
     expect(usage.antiSlipMats).toBeGreaterThanOrEqual(2);
     expect(securingProfileForUsage('boxes', usage).cargoRestraint).toBeDefined();
   });
 
   it('escalates the simulated restraint as the securing level increases', () => {
-    const base = securingProfileForLevel('pallets', 0);
-    const max = securingProfileForLevel('pallets', 3);
-    expect(max.cargoRetentionRatio).toBeGreaterThan(base.cargoRetentionRatio ?? 0);
-    expect(max.supportRetentionRatio).toBeGreaterThan(base.supportRetentionRatio ?? 0);
+    const base = securingProfileForUsage('pallets', buildSecuringUsage(palletTarget, 0));
+    const max = securingProfileForUsage('pallets', buildSecuringUsage(palletTarget, 3));
+    expect(max.cargoRestraint!.maxAccelerationG).toBeGreaterThan(base.cargoRestraint?.maxAccelerationG ?? 0);
+    expect(base.supportRestraint).toBeUndefined();
+    expect(max.supportRestraint).toBeUndefined();
     expect(max.frictionCoefficient).toBeGreaterThan(base.frictionCoefficient ?? 0);
   });
 

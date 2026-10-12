@@ -208,9 +208,20 @@ describe('manual review preservation and strict restoration',()=>{
     expect(readManualOverride(container,[{...box,strengthUnverified:true}])).toBeNull();
   });
   it('checks the scenario budget again if the source securing level requires more material',()=>{
-    const spec=review({...container,maxPayloadKg:100},{maxPayloadKg:130});
-    const result=run(spec);result.securingBudget={...result.securingBudget!,level:3};
-    expect(assessManualMove(spec,[box],result,1,result.placements[1]).valid).toBe(false);
+    // Two cartons plus real level-1 materials fit 125 kg; level 3 must exceed it.
+    // No uninstalled generic load-bar mass is needed to manufacture the boundary.
+    const spec=review({...container,maxPayloadKg:100},{maxPayloadKg:125});
+    const result=run(spec);
+    expect(result.placements).toHaveLength(2);
+    expect(result.securingBudget?.totalTransportWeightKg).toBeCloseTo(122.2);
+    expect(assessManualMove(spec,[box],result,1,result.placements[1]).valid).toBe(true);
+    result.securingBudget={...result.securingBudget!,level:3};
+    const assessment=assessManualMove(spec,[box],result,1,result.placements[1]);
+    expect(assessment.valid).toBe(false);
+    expect(assessment.result.securingBudget?.level).toBe(3);
+    expect(assessment.result.securingBudget?.totalTransportWeightKg).toBeCloseTo(125.2);
+    expect(assessment.result.validationIssues.some(issue=>issue.type==='PAYLOAD')).toBe(true);
+    expect(assessment.reasons).toContain('화물과 필수 고정재 합계가 선택한 검토 총중량 한도를 초과합니다.');
   });
 });
 

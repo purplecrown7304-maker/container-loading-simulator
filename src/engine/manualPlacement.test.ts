@@ -105,12 +105,19 @@ describe('manual placement', () => {
 
   it('preserves level 3 securing weight and reserve for a non-worsening no-op edit', () => {
     const current: LoadingResult = {...source,placements:[source.placements[0],{...source.placements[0],x:3,y:1}],
-      securingBudget:{level:3,reservedWeightKg:30,requiredWeightKg:14.2,totalTransportWeightKg:54.2}};
-    const assessment = assessManualMove({...container,maxPayloadKg:50},cargo,current,1,{x:3,y:1,z:0});
+      securingBudget:{level:3,reservedWeightKg:30,requiredWeightKg:5.2,totalTransportWeightKg:45.2}};
+    // Removing uninstalled generic bars leaves 5.2 kg of actual level-3 materials.
+    // Keep the boundary between level 1 and 3 so silently downgrading still fails this test.
+    const spec = {...container,maxPayloadKg:45};
+    const levelOne = assessManualMove(spec,cargo,{...current,securingBudget:{...current.securingBudget!,level:1}},1,{x:3,y:1,z:0});
+    expect(levelOne.result.securingBudget?.totalTransportWeightKg).toBeCloseTo(42.2);
+    expect(levelOne.result.validationIssues.some(issue => issue.type === 'PAYLOAD')).toBe(false);
+    const assessment = assessManualMove(spec,cargo,current,1,{x:3,y:1,z:0});
     expect(assessment.valid).toBe(true);
     expect(assessment.result.validationIssues.some(issue => issue.type === 'PAYLOAD')).toBe(true);
     expect(assessment.result.securingBudget).toMatchObject({level:3,reservedWeightKg:30});
-    expect(assessment.result.securingBudget?.totalTransportWeightKg).toBeCloseTo(54.2);
+    expect(assessment.result.securingBudget?.requiredWeightKg).toBeCloseTo(5.2);
+    expect(assessment.result.securingBudget?.totalTransportWeightKg).toBeCloseTo(45.2);
   });
 
   it('retains an unloading-strategy conflict warning when refreshing manual findings', () => {

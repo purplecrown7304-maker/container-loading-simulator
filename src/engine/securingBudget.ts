@@ -8,7 +8,10 @@ export function boxSecuringRequirements(count: number, level: BoxSecuringLevel, 
   if (count <= 0) return { antiSlipMats: 0, dunnageBlocks: 0, loadBars: 0, weightKg: 0 };
   const antiSlipMats = Math.max(2, Math.ceil(count / (level === 1 ? 30 : 20)));
   const dunnageBlocks = Math.max(level === 1 ? 2 : level === 2 ? 4 : 6, Math.ceil(count / 80) * 2);
-  const loadBars = level >= 2 ? 2 : 0;
+  // The generic catalog entry supplies mass only, with no span/anchor/installation
+  // specification. Do not invent installed bars from carton count. Geometrically
+  // supported door bars remain part of the independent void-fill plan and budget.
+  const loadBars = 0;
   return { antiSlipMats, dunnageBlocks, loadBars,
     weightKg: antiSlipMats * weights.antiSlipKgPerEa + dunnageBlocks * weights.dunnageKgPerEa + loadBars * weights.loadBarKgPerEa };
 }

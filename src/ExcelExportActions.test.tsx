@@ -1,4 +1,5 @@
 import { workflowWorkInstruction } from './workflowPresentation';
+import { buildLoadingReportHtml } from './report';
 import { buildWorkSequence } from './engine/workSequence';
 import { setUiLanguage, uiText } from './uiLanguage';
 import { LIMIT_REVIEW_WARNING, LIMIT_REVIEW_PROVENANCE } from './limitReviewPresentation';
@@ -195,4 +196,28 @@ it.each(['en', 'vi'] as const)('keeps permanent WHAT-IF warnings on every %s she
   }
   const comparison = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[uiText('WHAT-IF 한도비교')], { header: 1 });
   expect(JSON.stringify(comparison)).not.toMatch(/[가-힣]/);
+});
+
+
+it('keeps fresh level-3 Excel and work-order materials free of uninstalled generic bars', async () => {
+  const usage = buildSecuringUsage(base, 3);
+  const cert = certification(base, { securing: usage });
+  await exportCurrent(base, cert);
+  expect(XLSX.writeFile).toHaveBeenCalledOnce();
+  const rows = XLSX.utils.sheet_to_json<{ 자재: string }>(workbook().Sheets['보조자재']);
+  expect(rows.some(row => row.자재 === '고정바')).toBe(false);
+  expect(rows.some(row => row.자재 === '미끄럼방지재')).toBe(true);
+  expect(rows.some(row => row.자재 === '블로킹재')).toBe(true);
+  const html = buildLoadingReportHtml(base.container, base.cargo, base.result);
+  const doc = new DOMParser().parseFromString(html.replace(/<link\b[^>]*>/g, ''), 'text/html');
+  expect(doc.querySelector('.materials')?.textContent).not.toContain('고정바');
+  expect(doc.querySelector('.materials')?.textContent).toContain('블로킹재');
+  expect(html).not.toContain('고정바 포함 최대 결속');
+});
+
+it('does not export an old-model generic-bar certification as a current workbook', async () => {
+  const old = certification(base, { securing: { ...buildSecuringUsage(base, 3), loadBars: 2 } });
+  old.targetSignature = old.targetSignature.replace('restraint-v6-explicit-supports', 'restraint-v5-unit-load');
+  await exportCurrent(base, old);
+  expect(XLSX.writeFile).not.toHaveBeenCalled();
 });
