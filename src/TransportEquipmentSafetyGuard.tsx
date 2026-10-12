@@ -103,7 +103,9 @@ function isUnsupportedGeneralCargoAction(target: Element) {
   const button = target.closest('button');
   if (!(button instanceof HTMLButtonElement)) return false;
   const label = (button.textContent ?? '').replace(/\s+/g, ' ').trim();
-  return button.classList.contains('primary-action')
+  // Translated presentation copy cannot determine whether this action is permitted.
+  return button.dataset.requiresGeneralCargo === 'true'
+    || button.classList.contains('primary-action')
     || label.includes('물리 최적 자동 적재')
     || label.includes('적재 최적화')
     || label.includes('작업 지시서')

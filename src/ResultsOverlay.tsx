@@ -1,3 +1,4 @@
+import { uiText as uiT, useUiLanguage } from './uiLanguage';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { LimitReviewBanner } from './LimitReviewControls';
 import CertificationResultSummary from './CertificationResultSummary';
@@ -54,6 +55,7 @@ function toLoadingResult(detail: ResultsModalDetail, snapshot: PalletSnapshot | 
 }
 
 export default function ResultsOverlay() {
+  useUiLanguage();
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<ResultsModalDetail | null>(null);
   const [advanced, setAdvanced] = useState(false);
@@ -119,74 +121,74 @@ export default function ResultsOverlay() {
   return <div className="results-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
     <section className="results-modal" role="dialog" aria-modal="true" aria-labelledby="results-modal-title">
       <header className="results-modal-header">
-        <div><b id="results-modal-title">적재 결과</b><span>설계 결과 → 검증 → 현장 작업 준비 순서로 확인합니다.</span></div>
-        <button type="button" onClick={() => setOpen(false)} aria-label="결과창 닫기">닫기</button>
+        <div><b id="results-modal-title">{uiT("적재 결과")}</b><span>{uiT("설계 결과 → 검증 → 현장 작업 준비 순서로 확인합니다.")}</span></div>
+        <button type="button" onClick={() => setOpen(false)} aria-label={uiT("결과창 닫기")}>{uiT("닫기")}</button>
       </header>
 
       <LimitReviewBanner container={detail.container} cargo={detail.cargo} result={effectiveResult} />
       {!palletSnapshot && <VoidFillSummary result={effectiveResult} />}
       <article className="results-panel results-preview-info">
-        <div className="results-panel-title"><b>미리보기 정보</b><span>{palletSnapshot ? '팔레트 모드' : '박스 모드'}</span></div>
+        <div className="results-panel-title"><b>{uiT("미리보기 정보")}</b><span>{palletSnapshot ? uiT("팔레트 모드") : uiT("박스 모드")}</span></div>
         <div className="results-cargo-legend">
           {detail.cargo.slice(0, 12).map(item => <span key={item.id}><i style={{ background: cargoColor(item.id) }} />{item.id}</span>)}
-          <span><i className="empty" />여유 공간</span>
+          <span><i className="empty" />{uiT("여유 공간")}</span>
         </div>
         {palletSnapshot && <div className="results-pallet-settings">
-          <div className="results-pallet-settings-head"><div><b>팔레트 적재 설정</b><span>값을 바꾸면 새 배치가 만들어지고 이 결과창은 닫힙니다. 다시 결과 보기를 실행해 관성 검증을 통과해야 합니다.</span></div></div>
+          <div className="results-pallet-settings-head"><div><b>{uiT("팔레트 적재 설정")}</b><span>{uiT("값을 바꾸면 새 배치가 만들어지고 이 결과창은 닫힙니다. 다시 결과 보기를 실행해 관성 검증을 통과해야 합니다.")}</span></div></div>
           <div className="results-pallet-spec-grid">
-            <label>길이(m)<input type="number" step=".01" value={palletSnapshot.spec.length} onChange={event => updatePalletSpec('length', event.target.value)} /></label>
-            <label>폭(m)<input type="number" step=".01" value={palletSnapshot.spec.width} onChange={event => updatePalletSpec('width', event.target.value)} /></label>
-            <label>높이(m)<input type="number" step=".01" value={palletSnapshot.spec.height} onChange={event => updatePalletSpec('height', event.target.value)} /></label>
-            <label>팔레트 중량(kg)<input type="number" min="0" value={palletSnapshot.spec.tareWeightKg} onChange={event => updatePalletSpec('tareWeightKg', event.target.value)} /></label>
-            <label>최대 적재중량(kg)<input type="number" min="0" value={palletSnapshot.spec.maxLoadKg} onChange={event => updatePalletSpec('maxLoadKg', event.target.value)} /></label>
-            <label>정하중(kg · 0은 미확인)<input type="number" min="0" value={palletSnapshot.spec.maxStaticLoadKg ?? 0} onChange={event => updatePalletSpec('maxStaticLoadKg', event.target.value)} /></label>
-            <label>상부 팔레트 허용중량(kg)<input type="number" min="0" value={palletSnapshot.spec.maxSupportedTopWeightKg} onChange={event => updatePalletSpec('maxSupportedTopWeightKg', event.target.value)} /></label>
-            <label>최대 적층단<input type="number" min="1" max="7" value={palletSnapshot.spec.maxStackLevels} onChange={event => updatePalletSpec('maxStackLevels', event.target.value)} /></label>
+            <label>{uiT("길이(m)")}<input type="number" step=".01" value={palletSnapshot.spec.length} onChange={event => updatePalletSpec('length', event.target.value)} /></label>
+            <label>{uiT("폭(m)")}<input type="number" step=".01" value={palletSnapshot.spec.width} onChange={event => updatePalletSpec('width', event.target.value)} /></label>
+            <label>{uiT("높이(m)")}<input type="number" step=".01" value={palletSnapshot.spec.height} onChange={event => updatePalletSpec('height', event.target.value)} /></label>
+            <label>{uiT("팔레트 중량(kg)")}<input type="number" min="0" value={palletSnapshot.spec.tareWeightKg} onChange={event => updatePalletSpec('tareWeightKg', event.target.value)} /></label>
+            <label>{uiT("최대 적재중량(kg)")}<input type="number" min="0" value={palletSnapshot.spec.maxLoadKg} onChange={event => updatePalletSpec('maxLoadKg', event.target.value)} /></label>
+            <label>{uiT("정하중(kg · 0은 미확인)")}<input type="number" min="0" value={palletSnapshot.spec.maxStaticLoadKg ?? 0} onChange={event => updatePalletSpec('maxStaticLoadKg', event.target.value)} /></label>
+            <label>{uiT("상부 팔레트 허용중량(kg)")}<input type="number" min="0" value={palletSnapshot.spec.maxSupportedTopWeightKg} onChange={event => updatePalletSpec('maxSupportedTopWeightKg', event.target.value)} /></label>
+            <label>{uiT("최대 적층단")}<input type="number" min="1" max="7" value={palletSnapshot.spec.maxStackLevels} onChange={event => updatePalletSpec('maxStackLevels', event.target.value)} /></label>
           </div>
           <div className="results-pallet-optimization-strip">
-            <span>사용 팔레트 <b>{palletSnapshot.result.palletCount}</b></span>
-            <span>적재 화물 <b>{palletSnapshot.result.placements.length} EA</b></span>
-            <span>적층 팔레트 <b>{palletSnapshot.result.stackedPallets}</b></span>
-            <span>선택 최적화 <b>{palletSnapshot.result.optimization.selectedStackTarget}단 · 바닥 {palletSnapshot.result.optimization.floorPositions}열</b></span>
+            <span>{uiT("사용 팔레트")} <b>{palletSnapshot.result.palletCount}</b></span>
+            <span>{uiT("적재 화물")} <b>{palletSnapshot.result.placements.length} EA</b></span>
+            <span>{uiT("적층 팔레트")} <b>{palletSnapshot.result.stackedPallets}</b></span>
+            <span>{uiT("선택 최적화")} <b>{palletSnapshot.result.optimization.selectedStackTarget}{uiT("단 · 바닥")} {palletSnapshot.result.optimization.floorPositions}{uiT("열")}</b></span>
           </div>
         </div>}
       </article>
 
       <div className="results-summary-grid">
-        <article><span>부피 적재율</span><b>{fillRate.toFixed(1)}%</b><small>{effectiveResult.usedVolumeM3.toFixed(1)} / {totalVolume.toFixed(1)} m³</small></article>
-        <article><span>중량 적재율</span><b>{weightRate.toFixed(1)}%</b><small>{effectiveResult.loadedWeightKg.toLocaleString()} / {detail.container.maxPayloadKg.toLocaleString()} kg</small></article>
-        <article><span>적재 박스</span><b>{effectiveResult.placements.length} EA</b><small>{detail.cargo.length}개 품목</small></article>
-        <article><span>최대 층수</span><b>{maxLayer} 층</b><small>균형 {quality?.grade ?? '-'}</small></article>
-        <article className={failed ? 'bad' : warned ? 'warn' : 'good'}><span>제약조건</span><b>{failed ? `실패 ${failed}` : warned ? `확인 ${warned}` : '모두 통과'}</b><small>{checks.length}개 항목 검사</small></article>
+        <article><span>{uiT("부피 적재율")}</span><b>{fillRate.toFixed(1)}%</b><small>{effectiveResult.usedVolumeM3.toFixed(1)} / {totalVolume.toFixed(1)} m³</small></article>
+        <article><span>{uiT("중량 적재율")}</span><b>{weightRate.toFixed(1)}%</b><small>{effectiveResult.loadedWeightKg.toLocaleString()} / {detail.container.maxPayloadKg.toLocaleString()} kg</small></article>
+        <article><span>{uiT("적재 박스")}</span><b>{effectiveResult.placements.length} EA</b><small>{detail.cargo.length}{uiT("개 품목")}</small></article>
+        <article><span>{uiT("최대 층수")}</span><b>{maxLayer} {uiT("층")}</b><small>{uiT("균형")} {quality?.grade ?? '-'}</small></article>
+        <article className={failed ? 'bad' : warned ? 'warn' : 'good'}><span>{uiT("제약조건")}</span><b>{failed ? uiT("실패 {0}", [failed]) : warned ? uiT("확인 {0}", [warned]) : uiT("모두 통과")}</b><small>{checks.length}{uiT("개 항목 검사")}</small></article>
       </div>
 
       <CertificationResultSummary detail={detail} />
 
       <div className="results-main-grid">
         <article className="results-panel">
-          <div className="results-panel-title"><b>품목별 적재 결과</b><span>색상은 3D와 동일</span></div>
-          <div className="results-table-wrap"><table><thead><tr><th>품목</th><th>요청</th><th>적재</th><th>미적재</th><th>총 중량</th><th>크기(mm)</th></tr></thead><tbody>{detail.cargo.map(item => { const loaded = loadedByCargo.get(item.id) ?? 0; return <tr key={item.id}><td><span className="result-cargo-code"><i style={{ background: cargoColor(item.id) }} />{item.id}</span></td><td>{item.quantity}</td><td>{loaded}</td><td>{Math.max(0, item.quantity - loaded)}</td><td>{(loaded * item.weightKg).toLocaleString()} kg</td><td>{Math.round(item.length * 1000)}×{Math.round(item.width * 1000)}×{Math.round(item.height * 1000)}</td></tr>; })}</tbody></table></div>
+          <div className="results-panel-title"><b>{uiT("품목별 적재 결과")}</b><span>{uiT("색상은 3D와 동일")}</span></div>
+          <div className="results-table-wrap"><table><thead><tr><th>{uiT("품목")}</th><th>{uiT("요청")}</th><th>{uiT("적재")}</th><th>{uiT("미적재")}</th><th>{uiT("총 중량")}</th><th>{uiT("크기(mm)")}</th></tr></thead><tbody>{detail.cargo.map(item => { const loaded = loadedByCargo.get(item.id) ?? 0; return <tr key={item.id}><td><span className="result-cargo-code"><i style={{ background: cargoColor(item.id) }} />{item.id}</span></td><td>{item.quantity}</td><td>{loaded}</td><td>{Math.max(0, item.quantity - loaded)}</td><td>{(loaded * item.weightKg).toLocaleString()} kg</td><td>{Math.round(item.length * 1000)}×{Math.round(item.width * 1000)}×{Math.round(item.height * 1000)}</td></tr>; })}</tbody></table></div>
         </article>
         <article className="results-panel results-floor-panel">
-          <div className="results-panel-title"><b>바닥 하중 분포</b><span>평균 {floor.averageKgPerM2.toFixed(0)} · 최대 {floor.maxKgPerM2.toFixed(0)} kg/m²</span></div>
+          <div className="results-panel-title"><b>{uiT("바닥 하중 분포")}</b><span>{uiT("평균")} {floor.averageKgPerM2.toFixed(0)} {uiT("· 최대")} {floor.maxKgPerM2.toFixed(0)} kg/m²</span></div>
           <div className="results-heatmap">{floor.cells.map((cell, index) => { const ratio = floor.maxKgPerM2 > 0 ? cell.kgPerM2 / floor.maxKgPerM2 : 0; return <i key={index} data-level={ratio >= .72 ? 'high' : ratio >= .36 ? 'mid' : 'low'} title={`${cell.kgPerM2.toFixed(0)} kg/m²`} />; })}</div>
         </article>
       </div>
 
       <article className="results-panel results-constraints">
-        <div className="results-panel-title"><b>제약조건 검사</b><span>실패 {failed} · 확인 {warned}</span></div>
-        <div className="results-check-grid">{checks.map(check => <div key={check.id} data-status={check.status}><span>{check.label}</span><b>{check.status === 'pass' ? '통과' : check.status === 'warn' ? '확인' : '실패'}</b><small>{check.detail}</small></div>)}</div>
+        <div className="results-panel-title"><b>{uiT("제약조건 검사")}</b><span>{uiT("실패")} {failed} {uiT("· 확인")} {warned}</span></div>
+        <div className="results-check-grid">{checks.map(check => <div key={check.id} data-status={check.status}><span>{uiT(check.label)}</span><b>{check.status === 'pass' ? uiT("통과") : check.status === 'warn' ? uiT("확인") : uiT("실패")}</b><small>{uiT(check.detail)}</small></div>)}</div>
       </article>
 
-      <button className="advanced-result-toggle" type="button" aria-expanded={advanced} onClick={() => setAdvanced(value => !value)}>{advanced ? '고급 도구 닫기' : '고급 도구 열기'}</button>
-      {advanced && <section className="results-advanced-workflow" aria-label="고급 결과 도구">
-        <div className="results-advanced-tabs" role="tablist" aria-label="고급 도구 단계">
-          <button type="button" role="tab" aria-selected={advancedTab === 'optimize'} className={advancedTab === 'optimize' ? 'active' : ''} onClick={() => setAdvancedTab('optimize')}>1. 비교 / 최적화</button>
-          <button type="button" role="tab" aria-selected={advancedTab === 'edit'} className={advancedTab === 'edit' ? 'active' : ''} onClick={() => setAdvancedTab('edit')}>2. 수동 편집</button>
-          <button type="button" role="tab" aria-selected={advancedTab === 'work'} className={advancedTab === 'work' ? 'active' : ''} onClick={() => setAdvancedTab('work')}>3. 작업 준비</button>
+      <button className="advanced-result-toggle" type="button" aria-expanded={advanced} onClick={() => setAdvanced(value => !value)}>{advanced ? uiT("고급 도구 닫기") : uiT("고급 도구 열기")}</button>
+      {advanced && <section className="results-advanced-workflow" aria-label={uiT("고급 결과 도구")}>
+        <div className="results-advanced-tabs" role="tablist" aria-label={uiT("고급 도구 단계")}>
+          <button type="button" role="tab" aria-selected={advancedTab === 'optimize'} className={advancedTab === 'optimize' ? 'active' : ''} onClick={() => setAdvancedTab('optimize')}>{uiT("1. 비교 / 최적화")}</button>
+          <button type="button" role="tab" aria-selected={advancedTab === 'edit'} className={advancedTab === 'edit' ? 'active' : ''} onClick={() => setAdvancedTab('edit')}>{uiT("2. 수동 편집")}</button>
+          <button type="button" role="tab" aria-selected={advancedTab === 'work'} className={advancedTab === 'work' ? 'active' : ''} onClick={() => setAdvancedTab('work')}>{uiT("3. 작업 준비")}</button>
         </div>
         <div className="results-modal-advanced dashboard-right viewer-card">
-          <Suspense fallback={<div className="results-loading">고급 분석 모듈을 불러오는 중…</div>}>
+          <Suspense fallback={<div className="results-loading">{uiT("고급 분석 모듈을 불러오는 중…")}</div>}>
             {advancedTab === 'optimize' && <><AutoCorrectionPanel /><StrategyComparisonPanel /><SpareCapacityPanel /></>}
             {advancedTab === 'edit' && <><ManualPlacementEditor /><GroupMoveSuggestionPanel /><GroupDragController /></>}
             {advancedTab === 'work' && <><WorkSequencePanel /><ErgonomicRiskPanel /></>}

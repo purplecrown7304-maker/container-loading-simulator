@@ -1,3 +1,4 @@
+import { uiText as uiT, useUiLanguage } from './uiLanguage';
 import { readLoadingRuleset, setLoadingRuleset, useLoadingRuleset, aEquipmentDefault } from './loadingRulesPreference';
 import { getTransportEquipment, readTransportEquipment, selectTransportEquipment } from './transportEquipment';
 import { readTransportEquipmentSpecOverrides } from './transportEquipmentSpecOverrides';
@@ -5,6 +6,7 @@ import type { LoadingRuleset } from './engine/loadingRuleset';
 import './loading-rules.css';
 
 export default function LoadingRulesSelector(){
+  useUiLanguage();
   const selected=useLoadingRuleset();
   const description=selected==='a-v1'?'A 대표값 적용 · 기존 전용 기능 유지 · 계산 결과는 운송 안전 인증이 아닙니다.':'규칙을 바꾸면 이전 적재·점검 결과가 초기화됩니다.';
   const change=(value:LoadingRuleset)=>{
@@ -17,11 +19,11 @@ export default function LoadingRulesSelector(){
       if(['length','width','height','maxPayloadKg'].every(k=>equipment[k as 'length']===previous[k as 'length'])) selectTransportEquipment(value==='a-v1'?aEquipmentDefault(base):base);
     }
   };
-  return <section className="loading-rules-selector" aria-label="적재 규칙 선택" title={description}>
-    <label htmlFor="loading-rules-choice">적재 규칙</label>
+  return <section className="loading-rules-selector" aria-label={uiT("적재 규칙 선택")} title={uiT(description)}>
+    <label htmlFor="loading-rules-choice">{uiT("적재 규칙")}</label>
     <select id="loading-rules-choice" aria-describedby="loading-rules-description" value={selected} onChange={e=>change(e.target.value as LoadingRuleset)}>
-      <option value="legacy">기존 규칙</option><option value="a-v1">A 규칙</option>
+      <option value="legacy">{uiT("기존 규칙")}</option><option value="a-v1">{uiT("A 규칙")}</option>
     </select>
-    <span id="loading-rules-description">{description}</span>
+    <span id="loading-rules-description">{uiT(description)}</span>
   </section>;
 }

@@ -1,6 +1,8 @@
+import { uiText as uiT, useUiLanguage } from './uiLanguage';
 import { openSafetyInspectionCenter } from './SafetyInspectionCenter';
 import { INSPECTIONS } from './manualInspection';
 import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
+import LanguageSwitcher from './LanguageSwitcher';
 import StudioIcon from './StudioIcon';
 import ViewerBackgroundSelector from './ViewerBackgroundSelector';
 import LoadingRulesSelector from './LoadingRulesSelector';
@@ -27,6 +29,7 @@ type LoginRole = 'member' | 'admin';
 type MemberMode = 'login' | 'signup';
 
 export default function ReferenceWorkspaceBar() {
+  useUiLanguage();
   const equipment = useTransportEquipment();
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -175,14 +178,14 @@ export default function ReferenceWorkspaceBar() {
 
   return <>
     <header className="reference-utility clean-single-header">
-      <button className="ref-brand ref-brand-button" type="button" onClick={() => dispatchAppAction('dashboard')} aria-label="대시보드로 이동">
+      <button className="ref-brand ref-brand-button" type="button" onClick={() => dispatchAppAction('dashboard')} aria-label={uiT("대시보드로 이동")}>
         <span className="ref-logo"><StudioIcon /></span>
-        <span className="ref-brand-text"><b>Load Studio</b><small>적재 계획 워크스페이스</small></span>
+        <span className="ref-brand-text"><b>Load Studio</b><small>{uiT("적재 계획 워크스페이스")}</small></span>
       </button>
 
       <div className="header-scene-controls">
-        <button className="header-equipment-pill" type="button" onClick={openEquipment} aria-label="현재 장비 변경">
-          <span className="equipment-kicker">현재 장비</span>
+        <button className="header-equipment-pill" type="button" onClick={openEquipment} aria-label={uiT("현재 장비 변경")}>
+          <span className="equipment-kicker">{uiT("현재 장비")}</span>
           <b>{equipment.shortName}</b>
           <small>{equipment.length.toFixed(2)} × {equipment.width.toFixed(2)} × {equipment.height.toFixed(2)}m</small>
           <span aria-hidden="true">⌄</span>
@@ -193,77 +196,77 @@ export default function ReferenceWorkspaceBar() {
       </div>
 
       <div className="header-right-actions">
+        <LanguageSwitcher />
         <div className="header-account-wrap" ref={accountRef}>
           {signedIn ? <>
             <button className="header-login-button signed-in" type="button" onClick={() => { setAccountOpen(v => !v); setMenuOpen(false); }} aria-expanded={accountOpen}>
-              <span className="header-avatar">{accountInitial}</span><span className="header-user-name">{accountName}</span>
+              <span className="header-avatar">{accountInitial}</span><span className="header-user-name">{isAdmin ? uiT(accountName) : accountName}</span>
             </button>
             {accountOpen && <div className="header-account-menu" role="menu">
-              <div className="account-summary"><b>{accountName}</b><small>{isAdmin ? '관리자 권한' : 'Supabase 회원'}</small></div>
+              <div className="account-summary"><b>{isAdmin ? uiT(accountName) : accountName}</b><small>{isAdmin ? uiT("관리자 권한") : uiT("Supabase 회원")}</small></div>
               {!isAdmin && operator?.email && <div className="member-account-email">{operator.email}</div>}
-              {!isAdmin && <button type="button" onClick={() => { openWorkspace('data'); setAccountOpen(false); }}>저장한 계획</button>}
-              <button type="button" onClick={logout}>로그아웃</button>
+              {!isAdmin && <button type="button" onClick={() => { openWorkspace('data'); setAccountOpen(false); }}>{uiT("저장한 계획")}</button>}
+              <button type="button" onClick={logout}>{uiT("로그아웃")}</button>
             </div>}
-          </> : <button className="header-login-button" type="button" onClick={openLogin}>로그인</button>}
+          </> : <button className="header-login-button" type="button" onClick={openLogin}>{uiT("로그인")}</button>}
         </div>
 
         <div className="header-menu-wrap" ref={menuRef}>
           <button className={`header-menu-button ${menuOpen ? 'active' : ''}`} type="button" onClick={() => { setMenuOpen(v => !v); setAccountOpen(false); }} aria-haspopup="menu" aria-expanded={menuOpen}>
-            <span aria-hidden="true">☰</span> 메뉴
-          </button>
-          {menuOpen && <nav className="header-menu-panel final-workflow-menu" aria-label="적재 작업 전체 메뉴">
+            <span aria-hidden="true">☰</span> {uiT("메뉴")} </button>
+          {menuOpen && <nav className="header-menu-panel final-workflow-menu" aria-label={uiT("적재 작업 전체 메뉴")}>
             <section>
-              <strong>핵심 작업</strong>
+              <strong>{uiT("핵심 작업")}</strong>
               <button type="button" onClick={() => runAndClose(() => window.dispatchEvent(new Event(OPEN_COMPANY_WORKSPACE_EVENT)))}>
-                <span>▦</span><div><b>기업 작업 공간</b><small>직원 권한 · 출하 계획 공유 · 업무 검토와 이력</small></div>
+                <span>▦</span><div><b>{uiT("기업 작업 공간")}</b><small>{uiT("직원 권한 · 출하 계획 공유 · 업무 검토와 이력")}</small></div>
               </button>
-              <button className="menu-primary" type="button" onClick={() => runAndClose(() => dispatchAppAction('run-loading'))}>
-                <span>▶</span><div><b>최종 적재 진행</b><small>적재 계산 · 제약 · 물리 · 관성 검증을 순서대로 실행</small></div>
+              <button data-requires-general-cargo="true" className="menu-primary" type="button" onClick={() => runAndClose(() => dispatchAppAction('run-loading'))}>
+                <span>▶</span><div><b>{uiT("최종 적재 진행")}</b><small>{uiT("적재 계산 · 제약 · 물리 · 관성 검증을 순서대로 실행")}</small></div>
               </button>
-              <button type="button" onClick={() => runAndClose(() => dispatchAppAction('show-results'))}>
-                <span>◎</span><div><b>결과 확인</b><small>적재 · 미적재 · 무게분포 · 안전검사 결과 확인</small></div>
+              <button data-requires-general-cargo="true" type="button" onClick={() => runAndClose(() => dispatchAppAction('show-results'))}>
+                <span>◎</span><div><b>{uiT("결과 확인")}</b><small>{uiT("적재 · 미적재 · 무게분포 · 안전검사 결과 확인")}</small></div>
               </button>
               <button type="button" onClick={() => void exportDiagnostics()}>
-                <span>⌁</span><div><b>점검 파일 다운로드</b><small>최종 배치 · 미적재 · 무게중심 · 물리/관성 결과를 ZIP으로 저장</small></div>
+                <span>⌁</span><div><b>{uiT("점검 파일 다운로드")}</b><small>{uiT("최종 배치 · 미적재 · 무게중심 · 물리/관성 결과를 ZIP으로 저장")}</small></div>
               </button>
-              <button type="button" onClick={() => runAndClose(() => dispatchAppAction('print-report'))}>
-                <span>▤</span><div><b>작업지시서 보기</b><small>최종 적재가 완료된 결과를 작업지시서로 확인</small></div>
+              <button data-requires-general-cargo="true" type="button" onClick={() => runAndClose(() => dispatchAppAction('print-report'))}>
+                <span>▤</span><div><b>{uiT("작업지시서 보기")}</b><small>{uiT("최종 적재가 완료된 결과를 작업지시서로 확인")}</small></div>
               </button>
               <button type="button" onClick={() => runAndClose(() => dispatchAppAction('viewer'))}>
-                <span>◫</span><div><b>3D 적재 보기</b><small>현재 적재 결과를 3D 시뮬레이터에서 확인</small></div>
+                <span>◫</span><div><b>{uiT("3D 적재 보기")}</b><small>{uiT("현재 적재 결과를 3D 시뮬레이터에서 확인")}</small></div>
               </button>
             </section>
 
-            <section aria-label="점검 메뉴"><strong>점검</strong>{INSPECTIONS.map(item => <button key={item.id} type="button" onClick={() => runAndClose(() => item.id === 'inertia'
+            <section aria-label={uiT("점검 메뉴")}><strong>{uiT("점검")}</strong>{INSPECTIONS.map(item => <button key={item.id} type="button" onClick={() => runAndClose(() => item.id === 'inertia'
               ? window.dispatchEvent(new Event(OPEN_INERTIA_TEST_EVENT))
-              : openSafetyInspectionCenter(item.id))}><span aria-hidden="true">{item.id === 'inertia' ? '▶' : '✓'}</span><div><b>{item.title}</b><small>{item.id === 'inertia' ? '출발·급정거·급회전 3D 애니메이션 재생' : item.description}</small></div></button>)}</section>
+              : openSafetyInspectionCenter(item.id))}><span aria-hidden="true">{item.id === 'inertia' ? '▶' : '✓'}</span><div><b>{uiT(item.title)}</b><small>{item.id === 'inertia' ? uiT("출발·급정거·급회전 3D 애니메이션 재생") : uiT(item.description)}</small></div></button>)}</section>
 
-            <section>
-              <strong>작업 준비</strong>
-              <button type="button" onClick={openEquipment}>
-                <span>▥</span><div><b>컨테이너 · 차량 선택</b><small>현재 작업에 사용할 운송 장비를 직접 선택</small></div>
+            <section data-menu-section="preparation">
+              <strong>{uiT("작업 준비")}</strong>
+              <button data-menu-action="equipment" type="button" onClick={openEquipment}>
+                <span>▥</span><div><b>{uiT("컨테이너 · 차량 선택")}</b><small>{uiT("현재 작업에 사용할 운송 장비를 직접 선택")}</small></div>
               </button>
-              <button type="button" onClick={() => runAndClose(() => openWorkspace('boxes'))}>
-                <span>□</span><div><b>박스 · 화물 선택</b><small>개인 등록 박스 선택, 수량 입력, 신규 박스 Excel 추가</small></div>
+              <button data-menu-action="boxes" type="button" onClick={() => runAndClose(() => openWorkspace('boxes'))}>
+                <span>□</span><div><b>{uiT("박스 · 화물 선택")}</b><small>{uiT("개인 등록 박스 선택, 수량 입력, 신규 박스 Excel 추가")}</small></div>
               </button>
             </section>
 
             <section>
-              <strong>데이터 · 관리</strong>
+              <strong>{uiT("데이터 · 관리")}</strong>
               <button type="button" onClick={() => runAndClose(() => dispatchAppAction('save-local'))}>
-                <span>↓</span><div><b>현재 작업 저장</b><small>현재 장비와 화물 계획을 브라우저에 저장</small></div>
+                <span>↓</span><div><b>{uiT("현재 작업 저장")}</b><small>{uiT("현재 장비와 화물 계획을 브라우저에 저장")}</small></div>
               </button>
               <button type="button" onClick={() => runAndClose(() => dispatchAppAction('load-local'))}>
-                <span>↑</span><div><b>저장 작업 불러오기</b><small>브라우저에 저장된 최근 작업 데이터 적용</small></div>
+                <span>↑</span><div><b>{uiT("저장 작업 불러오기")}</b><small>{uiT("브라우저에 저장된 최근 작업 데이터 적용")}</small></div>
               </button>
               <button type="button" onClick={() => runAndClose(() => openWorkspace('data'))}>
-                <span>▣</span><div><b>계획 관리</b><small>이름을 붙여 여러 작업 계획 저장 · 복원</small></div>
+                <span>▣</span><div><b>{uiT("계획 관리")}</b><small>{uiT("이름을 붙여 여러 작업 계획 저장 · 복원")}</small></div>
               </button>
-              <button type="button" onClick={() => runAndClose(() => openWorkspace('vehicles'))}>
-                <span>▰</span><div><b>차량 규격 관리</b><small>기본 차량과 사용자 차량 규격 관리</small></div>
+              <button data-menu-action="vehicle-spec" type="button" onClick={() => runAndClose(() => openWorkspace('vehicles'))}>
+                <span>▰</span><div><b>{uiT("차량 규격 관리")}</b><small>{uiT("기본 차량과 사용자 차량 규격 관리")}</small></div>
               </button>
               <button className="final-menu-danger" type="button" onClick={() => runAndClose(() => dispatchAppAction('reset-all'))}>
-                <span>↺</span><div><b>전체 초기화</b><small>현재 작업의 화물과 적재 결과를 초기화</small></div>
+                <span>↺</span><div><b>{uiT("전체 초기화")}</b><small>{uiT("현재 작업의 화물과 적재 결과를 초기화")}</small></div>
               </button>
             </section>
           </nav>}
@@ -272,33 +275,33 @@ export default function ReferenceWorkspaceBar() {
     </header>
 
     {loginOpen && <div className="local-login-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setLoginOpen(false); }}>
-      <form className="local-login-dialog unified-login-dialog" onSubmit={event => void submitLogin(event)} aria-label="로그인">
-        <div className="local-login-head"><div><b>로그인</b><small>회원 또는 관리자 유형을 선택하세요.</small></div><button type="button" onClick={() => setLoginOpen(false)} aria-label="로그인 창 닫기">×</button></div>
+      <form className="local-login-dialog unified-login-dialog" onSubmit={event => void submitLogin(event)} aria-label={uiT("로그인")}>
+        <div className="local-login-head"><div><b>{uiT("로그인")}</b><small>{uiT("회원 또는 관리자 유형을 선택하세요.")}</small></div><button type="button" onClick={() => setLoginOpen(false)} aria-label={uiT("로그인 창 닫기")}>×</button></div>
 
-        <div className={`login-segmented-control role-${loginRole}`} role="tablist" aria-label="로그인 유형">
+        <div className={`login-segmented-control role-${loginRole}`} role="tablist" aria-label={uiT("로그인 유형")}>
           <span className="login-segment-slider" aria-hidden="true" />
-          <button type="button" role="tab" aria-selected={loginRole === 'member'} className={loginRole === 'member' ? 'active' : ''} onClick={() => changeLoginRole('member')}>회원</button>
-          <button type="button" role="tab" aria-selected={loginRole === 'admin'} className={loginRole === 'admin' ? 'active' : ''} onClick={() => changeLoginRole('admin')}>관리자</button>
+          <button type="button" role="tab" aria-selected={loginRole === 'member'} className={loginRole === 'member' ? 'active' : ''} onClick={() => changeLoginRole('member')}>{uiT("회원")}</button>
+          <button type="button" role="tab" aria-selected={loginRole === 'admin'} className={loginRole === 'admin' ? 'active' : ''} onClick={() => changeLoginRole('admin')}>{uiT("관리자")}</button>
         </div>
 
         {loginRole === 'member' ? <>
-          <div className="member-auth-mode" role="tablist" aria-label="회원 인증 방식">
-            <button type="button" className={memberMode === 'login' ? 'active' : ''} onClick={() => { setMemberMode('login'); setLoginMessage(''); }}>로그인</button>
-            <button type="button" className={memberMode === 'signup' ? 'active' : ''} onClick={() => { setMemberMode('signup'); setLoginMessage(''); }}>회원가입</button>
+          <div className="member-auth-mode" role="tablist" aria-label={uiT("회원 인증 방식")}>
+            <button type="button" className={memberMode === 'login' ? 'active' : ''} onClick={() => { setMemberMode('login'); setLoginMessage(''); }}>{uiT("로그인")}</button>
+            <button type="button" className={memberMode === 'signup' ? 'active' : ''} onClick={() => { setMemberMode('signup'); setLoginMessage(''); }}>{uiT("회원가입")}</button>
           </div>
-          {memberMode === 'signup' && <label>회원 이름<input autoFocus value={operatorName} onChange={event => setOperatorName(event.target.value)} placeholder="예: 박 작업자" maxLength={30} /></label>}
-          <label>이메일<input type="email" autoFocus={memberMode === 'login'} autoComplete="email" value={memberEmail} onChange={event => setMemberEmail(event.target.value)} placeholder="name@example.com" /></label>
-          <label>비밀번호<input type="password" autoComplete={memberMode === 'signup' ? 'new-password' : 'current-password'} value={memberPassword} onChange={event => setMemberPassword(event.target.value)} minLength={8} /></label>
-          <p>{memberMode === 'signup' ? '회원정보는 이 적재 시스템 전용 Supabase 회원 DB에 저장됩니다. 기존 로컬 회원 데이터는 첫 로그인 때 새 계정 범위로 복사합니다.' : 'Supabase 회원 계정으로 로그인하면 같은 회원정보를 다른 기기에서도 사용할 수 있습니다.'}</p>
+          {memberMode === 'signup' && <label>{uiT("회원 이름")}<input autoFocus value={operatorName} onChange={event => setOperatorName(event.target.value)} placeholder={uiT("예: 박 작업자")} maxLength={30} /></label>}
+          <label>{uiT("이메일")}<input type="email" autoFocus={memberMode === 'login'} autoComplete="email" value={memberEmail} onChange={event => setMemberEmail(event.target.value)} placeholder="name@example.com" /></label>
+          <label>{uiT("비밀번호")}<input type="password" autoComplete={memberMode === 'signup' ? 'new-password' : 'current-password'} value={memberPassword} onChange={event => setMemberPassword(event.target.value)} minLength={8} /></label>
+          <p>{memberMode === 'signup' ? uiT("회원정보는 이 적재 시스템 전용 Supabase 회원 DB에 저장됩니다. 기존 로컬 회원 데이터는 첫 로그인 때 새 계정 범위로 복사합니다.") : uiT("Supabase 회원 계정으로 로그인하면 같은 회원정보를 다른 기기에서도 사용할 수 있습니다.")}</p>
         </> : <>
-          <label>관리자 ID<input autoComplete="username" value={adminId} onChange={event => setAdminId(event.target.value)} /></label>
-          <label>비밀번호<input type="password" autoComplete="current-password" value={adminPassword} onChange={event => setAdminPassword(event.target.value)} autoFocus /></label>
-          <p>관리자 로그인 시 관리자 전용 설정과 관리 기능을 사용할 수 있습니다.</p>
+          <label>{uiT("관리자 ID")}<input autoComplete="username" value={adminId} onChange={event => setAdminId(event.target.value)} /></label>
+          <label>{uiT("비밀번호")}<input type="password" autoComplete="current-password" value={adminPassword} onChange={event => setAdminPassword(event.target.value)} autoFocus /></label>
+          <p>{uiT("관리자 로그인 시 관리자 전용 설정과 관리 기능을 사용할 수 있습니다.")}</p>
         </>}
 
-        {loginMessage && <div className="unified-login-error" role="alert">{loginMessage}</div>}
+        {loginMessage && <div className="unified-login-error" role="alert">{uiT(loginMessage)}</div>}
         <button className="local-login-submit" type="submit" disabled={loginBusy || (loginRole === 'member' ? memberSubmitDisabled : !adminId.trim() || !adminPassword)}>
-          {loginBusy ? '확인 중…' : loginRole === 'member' ? (memberMode === 'signup' ? '회원가입' : '회원 로그인') : '관리자 로그인'}
+          {loginBusy ? uiT("확인 중…") : loginRole === 'member' ? (memberMode === 'signup' ? uiT("회원가입") : uiT("회원 로그인")) : uiT("관리자 로그인")}
         </button>
       </form>
     </div>}

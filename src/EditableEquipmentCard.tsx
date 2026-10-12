@@ -1,3 +1,4 @@
+import { uiText as uiT, useUiLanguage } from './uiLanguage';
 import { useEffect, useState, type ChangeEvent, type MouseEvent } from 'react';
 import EquipmentCard3D from './EquipmentCard3D';
 import TruckCard3D from './TruckCard3D';
@@ -22,11 +23,13 @@ type Props = {
 };
 
 function DefaultVisual({ item }: { item: TransportEquipment }) {
+  useUiLanguage();
   if (item.category === 'container') return <EquipmentCard3D item={item} />;
   return <TruckCard3D item={item} />;
 }
 
 export default function EditableEquipmentCard({ item, active, onSelect, onMessage, variant = 'selector' }: Props) {
+  useUiLanguage();
   const [imageSrc, setImageSrc] = useState(() => readEquipmentImageOverrides()[item.id] ?? '');
   const [busy, setBusy] = useState(false);
   const [isAdmin, setIsAdmin] = useState(() => isAdminSession());
@@ -97,15 +100,15 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
       <span className="transport-equipment-card-name">{item.name}</span>
       {imageSrc ? <span className="transport-equipment-user-image"><img src={imageSrc} alt="" draggable={false} /></span> : <DefaultVisual item={item} />}
       <span className="transport-equipment-spec">{item.length.toFixed(2)} × {item.width.toFixed(2)} × {item.height.toFixed(2)} m</span>
-      <span className="transport-equipment-payload">{item.requiresSpecification && !item.maxPayloadKg ? '허용중량 · 실차 등록 필요' : `적재 ${item.maxPayloadKg.toLocaleString()} kg`}</span>
-      {variant === 'guided' && active && <i className="equipment-card-selected" aria-label="선택됨">✓</i>}
+      <span className="transport-equipment-payload">{item.requiresSpecification && !item.maxPayloadKg ? uiT("허용중량 · 실차 등록 필요") : uiT("적재 {0} kg", [item.maxPayloadKg.toLocaleString()])}</span>
+      {variant === 'guided' && active && <i className="equipment-card-selected" aria-label={uiT("선택됨")}>✓</i>}
     </button>
     {isAdmin && variant === 'selector' && <div className="transport-equipment-image-actions" onClick={stopCardSelection}>
-      <label className={`transport-image-edit ${busy ? 'busy' : ''}`} title={`${item.shortName} 이미지 변경`}>
-        {busy ? '처리중…' : '이미지 수정'}
+      <label className={`transport-image-edit ${busy ? 'busy' : ''}`} title={uiT("{0} 이미지 변경", [item.shortName])}>
+        {busy ? uiT("처리중…") : uiT("이미지 수정")}
         <input type="file" accept="image/png,image/jpeg,image/webp" onChange={changeImage} disabled={busy} />
       </label>
-      {imageSrc && <button type="button" className="transport-image-reset" onClick={event => void resetImage(event)} disabled={busy}>원본</button>}
+      {imageSrc && <button type="button" className="transport-image-reset" onClick={event => void resetImage(event)} disabled={busy}>{uiT("원본")}</button>}
     </div>}
   </div>;
 }

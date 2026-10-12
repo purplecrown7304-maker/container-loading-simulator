@@ -1,3 +1,4 @@
+import { uiText as uiT, useUiLanguage } from './uiLanguage';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePhysicsTarget } from './physicsTarget';
@@ -36,6 +37,7 @@ function judgmentLabel(judgment: Judgment) {
 }
 
 export default function HeaderLoadingStatusBoard() {
+  useUiLanguage();
   const equipment = useTransportEquipment();
   const physicsTarget = usePhysicsTarget();
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
@@ -87,24 +89,24 @@ export default function HeaderLoadingStatusBoard() {
   return createPortal(
     <span
       className="header-loading-status-board"
-      aria-label="적재 현황"
+      aria-label={uiT("적재 현황")}
       onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
     >
       <span className="header-loading-status-cell header-loading-status-type">
-        <span className="header-loading-status-label">{typeLabel}</span>
+        <span className="header-loading-status-label">{uiT(typeLabel)}</span>
         <b title={equipment.shortName}>{equipment.shortName}</b>
       </span>
       <span className="header-loading-status-cell">
-        <span className="header-loading-status-label">적재 수량</span>
+        <span className="header-loading-status-label">{uiT("적재 수량")}</span>
         <b>{summary.count.toLocaleString()} EA</b>
       </span>
       <span className="header-loading-status-cell">
-        <span className="header-loading-status-label">적재 중량</span>
+        <span className="header-loading-status-label">{uiT("적재 중량")}</span>
         <b>{Math.round(summary.weightKg).toLocaleString()} kg</b>
       </span>
       <span className="header-loading-status-cell header-loading-status-result">
-        <span className="header-loading-status-label">판정</span>
-        <b className={`header-loading-status-badge ${summary.judgment}`}>{judgmentLabel(summary.judgment)}</b>
+        <span className="header-loading-status-label">{uiT("판정")}</span>
+        <b className={`header-loading-status-badge ${summary.judgment}`}>{uiT(judgmentLabel(summary.judgment))}</b>
       </span>
     </span>,
     portalTarget,
