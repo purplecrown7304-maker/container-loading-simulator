@@ -1,3 +1,5 @@
+import { uiMessagesWorkInstructions } from './uiMessagesWorkInstructions';
+import { uiMessagesPalletWorkGrid } from './uiMessagesPalletWorkGrid';
 import { uiMessagesCompany } from './uiMessagesCompany';
 import { uiMessagesPalletCatalog } from './uiMessagesPalletCatalog';
 import { uiMessagesEngine } from './uiMessagesEngine';
@@ -2702,4 +2704,6 @@ export const uiMessages: Readonly<Record<string, readonly [string, string]>> = {
   ...uiMessagesPalletCatalog,
   ...uiMessagesEngine,
   ...baseUiMessages,
+  ...uiMessagesWorkInstructions,
+  ...uiMessagesPalletWorkGrid,
 };

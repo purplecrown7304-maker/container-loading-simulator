@@ -1,3 +1,5 @@
+import { buildWorkInstructionAddresses, buildWorkInstructionRuns, formatWorkAddress, formatWorkRun, workInstructionLegend } from './workInstructionGrid';
+import { buildPalletVehicleAddresses, palletAssemblyPlacements } from './palletWorkInstructionGrid';
 import { inspectionProgressText } from './inspectionPresentation';
 import { uiText, uiMessage, uiLocale } from './uiLanguage';
 import { assessPhysicsVerification } from './physicsVerificationPolicy';
@@ -92,6 +94,7 @@ function topViewSvg(container: ContainerSpec, snapshot: PalletWorkSnapshot, plan
   const sx = innerW / container.length;
   const sy = innerH / container.width;
   const planMap = new Map(plan.items.map((item) => [item.palletIndex, item]));
+  const vehicleAddresses = buildPalletVehicleAddresses(snapshot.result.pallets);
 
   const shapes = stackColumns(snapshot.result.pallets).map(({ column, loads }) => {
     const base = loads[0];
@@ -102,6 +105,8 @@ function topViewSvg(container: ContainerSpec, snapshot: PalletWorkSnapshot, plan
     const h = base.width * sy;
     const topLoad = loads[loads.length - 1];
     const mainCargo = topLoad?.cargoPlacements[0]?.cargoId ?? base.cargoPlacements[0]?.cargoId ?? `C${column}`;
+    const address = formatWorkAddress(vehicleAddresses.get(base.palletIndex)!);
+    const addressFit = address.length * 5 > w - 6 ? ` textLength="${Math.max(1, w - 6).toFixed(1)}" lengthAdjust="spacingAndGlyphs"` : '';
     const sequence = loads.map((load) => `P${load.palletIndex}`).join('→');
     const maxStraps = Math.max(0, ...loads.map((load) => planMap.get(load.palletIndex)?.bandingStraps ?? 0));
     const layout = palletBandingLayout(maxStraps);
@@ -118,10 +123,10 @@ function topViewSvg(container: ContainerSpec, snapshot: PalletWorkSnapshot, plan
       : '';
     const hasWrap = loads.some((load) => (planMap.get(load.palletIndex)?.wrappingLengthM ?? 0) > 0);
     const wrap = hasWrap ? `<rect x="${(x + 3).toFixed(1)}" y="${(y + 3).toFixed(1)}" width="${Math.max(1, w - 6).toFixed(1)}" height="${Math.max(1, h - 6).toFixed(1)}" fill="none" stroke="#38a3d1" stroke-width="2" stroke-dasharray="6 4"/>` : '';
-    return `<g><rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="5" fill="${cargoColor(mainCargo)}" stroke="#334155" stroke-width="1.5"/>${wrap}${straps}${corners}<circle cx="${(x + w / 2).toFixed(1)}" cy="${(y + h / 2 - 7).toFixed(1)}" r="14" fill="#fff" stroke="#172033"/><text x="${(x + w / 2).toFixed(1)}" y="${(y + h / 2 - 3).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="900">C${column}</text><text x="${(x + w / 2).toFixed(1)}" y="${(y + h / 2 + 15).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="800">${sequence}</text></g>`;
+    return `<g data-vehicle-stack="${column}"><title>${escapeHtml(uiText("차량 {0} · C{1}", [address, column]))}</title><rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="5" fill="${cargoColor(mainCargo)}" stroke="#334155" stroke-width="1.5"/>${wrap}${straps}${corners}<circle cx="${(x + w / 2).toFixed(1)}" cy="${(y + h / 2 - 7).toFixed(1)}" r="14" fill="#fff" stroke="#172033"/><text x="${(x + w / 2).toFixed(1)}" y="${(y + h / 2 - 3).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="900">C${column}</text><text x="${(x + w / 2).toFixed(1)}" y="${(y + h / 2 + 15).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="800">${sequence}</text><text x="${(x + w / 2).toFixed(1)}" y="${(y + h / 2 + 28).toFixed(1)}" text-anchor="middle" font-size="8" font-weight="700"${addressFit}>${escapeHtml(address)}</text></g>`;
   }).join('');
 
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${uiText("팔레트 위에서 본 적재도")}"><rect width="${width}" height="${height}" fill="#fff"/><text x="${padX}" y="18" font-size="12" font-weight="800" fill="#172033">${uiText("위에서 본 바닥 위치 · C=수직 적층 자리 · P1→P2 순서로 위로 적층")}</text><rect x="${padX}" y="${padY}" width="${innerW}" height="${innerH}" rx="7" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>${shapes}<text x="${padX}" y="${height - 5}" font-size="10" font-weight="800" fill="#1d4ed8">${uiText("◀ 안쪽")}</text><text x="${width - padX}" y="${height - 5}" text-anchor="end" font-size="10" font-weight="800" fill="#dc2626">${uiText("문쪽 ▶")}</text></svg>`;
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${uiText("팔레트 위에서 본 적재도")}"><rect width="${width}" height="${height}" fill="#fff"/><text x="${padX}" y="18" font-size="12" font-weight="800" fill="#172033">${uiText("위에서 본 바닥 위치 · C=수직 적층 자리 · P1→P2 순서로 위로 적층")}</text><rect x="${padX}" y="${padY}" width="${innerW}" height="${innerH}" rx="7" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>${shapes}<text x="${width - padX}" y="${padY - 4}" text-anchor="end" font-size="9">${uiText("문에서 본 오른쪽")}</text><text x="${width - padX}" y="${height - 17}" text-anchor="end" font-size="9">${uiText("문에서 본 왼쪽")}</text><text x="${padX}" y="${height - 5}" font-size="10" font-weight="800" fill="#1d4ed8">${uiText("◀ 안쪽")}</text><text x="${width - padX}" y="${height - 5}" text-anchor="end" font-size="10" font-weight="800" fill="#dc2626">${uiText("문쪽 ▶")}</text></svg>`;
 }
 
 function sideViewSvg(container: ContainerSpec, snapshot: PalletWorkSnapshot, plan: PalletSecuringPlan) {
@@ -159,26 +164,29 @@ function sideViewSvg(container: ContainerSpec, snapshot: PalletWorkSnapshot, pla
 }
 
 function palletRows(snapshot: PalletWorkSnapshot, cargo: CargoItem[], plan: PalletSecuringPlan) {
+  const addresses = buildPalletVehicleAddresses(snapshot.result.pallets);
   const planMap = new Map(plan.items.map((item) => [item.palletIndex, item]));
   return workOrder(snapshot.result.pallets).map((pallet, index) => {
     const item = planMap.get(pallet.palletIndex);
     const securing = item
       ? [uiText("밴딩 {0}줄/{1}m{2}", [item.bandingStraps, item.bandingLengthM.toFixed(1), item.bandingStraps > 0 ? ` · ${reportBandingLabel(item.bandingStraps)}` : '']), uiText("각대 {0}EA/{1}m", [item.cornerGuards, item.cornerGuardLengthM.toFixed(1)]), item.wrappingLengthM > 0 ? uiText("랩핑 {0}m", [item.wrappingLengthM.toFixed(1)]) : '', item.antiSlipMats > 0 ? uiText("미끄럼방지 {0}EA", [item.antiSlipMats]) : ''].filter(Boolean).join(' · ')
       : uiText("추가 보강 없음");
+    const address = formatWorkAddress(addresses.get(pallet.palletIndex)!);
     const instruction = pallet.stackLevel === 1
-      ? uiText("컨테이너 안쪽부터 C{0} 위치에 바닥 배치", [pallet.stackColumn])
-      : uiText("C{0}의 {1}단 위에 {2}단 적층", [pallet.stackColumn, pallet.stackLevel - 1, pallet.stackLevel]);
-    return `<tr><td class="seq"><b>${index + 1}</b></td><td><b>P${pallet.palletIndex}</b><small>${uiText("C{0} · {1}단", [pallet.stackColumn, pallet.stackLevel])}</small></td><td><b>${pallet.cargoPlacements.length} EA</b><small>${escapeHtml(cargoSummary(pallet, cargo))}</small></td><td><b>${pallet.totalWeightKg.toFixed(0)} kg</b><small>${escapeHtml(securing)}</small></td><td><b>${escapeHtml(instruction)}</b><small>X ${pallet.x.toFixed(2)}m · Y ${pallet.y.toFixed(2)}m</small></td><td class="check">□</td></tr>`;
+      ? uiText("차량 {0}에 바닥 배치 · C{1}", [address, pallet.stackColumn])
+      : uiText("차량 {0}에 적층 · C{1}의 {2}단 위", [address, pallet.stackColumn, pallet.stackLevel - 1]);
+    return `<tr><td class="seq"><b>${index + 1}</b></td><td><b>P${pallet.palletIndex}</b><small>${uiText("C{0} · {1}단", [pallet.stackColumn, pallet.stackLevel])}</small></td><td><b>${pallet.cargoPlacements.length} EA</b><small>${escapeHtml(cargoSummary(pallet, cargo))}</small></td><td><b>${pallet.totalWeightKg.toFixed(0)} kg</b><small>${escapeHtml(securing)}</small></td><td><b>${escapeHtml(instruction)}</b><small>${uiText("참고 좌표")}: X ${pallet.x.toFixed(2)}m · Y ${pallet.y.toFixed(2)}m</small></td><td class="check">□</td></tr>`;
   }).join('');
 }
 
 function securingSequence(snapshot: PalletWorkSnapshot, plan: PalletSecuringPlan) {
+  const addresses = buildPalletVehicleAddresses(snapshot.result.pallets);
   const planMap = new Map(plan.items.map((item) => [item.palletIndex, item]));
   const cards = workOrder(snapshot.result.pallets).map((pallet) => {
     const item = planMap.get(pallet.palletIndex);
     const steps = [
       item && item.antiSlipMats > 0 ? uiText("□ ① {0} 미끄럼방지재 {1}EA 설치", [pallet.stackLevel === 1 ? uiText("바닥") : uiText("적층 접촉면"), item.antiSlipMats]) : '',
-      uiText("□ ② P{0} → C{1} {2}단 배치", [pallet.palletIndex, pallet.stackColumn, pallet.stackLevel]),
+      uiText("□ ② P{0} → 차량 {1} · C{2} 배치", [pallet.palletIndex, formatWorkAddress(addresses.get(pallet.palletIndex)!), pallet.stackColumn]),
       item && item.cornerGuards > 0 ? uiText("□ ③ 각대 {0}EA 설치 · 총 {1}m", [item.cornerGuards, item.cornerGuardLengthM.toFixed(1)]) : '',
       item && item.bandingStraps > 0 ? uiText("□ ④ 밴딩 {0}줄 결속 · {1} · 총 {2}m", [item.bandingStraps, reportBandingLabel(item.bandingStraps), item.bandingLengthM.toFixed(1)]) : '',
       item && item.wrappingLengthM > 0 ? uiText("□ ⑤ 랩핑 {0}m 적용", [item.wrappingLengthM.toFixed(1)]) : '',
@@ -188,6 +196,39 @@ function securingSequence(snapshot: PalletWorkSnapshot, plan: PalletSecuringPlan
   });
   if (plan.sharedLoadBars > 0) cards.push(`<article class="shared"><header><b>${uiText("최종 공통 고정")}</b><span>${uiText("모든 팔레트 배치 완료 후")}</span></header><p>${uiText("□ ⑦ 고정바 {0}EA 설치", [plan.sharedLoadBars])}</p><p>${uiText("□ ⑧ 문 닫힘 · 고정바 간섭 · 최종 흔들림 확인")}</p><footer>${uiText("고정바 약 {0}kg", [plan.sharedLoadBarWeightKg.toFixed(2)])}</footer></article>`);
   return cards.join('');
+}
+
+/** Every carton remains visible in its pallet-local tier plan and one exact instruction run. */
+export function buildPalletAssemblyHtml(snapshot: PalletWorkSnapshot, cargo: CargoItem[]): string {
+  const names = new Map(cargo.map(item => [item.id, item.name]));
+  const vehicleAddresses = buildPalletVehicleAddresses(snapshot.result.pallets);
+  return workOrder(snapshot.result.pallets).map(pallet => {
+    const placements = palletAssemblyPlacements(pallet);
+    const addresses = buildWorkInstructionAddresses(placements);
+    const runs = buildWorkInstructionRuns(placements);
+    const layers = [...new Set(addresses.map(address => address.layer))].sort((a, b) => a - b);
+    const diagrams = layers.map(layer => {
+      const indices = addresses.flatMap((address, index) => address.layer === layer ? [index] : []);
+      const width = 700, height = 340, padX = 80, padY = 48;
+      const scale = Math.min((width - padX * 2) / pallet.length, (height - padY * 2) / pallet.width);
+      const deckW = pallet.length * scale, deckH = pallet.width * scale;
+      const cells = indices.map(index => {
+        const item = placements[index], address = addresses[index];
+        const x = padX + item.x * scale, y = padY + item.y * scale;
+        const w = item.length * scale, h = item.width * scale;
+        const label = formatWorkAddress(address);
+        const font = Math.min(12, Math.max(5, Math.min(w / 7, h / 3)));
+        const labelFit = label.length * font * .65 > w - 6 ? ` textLength="${Math.max(1, w - 6).toFixed(2)}" lengthAdjust="spacingAndGlyphs"` : '';
+        return `<g data-pallet-box="${index + 1}" data-column="${address.column}" data-row="${address.row}" data-layer="${address.layer}"><title>${escapeHtml(`#${index + 1} · ${item.cargoId} · ${label}`)}</title><rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" fill="${cargoColor(item.cargoId)}" fill-opacity=".22" stroke="#475569"/><text x="${(x + w / 2).toFixed(2)}" y="${(y + h / 2 - font / 2).toFixed(2)}" text-anchor="middle" font-size="${font}" font-weight="800">#${index + 1}</text><text x="${(x + w / 2).toFixed(2)}" y="${(y + h / 2 + font).toFixed(2)}" text-anchor="middle" font-size="${font}"${labelFit}>${escapeHtml(label)}</text></g>`;
+      }).join('');
+      return `<svg viewBox="0 0 ${width} ${height}" role="img" data-pallet="${pallet.palletIndex}" data-box-layer="${layer}" aria-label="${escapeHtml(uiText('P{0} 박스 {1}단 평면도', [pallet.palletIndex, layer]))}"><rect width="${width}" height="${height}" fill="#fff"/><text x="${padX}" y="20" font-size="14" font-weight="800">${escapeHtml(uiText('P{0} · 박스 {1}단 · {2}EA', [pallet.palletIndex, layer, indices.length]))}</text><text x="${padX}" y="38" font-size="10">${uiText('문에서 본 오른쪽')}</text><rect x="${padX}" y="${padY}" width="${deckW}" height="${deckH}" fill="#f8fafc" stroke="#704728" stroke-width="3"/>${cells}<text x="${padX}" y="${padY + deckH + 16}" font-size="10">${uiText('문에서 본 왼쪽')}</text><text x="${padX}" y="${height - 8}" font-size="11" font-weight="700">${uiText('◀ 안쪽')}</text><text x="${padX + deckW}" y="${height - 8}" text-anchor="end" font-size="11" font-weight="700">${uiText('문쪽 ▶')}</text></svg>`;
+    }).join('');
+    const rows = runs.map((run, index) => {
+      const item = placements[run.indices[0]];
+      return `<tr data-assembly-quantity="${run.quantity}" data-box-indices="${run.indices.join(',')}"><td>${index + 1}</td><td><b>${escapeHtml(run.cargoId)}</b><small>${escapeHtml(names.get(run.cargoId) ?? '')}</small></td><td><b>${escapeHtml(formatWorkRun(run))}</b><small>${run.indices.map(i => `#${i + 1}`).join(', ')}</small></td><td>${escapeHtml(item.orientation ?? (item.rotated ? uiText('90도') : uiText('기본')))}<small>${item.length} × ${item.width} × ${item.height} m</small></td><td class="check">□</td></tr>`;
+    }).join('');
+    return `<article class="pallet-assembly" data-pallet-assembly="${pallet.palletIndex}"><h3>P${pallet.palletIndex} · ${escapeHtml(uiText('차량 {0} · C{1}', [formatWorkAddress(vehicleAddresses.get(pallet.palletIndex)!), pallet.stackColumn]))}</h3><div class="diagram-grid pallet-box-diagrams">${diagrams}</div>${reportTable(uiText('P{0} 조립 작업 표', [pallet.palletIndex]), `<table><colgroup><col style="width:8%"><col style="width:24%"><col style="width:40%"><col style="width:20%"><col style="width:8%"></colgroup><thead><tr><th>${uiText('순서')}</th><th>${uiText('품명')}</th><th>${uiText('팔레트 내 위치')}</th><th>${uiText('회전')}</th><th>${uiText('완료')}</th></tr></thead><tbody>${rows}</tbody></table>`)}</article>`;
+  }).join('');
 }
 
 function materialCards(certification: InertiaCertification) {
@@ -267,11 +308,15 @@ export function buildPalletLoadingReportHtml(container: ContainerSpec, cargo: Ca
     sections: [
       {
         title: uiText("작업 준비"), description: uiText("필요 보조자재를 먼저 준비하고 팔레트 번호와 적층 위치를 확인하세요."),
-        content: `<div class="section-title"><h3>${uiText("필요 보조자재 총량")}</h3><span>${escapeHtml(uiText(certification.securing.levelLabel))}</span></div><section class="materials">${materials}</section><p class="note"><b>${uiText("번호 읽는 법:")}</b>${uiText(" P번호는 개별 팔레트, C번호는 같은 수직 적층 위치, 단수는 바닥부터의 높이 순서입니다. 투입은 아래 작업 표의 ")}<b>${uiText("순서")}</b>${uiText("를 따르세요.")}</p>`,
+        content: `<div class="section-title"><h3>${uiText("필요 보조자재 총량")}</h3><span>${escapeHtml(uiText(certification.securing.levelLabel))}</span></div><section class="materials">${materials}</section><p class="note"><b>${uiText("번호 읽는 법:")}</b> ${uiText("P번호는 개별 팔레트, C번호는 같은 수직 적층 자리입니다. 작업 표의 투입 순서를 따르세요.")} ${uiText("차량 번호는 바닥의 C자리 기준이며, 팔레트 적층단은 같은 C자리에서 아래부터 셉니다.")}</p><p class="note">${escapeHtml(workInstructionLegend())}</p>`,
       },
       {
         title: uiText("배치도 확인"), description: uiText("1단을 먼저 놓고 같은 C번호의 상단 팔레트를 순서대로 올리세요."),
         content: `<div class="direction"><span>${uiText("◀ 안쪽부터 · 1단 먼저")}</span><span>${uiText("같은 C번호 위에 적층 · 문쪽 ▶")}</span></div><section class="diagrams">${top}${side}</section><p class="legend">${uiText("검은 선=밴딩 · 갈색 모서리=각대 · 파란 점선=랩핑 · 주황선=고정바")}</p>`,
+      },
+      {
+        title: uiText("팔레트별 박스 조립"), description: uiText("팔레트 상판부터 박스 1단을 시작합니다. 차량의 팔레트 적층단과 별도로 읽으세요."),
+        content: `<p class="note">${uiText("도면의 #번호는 해당 팔레트의 박스 번호입니다. 같은 번호를 작업 표와 대조하세요.")} ${uiText("팔레트 조립도는 차량 배치 방향과 같습니다. 안쪽/문쪽과 좌우를 맞추세요.")}</p><p class="legend">${uiText("방향 코드 L/W/H는 원래 길이/폭/높이입니다. 코드의 순서는 배치된 X/Y/Z 방향이며 배치 치수는 실제 놓인 방향의 길이·폭·높이입니다.")}</p>${buildPalletAssemblyHtml(snapshot, cargo)}<p class="note">${uiText("박스 조립 완료 후 기존 투입 순서대로 차량에 배치하고 결속 작업을 확인하세요.")}</p>`,
       },
       {
         title: uiText("투입 및 결속 작업"), description: uiText("작업 표 순서대로 배치한 후 같은 P번호의 결속 카드를 확인하세요."),

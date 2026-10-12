@@ -223,3 +223,35 @@ describe('Three comparison scene resources', () => {
     scene.dispose(); expect(geometryDisposed).toBe(false); expect(textureDisposed).toBe(false); expect(materialDisposed).toBe(false);
   });
 });
+
+describe('selected cargo boundary resources', () => {
+  it('uses the last accepted frame and restores static physical bounds with the plan', () => {
+    const plan = fixture(), { scene } = resourcesFor(plan), selection = {kind:'cargo' as const,index:0};
+    scene.applyFrame(); scene.updateVisibility({...shown,selected:0});
+    const original = scene.clearanceForSelection(selection)!;
+    expect(original.measurements.find(m=>m.face==='inner')!.distanceM).toBeCloseTo(1.1);
+    const frame = frameFor(plan);
+    scene.applyFrame(frame); scene.updateVisibility({...shown,selected:0});
+    expect(scene.clearanceForSelection(selection)).not.toEqual(original);
+    const accepted = scene.clearanceForSelection(selection);
+    const invalid = {...frame,cargo:new Float32Array()};
+    if (acceptSceneFrame(plan,invalid,new WeakMap())) scene.applyFrame(invalid);
+    expect(scene.clearanceForSelection(selection)).toEqual(accepted);
+    scene.applyFrame(); scene.updateVisibility({...shown,selected:0});
+    expect(scene.clearanceForSelection(selection)).toEqual(original);
+    expect(scene.isCargoVisible(0)).toBe(true);
+    scene.updateVisibility({...shown,step:0}); expect(scene.isCargoVisible(0)).toBe(false);
+    scene.dispose();
+  });
+  it('selects the support independently and hides selection in weight view or after clearing', () => {
+    const {scene} = resourcesFor();
+    scene.updateVisibility({...shown,selectedSupport:0});
+    const marker = scene.root.getObjectByName('Support selection')!;
+    expect(marker.visible).toBe(true);
+    expect(marker.scale.toArray()).toEqual([1.2,.15,1]);
+    expect(scene.clearanceForSelection({kind:'support',index:0})!.measurements.find(m=>m.face==='bottom')!.distanceM).toBe(0);
+    scene.updateVisibility({...shown,selectedSupport:0,weight:true}); expect(marker.visible).toBe(false);
+    scene.updateVisibility(shown); expect(marker.visible).toBe(false);
+    scene.dispose();
+  });
+});

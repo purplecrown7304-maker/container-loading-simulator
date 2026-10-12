@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { selectedCargoClearance, type ClearanceSelection } from './cargoClearance';
 import { buildWeightSurfaceGeometry } from './weightSurfaceGeometry';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
 import { createMeshyMaterial, meshyTint, type MeshyModel, type ModelKey } from './threeComparisonModels';
@@ -169,6 +170,9 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
   const selection = new THREE.Group(); selection.name = 'Cargo selection'; selection.matrixAutoUpdate = false; cargoRoot.add(selection);
   edgeBox([0, 0, 0], [1, 1, 1], mat(new THREE.Color(1, .6, .04)), selection, .025);
 
+  const supportSelection = new THREE.Group(); supportSelection.name = 'Support selection'; supportRoot.add(supportSelection);
+  edgeBox([0, 0, 0], [1, 1, 1], mat(new THREE.Color(1, .6, .04)), supportSelection, .025);
+
   const supports = plan.supports.map((support, index) => {
     const unit = new THREE.Group(); unit.position.fromArray(sceneCenter(support, plan.container)); unit.name = `Support_${index}`; supportRoot.add(unit);
     addModel(support.modelKey || 'wood-pallet', unit, [0, 0, 0], [support.length, support.height, support.width], { kind: 'support', index });
@@ -234,8 +238,9 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
   updateCenterOfGravity();
 
   let visibleIndices: number[] = [];
+  let acceptedFrame: InertiaAnimationFrame | undefined;
   const scratch = new THREE.Matrix4();
-  function updateVisibility(options: { cut: number; step: number; shell: boolean; labels: boolean; weight: boolean; showCg: boolean; selected: number | null }) {
+  function updateVisibility(options: { cut: number; step: number; shell: boolean; labels: boolean; weight: boolean; showCg: boolean; selected: number | null; selectedSupport?: number | null }) {
     visibleIndices = visibleCargoIndexes(plan, options.cut, options.step, options.weight);
     const visible = new Set(visibleIndices);
     equipment.visible = options.shell; supportRoot.visible = decorRoot.visible = !options.weight;
@@ -255,9 +260,17 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     }
     selection.visible = options.selected !== null && visible.has(options.selected);
     if (options.selected !== null && cargoMatrices[options.selected]) { selection.matrix.copy(cargoMatrices[options.selected]); selection.matrixWorldNeedsUpdate = true; }
+    const selectedSupport = options.selectedSupport == null ? undefined : supports[options.selectedSupport];
+    supportSelection.visible = Boolean(selectedSupport) && !options.weight;
+    if (selectedSupport && options.selectedSupport != null) {
+      const body = plan.supports[options.selectedSupport];
+      supportSelection.position.copy(selectedSupport.position); supportSelection.quaternion.copy(selectedSupport.quaternion);
+      supportSelection.scale.set(body.length, body.height, body.width);
+    }
     root.updateMatrixWorld(true);
   }
   function applyFrame(frame?: InertiaAnimationFrame) {
+    acceptedFrame = frame;
     updateCenterOfGravity(frame);
     cargoMatrices.forEach((matrix, index) => {
       if (!frame) matrix.copy(initialCargo[index]);
@@ -273,6 +286,8 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     });
   }
   return {
+    isCargoVisible: (index: number) => visibleIndices.includes(index),
+    clearanceForSelection: (selection: ClearanceSelection | null) => selectedCargoClearance(plan, selection, acceptedFrame),
     root, modelCount, labelFaces: labelBatches.reduce((count, batch) => count + batch.indices.length * 4, 0), updateVisibility, applyFrame,
     get visibleCargo() { return visibleIndices.length; },
     get centerOfGravityVisible() { return cgRoot.visible && hasCg; },

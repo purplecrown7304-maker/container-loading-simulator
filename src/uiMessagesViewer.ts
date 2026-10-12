@@ -1,5 +1,26 @@
 /** Viewer and administrator display copy only. */
 export const uiMessagesViewer: Record<string, readonly [string, string]> = {
+  "팔레트 상세 보기": ["View pallet details", "Xem chi tiết pallet"],
+  "후면": ["Rear", "Phía sau"],
+  "길이": ["Length", "Chiều dài"],
+  "폭": ["Width", "Chiều rộng"],
+  "안쪽 경계": ["Inner boundary", "Ranh giới phía trong"],
+  "문쪽 경계": ["Door boundary", "Ranh giới phía cửa"],
+  "후면 경계": ["Rear boundary", "Ranh giới phía sau"],
+  "왼쪽 경계": ["Left boundary", "Ranh giới bên trái"],
+  "오른쪽 경계": ["Right boundary", "Ranh giới bên phải"],
+  "상부 경계": ["Upper boundary", "Giới hạn phía trên"],
+  "후면 기준": ["Rear reference", "Mốc phía sau"],
+  "경계 초과": ["Beyond boundary", "Vượt ranh giới"],
+  "선택 적재물 경계 거리": ["Selected cargo boundary distances", "Khoảng cách từ hàng đã chọn đến ranh giới"],
+  "선택 해제": ["Clear selection", "Bỏ chọn"],
+  "팔레트 받침": ["Pallet base", "Đế pallet"],
+  "적재 공간 경계까지 거리": ["Distance to loading-space boundaries", "Khoảng cách đến ranh giới khoang hàng"],
+  "치수선 표시 방향": ["Dimension-line direction", "Hướng hiển thị đường kích thước"],
+  "좌우는 후면에서 안쪽을 보는 기준입니다.": ["Left/right are viewed from the rear looking inward.", "Trái/phải tính khi nhìn từ phía sau vào trong."],
+  "선택물 외곽부터 공간 경계까지의 직선 거리입니다. 사이에 다른 화물·지지대가 있을 수 있으며, 통로 폭이나 안전 판정이 아닙니다.": ["Straight-line distances from the selected object’s outer bounds to the loading-space boundaries. Other cargo or supports may lie between them. These are not aisle widths or safety verdicts.", "Khoảng cách thẳng từ biên ngoài vật đã chọn đến ranh giới khoang hàng. Ở giữa có thể có hàng hoặc vật đỡ khác. Đây không phải chiều rộng lối đi hay kết luận an toàn."],
+  "팔레트 받침 자체 기준 · 위에 실린 상자는 별도 선택": ["Pallet base only · Select loaded cartons separately", "Chỉ tính đế pallet · Chọn riêng thùng hàng bên trên"],
+
   "장비 이미지 수정 등 관리자 전용 기능을 사용하려면 로그인하세요.": [
     "Sign in to use administrator-only features such as equipment image editing.",
     "Đăng nhập để dùng chức năng dành cho quản trị viên như sửa ảnh phương tiện."

@@ -17,7 +17,8 @@ describe('actual-coordinate work zones', () => {
     expect(table).toContain('895개');
     const partials = buildPartialLocations(cargo, result.placements, zones);
     expect(partials.match(/잔량 1개/g)).toHaveLength(3);
-    expect(partials).toContain('E 구역 · 바닥 +265 mm');
+    expect(partials).toContain('E 구역 · 4열 32행 2단');
+    expect(partials).toContain('바닥 +265 mm');
     const top = buildZoneOverview(container, cargo, result.placements, zones);
     expect(top).toContain('도어 앞 여유 60 mm');
     expect(top).toContain('fill="#93c5fd"');

@@ -1,4 +1,5 @@
 import { buildPlacementAddresses } from './locationGrid';
+import { buildWorkInstructionAddresses } from './workInstructionAddresses';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
 
 const EPS = 0.001;
@@ -53,6 +54,7 @@ function sortWithDependencies(indices: number[], placements: Placement[], mode: 
 
 export function buildWorkSequence(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult, action: 'LOAD' | 'UNLOAD'): WorkStep[] {
   const addresses = buildPlacementAddresses(result.placements, container.length);
+  const workAddresses = buildWorkInstructionAddresses(result.placements);
   const cargoById = new Map(cargo.map(item => [item.id,item]));
   const all = result.placements.map((_,index)=>index);
   const order = action === 'LOAD'
@@ -70,7 +72,8 @@ export function buildWorkSequence(container: ContainerSpec, cargo: CargoItem[], 
 
   return order.map((index,stepIndex) => {
     const p = result.placements[index];
-    const a = addresses[index];
+    const a = workAddresses[index];
+    const zone = addresses[index]?.zone ?? '중앙';
     const item = cargoById.get(p.cargoId);
     const actionWord = action === 'LOAD' ? '적재' : '하역';
     return {
@@ -80,9 +83,9 @@ export function buildWorkSequence(container: ContainerSpec, cargo: CargoItem[], 
       label: item?.name || p.cargoId,
       action,
       x:p.x,y:p.y,z:p.z,
-      row:a?.row ?? 0,column:a?.column ?? 0,layer:a?.layer ?? 0,zone:a?.zone ?? '중앙',
+      row:a?.row ?? 0,column:a?.column ?? 0,layer:a?.layer ?? 0,zone,
       unloadPriority:item?.unloadPriority,
-      instruction:`${stepIndex+1}번 · ${p.cargoId} ${actionWord} · R${a?.row ?? '-'} C${a?.column ?? '-'} L${a?.layer ?? '-'} · ${a?.zone ?? ''} · X ${p.x.toFixed(2)} / Y ${p.y.toFixed(2)} / Z ${p.z.toFixed(2)}m`,
+      instruction:`${stepIndex+1}번 · ${p.cargoId} · ${a?.column ?? '-'}열 ${a?.row ?? '-'}행 ${a?.layer ?? '-'}단 · 1개 ${actionWord}`,
     };
   });
 }
