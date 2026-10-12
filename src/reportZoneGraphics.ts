@@ -1,3 +1,4 @@
+import { buildWorkInstructionAddresses, buildWorkInstructionRuns, formatWorkAddress, formatWorkRun, workInstructionLegend } from './workInstructionGrid';
 import { uiText, uiLocale } from './uiLanguage';
 import type { CargoItem, ContainerSpec, Placement } from './engine/types';
 import type { SecuringUsage } from './inertiaCertification';
@@ -24,30 +25,60 @@ export function buildZoneOverview(container: ContainerSpec, cargo: CargoItem[], 
   }).join('');
   const end = Math.max(0, ...placements.map(p => p.x + p.length));
   const doorGap = Math.max(0, container.length - end);
-  return `<div class="zone-overview"><svg viewBox="0 0 760 225" role="img" aria-label="${uiText("구역별 위에서 본 적재도")}"><rect x="48" y="54" width="664" height="130" fill="#f8fafc" stroke="#64748b"/>${shapes}${boundaries}<line x1="718" x2="718" y1="54" y2="184" stroke="#2563eb" stroke-width="3" stroke-dasharray="6 4"/><text x="48" y="207" font-size="11">${uiText("안쪽 벽 0 m")}</text><text x="712" y="207" text-anchor="end" font-size="11" font-weight="700">${uiText("문 {0} m ▶", [container.length.toFixed(2)])}</text></svg><p class="zone-caption">${uiText("{0} · 빈 공간은 흰색 · 빨간 테두리는 잔량박스 · 도어 앞 여유 {1} mm", [level === undefined ? uiText("위에서 보이는 최상단 배치") : uiText("바닥 +{0} mm의 배치", [mm(level)]), mm(doorGap)])}</p></div>`;
+  return `<div class="zone-overview"><svg viewBox="0 0 760 225" role="img" aria-label="${uiText("구역별 위에서 본 적재도")}"><rect x="48" y="54" width="664" height="130" fill="#f8fafc" stroke="#64748b"/>${shapes}${boundaries}<line x1="718" x2="718" y1="54" y2="184" stroke="#2563eb" stroke-width="3" stroke-dasharray="6 4"/><text x="48" y="207" font-size="11">${uiText("◀ 안쪽 · 1행부터")}</text><text x="712" y="207" text-anchor="end" font-size="11" font-weight="700">${uiText("문쪽 ▶")}</text><text x="48" y="45" font-size="10">${uiText("도면 위: 오른쪽 벽")}</text><text x="380" y="207" text-anchor="middle" font-size="10">${uiText("도면 아래: 왼쪽 벽 · 1열부터")}</text></svg><p class="zone-caption">${uiText("{0} · 빈 공간은 흰색 · 빨간 테두리는 잔량박스 · 도어 앞 여유 {1} mm", [level === undefined ? uiText("위에서 보이는 최상단 배치") : uiText("바닥 +{0} mm의 배치", [mm(level)]), mm(doorGap)])}</p></div>`;
 }
 
 export function buildZoneTable(cargo: CargoItem[], placements: Placement[], zones: ReportZone[]) {
   const catalog = reportCargoCatalog(cargo);
   const rows = zones.map(zone => {
-    const levels = zone.levels.map((z, index) => {
-      const counts = new Map<string, { quantity: number }>();
-      for (const i of zone.indices) {
-        const p = placements[i];
-        if (Math.abs(p.z - z) > .00001) continue;
-        const current = counts.get(p.cargoId) ?? { quantity: 0 };
-        current.quantity++;
-        counts.set(p.cargoId, current);
-      }
-      return `<div class="zone-level"><b>${uiText("{0}단 ", [index + 1])}<small>${uiText("바닥 +{0} mm", [mm(z)])}</small></b><div>${[...counts].map(([id, value]) => {
-        const item = identity(catalog, id);
-        return `<span class="zone-item"><i style="background:${item.color}"></i>${esc(item.code)}${item.partial ? ` <em>${uiText("잔량")}</em>` : ''} <strong>${uiText("{0}개", [value.quantity])}</strong></span>`;
-      }).join('')}</div></div>`;
+    const runs = buildWorkInstructionRuns(placements, zone.indices);
+    const instructions = runs.map((run, index) => {
+      const item = identity(catalog, run.cargoId), p = placements[run.indices[0]], marker = `${zone.label}-${index + 1}`;
+      return `<div class="work-grid-run" data-work-run="${marker}" data-placement-indices="${run.indices.join(',')}" data-quantity="${run.quantity}"><b>${marker}</b><div><strong>${esc(formatWorkRun(run))}</strong><span><i class="cargo-swatch" style="background:${item.color}"></i>${esc(item.code)}${item.name !== item.code ? ` · ${esc(item.name)}` : ''}${item.partial ? ` <em>${uiText("잔량")}</em>` : ''}</span><small>${uiText("놓을 방향: 길이 {0} × 폭 {1} × 높이 {2} mm", [mm(p.length), mm(p.width), mm(p.height)])}</small></div></div>`;
     }).join('');
-    const directions = [...new Set(zone.indices.map(i => `${mm(placements[i].length)}×${mm(placements[i].width)}`))];
-    return `<tr data-zone="${zone.label}"><td class="zone-number"><b>${zone.number} ${zone.label}</b><small>${zone.start.toFixed(2)} ~ ${zone.end.toFixed(2)} m</small><small>${uiText("길이×폭 {0} mm", [directions.join(' / ')])}</small></td><td>${levels}</td><td><b>${uiText("{0}개", [zone.indices.length])}</b><small>${uiText("{0}단 · 높이 {1} mm", [zone.levels.length, mm(zone.height)])}</small></td><td class="check">□</td></tr>`;
+    return `<tr data-zone="${zone.label}"><td class="zone-number"><b>${zone.number} ${zone.label}</b><small>${uiText("안쪽 → 문쪽")}</small></td><td>${instructions}</td><td><b>${uiText("{0}개", [zone.indices.length])}</b></td><td class="check">□</td></tr>`;
   }).join('');
-  return reportTable(uiText("구역별 적재 작업 순서"), `<table class="zone-table"><colgroup><col style="width:20%"><col style="width:58%"><col style="width:16%"><col style="width:6%"></colgroup><thead><tr><th>${uiText("구역 · 안쪽 벽 기준")}</th><th>${uiText("아래단부터 · 품목 / 수량 / 놓을 방향")}</th><th>${uiText("구역 합계")}</th><th>${uiText("완료")}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="2">${uiText("실제 배치 합계")}</th><th colspan="2">${uiText("{0}개", [placements.length])}</th></tr></tfoot></table>`);
+  return `<p class="work-grid-legend">${esc(workInstructionLegend())}</p>` + reportTable(uiText("구역별 적재 작업 순서"), `<table class="zone-table"><colgroup><col style="width:13%"><col style="width:69%"><col style="width:12%"><col style="width:6%"></colgroup><thead><tr><th>${uiText("작업 구역")}</th><th>${uiText("열 · 행 · 단 / 수량 / 품목")}</th><th>${uiText("구역 합계")}</th><th>${uiText("완료")}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="2">${uiText("실제 배치 합계")}</th><th colspan="2">${uiText("{0}개", [placements.length])}</th></tr></tfoot></table>`);
+}
+
+/** Location copy beside the original 3D progress image. The renderer, camera,
+ * geometry and color treatment remain unchanged; every item is an exact run.
+ */
+export function buildZone3dInstructions(cargo: CargoItem[], placements: Placement[], zone: ReportZone): string {
+  const catalog = reportCargoCatalog(cargo);
+  return `<ul class="zone-3d-instructions">${buildWorkInstructionRuns(placements, zone.indices).map((run, index) => {
+    const item = identity(catalog, run.cargoId);
+    return `<li data-3d-work-run="${zone.label}-${index + 1}" data-placement-indices="${run.indices.join(',')}" data-quantity="${run.quantity}"><b>${zone.label}-${index + 1}</b> ${esc(formatWorkRun(run))}<small>${esc(item.code)}${item.name !== item.code ? ` · ${esc(item.name)}` : ''}${item.partial ? ` · ${uiText('잔량')}` : ''}</small></li>`;
+  }).join('')}</ul>`;
+}
+
+/** Cropped per-zone/tier drawings retain real carton edges and empty cells.
+ * Run IDs are the same IDs as the work table, not an inferred full-grid count.
+ */
+export function buildNumberedZonePlans(container: ContainerSpec, cargo: CargoItem[], placements: Placement[], zones: ReportZone[]) {
+  const catalog = reportCargoCatalog(cargo), addresses = buildWorkInstructionAddresses(placements);
+  return zones.map(zone => {
+    const runs = buildWorkInstructionRuns(placements, zone.indices);
+    return [...new Set(runs.map(r => r.layer))].map(layer => {
+      const active = runs.map((run, index) => ({ run, marker: `${zone.label}-${index + 1}` })).filter(({ run }) => run.layer === layer);
+      const sx = 650 / Math.max(.01, zone.end - zone.start), sy = 242 / container.width;
+      const callouts: string[] = [];
+      const shapes = active.map(({ run, marker }) => {
+        const ps = run.indices.map(i => placements[i]), p = ps[0], item = identity(catalog, run.cargoId);
+        const x = 58 + (Math.min(...ps.map(p => p.x)) - zone.start) * sx, y = 48 + Math.min(...ps.map(p => p.y)) * sy;
+        const w = (Math.max(...ps.map(p => p.x + p.length)) - Math.min(...ps.map(p => p.x))) * sx;
+        const h = (Math.max(...ps.map(p => p.y + p.width)) - Math.min(...ps.map(p => p.y))) * sy;
+        const boxes = run.indices.map(i => { const p = placements[i]; return `<rect data-placement-index="${i}" x="${58 + (p.x - zone.start) * sx}" y="${48 + p.y * sy}" width="${p.length * sx}" height="${p.width * sy}" fill="${item.color}" stroke="${item.partial ? '#dc2626' : '#64748b'}" stroke-width="${item.partial ? 2 : .65}"><title>${esc(formatWorkAddress(addresses[i]))} · ${esc(item.code)}</title></rect>`; }).join('');
+        let label = '';
+        if (w >= 32 && h >= 16) label = `<rect x="${x + w / 2 - 17}" y="${y + h / 2 - 8}" width="34" height="16" rx="3" fill="white" fill-opacity=".93"/><text x="${x + w / 2}" y="${y + h / 2 + 3.5}" text-anchor="middle" font-size="10" font-weight="800">${marker}</text>`;
+        else { const n = callouts.length, lx = 60 + (n % 6) * 112, ly = 346 + Math.floor(n / 6) * 23; callouts.push(`<path d="M${x + w / 2} ${y + h / 2} L${lx + 15} ${ly - 10}" stroke="#334155" stroke-width=".7" fill="none"/><circle cx="${x + w / 2}" cy="${y + h / 2}" r="2" fill="#172033"/><text x="${lx}" y="${ly}" font-size="10" font-weight="800">${marker}</text>`); }
+        return `<g data-work-run="${marker}"><title>${marker}: ${esc(formatWorkRun(run))} · ${esc(item.code)}</title>${boxes}${label}</g>`;
+      }).join('');
+      const height = 338 + Math.ceil(callouts.length / 6) * 23;
+      const description = uiText("{0} 구역 · {1}단", [zone.label, layer]);
+      return `<article class="numbered-zone-plan" data-zone="${zone.label}" data-layer="${layer}"><h3>${esc(description)}</h3><svg viewBox="0 0 760 ${height}" role="img" aria-label="${esc(description)}"><rect x="58" y="48" width="650" height="242" fill="#fff" stroke="#475569"/>${shapes}<text x="58" y="19" font-size="11">${uiText("도면 위: 오른쪽 벽")}</text><text x="58" y="312" font-size="11">${uiText("도면 아래: 왼쪽 벽 · 1열부터")}</text><text x="58" y="37" font-size="11">${uiText("◀ 안쪽 · {0}행부터", [Math.min(...active.map(({ run }) => run.rowFrom))])}</text><text x="708" y="37" text-anchor="end" font-size="11">${uiText("문쪽 ▶")}</text>${callouts.join('')}</svg><p class="zone-caption">${uiText("그림 번호를 작업표와 대조하세요. 색칠된 실물 박스만 적재하고 흰 빈칸은 유지합니다.")}</p><ul class="work-grid-plan-key">${active.map(({ run, marker }) => `<li><b>${marker}</b> ${esc(formatWorkRun(run))} · ${esc(identity(catalog, run.cargoId).code)}</li>`).join('')}</ul></article>`;
+    }).join('');
+  }).join('');
 }
 
 export function buildReportLegend(cargo: CargoItem[], placements: Placement[]) {
@@ -97,9 +128,10 @@ export function buildZone3d(container: ContainerSpec, cargo: CargoItem[], placem
 
 export function buildPartialLocations(cargo: CargoItem[], placements: Placement[], zones: ReportZone[]) {
   const catalog = reportCargoCatalog(cargo);
+  const addresses = buildWorkInstructionAddresses(placements);
   const rows = zones.flatMap(zone => zone.indices.filter(i => identity(catalog, placements[i].cargoId).partial).map(i => {
     const p = placements[i], item = identity(catalog, p.cargoId);
-    return `<li><b>${uiText("{0} 잔량 1개", [esc(item.code)])}</b>${uiText(" · {0} 구역 · 바닥 +{1} mm · 안쪽 벽 {2} m / 도면 위쪽 벽 {3} m", [zone.label, mm(p.z), p.x.toFixed(2), p.y.toFixed(2)])}</li>`;
+    return `<li><b>${uiText("{0} 잔량 1개", [esc(item.code)])}</b>${uiText(" · {0} 구역 · {1}", [zone.label, esc(formatWorkAddress(addresses[i]))])}<small>${uiText("바닥 +{0} mm", [mm(p.z)])}</small></li>`;
   }));
   return rows.length ? `<div class="partial-locations"><b>${uiText("잔량박스 위치 · 빨간 테두리")}</b><ul>${rows.join('')}</ul></div>` : '';
 }

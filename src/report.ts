@@ -1,3 +1,4 @@
+import { buildNumberedZone3d } from './reportZone3dDimensions';
 import { inspectionProgressText } from './inspectionPresentation';
 import { uiText, uiMessage, uiLocale } from './uiLanguage';
 import { assessPhysicsVerification } from './physicsVerificationPolicy';
@@ -21,7 +22,7 @@ import { buildShipmentInstructionSection } from './shipmentInstruction';
 import { readTransportEquipment } from './transportEquipment';
 import { equipmentDisplayText } from './transportEquipmentPresentation';
 import { buildReportZones } from './reportZones';
-import { buildZoneOverview, buildZoneTable, buildReportLegend, buildZone3d, buildPartialLocations, buildSecuringLocationGuide } from './reportZoneGraphics';
+import { buildZoneOverview, buildZoneTable, buildReportLegend, buildPartialLocations, buildSecuringLocationGuide, buildNumberedZonePlans, buildZone3dInstructions } from './reportZoneGraphics';
 import { reportCargoCatalog } from './reportCargo';
 import { buildWorkOrderCargoSummary, loadedCargoCounts } from './workOrderCargoSummary';
 import { VOID_FILL_DISCLAIMER, voidFillRows, voidFillTotal } from './voidFillPresentation';
@@ -64,10 +65,10 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
   const overview = buildZoneOverview(container, cargo, result.placements, zones);
   const zoneTable = buildZoneTable(cargo, result.placements, zones);
   const legend = buildReportLegend(cargo, result.placements);
-  const layerPlans = [...new Set(result.placements.map(p => Math.round(p.z * 100000) / 100000))].sort((a, b) => a - b).map(z => `<article><h3>${uiText("바닥 +{0} mm · 단별 평면 배치", [Math.round(z * 1000)])}</h3>${buildZoneOverview(container, cargo, result.placements, zones, z)}</article>`).join('');
-  const completed = buildZone3d(container, cargo, result.placements, zones);
+  const layerPlans = buildNumberedZonePlans(container, cargo, result.placements, zones);
+  const completed = buildNumberedZone3d(container, cargo, result.placements, zones);
   const partials = buildPartialLocations(cargo, result.placements, zones);
-  const progress = zones.map(zone => `<article><h3>${uiText("{0} {1} 구역 · {2} ~ {3} m", [zone.number, zone.label, zone.start.toFixed(2), zone.end.toFixed(2)])}</h3>${buildZone3d(container, cargo, result.placements, zones, zone.number)}<p>${uiText("{0}개 · {1}단 · 높이 {2} mm", [zone.indices.length, zone.levels.length, Math.round(zone.height * 1000)])}</p></article>`).join('');
+  const progress = zones.map(zone => `<article><h3>${uiText("{0} {1} 구역 · {2}개", [zone.number, zone.label, zone.indices.length])}</h3>${buildNumberedZone3d(container, cargo, result.placements, zones, zone.number)}${buildZone3dInstructions(cargo, result.placements, zone)}<p class="zone-3d-reference">${uiText("{0}개 · {1}단 · 높이 {2} mm", [zone.indices.length, zone.levels.length, Math.round(zone.height * 1000)])}</p></article>`).join('');
   const generatedAt = new Date().toLocaleString(uiLocale());
   const cargoIntake = buildWorkOrderCargoSummary(cargo, loadedCargoCounts(result.placements), reportCargoCatalog(cargo));
   const shipmentInstruction = buildShipmentInstructionSection(cargo, result);
@@ -119,15 +120,15 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
     summary: `${buildLimitReviewHtml(reportTarget, certification)}<section class="summary" aria-label="${uiText("적재 요약")}"><div class="text-metric"><span>${uiText("운송 장비")}</span><b>${escapeHtml(equipmentDisplayText(equipment, 'shortName'))}</b><small>${container.length} × ${container.width} × ${container.height} m</small></div><div><span>${uiText("실제 적재단위")}</span><b>${result.placements.length} EA</b></div><div><span>${uiText("화물 중량")}</span><b>${result.loadedWeightKg.toLocaleString()} kg</b></div><div class="text-metric"><span>${uiText("미적재 · 별도 확인")}</span><b>${escapeHtml(remainingText)}</b></div></section>`,
     sections: [
       {
-        title: uiText("한눈에 보는 적재 배치"), description: uiText("안쪽부터 구역 번호순으로, 한 구역 안에서는 바닥부터 위로 쌓으세요. 위치는 안쪽 벽 기준입니다."),
-        content: `${overview}${legend}<h3>${uiText("구역별 작업 순서")}</h3>${zoneTable}<p class="zone-caption">${uiText("길이×폭은 놓은 상태의 방향입니다. 도면의 위·아래는 위에서 본 좌·우 벽이며, 서로 다른 바닥 높이는 별도 단으로 표시합니다.")}</p>`,
+        title: uiText("한눈에 보는 적재 배치"), description: uiText("구역 순서와 그림 번호를 따라 열·행·단별 수량을 놓으세요. 각 구역은 낮은 단부터 작업합니다."),
+        content: `${overview}${legend}<h3>${uiText("구역별 작업 순서")}</h3>${zoneTable}<p class="zone-caption">${uiText("길이·폭·높이는 놓을 방향을 확인하는 보조 치수입니다. 열·행 범위는 같은 규격의 실제 박스가 빠짐없이 있는 경우에만 묶습니다.")}</p>`,
       },
       {
         title: uiText("3D 완료 모습과 구역별 진행"), description: uiText("회색은 이미 쌓은 구역, 품목 색은 이번 구역입니다. 빈 공간과 빨간 테두리 잔량박스를 대조하세요."),
         content: `<div class="zone-completed">${completed}</div><div class="zone-progress">${progress}</div>`,
       },
       {
-        title: uiText("단별 배치 상세"), description: uiText("구역별 작업표의 바닥 높이와 맞춰 확인하세요. 각 단의 서로 다른 품목 위치와 빈 칸을 표시합니다."),
+        title: uiText("단별 배치 상세"), description: uiText("작업표와 같은 그림 번호·열·행·단입니다. 팔레트 없이 직접 싣는 박스의 위치를 표시합니다."),
         content: `${partials}<div class="zone-layer-plans">${layerPlans}</div>`,
       },
       {

@@ -1,3 +1,5 @@
+import ThreeClearanceGuides from './ThreeClearanceGuides';
+import type { CargoClearance, ClearanceAxis } from './cargoClearance';
 import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useLayoutEffect, useRef, useState, type ElementRef } from 'react';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
@@ -16,6 +18,7 @@ import { DEFAULT_VIEWER_ENVIRONMENT, type EnvironmentId } from './viewerEnvironm
 
 export type ThreeComparisonSceneStats = {
   revision: number;
+  clearance?: CargoClearance | null;
   modelCount: number;
   labelFaces: number;
   visibleLabelFaces: number;
@@ -50,6 +53,8 @@ export type ThreeComparisonSceneProps = {
   showCg: boolean;
   view: string;
   selected: number | null;
+  selectedSupport?: number | null;
+  clearanceAxis?: ClearanceAxis;
   frameData?: InertiaAnimationFrame;
   /** Supply the frame's original plan revision when the caller owns that identity. */
   frameRevision?: number;
@@ -91,7 +96,8 @@ export function CameraController({ plan, view, autoRotate }: { plan: ThreeCompar
 
 function SceneContents({ resources, options, bindings, frameState }: { resources: Resources; options: ThreeComparisonSceneProps; bindings: WeakMap<InertiaAnimationFrame, number>; frameState: { current: FrameState } }) {
   const { invalidate } = useThree();
-  const { plan, frameData, frameRevision, cut, shell, step, labels, weight, showCg, selected } = options;
+  const { plan, frameData, frameRevision, cut, shell, step, labels, weight, showCg, selected, selectedSupport } = options;
+  const [clearance, setClearance] = useState<CargoClearance | null>(null);
   useLayoutEffect(() => {
     if (!frameData) {
       resources.applyFrame(); frameState.current = { acceptedFrameStep: null, rejectedFrame: false };
@@ -102,8 +108,11 @@ function SceneContents({ resources, options, bindings, frameState }: { resources
       // own baseline; a stale/partial frame is never allowed to mix the two.
       frameState.current = { ...frameState.current, rejectedFrame: true };
     }
-    resources.updateVisibility({ cut, shell, step, labels, weight, showCg, selected }); invalidate();
-  }, [resources, plan, frameData, frameRevision, cut, shell, step, labels, weight, showCg, selected, bindings, frameState, invalidate]);
+    resources.updateVisibility({ cut, shell, step, labels, weight, showCg, selected, selectedSupport });
+    const selection = selectedSupport != null ? { kind: 'support' as const, index: selectedSupport }
+      : selected != null && resources.isCargoVisible(selected) ? { kind: 'cargo' as const, index: selected } : null;
+    setClearance(weight ? null : resources.clearanceForSelection(selection)); invalidate();
+  }, [resources, plan, frameData, frameRevision, cut, shell, step, labels, weight, showCg, selected, selectedSupport, bindings, frameState, invalidate]);
   const selectCell = (event: ThreeEvent<MouseEvent | PointerEvent>) => {
     if (!weight || event.object.userData.kind !== 'weightSurface') return;
     event.stopPropagation();
@@ -111,7 +120,7 @@ function SceneContents({ resources, options, bindings, frameState }: { resources
     options.onCellSelect?.(weightSurfaceCellIndex(plan.cells, plan.container, point.x, point.z));
   };
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
-    if (event.delta > 4) return;
+    if (event.delta > 4 || event.button !== 0) return;
     const data = event.object.userData;
     if (data.kind === 'cargo') {
       const index = event.instanceId === undefined ? undefined : data.batch.visibleIndices[event.instanceId];
@@ -120,8 +129,8 @@ function SceneContents({ resources, options, bindings, frameState }: { resources
     } else if (data.kind === 'support') { event.stopPropagation(); options.onSupportSelect?.(data.index); }
     else if (data.kind === 'weightSurface' && weight) selectCell(event);
   };
-  return <primitive object={resources.root} dispose={null} onClick={handleClick} onPointerMove={selectCell}
-    onPointerOut={(event: ThreeEvent<PointerEvent>) => { if (event.object.userData.kind === 'weightSurface') options.onCellSelect?.(null); }} />;
+  return <><ThreeClearanceGuides plan={plan} clearance={clearance} axis={options.clearanceAxis ?? 'width'}/><primitive object={resources.root} dispose={null} onClick={handleClick} onPointerMove={selectCell}
+    onPointerOut={(event: ThreeEvent<PointerEvent>) => { if (event.object.userData.kind === 'weightSurface') options.onCellSelect?.(null); }} /></>;
 }
 
 function SceneRuntime({ resources, options, frameState }: { resources: Resources | null; options: ThreeComparisonSceneProps; frameState: { current: FrameState } }) {
@@ -146,6 +155,8 @@ function SceneRuntime({ resources, options, frameState }: { resources: Resources
     state.gl.render(state.scene, state.camera);
     if (!resources) return;
     const stats: ThreeComparisonSceneStats = {
+      clearance: !options.weight ? resources.clearanceForSelection(options.selectedSupport != null ? { kind: 'support', index: options.selectedSupport }
+        : options.selected != null && resources.isCargoVisible(options.selected) ? { kind: 'cargo', index: options.selected } : null) : null,
       revision: options.plan.revision, modelCount: resources.modelCount, labelFaces: resources.labelFaces,
       visibleLabelFaces: resources.visibleLabelFaces, visibleCargo: resources.visibleCargo,
       renderCalls: state.gl.info.render.calls, triangles: state.gl.info.render.triangles,
@@ -219,7 +230,7 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
   const resources = loaded?.plan === plan ? loaded.resources : null;
   const groundY = vehicleLayout(plan.vehicleRig ?? 'none', plan.container).groundY;
   return <div style={{ width: '100%', height: '100%', position: 'relative', minHeight: 180 }} data-three-scene-ready={Boolean(resources)}>
-    <Canvas frameloop="demand" camera={{ fov: 40, near: .02, far: 500, position: [10, 7, 10] }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }} onPointerMissed={event => { if (event.type === 'click') options.onSelect(null); }} onContextMenu={event => event.preventDefault()} fallback={<WebGLFallback onError={options.onError} />}>
+    <Canvas frameloop="demand" camera={{ fov: 40, near: .02, far: 500, position: [10, 7, 10] }} dpr={[1, 1.5]} gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }} onPointerMissed={event => { if (event.type === 'click' && event.button === 0) options.onSelect(null); }} onContextMenu={event => event.preventDefault()} fallback={<WebGLFallback onError={options.onError} />}>
       <ambientLight intensity={1.5} /><directionalLight position={[-8, 12, 8]} intensity={2.4} /><directionalLight position={[6, 8, -6]} intensity={1.1} />
       <ThreeViewerEnvironment groundY={groundY} id={options.environment ?? DEFAULT_VIEWER_ENVIRONMENT} length={plan.container.length} width={plan.container.width} height={plan.container.height} attempt={options.environmentAttempt} onStatus={options.onEnvironmentStatus} />
       {resources && <SceneContents resources={resources} options={options} bindings={bindings.current} frameState={frameState} />}

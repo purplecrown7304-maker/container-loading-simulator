@@ -70,10 +70,8 @@ export function uiWorkflowText(text: string, locale: UiLanguage = readUiLanguage
 
 /** User-authored item labels are deliberately not interpreted as translation keys. */
 export function workflowWorkInstruction(step: WorkStep, locale: UiLanguage = readUiLanguage()): string {
-  if (locale === 'ko') return step.instruction;
-  return uiText('{0}번 · {1} {2} · R{3} C{4} L{5} · {6} · X {7} / Y {8} / Z {9}m', [
-    step.step, step.cargoId, uiText(step.action === 'LOAD' ? '적재' : '하역', [], locale),
-    step.row || '-', step.column || '-', step.layer || '-', uiText(step.zone, [], locale),
-    step.x.toFixed(2), step.y.toFixed(2), step.z.toFixed(2),
+  return uiText('{0}번 · {1} · {2}열 {3}행 {4}단 · 1개 {5}', [
+    step.step, step.cargoId, step.column || '-', step.row || '-', step.layer || '-',
+    uiText(step.action === 'LOAD' ? '적재' : '하역', [], locale),
   ], locale);
 }

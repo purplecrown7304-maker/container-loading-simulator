@@ -50,8 +50,9 @@ describe('loading work order', () => {
     expect(html).toContain('작업 순서');
     expect(html).toContain('필요 보조자재');
     expect(html).toContain('도어 닫힘 간섭 없음');
-    expect(html).toContain('안쪽부터');
-    expect(html).toContain('바닥부터');
+    expect(html).toContain('안쪽→문쪽');
+    expect(html).toContain('낮은 단부터');
+    expect(html).toContain('1열 1행 1단 · 1개');
   });
 
   it('removes engineering-detail tables from the worker sheet', () => {
