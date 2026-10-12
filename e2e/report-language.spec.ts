@@ -21,6 +21,8 @@ const copy = {
     incomplete: 'Validation incomplete', review: 'For review · Verification required',
     whatIf: 'WHAT-IF REVIEW · Not dispatch approval',
     disclaimer: 'not transport safety certification',
+    recordLabels: ['Seal number', 'Photo record (empty · half loaded · full · doors closed)', 'Re-tensioning stop after departure'],
+    signoffLabels: ['Operator', 'Reviewer', 'Verification date/time'],
   },
   vi: {
     title: 'Lệnh xuất và xếp hàng Container', palletTitle: 'Lệnh xếp hàng pallet',
@@ -33,6 +35,8 @@ const copy = {
     incomplete: 'Kiểm chứng chưa hoàn tất', review: 'Để xem xét · Cần kiểm tra xác nhận',
     whatIf: 'WHAT-IF REVIEW · Không phải phê duyệt xuất hàng',
     disclaimer: 'không phải chứng nhận an toàn vận chuyển',
+    recordLabels: ['Số niêm phong', 'Ảnh ghi nhận (rỗng · một nửa · đầy · cửa đóng)', 'Điểm siết lại sau khởi hành'],
+    signoffLabels: ['Người thao tác', 'Người xét duyệt', 'Ngày giờ xác nhận'],
   },
 } as const;
 const cargoName = '한국고객 원문 <script>window.__reportInjection = 1</script> & "A"';
@@ -263,7 +267,19 @@ for (const language of ['en', 'vi'] as const) {
     await expect(page.locator('.report-toolbar')).toBeHidden();
     await expect(page.locator('.watermark')).toBeVisible();
     await expect(page.locator('.work')).toBeVisible();
-    await expect(page.locator('.report-signoff')).toBeVisible();
+    // The field-record blanks and final worker signatures intentionally share
+    // styling. Check both regions explicitly rather than selecting the first.
+    await expect(page.locator('.report-signoff')).toHaveCount(2);
+    const fieldRecords = page.locator('[data-field-checklist="container"][data-field-checklist-unit="pallet"] .report-signoff');
+    const workerSignoff = page.locator('.report-section > .report-signoff');
+    await expect(fieldRecords).toHaveCount(1);
+    await expect(workerSignoff).toHaveCount(1);
+    await expect(fieldRecords).toBeVisible();
+    await expect(workerSignoff).toBeVisible();
+    await expect(fieldRecords.locator('span')).toHaveText([...text.recordLabels]);
+    await expect(fieldRecords.locator('b')).toHaveText(['', '', '']);
+    await expect(workerSignoff.locator('span')).toHaveText([...text.signoffLabels]);
+    await expect(workerSignoff.locator('..').getByRole('heading', { name: text.final, exact: true })).toBeVisible();
     await expect(page.locator('.report-status')).not.toHaveClass(/good/);
     expect(await page.evaluate(() => (window as Window & { __reportInjection?: number }).__reportInjection)).toBeUndefined();
     expect(JSON.stringify(fixture)).toBe(original);

@@ -22,6 +22,8 @@ const copy = {
     incomplete: 'Validation incomplete', review: 'For review · Verification required',
     whatIf: 'WHAT-IF REVIEW · Not dispatch approval',
     disclaimer: 'not transport safety certification',
+    recordLabels: ['Seal number', 'Photo record (empty · half loaded · full · doors closed)', 'Re-tensioning stop after departure'],
+    signoffLabels: ['Operator', 'Reviewer', 'Verification date/time'],
   },
   vi: {
     title: 'Lệnh xuất và xếp hàng Container', palletTitle: 'Lệnh xếp hàng pallet',
@@ -34,6 +36,8 @@ const copy = {
     incomplete: 'Kiểm chứng chưa hoàn tất', review: 'Để xem xét · Cần kiểm tra xác nhận',
     whatIf: 'WHAT-IF REVIEW · Không phải phê duyệt xuất hàng',
     disclaimer: 'không phải chứng nhận an toàn vận chuyển',
+    recordLabels: ['Số niêm phong', 'Ảnh ghi nhận (rỗng · một nửa · đầy · cửa đóng)', 'Điểm siết lại sau khởi hành'],
+    signoffLabels: ['Người thao tác', 'Người xét duyệt', 'Ngày giờ xác nhận'],
   },
 } as const;
 const cargoName = '한국고객 원문 <script>window.__reportInjection = 1</script> & "A"';
@@ -227,6 +231,17 @@ describe.each(['en', 'vi'] as const)('%s generated browser-report fixture', lang
     expect(doc.querySelector('.work')?.textContent).toContain(cargoName);
     expect(doc.querySelectorAll('.work script')).toHaveLength(0);
     expect(doc.querySelector('.technical')?.textContent).toContain(copy[language].disclaimer);
+    // Keep this DOM preflight aligned with the strict, print-visible browser
+    // locators: one field-record region plus one final worker-signature region.
+    expect(doc.querySelectorAll('.report-signoff')).toHaveLength(2);
+    const fieldRecords = doc.querySelectorAll('[data-field-checklist="container"][data-field-checklist-unit="pallet"] .report-signoff');
+    const workerSignoffs = doc.querySelectorAll('.report-section > .report-signoff');
+    expect(fieldRecords).toHaveLength(1);
+    expect(workerSignoffs).toHaveLength(1);
+    expect([...fieldRecords[0].querySelectorAll('span')].map(label => label.textContent)).toEqual(copy[language].recordLabels);
+    expect([...fieldRecords[0].querySelectorAll('b')].map(value => value.textContent?.trim())).toEqual(['', '', '']);
+    expect([...workerSignoffs[0].querySelectorAll('span')].map(label => label.textContent)).toEqual(copy[language].signoffLabels);
+    expect(workerSignoffs[0].parentElement?.querySelector('h2')?.textContent).toBe(copy[language].final);
     expect(doc.querySelector('.watermark')?.textContent).toBe(copy[language].review);
     expect(doc.querySelector('.report-status')?.classList.contains('danger')).toBe(true);
     for (const value of ['41.3%', '80%', '1700', '220', '850', '110']) {
