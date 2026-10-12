@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useLayoutEffect, useRef, useState, type ElementRef } from 'react';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
@@ -180,6 +181,7 @@ function WebGLFallback({ onError }: { onError?: (message: string) => void }) {
 /** Opt-in rendering comparison. It consumes the unchanged Unity plan and Rapier
  * output; no loading, collision, securing or certification decision occurs here. */
 export default function ThreeComparisonScene(options: ThreeComparisonSceneProps) {
+  useUiLanguage();
   const { plan } = options;
   const callbacks = useRef(options); callbacks.current = options;
   const bindings = useRef(new WeakMap<InertiaAnimationFrame, number>());
@@ -223,6 +225,6 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
       {resources && <SceneContents resources={resources} options={options} bindings={bindings.current} frameState={frameState} />}
       <SceneRuntime resources={resources} options={options} frameState={frameState} />
     </Canvas>
-    {error && <div role="alert" style={{ position: 'absolute', inset: 0, display: 'grid', placeContent: 'center', padding: 24, background: '#fff8f4', color: '#9f1239' }}><b>Meshy 모델을 불러오지 못했습니다</b><span>{error}</span></div>}
+    {error && <div role="alert" style={{ position: 'absolute', inset: 0, display: 'grid', placeContent: 'center', padding: 24, background: '#fff8f4', color: '#9f1239' }}><b>{uiText("Meshy 모델을 불러오지 못했습니다")}</b><span>{error}</span></div>}
   </div>;
 }

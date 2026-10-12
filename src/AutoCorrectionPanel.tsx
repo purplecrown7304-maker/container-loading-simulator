@@ -1,3 +1,5 @@
+import { uiWorkflowText } from './workflowPresentation';
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AUTO_CORRECTION_EVENT, type AutoCorrectionEventDetail } from './correctionEvents';
@@ -11,6 +13,7 @@ function positionText(point?: { x: number; y: number; z: number }) {
 }
 
 export default function AutoCorrectionPanel() {
+  useUiLanguage();
   const [corrections, setCorrections] = useState<AutoCorrectionRecord[]>(() =>
     typeof window === 'undefined' ? [] : ((window as CorrectionWindow).__containerLoadingAutoCorrections ?? []),
   );
@@ -38,13 +41,13 @@ export default function AutoCorrectionPanel() {
   if (!target) return null;
 
   return createPortal(<section className="auto-correction-panel dashboard-card">
-    <h2>자동 보정 이력 <span className="section-count">{corrections.length}건</span></h2>
-    {corrections.length === 0 ? <p className="muted">자동 재배치 없음</p> : <div className="auto-correction-list">
+    <h2>{uiText("자동 보정 이력")}{' '}<span className="section-count">{uiText("{0}건", [corrections.length])}</span></h2>
+    {corrections.length === 0 ? <p className="muted">{uiText("자동 재배치 없음")}</p> : <div className="auto-correction-list">
       {corrections.map((item, index) => <article key={`${item.kind}-${item.cargoId ?? 'summary'}-${index}`} className="auto-correction-card">
-        <div className="auto-correction-head"><b>{item.label}</b>{item.cargoId && <span>{item.cargoId}</span>}</div>
-        <p>{item.description}</p>
+        <div className="auto-correction-head"><b>{uiText(item.label)}</b>{item.cargoId && <span>{item.cargoId}</span>}</div>
+        <p>{uiWorkflowText(item.description)}</p>
         {item.from && item.to && <small>{positionText(item.from)} → {positionText(item.to)}</small>}
-        {item.beforeScore !== undefined && item.afterScore !== undefined && <small>보정 점수 {item.beforeScore.toFixed(2)} → {item.afterScore.toFixed(2)}</small>}
+        {item.beforeScore !== undefined && item.afterScore !== undefined && <small>{uiText("보정 점수 {0} → {1}", [item.beforeScore.toFixed(2), item.afterScore.toFixed(2)])}</small>}
       </article>)}
     </div>}
   </section>, target);

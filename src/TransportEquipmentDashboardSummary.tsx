@@ -1,8 +1,11 @@
+import { equipmentDisplayText } from './transportEquipmentPresentation';
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { OPEN_TRANSPORT_SELECTOR_EVENT, useTransportEquipment } from './transportEquipment';
 
 export default function TransportEquipmentDashboardSummary() {
+  useUiLanguage();
   const equipment = useTransportEquipment();
   const [settingTarget, setSettingTarget] = useState<HTMLElement | null>(null);
 
@@ -15,8 +18,8 @@ export default function TransportEquipmentDashboardSummary() {
 
   return <>
     {settingTarget && createPortal(<div className="transport-dashboard-setting">
-      <b>{equipment.shortName}</b>
-      <button type="button" onClick={open}>장비 변경</button>
+      <b>{equipmentDisplayText(equipment, 'shortName')}</b>
+      <button type="button" onClick={open}>{uiText("장비 변경")}</button>
     </div>, settingTarget)}
   </>;
 }

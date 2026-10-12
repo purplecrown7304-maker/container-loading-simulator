@@ -44,7 +44,10 @@ describe('pallet mixed-SKU grids follow actual support surfaces', () => {
       previous.push(placement);
     }
   });
-  it('loads a large two-product shipment without dropping cartons to the top-tier policy', () => {
+  it.each([
+    { name: '40HC', length: 12.032, width: 2.35, height: 2.7, maxPayloadKg: 28600, floorLoadLimitKgPerM2: 1500 },
+    { name: '40FT flat-rack', length: 11.652, width: 2.347, height: 2.265, maxPayloadKg: 49100, floorLoadLimitKgPerM2: 2000 },
+  ])('$name loads a large two-product shipment without dropping cartons to the top-tier policy', (equipment) => {
     // Sanitized regression for the 928 large / 732 small packaged-carton case.
     // Keep the recorded carton strength and the catalog-matching lightweight T11.
     const shipment: CargoItem[] = [
@@ -53,8 +56,7 @@ describe('pallet mixed-SKU grids follow actual support surfaces', () => {
       { ...cargo[1], quantity: 731 },
       { ...cargo[1], id: 'SMALL-PARTIAL', quantity: 1, weightKg: 1.18 },
     ];
-    const space = { length: 12.032, width: 2.35, height: 2.7, maxPayloadKg: 28600,
-      floorLoadLimitKgPerM2: 1500, ceilingClearanceM: .05, unloadingPolicy: 'strict' as const };
+    const space = { ...equipment, ceilingClearanceM: .05, unloadingPolicy: 'strict' as const };
     const result = packOnPallets(space, shipment, { ...spec, maxStackLevels: 2, maxStaticLoadKg: 1000 });
     expect(result.placements).toHaveLength(1660);
     expect(result.remaining).toEqual([]);
@@ -70,7 +72,7 @@ describe('pallet mixed-SKU grids follow actual support surfaces', () => {
       for (const placement of [...load.cargoPlacements].sort((a, b) => a.z - b.z)) {
         expect(hasAdequateSupport(placement, previous, base)).toBe(true);
         expect(canPlaceByStackingRules(map.get(placement.cargoId)!, placement, previous, map)).toBe(true);
-        expect(placement.z + placement.height).toBeLessThanOrEqual(2.65 + 1e-6);
+        expect(placement.z + placement.height).toBeLessThanOrEqual(space.height - .05 + 1e-6);
         previous.push(placement);
       }
     }

@@ -1,3 +1,5 @@
+import { uiText } from './uiLanguage';
+import { excelHeaders, normalizeExcelHeaders } from './excelPresentation';
 import * as XLSX from 'xlsx';
 import type { ProductOrientationPolicy } from './engine/productPackagingOptimizer';
 import { requiresBoxPackaging, type CompanyProductItem } from './companyProduct';
@@ -49,7 +51,7 @@ export async function parseProductWorkbook(file: File): Promise<ProductImportRes
   if (!sheetName) return { items: [], issues: [{ row: 1, message: '엑셀 시트가 없습니다.' }], totalRows: 0 };
 
   const sheet = workbook.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' }).map(normalizeExcelHeaders);
   const map = new Map<string, CompanyProductItem>();
   const firstRowByCode = new Map<string, number>();
   const issues: ProductImportIssue[] = [];
@@ -111,9 +113,9 @@ export async function parseProductWorkbook(file: File): Promise<ProductImportRes
 
 export function downloadProductTemplate() {
   const worksheet = XLSX.utils.aoa_to_sheet([
-    HEADERS,
-    ['PRD-001', '제품 A', 220, 150, 100, 1.2, 'Y'],
-    ['PRD-002', '제품 B', 310, 180, 120, 2.5, 'N'],
+    excelHeaders(HEADERS),
+    ['PRD-001', uiText('제품 A'), 220, 150, 100, 1.2, 'Y'],
+    ['PRD-002', uiText('제품 B'), 310, 180, 120, 2.5, 'N'],
   ]);
   worksheet['!cols'] = [16, 24, 13, 13, 13, 13, 16].map((wch) => ({ wch }));
   const workbook = XLSX.utils.book_new();
@@ -124,7 +126,7 @@ export function downloadProductTemplate() {
 /** The same seven master fields accepted by parseProductWorkbook; shipment data stays separate. */
 export function createProductCatalogWorkbook(products: CompanyProductItem[]) {
   const worksheet = XLSX.utils.aoa_to_sheet([
-    HEADERS,
+    excelHeaders(HEADERS),
     ...products.map(product => [
       product.id, product.name,
       product.length * 1000, product.width * 1000, product.height * 1000,
@@ -137,15 +139,15 @@ export function createProductCatalogWorkbook(products: CompanyProductItem[]) {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Products');
   const instructions = XLSX.utils.aoa_to_sheet([
-    ['등록 제품 수정 안내'],
-    ['Products 시트에서 제품명, 치수(mm), 중량(kg), 박스적재필요(Y/N)를 수정한 뒤 제품 엑셀 업로드로 불러오세요.'],
-    ['기존 제품 수정 시 제품코드를 유지하세요. 새로운 제품코드는 신규 제품으로 추가됩니다.'],
-    ['파일에서 행을 지워도 등록 제품은 삭제되지 않습니다. 삭제는 회사 제품 관리에서 진행하세요.'],
-    ['제품코드는 텍스트로 입력해 앞자리 0을 유지하세요. 치수와 중량은 0보다 큰 숫자로 입력하세요.'],
-    ['출하 수량과 기존 회전·완충·포장 조건은 이 파일의 수정 대상이 아니며 기존 값을 유지합니다.'],
+    [uiText('등록 제품 수정 안내')],
+    [uiText('Products 시트에서 제품명, 치수(mm), 중량(kg), 박스적재필요(Y/N)를 수정한 뒤 제품 엑셀 업로드로 불러오세요.')],
+    [uiText('기존 제품 수정 시 제품코드를 유지하세요. 새로운 제품코드는 신규 제품으로 추가됩니다.')],
+    [uiText('파일에서 행을 지워도 등록 제품은 삭제되지 않습니다. 삭제는 회사 제품 관리에서 진행하세요.')],
+    [uiText('제품코드는 텍스트로 입력해 앞자리 0을 유지하세요. 치수와 중량은 0보다 큰 숫자로 입력하세요.')],
+    [uiText('출하 수량과 기존 회전·완충·포장 조건은 이 파일의 수정 대상이 아니며 기존 값을 유지합니다.')],
   ]);
   instructions['!cols'] = [{ wch: 115 }];
-  XLSX.utils.book_append_sheet(workbook, instructions, '수정 안내');
+  XLSX.utils.book_append_sheet(workbook, instructions, uiText('수정 안내'));
   return workbook;
 }
 

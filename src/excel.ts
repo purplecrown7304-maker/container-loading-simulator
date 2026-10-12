@@ -1,3 +1,5 @@
+import { uiText } from './uiLanguage';
+import { excelHeaders, normalizeExcelHeaders } from './excelPresentation';
 import * as XLSX from 'xlsx';
 import { preflightCargoInput } from './engine/inputPreflight';
 import type { CargoItem } from './engine/types';
@@ -9,7 +11,7 @@ const MATERIAL_ESTIMATE_LABEL = '재질 추정';
 function parseCartonMaterial(value: unknown): { valid: boolean; value: CartonMaterial | undefined } {
   const text = String(value ?? '').trim();
   if (!text) return { valid: true, value: undefined };
-  const match = CARTON_MATERIAL_ORDER.find(key => key === text || CARTON_MATERIALS[key].label === text);
+  const match = CARTON_MATERIAL_ORDER.find(key => key === text || ['ko', 'en', 'vi'].some(locale => uiText(CARTON_MATERIALS[key].label, [], locale as 'ko' | 'en' | 'vi') === text));
   return match ? { valid: true, value: match } : { valid: false, value: undefined };
 }
 
@@ -105,7 +107,7 @@ async function parseWorkbook(file: File, defaultQuantity?: number): Promise<Impo
   if (!firstSheetName) return { items: [], issues: [{ row: 1, message: '엑셀 시트가 없습니다.' }], totalRows: 0 };
 
   const sheet = workbook.Sheets[firstSheetName];
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' }).map(normalizeExcelHeaders);
   const rawItems: CargoItem[] = [];
   const issues: ImportIssue[] = [];
   const firstRowById = new Map<string, number>();
@@ -188,7 +190,7 @@ async function parseWorkbook(file: File, defaultQuantity?: number): Promise<Impo
       // Absent columns keep the registered value on catalog merge; a blank cell clears it.
       ...(materialValue !== undefined ? { cartonMaterial: material.value } : {}),
       ...(sourceValue !== undefined || topLoadValue !== undefined
-        ? { strengthSource: String(sourceValue ?? '').trim() === MATERIAL_ESTIMATE_LABEL && !isBlank(topLoadValue) ? 'material-estimate' as const : undefined } : {}),
+        ? { strengthSource: ['ko', 'en', 'vi'].some(locale => String(sourceValue ?? '').trim() === uiText(MATERIAL_ESTIMATE_LABEL, [], locale as 'ko' | 'en' | 'vi')) && !isBlank(topLoadValue) ? 'material-estimate' as const : undefined } : {}),
     });
   });
 
@@ -214,7 +216,7 @@ async function parseWorkbook(file: File, defaultQuantity?: number): Promise<Impo
 
 export function downloadCargoTemplate() {
   const worksheet = XLSX.utils.aoa_to_sheet([
-    headers,
+    excelHeaders(headers),
     ['BOX-A', 'BOX A', 0.6, 0.4, 0.35, 18, 70, 7, 100, 'Y', 2],
     ['BOX-B', 'BOX B', 0.5, 0.35, 0.3, 12, 55, 7, 80, 'N', 1],
   ]);
@@ -226,8 +228,8 @@ export function downloadCargoTemplate() {
 
 export function createBoxCatalogTemplate(): XLSX.WorkBook {
   const worksheet = XLSX.utils.aoa_to_sheet([
-    ['코드', '이름', '길이(m)', '폭(m)', '높이(m)', '중량(kg)', '최대적층단', '상부허용중량(kg)', '90도회전허용', '재질'],
-    ['BOX-A', 'BOX A', 0.6, 0.4, 0.35, 18, 7, 100, 'Y', CARTON_MATERIALS['double-wall'].label],
+    excelHeaders(['코드', '이름', '길이(m)', '폭(m)', '높이(m)', '중량(kg)', '최대적층단', '상부허용중량(kg)', '90도회전허용', '재질']),
+    ['BOX-A', 'BOX A', 0.6, 0.4, 0.35, 18, 7, 100, 'Y', uiText(CARTON_MATERIALS['double-wall'].label)],
     ['BOX-B', 'BOX B', 0.5, 0.35, 0.3, 12, 7, 80, 'N', ''],
   ]);
   worksheet['!cols'] = [12, 18, 12, 12, 12, 12, 14, 20, 16, 18].map((wch) => ({ wch }));
@@ -243,31 +245,31 @@ export function downloadBoxCatalogTemplate() {
 /** Editable master-data export, independent of the current search/selected loading quantities. */
 export function createBoxCatalogWorkbook(items: readonly CargoItem[]): XLSX.WorkBook {
   const worksheet = XLSX.utils.aoa_to_sheet([
-    ['코드', '이름', '길이(m)', '폭(m)', '높이(m)', '중량(kg)', '수량', '최대적층단', '상부 허용하중(kg)', '90도회전허용', '하역순서', '재질', '상부허용하중 출처'],
+    excelHeaders(['코드', '이름', '길이(m)', '폭(m)', '높이(m)', '중량(kg)', '수량', '최대적층단', '상부 허용하중(kg)', '90도회전허용', '하역순서', '재질', '상부허용하중 출처']),
     ...items.map(item => [item.id, item.name, item.length, item.width, item.height, item.weightKg,
       item.quantity, item.maxStackLayers ?? '', item.strengthUnverified ? '' : item.maxTopLoadKg ?? '', item.allowRotation === false ? 'N' : 'Y', item.unloadPriority ?? '',
-      item.cartonMaterial ? CARTON_MATERIALS[item.cartonMaterial].label : '',
-      !item.strengthUnverified && item.maxTopLoadKg != null && item.strengthSource === 'material-estimate' ? MATERIAL_ESTIMATE_LABEL : '']),
+      item.cartonMaterial ? uiText(CARTON_MATERIALS[item.cartonMaterial].label) : '',
+      !item.strengthUnverified && item.maxTopLoadKg != null && item.strengthSource === 'material-estimate' ? uiText(MATERIAL_ESTIMATE_LABEL) : '']),
   ]);
   worksheet['!cols'] = [25, 44, 13, 13, 13, 13, 12, 16, 24, 18, 14, 18, 18].map(wch => ({ wch }));
   worksheet['!autofilter'] = { ref: `A1:M${items.length + 1}` };
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Boxes');
   const guide = XLSX.utils.aoa_to_sheet([
-    ['항목', '수정 및 업로드 안내'],
-    ['등록 목록 전체', '검색·선택 여부와 관계없이 현재 로그인 사용자의 전체 박스 목록입니다.'],
-    ['코드', '기존 코드를 유지하면 해당 박스를 갱신합니다. 새 코드는 신규 박스로 추가됩니다. 중복 코드는 반영하지 않습니다.'],
-    ['치수 / 중량', '치수는 m, 중량은 kg입니다. 수량은 기본수량이며 이번 적재 선택 수량과 다릅니다.'],
-    ['상부 허용하중(kg)', '위에 놓이는 화물의 누적 허용중량입니다. 0은 상부 적재 금지, 빈칸은 강도 미확인이며 계산 시 1단·상부하중 0kg로 제한합니다. 파렛트 허용중량과 다릅니다.'],
-    ['최대적층단', '1 이상의 정수 또는 빈칸(별도 제한 없음)을 입력하세요.'],
-    ['재질', `${CARTON_MATERIAL_ORDER.map(key => CARTON_MATERIALS[key].label).join(', ')} 중 하나 또는 빈칸. 재질만으로는 상부 허용하중이 바뀌지 않습니다.`],
-    ['상부허용하중 출처', `'${MATERIAL_ESTIMATE_LABEL}'이면 상부 허용하중이 재질 추정값(시험값 아님)이라는 표시입니다. 실측·제조사 값으로 바꾸면 이 칸을 비우세요.`],
-    ['재업로드', 'Boxes 시트를 첫 번째로 유지하고 수정한 엑셀 업로드를 사용하세요. 삭제한 행은 기존 목록에서 삭제되지 않습니다.'],
-    ['기존 정보', '이 양식에 없는 취급 제한·색상 등은 같은 코드로 업로드할 때 기존 등록값을 유지합니다. 전체 백업 파일은 아닙니다.'],
-    ['오류 / 재계산', '오류 행은 제외하고 정상 행만 반영합니다. 직전 변경 되돌리기가 가능합니다. 수정 후 포장 확정과 자동 적재를 다시 실행하세요.'],
+    [uiText('항목'), uiText('수정 및 업로드 안내')],
+    [uiText('등록 목록 전체'), uiText('검색·선택 여부와 관계없이 현재 로그인 사용자의 전체 박스 목록입니다.')],
+    [uiText('코드'), uiText('기존 코드를 유지하면 해당 박스를 갱신합니다. 새 코드는 신규 박스로 추가됩니다. 중복 코드는 반영하지 않습니다.')],
+    [uiText('치수 / 중량'), uiText('치수는 m, 중량은 kg입니다. 수량은 기본수량이며 이번 적재 선택 수량과 다릅니다.')],
+    [uiText('상부 허용하중(kg)'), uiText('위에 놓이는 화물의 누적 허용중량입니다. 0은 상부 적재 금지, 빈칸은 강도 미확인이며 계산 시 1단·상부하중 0kg로 제한합니다. 파렛트 허용중량과 다릅니다.')],
+    [uiText('최대적층단'), uiText('1 이상의 정수 또는 빈칸(별도 제한 없음)을 입력하세요.')],
+    [uiText('재질'), uiText('{0} 중 하나 또는 빈칸. 재질만으로는 상부 허용하중이 바뀌지 않습니다.', [CARTON_MATERIAL_ORDER.map(key => uiText(CARTON_MATERIALS[key].label)).join(', ')])],
+    [uiText('상부허용하중 출처'), uiText("'{0}'이면 상부 허용하중이 재질 추정값(시험값 아님)이라는 표시입니다. 실측·제조사 값으로 바꾸면 이 칸을 비우세요.", [uiText(MATERIAL_ESTIMATE_LABEL)])],
+    [uiText('재업로드'), uiText('Boxes 시트를 첫 번째로 유지하고 수정한 엑셀 업로드를 사용하세요. 삭제한 행은 기존 목록에서 삭제되지 않습니다.')],
+    [uiText('기존 정보'), uiText('이 양식에 없는 취급 제한·색상 등은 같은 코드로 업로드할 때 기존 등록값을 유지합니다. 전체 백업 파일은 아닙니다.')],
+    [uiText('오류 / 재계산'), uiText('오류 행은 제외하고 정상 행만 반영합니다. 직전 변경 되돌리기가 가능합니다. 수정 후 포장 확정과 자동 적재를 다시 실행하세요.')],
   ]);
   guide['!cols'] = [{ wch: 25 }, { wch: 110 }];
-  XLSX.utils.book_append_sheet(workbook, guide, '수정 안내');
+  XLSX.utils.book_append_sheet(workbook, guide, uiText('수정 안내'));
   return workbook;
 }
 

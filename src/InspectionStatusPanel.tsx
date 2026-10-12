@@ -1,3 +1,4 @@
+import { uiText as uiT, uiMessage, useUiLanguage } from './uiLanguage';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -60,20 +61,21 @@ function matchingCertification(target: PhysicsTarget | undefined): InertiaCertif
 }
 
 function physicsScenarioLabel(scenario: PhysicsScenario) {
-  if (scenario === 'settle') return '정적 중력';
-  if (scenario === 'braking') return '급제동 0.50g';
-  return '횡가속 0.35g';
+  if (scenario === 'settle') return uiT("정적 중력");
+  if (scenario === 'braking') return uiT("급제동 0.50g");
+  return uiT("횡가속 0.35g");
 }
 
 function toneLabel(tone: Tone) {
-  if (tone === 'pass') return '통과';
-  if (tone === 'warning') return '확인';
-  if (tone === 'danger') return '위험';
-  if (tone === 'running') return '진행';
-  return '대기';
+  if (tone === 'pass') return uiT("통과");
+  if (tone === 'warning') return uiT("확인");
+  if (tone === 'danger') return uiT("위험");
+  if (tone === 'running') return uiT("진행");
+  return uiT("대기");
 }
 
 export default function InspectionStatusPanel() {
+  const language = useUiLanguage();
   const initialTarget = currentTarget();
   const initialPhysics = readFinalPhysicsValidation();
 
@@ -258,75 +260,75 @@ export default function InspectionStatusPanel() {
     return [
       {
         step: 1,
-        label: '적재 계산',
-        note: placements ? `${placements} EA · ${weight.toLocaleString()} kg` : '최종 적재 진행을 실행하세요.',
-        status: placements ? '완료' : '대기',
+        label: uiT("적재 계산"),
+        note: placements ? `${placements} EA · ${weight.toLocaleString()} kg` : uiT("최종 적재 진행을 실행하세요."),
+        status: placements ? uiT("완료") : uiT("대기"),
         tone: placements ? 'pass' : 'pending',
       },
       {
         step: 2,
-        label: '제약 조건',
-        note: constraintFail ? '실패 항목 있음' : constraintWarn ? '현장 확인 항목 있음' : placements ? '중량·충돌·높이·하중 확인' : '적재 계산 후 검사',
-        status: constraintFail ? '위험' : constraintWarn ? '확인' : placements ? '통과' : '대기',
+        label: uiT("제약 조건"),
+        note: constraintFail ? uiT("실패 항목 있음") : constraintWarn ? uiT("현장 확인 항목 있음") : placements ? uiT("중량·충돌·높이·하중 확인") : uiT("적재 계산 후 검사"),
+        status: constraintFail ? uiT("위험") : constraintWarn ? uiT("확인") : placements ? uiT("통과") : uiT("대기"),
         tone: constraintFail ? 'danger' : constraintWarn ? 'warning' : placements ? 'pass' : 'pending',
       },
       {
         step: 3,
-        label: '무보강 물리 검증',
+        label: uiT("무보강 물리 검증"),
         note: physicsError
-          ? `Rapier 실패 · ${physicsError}`
+          ? uiT("Rapier 실패 · {0}", [uiMessage(physicsError)])
           : physicsDone && physicsResult
-            ? `무보강 Rapier ${physicsResult.score}점 · 불안정 ${physicsUnstable}건 · ${physicsResult.settled ? '정지 확인' : '잔류 움직임 감지'}${baselineUnstable ? ' · 최종 보강 조건과 별도' : ''}`
-            : placements ? '최종 배치에 정적 중력·급제동·횡가속 적용' : '적재 계산 후 검사',
-        status: physicsError ? '실패' : physicsDone ? baselineUnstable ? '보강 필요' : '기준 검사 완료' : '대기',
+            ? uiT("무보강 Rapier {0}점 · 불안정 {1}건 · {2}{3}", [physicsResult.score, physicsUnstable, physicsResult.settled ? uiT("정지 확인") : uiT("잔류 움직임 감지"), baselineUnstable ? uiT(" · 최종 보강 조건과 별도") : ''])
+            : placements ? uiT("최종 배치에 정적 중력·급제동·횡가속 적용") : uiT("적재 계산 후 검사"),
+        status: physicsError ? uiT("실패") : physicsDone ? baselineUnstable ? uiT("보강 필요") : uiT("기준 검사 완료") : uiT("대기"),
         tone: physicsError ? 'danger' : physicsDone ? baselineUnstable ? 'warning' : 'pass' : 'pending',
       },
       {
         step: 4,
-        label: '최종 보강 검증',
+        label: uiT("최종 보강 검증"),
         note: acceptedCertification
-          ? `${acceptedCertification.securing.levelLabel} · 관성 ${acceptedCertification.testedScenarios}/3 · ${physicsState?.status === 'passed' ? '보강 물리 4종 완료' : physicsState?.reasons.join(' · ')}`
-          : physicsDone ? 'Rapier 완료 · 관성 3종 검사 대기' : '물리 검증 완료 후 실행',
+          ? uiT("{0} · 관성 {1}/3 · {2}", [uiT(acceptedCertification.securing.levelLabel), acceptedCertification.testedScenarios, physicsState?.status === 'passed' ? uiT("보강 물리 4종 완료") : (physicsState?.reasons.map(reason => uiMessage(reason)).join(' · ') ?? '')])
+          : physicsDone ? uiT("Rapier 완료 · 관성 3종 검사 대기") : uiT("물리 검증 완료 후 실행"),
         status: acceptedCertification
-          ? physicsState?.status === 'failed' ? '위험' : physicsState?.status !== 'passed' ? '물리검증 미완료' : approval === 'pass' ? '통과' : approval === 'caution' ? '보완 권장' : approval === 'danger' ? '위험' : '진행'
-          : '대기',
+          ? physicsState?.status === 'failed' ? uiT("위험") : physicsState?.status !== 'passed' ? uiT("물리검증 미완료") : approval === 'pass' ? uiT("통과") : approval === 'caution' ? uiT("보완 권장") : approval === 'danger' ? uiT("위험") : uiT("진행")
+          : uiT("대기"),
         tone: physicsFailed ? 'danger' : acceptedCertification && physicsState?.status !== 'passed' ? 'warning' : inertiaTone,
       },
       {
         step: 5,
-        label: '작업지시서',
+        label: uiT("작업지시서"),
         note: verified
-          ? '현재 보강 물리·관성 통과 · 표시된 보강자재·설치 조건 적용 필요'
-          : constraintFail ? '적재 제약 실패 · 출고 차단 · 검토용 문서만 가능'
-            : physicsState?.status !== 'passed' ? `${physicsState?.reasons.join(' · ') ?? '물리검증 대기'} · 출고 차단 · 검토용 문서만 가능`
-              : '보강 관성 PASS 미확인 · 출고 차단 · 검토용 문서만 가능',
-        status: verified ? '보강 조건부 발급' : placements ? '검토용만 가능' : '대기',
+          ? uiT("현재 보강 물리·관성 통과 · 표시된 보강자재·설치 조건 적용 필요")
+          : constraintFail ? uiT("적재 제약 실패 · 출고 차단 · 검토용 문서만 가능")
+            : physicsState?.status !== 'passed' ? uiT("{0} · 출고 차단 · 검토용 문서만 가능", [physicsState?.reasons.map(reason => uiMessage(reason)).join(' · ') ?? uiT("물리검증 대기")])
+              : uiT("보강 관성 PASS 미확인 · 출고 차단 · 검토용 문서만 가능"),
+        status: verified ? uiT("보강 조건부 발급") : placements ? uiT("검토용만 가능") : uiT("대기"),
         tone: workTone,
       },
     ];
-  }, [target, checks, physicsDone, physicsResult, physicsError, finalPhysicsSignature, acceptedCertification]);
+  }, [target, checks, physicsDone, physicsResult, physicsError, finalPhysicsSignature, acceptedCertification, language]);
 
   const displayedRows = useMemo(() => {
     if (workflowStage === null || workflowStage === 5) return rows;
     return rows.map(row => {
       if (row.step < workflowStage) {
         if (row.tone === 'danger' || row.tone === 'warning') return row;
-        return { ...row, status: row.step === 1 || row.step === 3 ? '완료' : '통과', tone: 'pass' as Tone };
+        return { ...row, status: row.step === 1 || row.step === 3 ? uiT("완료") : uiT("통과"), tone: 'pass' as Tone };
       }
       if (row.step === workflowStage) {
         if (row.tone === 'danger') return row;
         const note = row.step === 1
-          ? '최종 적재안을 계산하고 있습니다.'
+          ? uiT("최종 적재안을 계산하고 있습니다.")
           : row.step === 2
-            ? '중량·충돌·높이·하중 조건을 확인합니다.'
+            ? uiT("중량·충돌·높이·하중 조건을 확인합니다.")
             : row.step === 3
-              ? `Rapier ${physicsScenarioLabel(physicsScenario)} · ${physicsProgress}% 실제 계산 중`
-              : '출발 0.30g → 급정거 0.50g → 급회전 0.35g 검사 중';
-        return { ...row, note, status: '진행', tone: 'running' as Tone };
+              ? uiT("Rapier {0} · {1}% 실제 계산 중", [physicsScenarioLabel(physicsScenario), physicsProgress])
+              : uiT("출발 0.30g → 급정거 0.50g → 급회전 0.35g 검사 중");
+        return { ...row, note, status: uiT("진행"), tone: 'running' as Tone };
       }
-      return { ...row, status: '대기', tone: 'pending' as Tone };
+      return { ...row, status: uiT("대기"), tone: 'pending' as Tone };
     });
-  }, [rows, workflowStage, physicsProgress, physicsScenario]);
+  }, [rows, workflowStage, physicsProgress, physicsScenario, language]);
 
   if (!host) return null;
 
@@ -340,13 +342,13 @@ export default function InspectionStatusPanel() {
     <section className="dashboard-card inspection-flow-card" aria-labelledby="inspection-flow-title">
       <div className="inspection-flow-head">
         <div>
-          <h2 id="inspection-flow-title">검사 진행 상황</h2>
-          <span>적재 → 제약 → 무보강 Rapier → 최종 보강 검증 → 작업지시서</span>
+          <h2 id="inspection-flow-title">{uiT("검사 진행 상황")}</h2>
+          <span>{uiT("적재 → 제약 → 무보강 Rapier → 최종 보강 검증 → 작업지시서")}</span>
         </div>
         <b className={`inspection-overall tone-${current.tone}`}>{toneLabel(current.tone)}</b>
       </div>
       <table className="inspection-status-table">
-        <thead><tr><th>순서</th><th>검사</th><th>상황</th></tr></thead>
+        <thead><tr><th>{uiT("순서")}</th><th>{uiT("검사")}</th><th>{uiT("상황")}</th></tr></thead>
         <tbody>{displayedRows.map(row => (
           <tr key={row.step} className={`tone-${row.tone}`}>
             <td><span className="inspection-step-no">{row.step}</span></td>

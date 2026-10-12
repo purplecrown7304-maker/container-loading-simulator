@@ -1,3 +1,5 @@
+import { uiWorkflowText } from './workflowPresentation';
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { compareLoadingStrategies, type StrategyComparison } from './engine/strategyComparison';
@@ -12,6 +14,7 @@ type LoadingWindow = Window & { __containerLoadingLatestResult?: LoadingDetail }
 const strategyOrder: LoadingStrategy[] = ['capacity', 'stability', 'unloading'];
 
 export default function StrategyComparisonPanel() {
+  useUiLanguage();
   const [target, setTarget] = useState<Element | null>(null);
   const [detail, setDetail] = useState<LoadingDetail | null>(() => typeof window === 'undefined' ? null : ((window as LoadingWindow).__containerLoadingLatestResult ?? null));
   const [active, setActive] = useState<LoadingStrategy>(() => {
@@ -61,38 +64,39 @@ export default function StrategyComparisonPanel() {
   if (!target || !detail) return null;
 
   return createPortal(<section className="dashboard-card strategy-panel">
-    <div className="card-heading-row"><h2>10. 적재 전략 비교</h2><span>{best ? `추천 ${strategyOrder.indexOf(best) + 1}안` : ''}</span></div>
-    <p className="strategy-help">같은 화물을 3가지 목표로 다시 계산합니다. 추천 점수는 모든 안에 동일한 평가식을 적용한 의사결정 보조값입니다.</p>
+    <div className="card-heading-row"><h2>{uiText("10. 적재 전략 비교")}</h2><span>{best ? uiText("추천 {0}안", [strategyOrder.indexOf(best) + 1]) : ''}</span></div>
+    <p className="strategy-help">{uiText("같은 화물을 3가지 목표로 다시 계산합니다. 추천 점수는 모든 안에 동일한 평가식을 적용한 의사결정 보조값입니다.")}</p>
     <div className="strategy-grid">
       {comparisons.map((item) => <StrategyCard key={item.strategy} item={item} active={active === item.strategy} best={best === item.strategy} onApply={() => applyStrategy(item.strategy)} />)}
     </div>
-    <button className="strategy-priority-toggle" onClick={() => setEditingPriorities(v => !v)}>{editingPriorities ? '하역 순서 닫기' : '하역 순서 설정'}</button>
+    <button className="strategy-priority-toggle" onClick={() => setEditingPriorities(v => !v)}>{editingPriorities ? uiText("하역 순서 닫기") : uiText("하역 순서 설정")}</button>
     {editingPriorities && <div className="unload-priority-editor">
-      <div className="priority-guide"><b>하역 순서</b><span>1 = 가장 먼저 꺼냄(문쪽) · 숫자가 클수록 나중에 꺼냄(안쪽)</span></div>
+      <div className="priority-guide"><b>{uiText("하역 순서")}</b><span>{uiText("1 = 가장 먼저 꺼냄(문쪽) · 숫자가 클수록 나중에 꺼냄(안쪽)")}</span></div>
       {detail.cargo.map(item => <label key={item.id}><span><b>{item.id}</b>{item.name}</span><input type="number" min="0" step="1" value={item.unloadPriority ?? 0} onChange={e => updatePriority(item.id, Number(e.target.value))} /></label>)}
     </div>}
-    <button className="strategy-fleet-toggle" onClick={() => setShowFleetPlan(v => !v)}>{showFleetPlan ? '다중 컨테이너 계획 닫기' : '필요 컨테이너 대수 계산'}</button>
+    <button className="strategy-fleet-toggle" onClick={() => setShowFleetPlan(v => !v)}>{showFleetPlan ? uiText("다중 컨테이너 계획 닫기") : uiText("필요 컨테이너 대수 계산")}</button>
     {showFleetPlan && fleetPlan && <div className="fleet-plan">
-      <div className="fleet-summary"><b>{fleetPlan.complete ? `${fleetPlan.containers.length}대로 전체 적재 가능` : `${fleetPlan.containers.length}대 계산 후 잔량 존재`}</b><span>총 {fleetPlan.totalLoaded}/{fleetPlan.totalRequested} EA 적재 · 잔량 {fleetPlan.totalRemaining} EA</span></div>
-      <div className="fleet-list">{fleetPlan.containers.map(item => <article key={item.index}><b>{item.index}호 컨테이너</b><span>{item.loadedCount} EA</span><small>부피 {item.fillRatePct.toFixed(1)}% · 중량 {item.weightRatePct.toFixed(1)}% · 다음 잔량 {item.remainingCount} EA</small></article>)}</div>
-      {fleetPlan.stoppedReason && <p className="fleet-warning">{fleetPlan.stoppedReason}</p>}
+      <div className="fleet-summary"><b>{fleetPlan.complete ? uiText("{0}대로 전체 적재 가능", [fleetPlan.containers.length]) : uiText("{0}대 계산 후 잔량 존재", [fleetPlan.containers.length])}</b><span>{uiText("총 {0}/{1} EA 적재 · 잔량 {2} EA", [fleetPlan.totalLoaded, fleetPlan.totalRequested, fleetPlan.totalRemaining])}</span></div>
+      <div className="fleet-list">{fleetPlan.containers.map(item => <article key={item.index}><b>{uiText("{0}호 컨테이너", [item.index])}</b><span>{item.loadedCount} EA</span><small>{uiText("부피 {0}% · 중량 {1}% · 다음 잔량 {2} EA", [item.fillRatePct.toFixed(1), item.weightRatePct.toFixed(1), item.remainingCount])}</small></article>)}</div>
+      {fleetPlan.stoppedReason && <p className="fleet-warning">{uiWorkflowText(fleetPlan.stoppedReason)}</p>}
     </div>}
   </section>, target);
 }
 
 function StrategyCard({ item, active, best, onApply }: { item: StrategyComparison; active: boolean; best: boolean; onApply: () => void }) {
+  useUiLanguage();
   return <article className={`strategy-card ${active ? 'active' : ''}`}>
-    <div className="strategy-card-head"><div><b>{item.label}</b>{best && <em>추천</em>}</div><strong>{item.overallScore.toFixed(0)}점</strong></div>
-    <p>{item.description}</p>
+    <div className="strategy-card-head"><div><b>{uiText(item.label)}</b>{best && <em>{uiText("추천")}</em>}</div><strong>{uiText("{0}점", [item.overallScore.toFixed(0)])}</strong></div>
+    <p>{uiText(item.description)}</p>
     <div className="strategy-metrics">
-      <span>부피 적재율 <b>{item.fillRatePct.toFixed(1)}%</b></span>
-      <span>수량 적재율 <b>{item.loadedRatePct.toFixed(1)}%</b></span>
-      <span>안정성 <b>{item.stabilityScore.toFixed(0)}</b></span>
-      <span>균형 <b>{item.balanceScore.toFixed(0)}</b></span>
-      <span>최대 바닥하중 <b>{item.maxFloorLoadKgPerM2.toFixed(0)} kg/m²</b></span>
-      <span>미적재 <b>{item.remainingCount} EA</b></span>
-      {item.strategy === 'unloading' && <span>하역 편의 <b>{item.unloadingConfigured ? item.unloadingScore.toFixed(0) : '순서 미설정'}</b></span>}
+      <span>{uiText("부피 적재율")}{' '}<b>{item.fillRatePct.toFixed(1)}%</b></span>
+      <span>{uiText("수량 적재율")}{' '}<b>{item.loadedRatePct.toFixed(1)}%</b></span>
+      <span>{uiText("안정성")}{' '}<b>{item.stabilityScore.toFixed(0)}</b></span>
+      <span>{uiText("균형")}{' '}<b>{item.balanceScore.toFixed(0)}</b></span>
+      <span>{uiText("최대 바닥하중")}{' '}<b>{item.maxFloorLoadKgPerM2.toFixed(0)} kg/m²</b></span>
+      <span>{uiText("미적재")}{' '}<b>{item.remainingCount} EA</b></span>
+      {item.strategy === 'unloading' && <span>{uiText("하역 편의")}{' '}<b>{item.unloadingConfigured ? item.unloadingScore.toFixed(0) : uiText("순서 미설정")}</b></span>}
     </div>
-    <button className={active ? 'strategy-applied' : ''} onClick={onApply}>{active ? '현재 적용 중' : '이 전략 적용'}</button>
+    <button className={active ? 'strategy-applied' : ''} onClick={onApply}>{active ? uiText("현재 적용 중") : uiText("이 전략 적용")}</button>
   </article>;
 }

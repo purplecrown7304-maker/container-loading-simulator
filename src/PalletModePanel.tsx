@@ -1,3 +1,4 @@
+import { uiText, uiMessage, useUiLanguage } from './uiLanguage';
 import LoadingViewer, { type LoadingViewerProps } from './LoadingViewer';
 import { palletModelKey } from './palletModel';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
@@ -52,6 +53,7 @@ function palletForPlacement(result: OptimizedPalletPackingResult, box: Placement
 }
 
 function PalletMiniPreview({ pallet, modelKey }: { pallet: PalletLoad; modelKey: ReturnType<typeof palletModelKey> }) {
+  useUiLanguage();
   const scene = useMemo(() => {
     const placements = pallet.cargoPlacements.map(box => ({ ...box, x: box.x - pallet.x, y: box.y - pallet.y, z: box.z - pallet.z }));
     return {
@@ -60,7 +62,7 @@ function PalletMiniPreview({ pallet, modelKey }: { pallet: PalletLoad; modelKey:
       supports: [{ modelKey, id: `PALLET-${pallet.palletIndex}`, x: 0, y: 0, z: 0, length: pallet.length, width: pallet.width, height: pallet.height, weightKg: pallet.totalWeightKg - pallet.cargoWeightKg }],
     };
   }, [pallet, modelKey]);
-  return <div className="pallet-mini-canvas"><LoadingViewer {...scene} geometry="platform" preview compact showCg={false} title={`팔레트 ${pallet.palletIndex} 상세`} /></div>;
+  return <div className="pallet-mini-canvas"><LoadingViewer {...scene} geometry="platform" preview compact showCg={false} title={uiText("팔레트 {0} 상세", [pallet.palletIndex])} /></div>;
 }
 
 function clearanceValues(container: ContainerSpec, placements: Placement[]) {
@@ -70,6 +72,7 @@ function clearanceValues(container: ContainerSpec, placements: Placement[]) {
 }
 
 function PalletContents({ pallet, cargo, onClose, modelKey }: { pallet: PalletLoad; cargo: CargoItem[]; onClose: () => void; modelKey: ReturnType<typeof palletModelKey> }) {
+  useUiLanguage();
   const groups = useMemo(() => {
     const map = new Map<string, number>();
     pallet.cargoPlacements.forEach((box) => map.set(box.cargoId, (map.get(box.cargoId) ?? 0) + 1));
@@ -85,24 +88,24 @@ function PalletContents({ pallet, cargo, onClose, modelKey }: { pallet: PalletLo
     <div className="pallet-content-popover" onContextMenu={(event) => event.preventDefault()}>
       <header>
         <div>
-          <b>AUTO-PALLET-{String(pallet.palletIndex).padStart(2, '0')} 적재 정보</b>
-          <small>{pallet.stackColumn}열 · {pallet.stackLevel}단</small>
+          <b>{uiText("AUTO-PALLET-{0} 적재 정보", [String(pallet.palletIndex).padStart(2, '0')])}</b>
+          <small>{uiText("{0}열 · {1}단", [pallet.stackColumn, pallet.stackLevel])}</small>
         </div>
         <button onClick={onClose}>×</button>
       </header>
       <div className="pallet-content-metrics">
-        <div><span>총 적재수량</span><strong>{pallet.cargoPlacements.length} EA</strong></div>
-        <div><span>총중량</span><strong>{pallet.totalWeightKg.toFixed(0)} kg</strong></div>
-        <div><span>팔레트 규격</span><strong>{Math.round(pallet.length * 1000)}×{Math.round(pallet.width * 1000)}</strong></div>
-        <div><span>적재 높이</span><strong>{Math.round((maxTop - pallet.z) * 1000)} mm</strong></div>
+        <div><span>{uiText("총 적재수량")}</span><strong>{pallet.cargoPlacements.length} EA</strong></div>
+        <div><span>{uiText("총중량")}</span><strong>{pallet.totalWeightKg.toFixed(0)} kg</strong></div>
+        <div><span>{uiText("팔레트 규격")}</span><strong>{Math.round(pallet.length * 1000)}×{Math.round(pallet.width * 1000)}</strong></div>
+        <div><span>{uiText("적재 높이")}</span><strong>{Math.round((maxTop - pallet.z) * 1000)} mm</strong></div>
       </div>
       <PalletMiniPreview pallet={pallet} modelKey={modelKey} />
-      {restrictions.length > 0 && <section aria-label="이 팔레트의 박스 적층 제한">
-        <h4>위로 더 쌓을 수 없는 박스</h4>
-        {restrictions.map((entry, index) => <p key={index}><b>{entry.name}</b><br />{entry.limits}<br /><small>{entry.reason}</small></p>)}
-        <p>현재 적용된 제한입니다. 박스 관리에서 실제 허용하중·최대 적층단을 확인한 뒤 포장 확정과 자동 적재를 다시 실행하세요.</p>
+      {restrictions.length > 0 && <section aria-label={uiText("이 팔레트의 박스 적층 제한")}>
+        <h4>{uiText("위로 더 쌓을 수 없는 박스")}</h4>
+        {restrictions.map((entry, index) => <p key={index}><b>{entry.name}</b><br />{entry.limits.split(' · ').map(part => uiMessage(part)).join(' · ')}<br /><small>{uiMessage(entry.reason)}</small></p>)}
+        <p>{uiText("현재 적용된 제한입니다. 박스 관리에서 실제 허용하중·최대 적층단을 확인한 뒤 포장 확정과 자동 적재를 다시 실행하세요.")}</p>
       </section>}
-      <h4>팔레트 속 내용</h4>
+      <h4>{uiText("팔레트 속 내용")}</h4>
       <div className="pallet-content-list">
         {groups.map(([id, count]) => {
           const item = cargo.find((candidate) => candidate.id === id);
@@ -119,14 +122,15 @@ function PalletContents({ pallet, cargo, onClose, modelKey }: { pallet: PalletLo
         })}
       </div>
       <div className="pallet-content-foot">
-        <span>화물중량 {pallet.cargoWeightKg.toFixed(0)}kg</span>
-        <span>팔레트/포장 {Math.max(0, pallet.totalWeightKg - pallet.cargoWeightKg).toFixed(1)}kg</span>
+        <span>{uiText("화물중량 {0}kg", [pallet.cargoWeightKg.toFixed(0)])}</span>
+        <span>{uiText("팔레트/포장 {0}kg", [Math.max(0, pallet.totalWeightKg - pallet.cargoWeightKg).toFixed(1)])}</span>
       </div>
     </div>
   );
 }
 
 export default function PalletModePanel({ container, cargo, runToken, mode = 'pallets', inputKey, onSceneChange, onRunningChange }: Props) {
+  useUiLanguage();
   const [spec, setSpec] = useState<PalletSpec>(() => palletJobSpec(resolvePalletType()));
   const [calculated, setCalculated] = useState<{ key: string; result: OptimizedPalletPackingResult | MixedModePackingResult } | null>(null);
   const result = (calculated?.key === inputKey ? calculated.result : EMPTY_RESULT) as OptimizedPalletPackingResult | MixedModePackingResult;
@@ -316,47 +320,47 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       <section className="pallet-mode-panel pallet-mode-panel-inline">
         <div className="pallet-view-stack">
           <div className="pallet-preview">
-            <div className="pallet-info-dock" aria-label="팔레트 적재 정보">
+            <div className="pallet-info-dock" aria-label={uiText("팔레트 적재 정보")}>
               <div className="pallet-dock-summary">
-                <b className="dock-label">적재 요약</b>
-                <span>팔레트 <b>{result.palletCount}</b></span>
-                <span>화물 <b>{result.placements.length} EA</b></span>
-                <span>중량 <b>{result.totalPalletizedWeightKg.toFixed(0)} kg</b></span>
-                <span>배치 <b>{result.optimization.selectedStackTarget}단 · 바닥 {result.optimization.floorPositions}열</b></span>
+                <b className="dock-label">{uiText("적재 요약")}</b>
+                <span>{uiText("팔레트")}{' '}<b>{result.palletCount}</b></span>
+                <span>{uiText("화물")}{' '}<b>{result.placements.length} EA</b></span>
+                <span>{uiText("중량")}{' '}<b>{result.totalPalletizedWeightKg.toFixed(0)} kg</b></span>
+                <span>{uiText("배치")}{' '}<b>{uiText("{0}단 · 바닥 {1}열", [result.optimization.selectedStackTarget, result.optimization.floorPositions])}</b></span>
               </div>
               {clearances && (
                 <div className="reference-clearance-strip">
-                  <b className="dock-label">여유 공간</b>
-                  <span>안쪽 <b>{clearances.back}</b></span>
-                  <span>문쪽 <b>{clearances.door}</b></span>
-                  <span>좌측 <b>{clearances.left}</b></span>
-                  <span>우측 <b>{clearances.right}</b></span>
-                  <span>천장 <b>{clearances.top}</b></span>
+                  <b className="dock-label">{uiText("여유 공간")}</b>
+                  <span>{uiText("안쪽")}{' '}<b>{clearances.back}</b></span>
+                  <span>{uiText("문쪽")}{' '}<b>{clearances.door}</b></span>
+                  <span>{uiText("좌측")}{' '}<b>{clearances.left}</b></span>
+                  <span>{uiText("우측")}{' '}<b>{clearances.right}</b></span>
+                  <span>{uiText("천장")}{' '}<b>{clearances.top}</b></span>
                 </div>
               )}
               {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip">
-                <b className="dock-label">관성 보강 적용</b>
-                <span>밴딩 {securingUsage.bandingStraps}줄</span>
-                <span>각대 {securingUsage.cornerGuards}EA</span>
-                <span>랩핑 {securingUsage.wrappingLengthM.toFixed(0)}m</span>
-                <span>미끄럼방지 {securingUsage.antiSlipMats}EA</span>
-                {securingUsage.loadBars > 0 && <span>고정바 {securingUsage.loadBars}EA</span>}
+                <b className="dock-label">{uiText("관성 보강 적용")}</b>
+                <span>{uiText("밴딩 {0}줄", [securingUsage.bandingStraps])}</span>
+                <span>{uiText("각대 {0}EA", [securingUsage.cornerGuards])}</span>
+                <span>{uiText("랩핑 {0}m", [securingUsage.wrappingLengthM.toFixed(0)])}</span>
+                <span>{uiText("미끄럼방지 {0}EA", [securingUsage.antiSlipMats])}</span>
+                {securingUsage.loadBars > 0 && <span>{uiText("고정바 {0}EA", [securingUsage.loadBars])}</span>}
               </div>}
             </div>
             {opened && <PalletContents pallet={opened} cargo={cargo} modelKey={modelKey} onClose={() => setOpened(null)} />}
           </div>
         </div>
         <div className="pallet-metrics">
-          <div><span>사용 팔레트</span><strong>{result.palletCount}</strong></div>
-          <div><span>적재 화물</span><strong>{result.placements.length} EA</strong></div>
-          {'mixed' in result && <div><span>직접 적재 박스</span><strong>{result.mixed.directBoxCount} EA</strong></div>}
-          {'mixed' in result && <div><span>혼합 절감 팔레트</span><strong>{result.mixed.demotedPalletCount}</strong></div>}
-          <div><span>적층 팔레트</span><strong>{result.stackedPallets}</strong></div>
-          <div><span>총 팔레트화 중량</span><strong>{result.totalPalletizedWeightKg.toFixed(0)} kg</strong></div>
-          <div><span>전역 최적화</span><strong>{result.optimization.selectedStackTarget}단 후보 · 바닥 {result.optimization.floorPositions}열</strong></div>
-          <div><span>재배치 / 병합</span><strong>{result.optimization.redistributedForLowUtilization ? '균등분산' : '기본배치'} · {result.optimization.consolidationPasses}회</strong></div>
-          <div><span>관성 보강</span><strong>{securingUsage?.levelLabel ?? '결과 보기 전 검증'}</strong></div>
-          <div><span>보조자재 중량</span><strong>{securingUsage ? `약 ${securingUsage.estimatedNonCargoWeightKg.toFixed(1)} kg` : '-'}</strong></div>
+          <div><span>{uiText("사용 팔레트")}</span><strong>{result.palletCount}</strong></div>
+          <div><span>{uiText("적재 화물")}</span><strong>{result.placements.length} EA</strong></div>
+          {'mixed' in result && <div><span>{uiText("직접 적재 박스")}</span><strong>{result.mixed.directBoxCount} EA</strong></div>}
+          {'mixed' in result && <div><span>{uiText("혼합 절감 팔레트")}</span><strong>{result.mixed.demotedPalletCount}</strong></div>}
+          <div><span>{uiText("적층 팔레트")}</span><strong>{result.stackedPallets}</strong></div>
+          <div><span>{uiText("총 팔레트화 중량")}</span><strong>{result.totalPalletizedWeightKg.toFixed(0)} kg</strong></div>
+          <div><span>{uiText("전역 최적화")}</span><strong>{uiText("{0}단 후보 · 바닥 {1}열", [result.optimization.selectedStackTarget, result.optimization.floorPositions])}</strong></div>
+          <div><span>{uiText("재배치 / 병합")}</span><strong>{uiText("{0} · {1}회", [result.optimization.redistributedForLowUtilization ? uiText('균등분산') : uiText('기본배치'), result.optimization.consolidationPasses])}</strong></div>
+          <div><span>{uiText("관성 보강")}</span><strong>{securingUsage ? uiText(securingUsage.levelLabel) : uiText("결과 보기 전 검증")}</strong></div>
+          <div><span>{uiText("보조자재 중량")}</span><strong>{securingUsage ? uiText("약 {0} kg", [securingUsage.estimatedNonCargoWeightKg.toFixed(1)]) : '-'}</strong></div>
         </div>
       </section>
     </div>

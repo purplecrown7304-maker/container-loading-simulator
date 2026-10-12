@@ -1,8 +1,10 @@
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { EXCEL_IMPORT_EVENT } from './uiEvents';
 
 export default function UserBoxExcelAccess() {
+  useUiLanguage();
   const [host, setHost] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -16,7 +18,7 @@ export default function UserBoxExcelAccess() {
           return;
         }
         actions.querySelectorAll<HTMLButtonElement>('button[disabled]').forEach(button => {
-          if ((button.textContent ?? '').includes('관리자 전용')) button.style.display = 'none';
+          if (['ko', 'en', 'vi'].some(locale => (button.textContent ?? '').includes(uiText('관리자 전용', [], locale as 'ko' | 'en' | 'vi')))) button.style.display = 'none';
         });
         let nextHost = actions.querySelector<HTMLElement>('.user-box-excel-access-host');
         if (!nextHost) {
@@ -43,9 +45,9 @@ export default function UserBoxExcelAccess() {
       type="button"
       className="user-box-excel-add"
       onClick={() => window.dispatchEvent(new CustomEvent(EXCEL_IMPORT_EVENT, { detail: { action: 'upload', mode: 'merge' } }))}
-      title="일반 이용자도 Excel 파일로 현재 적재 목록에 신규 박스를 추가할 수 있습니다."
+      title={uiText("일반 이용자도 Excel 파일로 현재 적재 목록에 신규 박스를 추가할 수 있습니다.")}
     >
-      Excel로 신규 박스 추가
+      {uiText('Excel로 신규 박스 추가')}
     </button>,
     host,
   );

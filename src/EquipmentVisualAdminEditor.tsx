@@ -1,3 +1,4 @@
+import { uiText, uiMessage, useUiLanguage } from './uiLanguage';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT, isAdminSession } from './adminAccess';
@@ -13,6 +14,7 @@ import {
 import { TRANSPORT_EQUIPMENT_EVENT, useTransportEquipment } from './transportEquipment';
 
 export default function EquipmentVisualAdminEditor() {
+  useUiLanguage();
   const equipment = useTransportEquipment();
   const inputRef = useRef<HTMLInputElement>(null);
   const [isAdmin, setIsAdmin] = useState(() => isAdminSession());
@@ -162,12 +164,12 @@ export default function EquipmentVisualAdminEditor() {
   } as const;
 
   return createPortal(
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', padding: '8px 10px', border: '1px dashed #c9d0d8', borderRadius: 10, background: '#fafbfc' }} aria-label="관리자 적재공간 이미지 관리">
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', padding: '8px 10px', border: '1px dashed #c9d0d8', borderRadius: 10, background: '#fafbfc' }} aria-label={uiText("관리자 적재공간 이미지 관리")}>
       <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={event => void upload(event.target.files?.[0])} />
-      <span style={{ marginRight: 'auto', color: '#6f7781', fontSize: 11, fontWeight: 700 }}>관리자 이미지 관리 · Supabase 서버 저장</span>
-      <button type="button" style={buttonStyle} onClick={() => inputRef.current?.click()}>이미지 변경</button>
-      <button type="button" style={buttonStyle} onClick={() => void restore()}>기본 그림 복원</button>
-      {message && <small style={{ flexBasis: '100%', color: '#66707a', fontSize: 10.5, textAlign: 'right' }}>{message}</small>}
+      <span style={{ marginRight: 'auto', color: '#6f7781', fontSize: 11, fontWeight: 700 }}>{uiText("관리자 이미지 관리 · Supabase 서버 저장")}</span>
+      <button type="button" style={buttonStyle} onClick={() => inputRef.current?.click()}>{uiText("이미지 변경")}</button>
+      <button type="button" style={buttonStyle} onClick={() => void restore()}>{uiText("기본 그림 복원")}</button>
+      {message && <small style={{ flexBasis: '100%', color: '#66707a', fontSize: 10.5, textAlign: 'right' }}>{uiMessage(message)}</small>}
     </div>,
     toolbarHost,
   );

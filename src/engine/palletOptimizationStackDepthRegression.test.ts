@@ -46,6 +46,6 @@ describe('pallet optimization configured stack depth regression', () => {
     expect(result.palletCount).toBe(4);
     expect(result.maxUsedStackLevel).toBe(4);
     expect(result.optimization.selectedStackTarget).toBe(4);
-    expect(result.optimization.candidateCount).toBeGreaterThanOrEqual(4);
+    expect(result.optimization.candidateCount).toBe(4);
   });
 });

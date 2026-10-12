@@ -1,4 +1,4 @@
-import { uiText as uiT, useUiLanguage } from './uiLanguage';
+import { uiText as uiT, uiMessage, useUiLanguage } from './uiLanguage';
 import {
   createPhysicsTargetSignature,
   type InertiaReinforcementAttempt,
@@ -19,17 +19,17 @@ function scenarioLabel(value: InertiaScenario) {
 }
 
 function attemptText(attempt: InertiaReinforcementAttempt) {
-  if (!attempt.payloadWithinLimit) return '보조자재 포함 최대중량 초과';
-  if (attempt.passed) return '3종 PASS';
+  if (!attempt.payloadWithinLimit) return uiT("보조자재 포함 최대중량 초과");
+  if (attempt.passed) return uiT("3종 PASS");
   const failed = attempt.scenarios.find(item => !item.passed);
-  if (!failed) return '검증 미완료';
+  if (!failed) return uiT("검증 미완료");
   const detail = [
-    `전체 ${mm(failed.maxHorizontalShiftM)}`,
-    failed.maxCargoRelativeSlipM != null ? `화물미끄럼 ${mm(failed.maxCargoRelativeSlipM)}` : '',
-    failed.maxSupportShiftM != null ? `팔레트이동 ${mm(failed.maxSupportShiftM)}` : '',
-    `기울기 ${failed.maxTiltDeg.toFixed(1)}°`,
+    uiT("전체 {0}", [mm(failed.maxHorizontalShiftM)]),
+    failed.maxCargoRelativeSlipM != null ? uiT("화물미끄럼 {0}", [mm(failed.maxCargoRelativeSlipM)]) : '',
+    failed.maxSupportShiftM != null ? uiT("팔레트이동 {0}", [mm(failed.maxSupportShiftM)]) : '',
+    uiT("기울기 {0}°", [failed.maxTiltDeg.toFixed(1)]),
   ].filter(Boolean).join(' · ');
-  return `${scenarioLabel(failed.scenario)} 실패 · ${detail}`;
+  return uiT("{0} 실패 · {1}", [scenarioLabel(failed.scenario), detail]);
 }
 
 function reductionPercent(before: number, after: number) {
@@ -77,7 +77,7 @@ export default function CertificationResultSummary({ detail }: { detail: Results
 
   return <article className="certification-result-card">
     <div className="certification-result-head">
-      <div><span>INTERNAL INERTIA SIMULATION PASSED</span><b>{uiT("관성 시뮬레이션 3종 내부 기준 통과 · 최종 적재안")}</b><small>{usage.levelLabel}</small></div>
+      <div><span>INTERNAL INERTIA SIMULATION PASSED</span><b>{uiT("관성 시뮬레이션 3종 내부 기준 통과 · 최종 적재안")}</b><small>{uiT(usage.levelLabel)}</small></div>
       <strong>PASS</strong>
     </div>
     <div className="certification-result-kpi">
@@ -90,7 +90,7 @@ export default function CertificationResultSummary({ detail }: { detail: Results
     </div>
 
     {comparison && <section className="certification-effect" aria-label={uiT("보강 전후 관성 비교")}>
-      <div><b>{uiT("보강 효과 비교 ·")} {scenarioLabel(comparison.scenario)}</b><span>{uiT("기본 적재안 →")} {comparison.finalLabel}</span></div>
+      <div><b>{uiT("보강 효과 비교 ·")} {scenarioLabel(comparison.scenario)}</b><span>{uiT("기본 적재안 →")} {uiT(comparison.finalLabel)}</span></div>
       <div className="certification-effect-grid">
         <p><span>{uiT("전체 수평 이동")}</span><b>{mm(comparison.beforeShiftM)} → {mm(comparison.afterShiftM)}</b><small>{reductionPercent(comparison.beforeShiftM, comparison.afterShiftM).toFixed(0)}{uiT("% 감소")}</small></p>
         <p><span>{uiT("기울기")}</span><b>{comparison.beforeTiltDeg.toFixed(1)}° → {comparison.afterTiltDeg.toFixed(1)}°</b><small>{reductionPercent(comparison.beforeTiltDeg, comparison.afterTiltDeg).toFixed(0)}{uiT("% 감소")}</small></p>
@@ -104,7 +104,7 @@ export default function CertificationResultSummary({ detail }: { detail: Results
       <div className="certification-attempt-steps">
         {attempts.map((attempt, index) => <div key={`${attempt.level}-${index}`} className={attempt.passed ? 'passed' : 'failed'}>
           <span>{index + 1}</span>
-          <p><b>{attempt.level === 0 ? uiT("기본 적재안") : attempt.levelLabel}</b><small>{attemptText(attempt)}</small></p>
+          <p><b>{attempt.level === 0 ? uiT("기본 적재안") : uiT(attempt.levelLabel)}</b><small>{attemptText(attempt)}</small></p>
         </div>)}
       </div>
     </section>}
@@ -115,7 +115,7 @@ export default function CertificationResultSummary({ detail }: { detail: Results
         {[...palletPlan.items].sort((a, b) => a.palletIndex - b.palletIndex).map(item => <article key={item.supportId}>
           <header><b>P{item.palletIndex}</b><span>{uiT("적재높이")} {Math.round(item.loadHeightM * 1000)} mm</span></header>
           <p><span>{uiT("밴딩")}</span><b>{item.bandingStraps}{uiT("줄 ·")} {item.bandingLengthM.toFixed(1)}m</b></p>
-          {item.bandingStraps > 0 && <p><span>{uiT("밴딩 방향")}</span><b>{palletBandingLabel(item.bandingStraps)}</b></p>}
+          {item.bandingStraps > 0 && <p><span>{uiT("밴딩 방향")}</span><b>{uiMessage(palletBandingLabel(item.bandingStraps))}</b></p>}
           <p><span>{uiT("각대")}</span><b>{item.cornerGuards}EA · {item.cornerGuardLengthM.toFixed(1)}m</b></p>
           <p><span>{uiT("랩핑")}</span><b>{item.wrappingLengthM > 0 ? `${item.wrappingLengthM.toFixed(1)}m` : '-'}</b></p>
           <p><span>{uiT("미끄럼방지")}</span><b>{item.antiSlipMats > 0 ? `${item.antiSlipMats}EA` : '-'}</b></p>

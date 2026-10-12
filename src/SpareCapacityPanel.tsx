@@ -1,3 +1,5 @@
+import { uiWorkflowText } from './workflowPresentation';
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
@@ -9,6 +11,7 @@ type LoadingDetail = { container: ContainerSpec; cargo: CargoItem[]; result: Loa
 type LoadingWindow = Window & { __containerLoadingLatestResult?: LoadingDetail };
 
 export default function SpareCapacityPanel() {
+  useUiLanguage();
   const [target, setTarget] = useState<Element | null>(null);
   const [detail, setDetail] = useState<LoadingDetail | null>(() =>
     typeof window === 'undefined' ? null : ((window as LoadingWindow).__containerLoadingLatestResult ?? null),
@@ -45,26 +48,26 @@ export default function SpareCapacityPanel() {
   };
 
   return createPortal(<section className="dashboard-card spare-capacity-panel">
-    <div className="card-heading-row"><h2>12. 빈 공간 추가 적재 추천</h2><span>{recommendations.length}개 후보</span></div>
-    <p className="spare-help">현재 배치를 고정한 상태에서 실제 충돌·지지·적층·상부하중·중량 제한을 다시 검사해 추가 가능 수량을 계산합니다.</p>
-    {remainingCount > 0 && <div className="spare-warning">현재 미적재 화물 {remainingCount}EA가 있습니다. 추가 출하보다 기존 미적재 해결이 우선입니다.</div>}
-    {recommendations.length === 0 ? <div className="spare-empty">등록된 품목 중 현재 빈 공간에 안전하게 추가할 수 있는 후보를 찾지 못했습니다.</div> : <div className="spare-list">
+    <div className="card-heading-row"><h2>{uiText("12. 빈 공간 추가 적재 추천")}</h2><span>{uiText("{0}개 후보", [recommendations.length])}</span></div>
+    <p className="spare-help">{uiText("현재 배치를 고정한 상태에서 실제 충돌·지지·적층·상부하중·중량 제한을 다시 검사해 추가 가능 수량을 계산합니다.")}</p>
+    {remainingCount > 0 && <div className="spare-warning">{uiText("현재 미적재 화물 {0}EA가 있습니다. 추가 출하보다 기존 미적재 해결이 우선입니다.", [remainingCount])}</div>}
+    {recommendations.length === 0 ? <div className="spare-empty">{uiText("등록된 품목 중 현재 빈 공간에 안전하게 추가할 수 있는 후보를 찾지 못했습니다.")}</div> : <div className="spare-list">
       {recommendations.map((item, index) => {
         const projectedFill = item.projectedUsedVolumeM3 / totalVolume * 100;
         return <article key={item.cargoId} className="spare-card">
           <div className="spare-card-head"><div><em>{index + 1}</em><span><b>{item.cargoId}</b><small>{item.name}</small></span></div><strong>+{item.additionalQuantity} EA</strong></div>
           <div className="spare-metrics">
-            <span>추가 부피 <b>{item.additionalVolumeM3.toFixed(2)} m³</b></span>
-            <span>추가 중량 <b>{item.additionalWeightKg.toLocaleString()} kg</b></span>
-            <span>예상 적재율 <b>{projectedFill.toFixed(1)}%</b></span>
-            <span>배치 구역 <b>{item.zones.join(' · ') || '-'}</b></span>
+            <span>{uiText("추가 부피")}{' '}<b>{item.additionalVolumeM3.toFixed(2)} m³</b></span>
+            <span>{uiText("추가 중량")}{' '}<b>{item.additionalWeightKg.toLocaleString()} kg</b></span>
+            <span>{uiText("예상 적재율")}{' '}<b>{projectedFill.toFixed(1)}%</b></span>
+            <span>{uiText("배치 구역")}{' '}<b>{item.zones.map(zone => uiText(zone)).join(' · ') || '-'}</b></span>
           </div>
-          {item.firstPlacement && <small className="spare-position">첫 추가 위치 X {item.firstPlacement.x.toFixed(2)} · Y {item.firstPlacement.y.toFixed(2)} · Z {item.firstPlacement.z.toFixed(2)}m</small>}
-          <p>{item.stopReason}</p>
-          <button type="button" onClick={() => applyRecommendation(item.cargoId, item.additionalQuantity)}>추천 수량을 화물에 반영</button>
+          {item.firstPlacement && <small className="spare-position">{uiText("첫 추가 위치 X {0} · Y {1} · Z {2}m", [item.firstPlacement.x.toFixed(2), item.firstPlacement.y.toFixed(2), item.firstPlacement.z.toFixed(2)])}</small>}
+          <p>{uiWorkflowText(item.stopReason)}</p>
+          <button type="button" onClick={() => applyRecommendation(item.cargoId, item.additionalQuantity)}>{uiText("추천 수량을 화물에 반영")}</button>
         </article>;
       })}
     </div>}
-    <div className="spare-disclaimer">※ 추천 수량은 현재 등록된 품목 규격을 기준으로 한 시뮬레이션입니다. 실제 출하 추가 결정 전 현장 안전조건을 다시 확인하세요.</div>
+    <div className="spare-disclaimer">{uiText("※ 추천 수량은 현재 등록된 품목 규격을 기준으로 한 시뮬레이션입니다. 실제 출하 추가 결정 전 현장 안전조건을 다시 확인하세요.")}</div>
   </section>, target);
 }

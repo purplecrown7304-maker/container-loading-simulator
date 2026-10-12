@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from './uiLanguage';
 import { OrbitControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
 import { useEffect } from 'react';
@@ -64,18 +65,20 @@ export function PreviewViewControls({
   showWeightCenter?: boolean;
   onToggleWeightCenter?: () => void;
 }) {
+  useUiLanguage();
   const button = (value: Exclude<PreviewView, 'free'>, label: string) => (
     <button
       type="button"
+      data-preview-view={value}
       className={view === value ? 'active' : ''}
       onClick={() => onViewChange(value)}
     >
-      {label}
+      {uiText(label)}
     </button>
   );
 
   return (
-    <div className="preview-view-controls" aria-label="미리보기 방향 및 분석 제어">
+    <div className="preview-view-controls" aria-label={uiText("미리보기 방향 및 분석 제어")}>
       <div className="preview-view-buttons">
         {button('rear', '후면')}
         {button('top', '상단')}
@@ -87,7 +90,7 @@ export function PreviewViewControls({
         onClick={onToggleLabels}
         aria-pressed={showLabels}
       >
-        박스정보 {showLabels ? 'ON' : 'OFF'}
+        {uiText(" 박스정보 ")}{showLabels ? 'ON' : 'OFF'}
       </button>
       {onToggleWeightGraph && <button
         type="button"
@@ -95,7 +98,7 @@ export function PreviewViewControls({
         onClick={onToggleWeightGraph}
         aria-pressed={Boolean(showWeightGraph)}
       >
-        3D 무게분포 {showWeightGraph ? 'ON' : 'OFF'}
+        {uiText(" 3D 무게분포 ")}{showWeightGraph ? 'ON' : 'OFF'}
       </button>}
       {showWeightGraph && onToggleWeightCenter && <button
         type="button"

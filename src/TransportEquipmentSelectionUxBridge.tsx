@@ -1,3 +1,5 @@
+import { useUiLanguage } from './uiLanguage';
+import { equipmentDisplayText } from './transportEquipmentPresentation';
 import { useEffect, useState } from 'react';
 import {
   EQUIPMENT_IMAGE_OVERRIDES_UPDATED_EVENT,
@@ -29,6 +31,7 @@ function clearEquipmentVisual() {
 
 export default function TransportEquipmentSelectionUxBridge() {
   const equipment = useTransportEquipment();
+  const language = useUiLanguage();
   const [revision, setRevision] = useState(0);
 
   useEffect(() => {
@@ -39,9 +42,9 @@ export default function TransportEquipmentSelectionUxBridge() {
   }, []);
 
   useEffect(() => {
-    applyEquipmentVisual(equipment.id, equipment.name);
+    applyEquipmentVisual(equipment.id, equipmentDisplayText(equipment, 'name'));
     return clearEquipmentVisual;
-  }, [equipment.id, equipment.name, revision]);
+  }, [equipment.id, equipment.name, revision, language]);
 
   return null;
 }

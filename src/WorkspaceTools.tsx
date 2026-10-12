@@ -1,3 +1,6 @@
+import { excelIssueMessage } from './excelPresentation';
+import { useUiMessage } from './useUiMessage';
+import { uiMessage, uiText, uiLocale, useUiLanguage } from './uiLanguage';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
@@ -88,6 +91,7 @@ function validateCatalogDraft(draft: CatalogDraft): string | null {
 }
 
 export default function WorkspaceTools({ showNav = true }: Props) {
+  useUiLanguage();
   const catalogInputRef = useRef<HTMLInputElement>(null);
   const [view, setView] = useState<View>(null);
   const [boxes, setBoxes] = useState<DataBox[]>(() => readJson(BOX_KEY, []));
@@ -95,7 +99,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
   const [boxName, setBoxName] = useState('');
   const [vehicleName, setVehicleName] = useState('내 차량');
   const [vehicleSpec, setVehicleSpec] = useState<ContainerSpec>({ length: 12.03, width: 2.35, height: 2.69, maxPayloadKg: 26500 });
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useUiMessage('');
   const [operator, setOperator] = useState<LocalOperator | null>(() => readLocalOperator());
   const [catalog, setCatalog] = useState<CargoItem[]>(() => readCatalog(readLocalOperator()));
   const [selected, setSelected] = useState<Record<string, number>>({});
@@ -177,7 +181,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
       const result = await parseBoxCatalogWorkbook(file);
       if (!result.items.length) {
         const firstIssue = result.issues[0]?.message;
-        setMessage(`추가 가능한 박스가 없습니다.${firstIssue ? ` ${firstIssue}` : ''}`);
+        setMessage(() => uiText("추가 가능한 박스가 없습니다.{0}", [firstIssue ? ` ${excelIssueMessage(firstIssue)}` : '']));
         return;
       }
 
@@ -197,8 +201,8 @@ export default function WorkspaceTools({ showNav = true }: Props) {
         for (const item of result.items) delete next[item.id];
         return next;
       });
-      const issueText = result.issues.length ? ` · 오류 제외 ${result.issues.length}건: ${result.issues.map(issue => `${issue.row}행 ${issue.code ?? ''} ${issue.message}`).join(' / ')}` : '';
-      setMessage(`내 박스 엑셀 반영 완료 · 신규 ${newCount}종 · 기존 갱신 ${updatedCount}종${issueText}`);
+      const issueText = () => result.issues.length ? uiText(" · 오류 제외 {0}건: {1}", [result.issues.length, result.issues.map(issue => uiText("{0}행 {1} {2}", [issue.row, issue.code ?? '', excelIssueMessage(issue.message)])).join(' / ')]) : '';
+      setMessage(() => uiText("내 박스 엑셀 반영 완료 · 신규 {0}종 · 기존 갱신 {1}종{2}", [newCount, updatedCount, issueText()]));
     } catch {
       setMessage('박스 엑셀 파일을 읽지 못했습니다. 다운로드한 양식의 열 이름과 파일 형식을 확인하세요.');
     } finally {
@@ -254,7 +258,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
     const error = validateCatalogDraft(normalized);
     if (error) return setMessage(error);
     const originalId = normalized.originalId;
-    if (catalog.some(item => item.id === normalized.id && item.id !== originalId)) return setMessage(`이미 등록된 박스 코드입니다: ${normalized.id}`);
+    if (catalog.some(item => item.id === normalized.id && item.id !== originalId)) return setMessage(() => uiText("이미 등록된 박스 코드입니다: {0}", [normalized.id]));
 
     const { originalId: _ignored, ...nextItem } = normalized;
     setCatalogBackup(catalog.map(item => ({ ...item })));
@@ -271,12 +275,12 @@ export default function WorkspaceTools({ showNav = true }: Props) {
       });
     }
     setCatalogDraft(null);
-    setMessage(originalId ? `${nextItem.id} 내 박스 정보를 수정했습니다.` : `${nextItem.id} 내 박스를 등록했습니다.`);
+    setMessage(() => originalId ? uiText("{0} 내 박스 정보를 수정했습니다.", [nextItem.id]) : uiText("{0} 내 박스를 등록했습니다.", [nextItem.id]));
   };
 
   const deleteCatalogItem = (item: CargoItem) => {
     if (!requireLogin()) return;
-    if (!window.confirm(`${item.id} ${item.name} 박스를 내 목록에서 삭제할까요?`)) return;
+    if (!window.confirm(uiText("{0} {1} 박스를 내 목록에서 삭제할까요?", [item.id, item.name]))) return;
     setCatalogBackup(catalog.map(current => ({ ...current })));
     setPlannerBackup((operator && removeExplicitPlannerRecommendation(operator, item.id)) || null);
     setCatalog(previous => previous.filter(current => current.id !== item.id));
@@ -286,7 +290,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
       return next;
     });
     if (catalogDraft?.originalId === item.id || catalogDraft?.id === item.id) setCatalogDraft(null);
-    setMessage(`${item.id} 박스를 내 목록에서 삭제했습니다.`);
+    setMessage(() => uiText("{0} 박스를 내 목록에서 삭제했습니다.", [item.id]));
   };
 
   const restoreCatalogBackup = () => {
@@ -311,13 +315,13 @@ export default function WorkspaceTools({ showNav = true }: Props) {
       : undefined;
     setBoxes(previous => [{ id: crypto.randomUUID(), name, savedAt: new Date().toISOString(), state, ...(result ? { result } : {}) }, ...previous].slice(0, 30));
     setBoxName('');
-    setMessage(`${name} 계획을 저장했습니다.`);
+    setMessage(() => uiText("{0} 계획을 저장했습니다.", [name]));
   };
 
   const restoreBox = (box: DataBox) => {
     if (box.result) writeManualOverride(box.state.container, box.state.cargo, box.result);
     writeStoredState(box.state, true);
-    setMessage(`${box.name} 계획을 불러왔습니다.`);
+    setMessage(() => uiText("{0} 계획을 불러왔습니다.", [box.name]));
     setView(null);
   };
 
@@ -329,13 +333,13 @@ export default function WorkspaceTools({ showNav = true }: Props) {
   const applyVehicle = (preset: VehiclePreset) => {
     const state = currentState();
     writeStoredState({ container: preset.spec, cargo: state?.cargo ?? [] }, true);
-    setMessage(`${preset.name} 규격을 적용했습니다.`);
+    setMessage(() => uiText("{0} 규격을 적용했습니다.", [preset.name]));
   };
 
   const saveVehicle = () => {
     const name = vehicleName.trim() || '내 차량';
     setCustomVehicles(previous => [{ id: crypto.randomUUID(), name, spec: { ...vehicleSpec } }, ...previous].slice(0, 12));
-    setMessage(`${name} 차량을 저장했습니다.`);
+    setMessage(() => uiText("{0} 차량을 저장했습니다.", [name]));
   };
 
   const completeSafety = () => {
@@ -346,98 +350,98 @@ export default function WorkspaceTools({ showNav = true }: Props) {
 
   return <>
     {showNav && <div className="workspace-tools-nav">
-      <button onClick={() => setView('boxes')}>박스 선택</button>
-      <button onClick={() => setView('vehicles')}>차량 관리</button>
-      <button className={safetyDone ? 'done' : ''} onClick={() => setView('safety')}>{safetyDone ? '✓ 일일 점검' : '일일 점검'}</button>
+      <button onClick={() => setView('boxes')}>{uiText("박스 선택")}</button>
+      <button onClick={() => setView('vehicles')}>{uiText("차량 관리")}</button>
+      <button className={safetyDone ? 'done' : ''} onClick={() => setView('safety')}>{uiText(safetyDone ? '✓ 일일 점검' : '일일 점검')}</button>
     </div>}
 
     {view && createPortal(
       <div className="workspace-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setView(null); }}>
         <section className={`workspace-modal ${view === 'boxes' ? 'box-selector-modal' : ''}`}>
-          <header><b>{viewTitle(view)}</b><button onClick={() => setView(null)}>닫기</button></header>
+          <header><b>{uiText(viewTitle(view))}</b><button onClick={() => setView(null)}>{uiText("닫기")}</button></header>
 
           {view === 'boxes' && <div className="box-selector-body">
             <div className="box-selector-actions">
               <div>
-                {operator ? <button onClick={() => setRegisterOpen(value => !value)}>신규 박스 등록</button> : <button disabled title="로그인 후 개인 박스 목록을 사용할 수 있습니다.">로그인 후 개인 박스 등록</button>}
-                <button onClick={downloadBoxCatalogTemplate}>기초 엑셀 다운로드</button>
-                <button onClick={() => downloadBoxCatalog(catalog)} disabled={!operator || catalog.length === 0}>등록 목록 엑셀 다운로드</button>
-                <button onClick={() => catalogInputRef.current?.click()} disabled={!operator}>수정한 엑셀 업로드</button>
-                <input ref={catalogInputRef} className="hidden-file-input" type="file" aria-label="박스 목록 엑셀 업로드" accept=".xlsx,.xls" onChange={event => void importCatalogWorkbook(event.target.files?.[0])} />
-                {operator && catalogBackup && <button onClick={restoreCatalogBackup}>직전 변경 되돌리기</button>}
+                {operator ? <button onClick={() => setRegisterOpen(value => !value)}>{uiText("신규 박스 등록")}</button> : <button disabled title={uiText("로그인 후 개인 박스 목록을 사용할 수 있습니다.")}>{uiText("로그인 후 개인 박스 등록")}</button>}
+                <button onClick={downloadBoxCatalogTemplate}>{uiText("기초 엑셀 다운로드")}</button>
+                <button onClick={() => downloadBoxCatalog(catalog)} disabled={!operator || catalog.length === 0}>{uiText("등록 목록 엑셀 다운로드")}</button>
+                <button onClick={() => catalogInputRef.current?.click()} disabled={!operator}>{uiText("수정한 엑셀 업로드")}</button>
+                <input ref={catalogInputRef} className="hidden-file-input" type="file" aria-label={uiText("박스 목록 엑셀 업로드")} accept=".xlsx,.xls" onChange={event => void importCatalogWorkbook(event.target.files?.[0])} />
+                {operator && catalogBackup && <button onClick={restoreCatalogBackup}>{uiText("직전 변경 되돌리기")}</button>}
               </div>
-              <button className="blue" onClick={importSelected} disabled={!operator || chosen.length === 0}>수량 입력 박스 적재 투입</button>
+              <button className="blue" onClick={importSelected} disabled={!operator || chosen.length === 0}>{uiText("수량 입력 박스 적재 투입")}</button>
             </div>
-            <p>등록 목록 전체를 엑셀로 내려받아 수정할 수 있습니다. 같은 코드는 갱신하고 새 코드는 추가합니다. 파일에서 행을 지워도 등록된 박스는 삭제되지 않습니다.</p>
+            <p>{uiText("등록 목록 전체를 엑셀로 내려받아 수정할 수 있습니다. 같은 코드는 갱신하고 새 코드는 추가합니다. 파일에서 행을 지워도 등록된 박스는 삭제되지 않습니다.")}</p>
             {registerOpen && operator && <div className="box-register">
-              <b>내 박스 등록 / 수정</b>
-              <span>{operator.name}님의 개인 박스 목록에만 저장됩니다. 직접 등록하거나 엑셀을 업로드하면 신규 코드는 추가되고 기존 코드는 최신 값으로 갱신됩니다.</span>
+              <b>{uiText("내 박스 등록 / 수정")}</b>
+              <span>{uiText('{0}님의 개인 박스 목록에만 저장됩니다. 직접 등록하거나 엑셀을 업로드하면 신규 코드는 추가되고 기존 코드는 최신 값으로 갱신됩니다.', [operator.name])}</span>
               <div className="box-register-actions">
-                <button onClick={startNewCatalogItem}>직접 신규 박스 등록</button>
-                <button onClick={() => catalogInputRef.current?.click()}>기초 엑셀 업로드</button>
+                <button onClick={startNewCatalogItem}>{uiText("직접 신규 박스 등록")}</button>
+                <button onClick={() => catalogInputRef.current?.click()}>{uiText("기초 엑셀 업로드")}</button>
               </div>
               {catalogDraft && <div className="vehicle-form">
-                <h3>{catalogDraft.originalId ? `${catalogDraft.originalId} 수정` : '신규 박스 등록'}</h3>
+                <h3>{catalogDraft.originalId ? uiText("{0} 수정", [catalogDraft.originalId]) : uiText('신규 박스 등록')}</h3>
                 <div className="vehicle-fields">
-                  <label>박스코드<input value={catalogDraft.id} onChange={event => updateCatalogDraft('id', event.target.value)} /></label>
-                  <label>내용물<input value={catalogDraft.name} onChange={event => updateCatalogDraft('name', event.target.value)} /></label>
-                  <label>길이(m)<input type="number" min="0.001" step="0.001" value={catalogDraft.length} onChange={event => updateCatalogDraft('length', event.target.value)} /></label>
-                  <label>폭(m)<input type="number" min="0.001" step="0.001" value={catalogDraft.width} onChange={event => updateCatalogDraft('width', event.target.value)} /></label>
-                  <label>높이(m)<input type="number" min="0.001" step="0.001" value={catalogDraft.height} onChange={event => updateCatalogDraft('height', event.target.value)} /></label>
-                  <label>중량(kg)<input type="number" min="0.001" step="0.01" value={catalogDraft.weightKg} onChange={event => updateCatalogDraft('weightKg', event.target.value)} /></label>
-                  <label>기본수량<input type="number" min="0" step="1" value={catalogDraft.quantity} onChange={event => updateCatalogDraft('quantity', event.target.value)} /></label>
-                  <label>최대적층단<input type="number" min="1" step="1" placeholder="별도 제한 없음" value={catalogDraft.maxStackLayers ?? ''} onChange={event => updateCatalogDraft('maxStackLayers', event.target.value)} /></label>
-                  <label>상부 허용하중(kg)<input aria-describedby="box-top-load-help" placeholder="강도 미확인" type="number" min="0" step="0.1" value={catalogDraft.maxTopLoadKg ?? ''} onChange={event => updateCatalogDraft('maxTopLoadKg', event.target.value)} /></label>
-                  <label>재질<select value={catalogDraft.cartonMaterial ?? ''} onChange={event => setCatalogDraft(current => current && ({ ...current, cartonMaterial: (event.target.value || undefined) as CartonMaterial | undefined }))}>
-                    <option value="">선택 안 함</option>{CARTON_MATERIAL_ORDER.map(material => <option key={material} value={material}>{CARTON_MATERIALS[material].label} · {CARTON_MATERIALS[material].note}</option>)}
+                  <label>{uiText("박스코드")}<input value={catalogDraft.id} onChange={event => updateCatalogDraft('id', event.target.value)} /></label>
+                  <label>{uiText("내용물")}<input value={catalogDraft.name} onChange={event => updateCatalogDraft('name', event.target.value)} /></label>
+                  <label>{uiText("길이(m)")}<input type="number" min="0.001" step="0.001" value={catalogDraft.length} onChange={event => updateCatalogDraft('length', event.target.value)} /></label>
+                  <label>{uiText("폭(m)")}<input type="number" min="0.001" step="0.001" value={catalogDraft.width} onChange={event => updateCatalogDraft('width', event.target.value)} /></label>
+                  <label>{uiText("높이(m)")}<input type="number" min="0.001" step="0.001" value={catalogDraft.height} onChange={event => updateCatalogDraft('height', event.target.value)} /></label>
+                  <label>{uiText("중량(kg)")}<input type="number" min="0.001" step="0.01" value={catalogDraft.weightKg} onChange={event => updateCatalogDraft('weightKg', event.target.value)} /></label>
+                  <label>{uiText("기본수량")}<input type="number" min="0" step="1" value={catalogDraft.quantity} onChange={event => updateCatalogDraft('quantity', event.target.value)} /></label>
+                  <label>{uiText("최대적층단")}<input type="number" min="1" step="1" placeholder={uiText("별도 제한 없음")} value={catalogDraft.maxStackLayers ?? ''} onChange={event => updateCatalogDraft('maxStackLayers', event.target.value)} /></label>
+                  <label>{uiText("상부 허용하중(kg)")}<input aria-describedby="box-top-load-help" placeholder={uiText("강도 미확인")} type="number" min="0" step="0.1" value={catalogDraft.maxTopLoadKg ?? ''} onChange={event => updateCatalogDraft('maxTopLoadKg', event.target.value)} /></label>
+                  <label>{uiText("재질")}<select value={catalogDraft.cartonMaterial ?? ''} onChange={event => setCatalogDraft(current => current && ({ ...current, cartonMaterial: (event.target.value || undefined) as CartonMaterial | undefined }))}>
+                    <option value="">{uiText("선택 안 함")}</option>{CARTON_MATERIAL_ORDER.map(material => <option key={material} value={material}>{uiText(CARTON_MATERIALS[material].label)} · {uiText(CARTON_MATERIALS[material].note)}</option>)}
                   </select></label>
-                  <label><input type="checkbox" checked={catalogDraft.allowRotation !== false} onChange={event => updateCatalogDraft('allowRotation', event.target.checked)} /> 90도 회전 허용</label>
+                  <label><input type="checkbox" checked={catalogDraft.allowRotation !== false} onChange={event => updateCatalogDraft('allowRotation', event.target.checked)} />{uiText("90도 회전 허용")}</label>
                 </div>
                 {(() => {
                   const estimate = estimateCartonTopLoad(catalogDraft.cartonMaterial, catalogDraft.length, catalogDraft.width);
                   if (!catalogDraft.cartonMaterial) return null;
-                  if (!estimate) return <p className="box-material-estimate">{CARTON_MATERIALS[catalogDraft.cartonMaterial].label}은 추정 공식이 없습니다. 제조사 하중표의 상부 허용하중을 직접 입력하세요.</p>;
+                  if (!estimate) return <p className="box-material-estimate">{uiText('{0}은 추정 공식이 없습니다. 제조사 하중표의 상부 허용하중을 직접 입력하세요.', [uiText(CARTON_MATERIALS[catalogDraft.cartonMaterial].label)])}</p>;
                   const layers = catalogDraft.weightKg > 0 ? 1 + Math.floor(estimate.allowableTopLoadKg / catalogDraft.weightKg) : null;
-                  return <p className="box-material-estimate">재질 추정 상부 허용하중 <b>{estimate.allowableTopLoadKg.toFixed(1)} kg</b> (압축강도 약 {estimate.bctKg.toFixed(0)} kg ÷ 안전계수 {estimate.safetyFactor}{layers ? ` · 중량 ${catalogDraft.weightKg} kg 박스 기준 약 ${layers}단` : ''}). 시험값이 아니라 대표값 추정입니다.
-                    <button type="button" onClick={() => setCatalogDraft(current => current && ({ ...current, maxTopLoadKg: estimate.allowableTopLoadKg, strengthSource: 'material-estimate' }))}>추정값 넣기</button></p>;
+                  return <p className="box-material-estimate">{uiText('재질 추정 상부 허용하중')} <b>{estimate.allowableTopLoadKg.toFixed(1)} kg</b> {uiText('(압축강도 약 {0} kg ÷ 안전계수 {1}{2}). 시험값이 아니라 대표값 추정입니다.', [estimate.bctKg.toFixed(0), estimate.safetyFactor, layers ? uiText(' · 중량 {0} kg 박스 기준 약 {1}단', [catalogDraft.weightKg, layers]) : ''])}
+                    <button type="button" onClick={() => setCatalogDraft(current => current && ({ ...current, maxTopLoadKg: estimate.allowableTopLoadKg, strengthSource: 'material-estimate' }))}>{uiText("추정값 넣기")}</button></p>;
                 })()}
-                <p id="box-top-load-help">상부 허용하중은 이 박스 위에 놓이는 모든 화물의 누적 중량입니다. 0kg을 저장하면 상부 적재 금지를 명시한 것으로 처리합니다. 빈칸으로 저장하면 강도 미확인이며 계산에는 1단·상부하중 0kg 제한을 적용합니다. 박스 자체 중량이나 파렛트 허용중량과 다릅니다. BCT 시험값은 안전계수를 반영한 허용하중으로 환산해 입력하세요. 값을 바꾼 뒤 포장 확정과 자동 적재를 다시 실행하세요.</p><div className="box-register-actions"><button className="blue" onClick={saveCatalogDraft}>저장</button><button onClick={() => setCatalogDraft(null)}>취소</button></div>
+                <p id="box-top-load-help">{uiText("상부 허용하중은 이 박스 위에 놓이는 모든 화물의 누적 중량입니다. 0kg을 저장하면 상부 적재 금지를 명시한 것으로 처리합니다. 빈칸으로 저장하면 강도 미확인이며 계산에는 1단·상부하중 0kg 제한을 적용합니다. 박스 자체 중량이나 파렛트 허용중량과 다릅니다. BCT 시험값은 안전계수를 반영한 허용하중으로 환산해 입력하세요. 값을 바꾼 뒤 포장 확정과 자동 적재를 다시 실행하세요.")}</p><div className="box-register-actions"><button className="blue" onClick={saveCatalogDraft}>{uiText("저장")}</button><button onClick={() => setCatalogDraft(null)}>{uiText("취소")}</button></div>
               </div>}
             </div>}
-            {!operator && <div className="workspace-empty-state"><b>로그인이 필요합니다.</b><span>로그인하면 해당 작업자 이름으로 저장된 개인 박스만 표시됩니다.</span></div>}
+            {!operator && <div className="workspace-empty-state"><b>{uiText("로그인이 필요합니다.")}</b><span>{uiText("로그인하면 해당 작업자 이름으로 저장된 개인 박스만 표시됩니다.")}</span></div>}
             {operator && <>
-              <label className="box-search-label">박스 검색</label>
-              <div className="box-search"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="박스코드, 내용물 검색" /><button onClick={() => setQuery('')}>검색 초기화</button></div>
-              <div className="selected-boxes"><b>선택된 박스</b><small>{chosen.length}종 선택</small><div>{chosen.length ? chosen.map(x => <span key={x.id} style={{ borderLeftColor: cargoColor(x.id, x.displayColor) }}>{x.id} · {x.name} <b>{selected[x.id]}EA</b></span>) : '아래 목록에서 박스를 선택하면 이곳에 표시됩니다.'}</div></div>
-              <div className="catalog-wrap"><table><caption>{operator.name} 개인 박스 목록</caption><thead><tr><th>선택</th><th>NO</th><th>박스코드</th><th>내용물</th><th>L</th><th>W</th><th>T</th><th>중량</th><th>CBM</th><th>재질</th><th>상부 허용하중(kg)</th><th>최대적층단</th><th>취급주의</th><th>색상</th><th>회전허용</th><th>적재 수량</th><th>관리</th></tr></thead><tbody>
+              <label className="box-search-label">{uiText("박스 검색")}</label>
+              <div className="box-search"><input value={query} onChange={event => setQuery(event.target.value)} placeholder={uiText("박스코드, 내용물 검색")} /><button onClick={() => setQuery('')}>{uiText("검색 초기화")}</button></div>
+              <div className="selected-boxes"><b>{uiText("선택된 박스")}</b><small>{uiText('{0}종 선택', [chosen.length])}</small><div>{chosen.length ? chosen.map(x => <span key={x.id} style={{ borderLeftColor: cargoColor(x.id, x.displayColor) }}>{x.id} · {x.name} <b>{selected[x.id]}EA</b></span>) : uiText('아래 목록에서 박스를 선택하면 이곳에 표시됩니다.')}</div></div>
+              <div className="catalog-wrap"><table><caption>{uiText('{0} 개인 박스 목록', [operator.name])}</caption><thead><tr><th>{uiText("선택")}</th><th>NO</th><th>{uiText("박스코드")}</th><th>{uiText("내용물")}</th><th>L</th><th>W</th><th>T</th><th>{uiText("중량")}</th><th>CBM</th><th>{uiText("재질")}</th><th>{uiText("상부 허용하중(kg)")}</th><th>{uiText("최대적층단")}</th><th>{uiText("취급주의")}</th><th>{uiText("색상")}</th><th>{uiText("회전허용")}</th><th>{uiText("적재 수량")}</th><th>{uiText("관리")}</th></tr></thead><tbody>
                 {filtered.map((x, i) => <tr key={x.id}>
                   <td><input type="checkbox" checked={(selected[x.id] ?? 0) > 0} onChange={event => setSelected(state => ({ ...state, [x.id]: event.target.checked ? Math.max(1, x.quantity) : 0 }))} /></td>
-                  <td>{i + 1}</td><td>{x.id}</td><td>{x.name}</td><td>{Math.round(x.length * 1000)}</td><td>{Math.round(x.width * 1000)}</td><td>{Math.round(x.height * 1000)}</td><td>{x.weightKg}</td><td>{(x.length * x.width * x.height).toFixed(3)}</td><td>{cartonMaterialLabel(x.cartonMaterial)}</td><td>{x.strengthUnverified ? '강도 미확인 · 계산 1단' : x.maxTopLoadKg === 0 ? '0 · 위에 적재 금지' : x.maxTopLoadKg == null ? '제한 미설정' : x.strengthSource === 'material-estimate' ? `${x.maxTopLoadKg} · 재질 추정` : x.maxTopLoadKg}</td><td>{x.strengthUnverified ? '계산 1단 (강도 미확인)' : x.maxStackLayers ?? '제한없음'}</td><td>-</td><td><i className="catalog-color" style={{ background: cargoColor(x.id, x.displayColor) }} /></td><td>{x.allowRotation !== false ? '허용' : '금지'}</td>
+                  <td>{i + 1}</td><td>{x.id}</td><td>{x.name}</td><td>{Math.round(x.length * 1000)}</td><td>{Math.round(x.width * 1000)}</td><td>{Math.round(x.height * 1000)}</td><td>{x.weightKg}</td><td>{(x.length * x.width * x.height).toFixed(3)}</td><td>{uiText(cartonMaterialLabel(x.cartonMaterial))}</td><td>{x.strengthUnverified ? uiText('강도 미확인 · 계산 1단') : x.maxTopLoadKg === 0 ? uiText('0 · 위에 적재 금지') : x.maxTopLoadKg == null ? uiText('제한 미설정') : x.strengthSource === 'material-estimate' ? uiText("{0} · 재질 추정", [x.maxTopLoadKg]) : x.maxTopLoadKg}</td><td>{x.strengthUnverified ? uiText('계산 1단 (강도 미확인)') : x.maxStackLayers ?? uiText('제한없음')}</td><td>-</td><td><i className="catalog-color" style={{ background: cargoColor(x.id, x.displayColor) }} /></td><td>{x.allowRotation !== false ? uiText('허용') : uiText('금지')}</td>
                   <td><input className="qty-input" type="number" min="0" step="1" value={selected[x.id] ?? x.quantity} onChange={event => setSelected(state => ({ ...state, [x.id]: Math.max(0, Math.floor(Number(event.target.value) || 0)) }))} /></td>
-                  <td><div className="box-register-actions"><button onClick={() => editCatalogItem(x)}>수정</button><button className="danger" onClick={() => deleteCatalogItem(x)}>삭제</button></div></td>
+                  <td><div className="box-register-actions"><button onClick={() => editCatalogItem(x)}>{uiText("수정")}</button><button className="danger" onClick={() => deleteCatalogItem(x)}>{uiText("삭제")}</button></div></td>
                 </tr>)}
               </tbody></table></div>
-              {catalog.length === 0 && <div className="workspace-empty-state"><b>등록된 개인 박스가 없습니다.</b><span>신규 박스 등록 또는 엑셀 업로드로 본인 목록을 만들어 주세요.</span></div>}
+              {catalog.length === 0 && <div className="workspace-empty-state"><b>{uiText("등록된 개인 박스가 없습니다.")}</b><span>{uiText("신규 박스 등록 또는 엑셀 업로드로 본인 목록을 만들어 주세요.")}</span></div>}
             </>}
           </div>}
 
           {view === 'vehicles' && <div className="workspace-modal-body">
             <div className="vehicle-preset-grid">{[...builtInVehicles, ...customVehicles].map(preset => <button key={preset.id} onClick={() => applyVehicle(preset)}><b>{preset.name}</b><span>{preset.spec.length.toFixed(2)} × {preset.spec.width.toFixed(2)} × {preset.spec.height.toFixed(2)}m</span></button>)}</div>
-            <div className="vehicle-form"><h3>커스텀 차량 추가</h3><label>이름<input value={vehicleName} onChange={event => setVehicleName(event.target.value)} /></label><div className="vehicle-fields">{(['length', 'width', 'height', 'maxPayloadKg'] as const).map(key => <label key={key}>{key}<input type="number" value={vehicleSpec[key]} onChange={event => setVehicleSpec(state => ({ ...state, [key]: Number(event.target.value) }))} /></label>)}</div><button onClick={saveVehicle}>차량 규격 저장</button></div>
+            <div className="vehicle-form"><h3>{uiText("커스텀 차량 추가")}</h3><label>{uiText("이름")}<input value={vehicleName} onChange={event => setVehicleName(event.target.value)} /></label><div className="vehicle-fields">{(['length', 'width', 'height', 'maxPayloadKg'] as const).map(key => <label key={key}>{uiText(({ length: '길이(m)', width: '폭(m)', height: '높이(m)', maxPayloadKg: '최대 적재중량(kg)' })[key])}<input type="number" value={vehicleSpec[key]} onChange={event => setVehicleSpec(state => ({ ...state, [key]: Number(event.target.value) }))} /></label>)}</div><button onClick={saveVehicle}>{uiText("차량 규격 저장")}</button></div>
           </div>}
 
           {view === 'safety' && <div className="workspace-modal-body">
-            {safetyRows.length ? <div className="safety-list">{safetyRows.map(row => <article key={row.label} className={row.ok ? 'ok' : 'warn'}><span>{row.ok ? '✓' : '!'}</span><div><b>{row.label}</b><small>{row.detail}</small></div></article>)}</div> : <div className="workspace-empty-state"><b>점검할 적재 결과가 없습니다.</b><span>적재 최적화를 실행한 뒤 다시 열어 주세요.</span></div>}
-            <button className="safety-complete" onClick={completeSafety} disabled={!safetyRows.length}>오늘 안전 점검 완료</button>
+            {safetyRows.length ? <div className="safety-list">{safetyRows.map(row => <article key={row.label} className={row.ok ? 'ok' : 'warn'}><span>{row.ok ? '✓' : '!'}</span><div><b>{uiText(row.label)}</b><small>{row.label === '최대 적재중량' ? `${latest!.result.loadedWeightKg.toLocaleString(uiLocale())} / ${latest!.container.maxPayloadKg.toLocaleString(uiLocale())} kg` : uiMessage(row.detail)}</small></div></article>)}</div> : <div className="workspace-empty-state"><b>{uiText("점검할 적재 결과가 없습니다.")}</b><span>{uiText("적재 최적화를 실행한 뒤 다시 열어 주세요.")}</span></div>}
+            <button className="safety-complete" onClick={completeSafety} disabled={!safetyRows.length}>{uiText("오늘 안전 점검 완료")}</button>
           </div>}
 
           {view === 'data' && <div className="workspace-modal-body plan-manager">
-            <div className="workspace-inline"><input value={boxName} onChange={event => setBoxName(event.target.value)} placeholder="현재 작업 저장 이름" /><button onClick={saveBox}>현재 계획 저장</button></div>
+            <div className="workspace-inline"><input value={boxName} onChange={event => setBoxName(event.target.value)} placeholder={uiText("현재 작업 저장 이름")} /><button onClick={saveBox}>{uiText("현재 계획 저장")}</button></div>
             <div className="saved-plan-list">
               {boxes.length ? boxes.map(box => <article key={box.id}>
-                <div><b>{box.name}</b><small>{new Date(box.savedAt).toLocaleString()} · {box.state.cargo.length}종 화물</small></div>
-                <div><button onClick={() => restoreBox(box)}>불러오기</button><button className="danger" onClick={() => deleteBox(box.id)}>삭제</button></div>
-              </article>) : <div className="workspace-empty-state"><b>저장된 계획이 없습니다.</b><span>위 입력란에 이름을 적고 현재 계획을 저장하세요.</span></div>}
+                <div><b>{box.name}</b><small>{uiText('{0} · {1}종 화물', [new Date(box.savedAt).toLocaleString(uiLocale()), box.state.cargo.length])}</small></div>
+                <div><button onClick={() => restoreBox(box)}>{uiText("불러오기")}</button><button className="danger" onClick={() => deleteBox(box.id)}>{uiText("삭제")}</button></div>
+              </article>) : <div className="workspace-empty-state"><b>{uiText("저장된 계획이 없습니다.")}</b><span>{uiText("위 입력란에 이름을 적고 현재 계획을 저장하세요.")}</span></div>}
             </div>
           </div>}
 

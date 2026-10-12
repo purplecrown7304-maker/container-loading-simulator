@@ -1,3 +1,5 @@
+import { inspectionProgressText, inspectionDiagnosticText } from './inspectionPresentation';
+import { uiText as uiT, uiMessage, useUiLanguage } from './uiLanguage';
 import { assessPhysicsVerification } from './physicsVerificationPolicy';
 import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
@@ -106,6 +108,7 @@ function applyDirectCandidate(candidate: EvaluatedDirectCandidate) {
 }
 
 export default function FinalCertificationGate() {
+  useUiLanguage();
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [request, setRequest] = useState<CertificationRequestDetail | null>(null);
@@ -341,7 +344,7 @@ export default function FinalCertificationGate() {
 
   if (!open) return null;
   const currentUsage = usage ?? (target ? buildSecuringUsage(target, 1) : null);
-  const scenarioLabel = progress ? SCENARIO_LABEL[progress.scenario] : '-';
+  const scenarioLabel = progress ? uiT(SCENARIO_LABEL[progress.scenario]) : '-';
   const progressPercent = progress ? Math.round(progress.physicsProgress * 100) : 0;
   const palletMode = target?.mode === 'pallets';
   const review = isLimitReviewTarget(target ?? undefined);
@@ -351,62 +354,62 @@ export default function FinalCertificationGate() {
       <header>
         <div>
           <span>{review ? 'WHAT-IF REVIEW' : 'FINAL SAFETY GATE'} · RAPIER 3D · {palletMode ? 'PALLET' : 'DIRECT BOX'}</span>
-          <h2 id="final-cert-title">최종 적재 결과 전 보강 안전 검증</h2>
-          <p>출발 가속 · 급정거 · 급회전과 동일한 보강 조건의 물리 4종을 검증합니다. 기본 적재안이 실패하면 DIRECT BOX는 정적 안전점수가 높은 상위 {MAX_DIRECT_REPOSITION_CANDIDATES}개 재배치만 추가 비교해 브라우저가 장시간 멈추는 것을 방지합니다.</p>
+          <h2 id="final-cert-title">{uiT("최종 적재 결과 전 보강 안전 검증")}</h2>
+          <p>{uiT("출발 가속 · 급정거 · 급회전과 동일한 보강 조건의 물리 4종을 검증합니다. 기본 적재안이 실패하면 DIRECT BOX는 정적 안전점수가 높은 상위 {0}개 재배치만 추가 비교해 브라우저가 장시간 멈추는 것을 방지합니다.", [MAX_DIRECT_REPOSITION_CANDIDATES])}</p>
         </div>
-        <button type="button" onClick={() => { if (running) publishVerificationCancelled(); cancel(); }}>{running ? '계산 취소' : '닫기'}</button>
+        <button type="button" onClick={() => { if (running) publishVerificationCancelled(); cancel(); }}>{running ? uiT("계산 취소") : uiT("닫기")}</button>
       </header>
 
-      {review && <p className="final-cert-error" role="alert">{LIMIT_REVIEW_WARNING}</p>}
+      {review && <p className="final-cert-error" role="alert">{uiMessage(LIMIT_REVIEW_WARNING)}</p>}
       <div className="final-cert-flow">
-        <div className={progress?.scenarioIndex === 1 ? 'active' : certification?.testedScenarios ? 'done' : ''}><b>1</b><span>출발 가속</span></div>
+        <div className={progress?.scenarioIndex === 1 ? 'active' : certification?.testedScenarios ? 'done' : ''}><b>1</b><span>{uiT("출발 가속")}</span></div>
         <i />
-        <div className={progress?.scenarioIndex === 2 ? 'active' : (certification?.testedScenarios ?? 0) >= 2 ? 'done' : ''}><b>2</b><span>급정거</span></div>
+        <div className={progress?.scenarioIndex === 2 ? 'active' : (certification?.testedScenarios ?? 0) >= 2 ? 'done' : ''}><b>2</b><span>{uiT("급정거")}</span></div>
         <i />
-        <div className={progress?.scenarioIndex === 3 ? 'active' : certification?.passedScenarios === 3 ? 'done' : ''}><b>3</b><span>급회전</span></div>
+        <div className={progress?.scenarioIndex === 3 ? 'active' : certification?.passedScenarios === 3 ? 'done' : ''}><b>3</b><span>{uiT("급회전")}</span></div>
         <i />
-        <div className={isPhysicsTargetVerified(target ?? undefined, certification ?? undefined) ? 'done' : ''}><b>✓</b><span>결과 공개</span></div>
+        <div className={isPhysicsTargetVerified(target ?? undefined, certification ?? undefined) ? 'done' : ''}><b>✓</b><span>{uiT("결과 공개")}</span></div>
       </div>
 
       {running && <div className="final-cert-running">
         <div className="physics-spinner" />
         <div>
-          <b>{search ? '추가 안전 배치 계산 중' : repositionAttempt.index > 0 ? `재배치 ${repositionAttempt.index}/${MAX_DIRECT_REPOSITION_CANDIDATES} · 안전 후보 비교 · ${repositionAttempt.label}` : `${progress?.levelLabel ?? '기본 적재'} · ${scenarioLabel}`}</b>
-          <span>{search ? `${search.completed}/${search.total}회 · ${search.label}` : repositionAttempt.index > 0 ? `${progress?.levelLabel ?? ''} · ${scenarioLabel} · 물리 계산 ${progressPercent}%` : `물리 계산 ${progressPercent}%`}</span>
+          <b>{search ? uiT("추가 안전 배치 계산 중") : repositionAttempt.index > 0 ? uiT("재배치 {0}/{1} · 안전 후보 비교 · {2}", [repositionAttempt.index, MAX_DIRECT_REPOSITION_CANDIDATES, inspectionProgressText(repositionAttempt.label)]) : `${uiT(progress?.levelLabel ?? '기본 적재')} · ${scenarioLabel}`}</b>
+          <span>{search ? uiT("{0}/{1}회 · {2}", [search.completed, search.total, inspectionProgressText(search.label)]) : repositionAttempt.index > 0 ? uiT("{0} · {1} · 물리 계산 {2}%", [uiT(progress?.levelLabel ?? ''), scenarioLabel, progressPercent]) : uiT("물리 계산 {0}%", [progressPercent])}</span>
         </div>
         <progress max="100" value={search ? Math.min(99, search.completed / Math.max(1, search.total) * 100) : Math.min(99, progressPercent)} />
       </div>}
 
       {latestResult && <div className="final-cert-metrics">
-        <span>전체 이동 <b>{mm(latestResult.maxHorizontalShiftM)}</b></span>
-        <span>기울기 <b>{latestResult.maxTiltDeg.toFixed(1)}°</b></span>
-        {palletMode && <span>화물↔팔레트 미끄럼 <b>{mm(latestResult.maxCargoRelativeSlipM ?? 0)}</b></span>}
-        {palletMode && <span>팔레트 이동 <b>{mm(latestResult.maxSupportShiftM ?? 0)}</b></span>}
-        {(latestResult.maxCargoRestraintForceN ?? 0) > 0 && <span>화물 구속력 <b>{((latestResult.maxCargoRestraintForceN ?? 0) / 1000).toFixed(1)} kN</b></span>}
-        {(latestResult.maxSupportRestraintForceN ?? 0) > 0 && <span>팔레트 구속력 <b>{((latestResult.maxSupportRestraintForceN ?? 0) / 1000).toFixed(1)} kN</b></span>}
-        <span>통과 기준 <b>이동 ≤ {Math.round(INERTIA_PASS_SHIFT_M * 1000)}mm · 기울기 ≤ {INERTIA_PASS_TILT_DEG.toFixed(1)}°{palletMode ? ` · 상대미끄럼 ≤ ${Math.round(INERTIA_PASS_PALLET_CARGO_SLIP_M * 1000)}mm · 팔레트이동 ≤ ${Math.round(INERTIA_PASS_SUPPORT_SHIFT_M * 1000)}mm` : ''}</b></span>
+        <span>{uiT("전체 이동")} <b>{mm(latestResult.maxHorizontalShiftM)}</b></span>
+        <span>{uiT("기울기")} <b>{latestResult.maxTiltDeg.toFixed(1)}°</b></span>
+        {palletMode && <span>{uiT("화물↔팔레트 미끄럼")} <b>{mm(latestResult.maxCargoRelativeSlipM ?? 0)}</b></span>}
+        {palletMode && <span>{uiT("팔레트 이동")} <b>{mm(latestResult.maxSupportShiftM ?? 0)}</b></span>}
+        {(latestResult.maxCargoRestraintForceN ?? 0) > 0 && <span>{uiT("화물 구속력")} <b>{((latestResult.maxCargoRestraintForceN ?? 0) / 1000).toFixed(1)} kN</b></span>}
+        {(latestResult.maxSupportRestraintForceN ?? 0) > 0 && <span>{uiT("팔레트 구속력")} <b>{((latestResult.maxSupportRestraintForceN ?? 0) / 1000).toFixed(1)} kN</b></span>}
+        <span>{uiT("통과 기준")} <b>{uiT("이동 ≤")} {Math.round(INERTIA_PASS_SHIFT_M * 1000)}{uiT("mm · 기울기 ≤")} {INERTIA_PASS_TILT_DEG.toFixed(1)}°{palletMode ? uiT(" · 상대미끄럼 ≤ {0}mm · 팔레트이동 ≤ {1}mm", [Math.round(INERTIA_PASS_PALLET_CARGO_SLIP_M * 1000), Math.round(INERTIA_PASS_SUPPORT_SHIFT_M * 1000)]) : ''}</b></span>
       </div>}
 
       {currentUsage && <article className="final-cert-materials">
-        <div className="final-cert-material-head"><div><b>자동 적용 적재 보조재</b><span>{currentUsage.levelLabel}</span></div><strong>박스 제외 약 {currentUsage.estimatedNonCargoWeightKg.toFixed(1)} kg</strong></div>
+        <div className="final-cert-material-head"><div><b>{uiT("자동 적용 적재 보조재")}</b><span>{uiMessage(currentUsage.levelLabel)}</span></div><strong>{uiT("박스 제외 약")} {currentUsage.estimatedNonCargoWeightKg.toFixed(1)} kg</strong></div>
         <div className="final-cert-material-grid">
-          {palletMode && currentUsage.palletCount > 0 && <div><span>팔레트</span><b>{currentUsage.palletCount} EA</b><small>{currentUsage.palletWeightKg.toFixed(1)} kg</small></div>}
-          {palletMode && currentUsage.bandingStraps > 0 && <div><span>밴딩</span><b>{currentUsage.bandingStraps} 줄</b><small>{currentUsage.bandingLengthM.toFixed(1)} m</small></div>}
-          {palletMode && currentUsage.cornerGuards > 0 && <div><span>각대</span><b>{currentUsage.cornerGuards} EA</b><small>총 {currentUsage.cornerGuardLengthM.toFixed(1)} m</small></div>}
-          {palletMode && currentUsage.wrappingLengthM > 0 && <div><span>랩핑</span><b>{currentUsage.wrappingLengthM.toFixed(0)} m</b><small>스트레치 필름</small></div>}
-          {currentUsage.antiSlipMats > 0 && <div><span>미끄럼방지재</span><b>{currentUsage.antiSlipMats} EA</b><small>{palletMode ? '팔레트/바닥' : '박스/바닥'}</small></div>}
-          {!palletMode && currentUsage.dunnageBlocks > 0 && <div><span>블로킹재</span><b>{currentUsage.dunnageBlocks} EA</b><small>빈 공간 이동 억제</small></div>}
-          {currentUsage.loadBars > 0 && <div><span>고정바</span><b>{currentUsage.loadBars} EA</b><small>길이 방향 고정</small></div>}
+          {palletMode && currentUsage.palletCount > 0 && <div><span>{uiT("팔레트")}</span><b>{currentUsage.palletCount} EA</b><small>{currentUsage.palletWeightKg.toFixed(1)} kg</small></div>}
+          {palletMode && currentUsage.bandingStraps > 0 && <div><span>{uiT("밴딩")}</span><b>{currentUsage.bandingStraps} {uiT("줄")}</b><small>{currentUsage.bandingLengthM.toFixed(1)} m</small></div>}
+          {palletMode && currentUsage.cornerGuards > 0 && <div><span>{uiT("각대")}</span><b>{currentUsage.cornerGuards} EA</b><small>{uiT("총")} {currentUsage.cornerGuardLengthM.toFixed(1)} m</small></div>}
+          {palletMode && currentUsage.wrappingLengthM > 0 && <div><span>{uiT("랩핑")}</span><b>{currentUsage.wrappingLengthM.toFixed(0)} m</b><small>{uiT("스트레치 필름")}</small></div>}
+          {currentUsage.antiSlipMats > 0 && <div><span>{uiT("미끄럼방지재")}</span><b>{currentUsage.antiSlipMats} EA</b><small>{palletMode ? uiT("팔레트/바닥") : uiT("박스/바닥")}</small></div>}
+          {!palletMode && currentUsage.dunnageBlocks > 0 && <div><span>{uiT("블로킹재")}</span><b>{currentUsage.dunnageBlocks} EA</b><small>{uiT("빈 공간 이동 억제")}</small></div>}
+          {currentUsage.loadBars > 0 && <div><span>{uiT("고정바")}</span><b>{currentUsage.loadBars} EA</b><small>{uiT("길이 방향 고정")}</small></div>}
         </div>
-        <p>보조자재 중량은 ‘적재 보조자재 실제 중량 설정’의 현장값으로 계산합니다. 계산된 구속력은 내부 물리모델 비교값이며 실제 자재 정격을 대체하지 않습니다.</p>
+        <p>{uiT("보조자재 중량은 ‘적재 보조자재 실제 중량 설정’의 현장값으로 계산합니다. 계산된 구속력은 내부 물리모델 비교값이며 실제 자재 정격을 대체하지 않습니다.")}</p>
       </article>}
 
-      {error && <div className="final-cert-error"><b>최종 결과 잠금 유지</b><span>{error}</span></div>}
+      {error && <div className="final-cert-error"><b>{uiT("최종 결과 잠금 유지")}</b><span>{inspectionDiagnosticText(error)}</span></div>}
 
       {!running && error && <div className="final-cert-actions">
-        {request && target && <button type="button" className="primary" onClick={() => void execute(request, target)}>현재 조건으로 다시 탐색</button>}
-        <button type="button" onClick={() => { setOpen(false); window.dispatchEvent(new Event(OPEN_INERTIA_TEST_EVENT)); }}>관성 테스트 자세히 보기</button>
-        <button type="button" onClick={() => setOpen(false)}>적재안 수정</button>
+        {request && target && <button type="button" className="primary" onClick={() => void execute(request, target)}>{uiT("현재 조건으로 다시 탐색")}</button>}
+        <button type="button" onClick={() => { setOpen(false); window.dispatchEvent(new Event(OPEN_INERTIA_TEST_EVENT)); }}>{uiT("관성 테스트 자세히 보기")}</button>
+        <button type="button" onClick={() => setOpen(false)}>{uiT("적재안 수정")}</button>
       </div>}
     </section>
   </div>;

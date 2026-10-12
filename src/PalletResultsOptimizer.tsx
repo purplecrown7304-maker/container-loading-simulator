@@ -1,3 +1,5 @@
+import { uiWorkflowText } from './workflowPresentation';
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   applyPalletAdaptiveCandidate,
@@ -18,6 +20,7 @@ import {
 } from './resultsModalEvents';
 
 export default function PalletResultsOptimizer() {
+  useUiLanguage();
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [attempt, setAttempt] = useState({ index: 0, total: 0, label: '' });
@@ -110,38 +113,38 @@ export default function PalletResultsOptimizer() {
       <header>
         <div>
           <span>ADAPTIVE RESULTS OPTIMIZER · PALLET · RAPIER 3D</span>
-          <h2 id="pallet-result-opt-title">팔레트 결과보기 전 반복 재배치</h2>
-          <p>PASS가 나올 때까지 팔레트 위치뿐 아니라 팔레트 위 상자의 방향·높이·적층단까지 바꾸어 관성 3종을 다시 시험합니다.</p>
+          <h2 id="pallet-result-opt-title">{uiText("팔레트 결과보기 전 반복 재배치")}</h2>
+          <p>{uiText("PASS가 나올 때까지 팔레트 위치뿐 아니라 팔레트 위 상자의 방향·높이·적층단까지 바꾸어 관성 3종을 다시 시험합니다.")}</p>
         </div>
-        {!running && <button type="button" onClick={() => setOpen(false)}>닫기</button>}
+        {!running && <button type="button" onClick={() => setOpen(false)}>{uiText("닫기")}</button>}
       </header>
 
       <div className="final-cert-running">
         {running && <div className="physics-spinner" />}
-        <div><b>{message}</b><span>{attempt.total ? `유효 배치 ${attempt.index}/${attempt.total} · 탐색 ${percent}%` : '후보 생성 중'}</span></div>
+        <div><b>{uiWorkflowText(message)}</b><span>{attempt.total ? uiText("유효 배치 {0}/{1} · 탐색 {2}%", [attempt.index, attempt.total, percent]) : uiText("후보 생성 중")}</span></div>
         <progress max="100" value={percent} />
       </div>
 
       {progress && <div className="final-cert-metrics">
-        <span>현재 보강 <b>{progress.levelLabel}</b></span>
-        <span>{progress.stage === 'secured-physics' ? '보강 물리 시나리오' : '관성 시나리오'} <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
-        <span>물리 계산 <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
-        <span>종료 조건 <b>첫 PASS 또는 유효 배치 소진</b></span>
+        <span>{uiText("현재 보강")}{' '}<b>{uiText(progress.levelLabel)}</b></span>
+        <span>{progress.stage === 'secured-physics' ? uiText("보강 물리 시나리오") : uiText("관성 시나리오")} <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
+        <span>{uiText("물리 계산")}{' '}<b>{Math.round(progress.physicsProgress * 100)}%</b></span>
+        <span>{uiText("종료 조건")}{' '}<b>{uiText("첫 PASS 또는 유효 배치 소진")}</b></span>
       </div>}
 
       <article className="final-cert-materials">
-        <div className="final-cert-material-head"><div><b>계속 바꾸는 항목</b><span>화물 수량은 변경하지 않음</span></div><strong>{attempt.total || '-'}개 유효 배치</strong></div>
+        <div className="final-cert-material-head"><div><b>{uiText("계속 바꾸는 항목")}</b><span>{uiText("화물 수량은 변경하지 않음")}</span></div><strong>{uiText("{0}개 유효 배치", [attempt.total || '-'])}</strong></div>
         <div className="final-cert-material-grid">
-          <div><span>팔레트 위 방향</span><b>자동/정방향/90도/교차</b><small>회전 가능한 SKU만 변경</small></div>
-          <div><span>유닛 높이</span><b>60~115%</b><small>낮은 적재부터 순차 시험</small></div>
-          <div><span>팔레트 적층</span><b>1단부터</b><small>허용 범위의 모든 적층단 비교</small></div>
-          <div><span>컨테이너 폭</span><b>2열 우선</b><small>가능하면 좌우 동시 배치</small></div>
-          <div><span>길이 방향</span><b>안쪽/문쪽 밀착</b><small>이동 여유가 다른 후보 비교</small></div>
-          <div><span>승인</span><b>관성 3종 PASS</b><small>PASS 전 결과 잠금</small></div>
+          <div><span>{uiText("팔레트 위 방향")}</span><b>{uiText("자동/정방향/90도/교차")}</b><small>{uiText("회전 가능한 SKU만 변경")}</small></div>
+          <div><span>{uiText("유닛 높이")}</span><b>60~115%</b><small>{uiText("낮은 적재부터 순차 시험")}</small></div>
+          <div><span>{uiText("팔레트 적층")}</span><b>{uiText("1단부터")}</b><small>{uiText("허용 범위의 모든 적층단 비교")}</small></div>
+          <div><span>{uiText("컨테이너 폭")}</span><b>{uiText("2열 우선")}</b><small>{uiText("가능하면 좌우 동시 배치")}</small></div>
+          <div><span>{uiText("길이 방향")}</span><b>{uiText("안쪽/문쪽 밀착")}</b><small>{uiText("이동 여유가 다른 후보 비교")}</small></div>
+          <div><span>{uiText("승인")}</span><b>{uiText("관성 3종 PASS")}</b><small>{uiText("PASS 전 결과 잠금")}</small></div>
         </div>
       </article>
 
-      {error && <div className="final-cert-error"><b>결과보기 잠금 유지</b><span>{error}</span></div>}
+      {error && <div className="final-cert-error"><b>{uiText("결과보기 잠금 유지")}</b><span>{uiWorkflowText(error)}</span></div>}
     </section>
   </div>;
 }

@@ -1,3 +1,5 @@
+import { useUiMessage } from './useUiMessage';
+import { uiText, uiMessage, useUiLanguage } from './uiLanguage';
 import EnterpriseManufacturingSettings from './EnterpriseManufacturingSettings';
 import EnterprisePackagingStrategyExplorer from './EnterprisePackagingStrategyExplorer';
 import EnterpriseCartonApprovalCenter from './EnterpriseCartonApprovalCenter';
@@ -70,6 +72,7 @@ function nextSuggestedId(boxes: BoxCatalogItem[], l: number, w: number, h: numbe
 }
 
 export default function ProductToolsCenter() {
+  useUiLanguage();
   const equipment = useTransportEquipment();
   const container = useMemo(() => containerFromEquipment(equipment), [equipment]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -78,7 +81,7 @@ export default function ProductToolsCenter() {
   const [draft, setDraft] = useState<ProductDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useUiMessage('');
   const [importing, setImporting] = useState(false);
   const [familyPlan, setFamilyPlan] = useState<CommonCartonFamilyPlan | null>(null);
   const [additional, setAdditional] = useState<SuggestedBox[]>([]);
@@ -158,7 +161,7 @@ export default function ProductToolsCenter() {
   };
 
   const removeProduct = (product: CompanyProductItem) => {
-    if (!window.confirm(`${product.id} ${product.name} 제품을 삭제할까요?`)) return;
+    if (!window.confirm(uiText("{0} {1} 제품을 삭제할까요?", [product.id, product.name]))) return;
     saveState(products.filter(item => item.id !== product.id));
     if (editingId === product.id) { setEditingId(null); setDraft(emptyDraft); }
     setMessage(`${product.id} 제품을 삭제했습니다.`);
@@ -169,9 +172,9 @@ export default function ProductToolsCenter() {
     setImporting(true);
     try {
       const result = await parseProductWorkbook(file);
-      const issues = result.issues.slice(0, 5).map(issue => `${issue.row}행${issue.code ? ` (${issue.code})` : ''}: ${issue.message}`).join(' / ');
+      const issues = () => result.issues.slice(0, 5).map(issue => uiText('{0}행{1}: {2}', [issue.row, issue.code ? ` (${issue.code})` : '', uiMessage(issue.message)])).join(' / ');
       if (!result.items.length) {
-        setMessage(`반영할 제품이 없습니다. 기존 목록을 유지합니다.${issues ? ` ${issues}` : ''}`);
+        setMessage(() => uiText('반영할 제품이 없습니다. 기존 목록을 유지합니다.{0}', [issues() ? ` ${issues()}` : '']));
         return;
       }
       // File reading is async; retain changes made to the catalog while it was being read.
@@ -180,7 +183,7 @@ export default function ProductToolsCenter() {
       writeEnterprisePackagingPlannerState({ ...current, products: merged.products });
       setDraft(emptyDraft);
       setEditingId(null);
-      setMessage(`제품 엑셀 반영 완료 · 추가 ${merged.added}종 · 수정 ${merged.updated}종 · 확인 필요 ${result.issues.length}건${issues ? ` — ${issues}${result.issues.length > 5 ? ' / 나머지 오류도 파일에서 확인하세요.' : ''}` : ''}`);
+      setMessage(() => uiText('제품 엑셀 반영 완료 · 추가 {0}종 · 수정 {1}종 · 확인 필요 {2}건{3}', [merged.added, merged.updated, result.issues.length, issues() ? ` — ${issues()}${result.issues.length > 5 ? uiText(' / 나머지 오류도 파일에서 확인하세요.') : ''}` : '']));
     } catch {
       setMessage('제품 엑셀을 읽지 못했습니다. 기초 양식의 열 이름을 확인하세요.');
     } finally {
@@ -284,41 +287,41 @@ export default function ProductToolsCenter() {
   const universal = familyPlan?.family.selectedBoxes.filter(item => item.assignedProducts.length >= 2) ?? [];
 
   return <div className="product-tools-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setView(null); }}>
-    <section className="product-tools-dialog" role="dialog" aria-modal="true" aria-label={view === 'products' ? '회사 제품 관리' : '범용 및 추가 박스 추천'}>
-      <header><div><span>COMPANY DATA</span><h2>{view === 'products' ? '회사 제품 관리' : '범용 · 추가 박스 스펙 추천'}</h2><p>{view === 'products' ? '제품 마스터를 관리합니다. 실제 출하 수량은 메인 2단계 제품 선택에서 입력합니다.' : '등록 제품 전체와 현재 회사 박스를 함께 분석해 공용화 규격과 추가 보유할 박스 스펙을 제안합니다. 추천만으로 개인 박스 목록에는 추가되지 않습니다.'}</p></div><button type="button" onClick={() => setView(null)}>×</button></header>
+    <section className="product-tools-dialog" role="dialog" aria-modal="true" aria-label={view === 'products' ? uiText("회사 제품 관리") : uiText("범용 및 추가 박스 추천")}>
+      <header><div><span>COMPANY DATA</span><h2>{view === 'products' ? uiText("회사 제품 관리") : uiText("범용 · 추가 박스 스펙 추천")}</h2><p>{view === 'products' ? uiText("제품 마스터를 관리합니다. 실제 출하 수량은 메인 2단계 제품 선택에서 입력합니다.") : uiText("등록 제품 전체와 현재 회사 박스를 함께 분석해 공용화 규격과 추가 보유할 박스 스펙을 제안합니다. 추천만으로 개인 박스 목록에는 추가되지 않습니다.")}</p></div><button type="button" onClick={() => setView(null)}>×</button></header>
 
       {view === 'products' ? <div className="product-tools-body">
         <input ref={inputRef} hidden type="file" accept=".xlsx,.xls" onChange={event => void importWorkbook(event.target.files?.[0])}/>
-        <div className="product-tools-actions"><button onClick={downloadProductTemplate}>기초 엑셀 양식</button><button disabled={!products.length || importing} onClick={() => downloadProductCatalog(products)}>등록 제품 엑셀 다운로드</button><button disabled={importing} onClick={() => inputRef.current?.click()}>{importing ? '제품 엑셀 읽는 중…' : '제품 엑셀 업로드'}</button><span>등록 {products.length}종 · 보유 박스 {boxes.length}종</span></div>
-        <p>등록 제품 전체를 내려받아 수정 후 업로드하세요. 같은 제품코드는 수정, 새 코드는 추가되며 파일에 없는 제품은 유지됩니다.</p>
+        <div className="product-tools-actions"><button onClick={downloadProductTemplate}>{uiText("기초 엑셀 양식")}</button><button disabled={!products.length || importing} onClick={() => downloadProductCatalog(products)}>{uiText("등록 제품 엑셀 다운로드")}</button><button disabled={importing} onClick={() => inputRef.current?.click()}>{importing ? uiText("제품 엑셀 읽는 중…") : uiText("제품 엑셀 업로드")}</button><span>{uiText("등록 ")}{products.length}{uiText("종 · 보유 박스 ")}{boxes.length}{uiText("종")}</span></div>
+        <p>{uiText("등록 제품 전체를 내려받아 수정 후 업로드하세요. 같은 제품코드는 수정, 새 코드는 추가되며 파일에 없는 제품은 유지됩니다.")}</p>
         <div className="product-master-form">
-          <label>제품코드<input value={draft.id} disabled={Boolean(editingId)} onChange={event => setDraft(value => ({ ...value, id: event.target.value }))}/></label>
-          <label>제품명<input value={draft.name} onChange={event => setDraft(value => ({ ...value, name: event.target.value }))}/></label>
-          <label>길이 mm<input type="number" min="1" value={draft.lengthMm} onChange={event => setDraft(value => ({ ...value, lengthMm: Number(event.target.value) }))}/></label>
-          <label>폭 mm<input type="number" min="1" value={draft.widthMm} onChange={event => setDraft(value => ({ ...value, widthMm: Number(event.target.value) }))}/></label>
-          <label>높이 mm<input type="number" min="1" value={draft.heightMm} onChange={event => setDraft(value => ({ ...value, heightMm: Number(event.target.value) }))}/></label>
-          <label>중량 kg<input type="number" min=".001" step=".1" value={draft.weightKg} onChange={event => setDraft(value => ({ ...value, weightKg: Number(event.target.value) }))}/></label>
-          <label>박스 적재<select value={draft.requiresBoxPackaging ? 'yes' : 'no'} onChange={event => setDraft(value => ({ ...value, requiresBoxPackaging: event.target.value === 'yes' }))}><option value="yes">필요</option><option value="no">불필요 · 직접 적재</option></select></label>
-          <div className="product-master-form-buttons"><button className="primary" onClick={saveProduct}>{editingId ? '제품 수정 저장' : '제품 등록'}</button>{editingId && <button onClick={() => { setEditingId(null); setDraft(emptyDraft); }}>취소</button>}</div>
+          <label>{uiText("제품코드")}<input value={draft.id} disabled={Boolean(editingId)} onChange={event => setDraft(value => ({ ...value, id: event.target.value }))}/></label>
+          <label>{uiText("제품명")}<input value={draft.name} onChange={event => setDraft(value => ({ ...value, name: event.target.value }))}/></label>
+          <label>{uiText("길이 mm")}<input type="number" min="1" value={draft.lengthMm} onChange={event => setDraft(value => ({ ...value, lengthMm: Number(event.target.value) }))}/></label>
+          <label>{uiText("폭 mm")}<input type="number" min="1" value={draft.widthMm} onChange={event => setDraft(value => ({ ...value, widthMm: Number(event.target.value) }))}/></label>
+          <label>{uiText("높이 mm")}<input type="number" min="1" value={draft.heightMm} onChange={event => setDraft(value => ({ ...value, heightMm: Number(event.target.value) }))}/></label>
+          <label>{uiText("중량 kg")}<input type="number" min=".001" step=".1" value={draft.weightKg} onChange={event => setDraft(value => ({ ...value, weightKg: Number(event.target.value) }))}/></label>
+          <label>{uiText("박스 적재")}<select value={draft.requiresBoxPackaging ? 'yes' : 'no'} onChange={event => setDraft(value => ({ ...value, requiresBoxPackaging: event.target.value === 'yes' }))}><option value="yes">{uiText("필요")}</option><option value="no">{uiText("불필요 · 직접 적재")}</option></select></label>
+          <div className="product-master-form-buttons"><button className="primary" onClick={saveProduct}>{editingId ? uiText("제품 수정 저장") : uiText("제품 등록")}</button>{editingId && <button onClick={() => { setEditingId(null); setDraft(emptyDraft); }}>{uiText("취소")}</button>}</div>
         </div>
-        <div className="product-master-search"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="제품명 또는 제품코드 검색"/></div>
+        <div className="product-master-search"><input value={query} onChange={event => setQuery(event.target.value)} placeholder={uiText("제품명 또는 제품코드 검색")}/></div>
         <div className="product-master-list">
-          <div className="product-master-head"><span>제품 정보</span><span>박스 적합성</span><span>자동 추천 포장</span><span>관리</span></div>
+          <div className="product-master-head"><span>{uiText("제품 정보")}</span><span>{uiText("박스 적합성")}</span><span>{uiText("자동 추천 포장")}</span><span>{uiText("관리")}</span></div>
           {filtered.map(product => {
             const needsBox = requiresBoxPackaging(product);
             const compatibility = needsBox ? getProductBoxCompatibility(product, boxes) : null;
             const recommended = needsBox ? packagingCandidates(container, { ...product, quantity: 1 }, boxes, plannerState)[0] : undefined;
-            return <article key={product.id}><div><b>{product.name}</b><span>{product.id} · {mm(product.length)}×{mm(product.width)}×{mm(product.height)} mm · {product.weightKg}kg</span></div><div>{!needsBox ? <><b>박스 불필요</b><span>직접 적재</span></> : compatibility?.status === 'fit' ? <><b className="good">적재 가능</b><span>보유 박스 {compatibility.compatibleBoxCount}종 적합</span></> : compatibility?.status === 'unfit' ? <><b className="warn">적재 불가</b><span>현재 등록 박스에 맞지 않음</span></> : <><b>등록 박스 없음</b><span>신규 규격 추천 사용</span></>}</div><div>{recommended ? <><b>{formatBoxSize(recommended)}</b><span>{recommended.source === 'catalog' ? `보유 · ${recommended.boxName}` : '추가 추천 규격'} · {recommended.unitsPerBox}EA/BOX</span></> : <><b>-</b><span>{needsBox ? '추천 불가' : '제품 실물 적재'}</span></>}</div><div className="product-row-actions"><button onClick={() => editProduct(product)}>수정</button><button onClick={() => removeProduct(product)}>삭제</button></div></article>;
+            return <article key={product.id}><div><b>{product.name}</b><span>{product.id} · {mm(product.length)}×{mm(product.width)}×{mm(product.height)} mm · {product.weightKg}kg</span></div><div>{!needsBox ? <><b>{uiText("박스 불필요")}</b><span>{uiText("직접 적재")}</span></> : compatibility?.status === 'fit' ? <><b className="good">{uiText("적재 가능")}</b><span>{uiText("보유 박스 ")}{compatibility.compatibleBoxCount}{uiText("종 적합")}</span></> : compatibility?.status === 'unfit' ? <><b className="warn">{uiText("적재 불가")}</b><span>{uiText("현재 등록 박스에 맞지 않음")}</span></> : <><b>{uiText("등록 박스 없음")}</b><span>{uiText("신규 규격 추천 사용")}</span></>}</div><div>{recommended ? <><b>{formatBoxSize(recommended)}</b><span>{recommended.source === 'catalog' ? uiText("보유 · {0}", [recommended.boxName]) : uiText("추가 추천 규격")} · {recommended.unitsPerBox}EA/BOX</span></> : <><b>-</b><span>{needsBox ? uiText("추천 불가") : uiText("제품 실물 적재")}</span></>}</div><div className="product-row-actions"><button onClick={() => editProduct(product)}>{uiText("수정")}</button><button onClick={() => removeProduct(product)}>{uiText("삭제")}</button></div></article>;
           })}
         </div>
       </div> : <div className="product-tools-body">
-        <div className="carton-analyze-head"><div><b>분석 대상</b><span>회사 제품 {products.filter(requiresBoxPackaging).length}종 · 현재 회사 박스 {boxes.length}종 · {equipment.shortName}</span></div><button className="primary" onClick={calculateCartons}>제품·보유박스 분석</button></div>
-        {familyPlan && <div className="carton-metrics"><div><span>개별 최적 규격</span><b>{familyPlan.family.baselineBoxTypes}종</b></div><div><span>범용화 후</span><b>{familyPlan.family.selectedBoxTypes}종</b></div><div><span>규격 절감</span><b>{familyPlan.family.boxTypeSavings}종</b></div><div><span>평균 효율 손실</span><b>{(familyPlan.family.averageScoreLoss * 100).toFixed(1)}%</b></div></div>}
-        <div className="carton-tool-section"><div className="carton-tool-title"><h3>범용 상자 크기 추천</h3><span>여러 제품에 같이 사용할 수 있는 규격 · 등록 버튼을 눌러야 개인 박스 목록에 추가</span></div>{universal.length ? universal.map(item => <article className="carton-recommend-row" key={`${item.id}-${item.outerLength}`}><div><b>{mm(item.outerLength)} × {mm(item.outerWidth)} × {mm(item.outerHeight)} mm</b><span>{item.source === 'catalog' ? '현재 보유 박스 재사용' : '신규 범용 규격'}</span></div><div><b>{item.assignedProducts.length}개 제품 공용</b><span>{item.assignedProducts.join(', ')}</span></div>{item.source === 'catalog' ? <strong className="registered">보유 중</strong> : <button onClick={() => registerFamily(item)}>회사 박스로 등록</button>}</article>) : <div className="carton-empty">분석 버튼을 누르면 범용 규격이 표시됩니다.</div>}</div>
-        <div className="carton-tool-section"><div className="carton-tool-title"><h3>추가 보유 권장 박스</h3><span>현재 박스 스펙과 비교했을 때 추가하면 효율이 좋아지는 규격 · 등록 전에는 목록에 저장하지 않음</span></div>{additional.length ? additional.map(item => <article className="carton-recommend-row" key={item.key}><div><b>{formatBoxSize(item.assignment)}</b><span>{item.reason}</span></div><div><b>{item.products.length}개 제품 개선</b><span>{item.products.join(', ')} · {item.assignment.unitsPerBox}EA/BOX · 충진율 {Math.round(item.assignment.productFillRate * 100)}%</span></div><button onClick={() => registerAssignment(item.assignment, '추가추천')}>회사 박스로 등록</button></article>) : <div className="carton-empty">분석 후 현재 보유 박스보다 추가 가치가 있는 규격만 표시합니다.</div>}</div>
-        <details className="packaging-advanced-tools"><summary>제조 규격 · 전략 비교 · 강도 승인</summary><EnterpriseManufacturingSettings/><EnterprisePackagingStrategyExplorer/><EnterpriseCartonApprovalCenter/></details>
+        <div className="carton-analyze-head"><div><b>{uiText("분석 대상")}</b><span>{uiText("회사 제품 ")}{products.filter(requiresBoxPackaging).length}{uiText("종 · 현재 회사 박스 ")}{boxes.length}{uiText("종 · ")}{equipment.shortName}</span></div><button className="primary" onClick={calculateCartons}>{uiText("제품·보유박스 분석")}</button></div>
+        {familyPlan && <div className="carton-metrics"><div><span>{uiText("개별 최적 규격")}</span><b>{familyPlan.family.baselineBoxTypes}{uiText("종")}</b></div><div><span>{uiText("범용화 후")}</span><b>{familyPlan.family.selectedBoxTypes}{uiText("종")}</b></div><div><span>{uiText("규격 절감")}</span><b>{familyPlan.family.boxTypeSavings}{uiText("종")}</b></div><div><span>{uiText("평균 효율 손실")}</span><b>{(familyPlan.family.averageScoreLoss * 100).toFixed(1)}%</b></div></div>}
+        <div className="carton-tool-section"><div className="carton-tool-title"><h3>{uiText("범용 상자 크기 추천")}</h3><span>{uiText("여러 제품에 같이 사용할 수 있는 규격 · 등록 버튼을 눌러야 개인 박스 목록에 추가")}</span></div>{universal.length ? universal.map(item => <article className="carton-recommend-row" key={`${item.id}-${item.outerLength}`}><div><b>{mm(item.outerLength)} × {mm(item.outerWidth)} × {mm(item.outerHeight)} mm</b><span>{item.source === 'catalog' ? uiText("현재 보유 박스 재사용") : uiText("신규 범용 규격")}</span></div><div><b>{item.assignedProducts.length}{uiText("개 제품 공용")}</b><span>{item.assignedProducts.join(', ')}</span></div>{item.source === 'catalog' ? <strong className="registered">{uiText("보유 중")}</strong> : <button onClick={() => registerFamily(item)}>{uiText("회사 박스로 등록")}</button>}</article>) : <div className="carton-empty">{uiText("분석 버튼을 누르면 범용 규격이 표시됩니다.")}</div>}</div>
+        <div className="carton-tool-section"><div className="carton-tool-title"><h3>{uiText("추가 보유 권장 박스")}</h3><span>{uiText("현재 박스 스펙과 비교했을 때 추가하면 효율이 좋아지는 규격 · 등록 전에는 목록에 저장하지 않음")}</span></div>{additional.length ? additional.map(item => <article className="carton-recommend-row" key={item.key}><div><b>{formatBoxSize(item.assignment)}</b><span>{uiMessage(item.reason)}</span></div><div><b>{item.products.length}{uiText("개 제품 개선")}</b><span>{item.products.join(', ')} · {item.assignment.unitsPerBox}{uiText("EA/BOX · 충진율 ")}{Math.round(item.assignment.productFillRate * 100)}%</span></div><button onClick={() => registerAssignment(item.assignment, '추가추천')}>{uiText("회사 박스로 등록")}</button></article>) : <div className="carton-empty">{uiText("분석 후 현재 보유 박스보다 추가 가치가 있는 규격만 표시합니다.")}</div>}</div>
+        <details className="packaging-advanced-tools"><summary>{uiText("제조 규격 · 전략 비교 · 강도 승인")}</summary><EnterpriseManufacturingSettings/><EnterprisePackagingStrategyExplorer/><EnterpriseCartonApprovalCenter/></details>
       </div>}
-      {message && <footer className="product-tools-message" role="status">{message}</footer>}
+      {message && <footer className="product-tools-message" role="status">{uiMessage(message)}</footer>}
     </section>
   </div>;
 }

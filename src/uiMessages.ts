@@ -1,5 +1,16 @@
-/** UI-only translations. Domain data, saved identifiers and reports retain their original values. */
-export const uiMessages: Readonly<Record<string, readonly [string, string]>> = {
+import { uiMessagesCompany } from './uiMessagesCompany';
+import { uiMessagesPalletCatalog } from './uiMessagesPalletCatalog';
+import { uiMessagesEngine } from './uiMessagesEngine';
+import { uiMessagesViewer } from './uiMessagesViewer';
+import { uiMessagesEquipment } from './uiMessagesEquipment';
+import { uiMessagesExports } from './uiMessagesExports';
+import { uiMessagesInspection } from './uiMessagesInspection';
+import { uiMessagesProduct } from './uiMessagesProduct';
+import { uiMessagesReports } from './uiMessagesReports';
+import { uiMessagesShipmentReports } from './uiMessagesShipmentReports';
+import { uiMessagesWorkflow } from './uiMessagesWorkflow';
+/** Presentation translations only. Saved identifiers, user content and calculation inputs stay unchanged. */
+const baseUiMessages: Readonly<Record<string, readonly [string, string]>> = {
   "회원 인증에 실패했습니다.": [
     "Member authentication failed.",
     "Xác thực thành viên thất bại."
@@ -2675,5 +2686,20 @@ export const uiMessages: Readonly<Record<string, readonly [string, string]>> = {
   "{0}단 · 제품 간격 {1} mm": [
     "{0} layers · Product gap {1} mm",
     "{0} tầng · Khoảng cách sản phẩm {1} mm"
-  ]
+  ],
+};
+
+export const uiMessages: Readonly<Record<string, readonly [string, string]>> = {
+  ...uiMessagesReports,
+  ...uiMessagesShipmentReports,
+  ...uiMessagesWorkflow,
+  ...uiMessagesProduct,
+  ...uiMessagesInspection,
+  ...uiMessagesEquipment,
+  ...uiMessagesExports,
+  ...uiMessagesViewer,
+  ...uiMessagesCompany,
+  ...uiMessagesPalletCatalog,
+  ...uiMessagesEngine,
+  ...baseUiMessages,
 };

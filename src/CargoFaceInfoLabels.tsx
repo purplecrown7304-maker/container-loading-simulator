@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import type { CargoItem, ContainerSpec, Placement } from './engine/types';
@@ -46,9 +47,10 @@ function makeInfoTexture(sample: Placement, displayName?: string, productInfo?: 
     ctx.fillStyle = '#1d4ed8';
     ctx.font = '800 43px sans-serif';
     ctx.fillText(
-      `제품 총중량 ${contentWeight.toFixed(contentWeight % 1 ? 1 : 0)} kg · ${(sample.length * sample.width * sample.height).toFixed(3)} CBM`,
+      uiText('제품 총중량 {0} kg · {1} CBM', [contentWeight.toFixed(contentWeight % 1 ? 1 : 0), (sample.length * sample.width * sample.height).toFixed(3)]),
       canvas.width / 2,
       395,
+      canvas.width - 64,
     );
   } else {
     ctx.fillStyle = '#0f172a';
@@ -115,6 +117,7 @@ export function CargoFaceInfoLabels({
   verticalOffset?: number;
   bodyScale?: number;
 }) {
+  const language = useUiLanguage();
   const sample = placements[0];
   const storedProductInfo = useMemo<ProductLabelInfo | undefined>(() => {
     if (!sample) return undefined;
@@ -132,6 +135,7 @@ export function CargoFaceInfoLabels({
     () => (sample ? makeInfoTexture(sample, displayName, resolvedProductInfo) : null),
     [
       displayName,
+      language,
       resolvedProductInfo?.productId,
       resolvedProductInfo?.productName,
       resolvedProductInfo?.unitsPerPackage,

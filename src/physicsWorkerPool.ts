@@ -140,7 +140,22 @@ function startOn(slot: Slot, task: Task, make: WorkerFactory) {
       if (slot.worker !== worker) return;
       const current = slot.task;
       if (!current || event.data.id !== current.id) return;
-      if (event.data.progress !== undefined) { current.onProgress?.(event.data.progress); return; }
+      if (event.data.progress !== undefined) {
+        try { current.onProgress?.(event.data.progress); }
+        catch (error) {
+          // Browser event handlers are outside the job Promise. A cancellation
+          // callback may abort/replace this slot synchronously before throwing.
+          // Reject the original job without leaking an uncaught window error or
+          // terminating a replacement worker that already owns the slot.
+          if (slot.task === current && slot.worker === worker) {
+            worker.terminate();
+            slot.worker = null;
+            finish(slot, current);
+          }
+          current.reject(current.signal?.aborted ? abortError() : error);
+        }
+        return;
+      }
       finish(slot, current);
       if (event.data.error !== undefined) current.reject(new Error(event.data.error));
       else current.resolve(event.data.result);

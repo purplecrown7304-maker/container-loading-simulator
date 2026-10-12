@@ -1,3 +1,4 @@
+import { uiText } from './uiLanguage';
 import { createPhysicsTargetSignature, readLatestInertiaCertification } from './inertiaCertification';
 import { canCreateWorkOrder, isInertiaCertificationComplete, isPhysicsTargetVerified } from './inertiaWorkOrderPolicy';
 import { readPhysicsTarget } from './physicsTarget';
@@ -35,7 +36,7 @@ export function hasCurrentWorkOrderResult(): boolean {
 export function confirmUnverifiedExport(kind: string): boolean {
   if (hasCurrentWorkOrderResult()) return true;
   if (typeof window !== 'undefined') {
-    window.alert(`${kind} 출력은 현재 차단되어 있습니다.\n\n검증 결과가 없거나 최신 적재안과 일치하지 않습니다. 현재 적재안으로 다시 검사하세요.`);
+    window.alert(uiText("{0} 출력은 현재 차단되어 있습니다.\n\n검증 결과가 없거나 최신 적재안과 일치하지 않습니다. 현재 적재안으로 다시 검사하세요.", [uiText(kind)]));
   }
   return false;
 }

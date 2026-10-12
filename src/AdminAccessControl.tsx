@@ -1,9 +1,11 @@
+import { uiText, uiMessage, useUiLanguage } from './uiLanguage';
 import { FormEvent, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ADMIN_ACCESS_EVENT, isAdminSession, loginAdmin, logoutAdmin } from './adminAccess';
 import './admin-access.css';
 
 export default function AdminAccessControl() {
+  useUiLanguage();
   const [isAdmin, setIsAdmin] = useState(() => isAdminSession());
   const [open, setOpen] = useState(false);
   const [userId, setUserId] = useState('admin');
@@ -44,20 +46,20 @@ export default function AdminAccessControl() {
   return <>
     <div className={`admin-access-chip ${isAdmin ? 'active' : ''}`}>
       {isAdmin ? <>
-        <span>관리자 로그인</span>
-        <button type="button" onClick={logout}>로그아웃</button>
-      </> : <button type="button" onClick={() => { setMessage(''); setOpen(true); }}>관리자 로그인</button>}
+        <span>{uiText("관리자 로그인")}</span>
+        <button type="button" onClick={logout}>{uiText("로그아웃")}</button>
+      </> : <button type="button" onClick={() => { setMessage(''); setOpen(true); }}>{uiText("관리자 로그인")}</button>}
     </div>
     {open && createPortal(
       <div className="admin-login-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
         <form className="admin-login-dialog" onSubmit={submit}>
-          <header><div><span>ADMIN ACCESS</span><h2>관리자 로그인</h2></div><button type="button" onClick={() => setOpen(false)}>닫기</button></header>
-          <p>장비 이미지 수정 등 관리자 전용 기능을 사용하려면 로그인하세요.</p>
-          <label>관리자 ID<input autoComplete="username" value={userId} onChange={event => setUserId(event.target.value)} /></label>
-          <label>비밀번호<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} autoFocus /></label>
-          {message && <div className="admin-login-error" role="alert">{message}</div>}
-          <button className="admin-login-submit" type="submit" disabled={busy}>{busy ? '확인 중…' : '로그인'}</button>
-          <small>관리자 세션은 현재 브라우저 탭을 닫으면 자동 해제됩니다.</small>
+          <header><div><span>ADMIN ACCESS</span><h2>{uiText("관리자 로그인")}</h2></div><button type="button" onClick={() => setOpen(false)}>{uiText("닫기")}</button></header>
+          <p>{uiText("장비 이미지 수정 등 관리자 전용 기능을 사용하려면 로그인하세요.")}</p>
+          <label>{uiText("관리자 ID")}<input autoComplete="username" value={userId} onChange={event => setUserId(event.target.value)} /></label>
+          <label>{uiText("비밀번호")}<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} autoFocus /></label>
+          {message && <div className="admin-login-error" role="alert">{uiMessage(message)}</div>}
+          <button className="admin-login-submit" type="submit" disabled={busy}>{busy ? uiText("확인 중…") : uiText("로그인")}</button>
+          <small>{uiText("관리자 세션은 현재 브라우저 탭을 닫으면 자동 해제됩니다.")}</small>
         </form>
       </div>,
       document.body,

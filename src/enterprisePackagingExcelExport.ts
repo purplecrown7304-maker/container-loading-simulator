@@ -1,14 +1,18 @@
+import { uiText } from './uiLanguage';
+import { excelDisplayRows } from './excelPresentation';
 import * as XLSX from 'xlsx';
 import type { EnterprisePackagingPlan } from './engine/enterprisePackagingOptimizer';
 import type { BoxCatalogItem, ProductItem } from './engine/productPackagingOptimizer';
 import type { ContainerSpec } from './engine/types';
 import { productGapM } from './engine/productInteriorGeometry';
 
+const exportJsonSheet = (rows: readonly object[]) => XLSX.utils.json_to_sheet(excelDisplayRows(rows));
+
 const mm = (value: number) => Math.round(value * 1000);
 const pct = (value: number) => Number((value * 100).toFixed(2));
 
 function addSheet(workbook: XLSX.WorkBook, name: string, rows: Array<Record<string, string | number | boolean>>) {
-  const sheet = XLSX.utils.json_to_sheet(rows);
+  const sheet = exportJsonSheet(rows);
   if (rows.length > 0) {
     const keys = Object.keys(rows[0]);
     sheet['!cols'] = keys.map((key) => ({ wch: Math.min(36, Math.max(12, key.length + 4)) }));
@@ -62,7 +66,7 @@ export function downloadEnterprisePackagingWorkbook(
       '잔량 혼합허용': product?.allowMixedCarton !== false,
       '선정박스코드': item.boxId,
       '선정박스명': item.boxName,
-      '박스소스': item.source === 'catalog' ? '보유박스' : '자동/공용설계',
+      '박스소스': item.source === 'catalog' ? uiText('보유박스') : uiText('자동/공용설계'),
       '외부 L(mm)': mm(item.outerLength),
       '외부 W(mm)': mm(item.outerWidth),
       '외부 H(mm)': mm(item.outerHeight),
@@ -78,7 +82,7 @@ export function downloadEnterprisePackagingWorkbook(
       '실적용 적층단': item.maxStackLayers,
       '상부허용중량(kg)': item.maxTopLoadKg ?? '',
       '설계요구 상부하중(kg)': Number(item.requiredTopLoadKg.toFixed(2)),
-      '강도상태': item.strengthStatus === 'catalog' ? '카탈로그 검증값 사용' : '미검증 설계목표',
+      '강도상태': item.strengthStatus === 'catalog' ? uiText('카탈로그 검증값 사용') : uiText('미검증 설계목표'),
       '박스단가': item.boxUnitCost ?? '',
     };
   }));
@@ -86,7 +90,7 @@ export function downloadEnterprisePackagingWorkbook(
   addSheet(workbook, 'CartonFamily', plan.family.selectedBoxes.map((item) => ({
     '박스코드': item.id,
     '박스명': item.name,
-    '소스': item.source === 'catalog' ? '보유박스' : '자동/공용설계',
+    '소스': item.source === 'catalog' ? uiText('보유박스') : uiText('자동/공용설계'),
     '외부 L(mm)': mm(item.outerLength),
     '외부 W(mm)': mm(item.outerWidth),
     '외부 H(mm)': mm(item.outerHeight),
@@ -97,7 +101,7 @@ export function downloadEnterprisePackagingWorkbook(
     '혼합박스ID': item.id,
     '박스코드': item.boxId,
     '박스명': item.boxName,
-    '소스': item.source === 'catalog' ? '보유박스' : '자동/공용설계',
+    '소스': item.source === 'catalog' ? uiText('보유박스') : uiText('자동/공용설계'),
     '외부 L(mm)': mm(item.outerLength),
     '외부 W(mm)': mm(item.outerWidth),
     '외부 H(mm)': mm(item.outerHeight),

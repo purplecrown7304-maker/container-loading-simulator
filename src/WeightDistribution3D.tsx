@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from './uiLanguage';
 import { Html } from '@react-three/drei';
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
@@ -17,6 +18,7 @@ export default function WeightDistribution3D({
   scale: number;
   showCenterOfGravity: boolean;
 }) {
+  useUiLanguage();
   const [hoveredCellIndex, setHoveredCellIndex] = useState<number | null>(null);
   const maxGraphHeight = container.height * scale * 0.72;
   const cog = analysis.centerOfGravity;
@@ -75,7 +77,7 @@ export default function WeightDistribution3D({
         <meshBasicMaterial color="#0f766e" depthWrite={false} />
       </mesh>
       <Html center position={[0, 0.28, 0]} zIndexRange={[46, 0]}>
-        <span className="weight-cog-label">컨테이너 중심 · L/2, W/2</span>
+        <span className="weight-cog-label">{uiText("컨테이너 중심 · L/2, W/2")}</span>
       </Html>
     </group>}
 
@@ -117,7 +119,7 @@ export default function WeightDistribution3D({
         ]}
         zIndexRange={[45, 0]}
       >
-        <span className="weight-cog-label">화물 CG · 컨테이너 중심 대비</span>
+        <span className="weight-cog-label">{uiText("화물 CG · 컨테이너 중심 대비")}</span>
       </Html>
     </group>}
   </group>;

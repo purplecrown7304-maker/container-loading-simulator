@@ -1,3 +1,5 @@
+import { uiText } from './uiLanguage';
+import { excelHeaders, normalizeExcelHeaders } from './excelPresentation';
 import * as XLSX from 'xlsx';
 import type { BoxCatalogItem, ProductItem, ProductOrientationPolicy } from './engine/productPackagingOptimizer';
 
@@ -41,7 +43,7 @@ function sheetByNames(workbook: XLSX.WorkBook, names: string[]) {
 }
 
 function parseProducts(sheetName: string, sheet: XLSX.WorkSheet, issues: PackagingImportIssue[]) {
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' }).map(normalizeExcelHeaders);
   const raw: Array<{ item: ProductItem; row: number }> = [];
   rows.forEach((row, index) => {
     const excelRow = index + 2;
@@ -122,7 +124,7 @@ function parseProducts(sheetName: string, sheet: XLSX.WorkSheet, issues: Packagi
 }
 
 function parseBoxes(sheetName: string, sheet: XLSX.WorkSheet, issues: PackagingImportIssue[]) {
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' }).map(normalizeExcelHeaders);
   const seen = new Set<string>();
   const result: BoxCatalogItem[] = [];
   rows.forEach((row, index) => {
@@ -183,12 +185,12 @@ export async function parseProductPackagingWorkbook(file: File): Promise<Packagi
 export function downloadProductPackagingTemplate() {
   const workbook = XLSX.utils.book_new();
   const products = XLSX.utils.aoa_to_sheet([
-    ['제품코드', '제품명', '길이(mm)', '폭(mm)', '높이(mm)', '중량(kg)', '수량', '박스당최대EA', '회전정책', '벽완충여유(mm)', '제품간격(mm)', '내부최대적층', '파손주의', '혼합포장허용'],
-    ['PRD-A', '제품 A', 220, 120, 80, 0.6, 240, 24, 'base-rotation', 5, 1, 3, 'N', 'Y'],
-    ['PRD-B', '제품 B', 310, 180, 110, 1.2, 120, 12, 'upright', 10, 1, 1, 'Y', 'N'],
+    excelHeaders(['제품코드', '제품명', '길이(mm)', '폭(mm)', '높이(mm)', '중량(kg)', '수량', '박스당최대EA', '회전정책', '벽완충여유(mm)', '제품간격(mm)', '내부최대적층', '파손주의', '혼합포장허용']),
+    ['PRD-A', uiText('제품 A'), 220, 120, 80, 0.6, 240, 24, 'base-rotation', 5, 1, 3, 'N', 'Y'],
+    ['PRD-B', uiText('제품 B'), 310, 180, 110, 1.2, 120, 12, 'upright', 10, 1, 1, 'Y', 'N'],
   ]);
   const boxes = XLSX.utils.aoa_to_sheet([
-    ['박스코드', '박스명', '내부L(mm)', '내부W(mm)', '내부H(mm)', '외부L(mm)', '외부W(mm)', '외부H(mm)', '박스자중(kg)', '최대총중량(kg)', '상부허용중량(kg)', '박스단가'],
+    excelHeaders(['박스코드', '박스명', '내부L(mm)', '내부W(mm)', '내부H(mm)', '외부L(mm)', '외부W(mm)', '외부H(mm)', '박스자중(kg)', '최대총중량(kg)', '상부허용중량(kg)', '박스단가']),
     ['BOX-604040', '600×400×400', 590, 390, 390, 600, 400, 400, 0.8, 22, 80, 1.2],
     ['BOX-503030', '500×300×300', 490, 290, 290, 500, 300, 300, 0.6, 18, 60, 0.9],
   ]);

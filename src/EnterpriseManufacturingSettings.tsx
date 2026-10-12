@@ -1,3 +1,5 @@
+import { useUiMessage } from './useUiMessage';
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useState } from 'react';
 import {
   ENTERPRISE_PACKAGING_PLANNER_EVENT,
@@ -8,9 +10,10 @@ import {
 const STEPS = [1, 5, 10, 20] as const;
 
 export default function EnterpriseManufacturingSettings() {
+  useUiLanguage();
   const [stepMm, setStepMm] = useState(5);
   const [ready, setReady] = useState(false);
-  const [message, setMessage] = useState('자동설계 박스와 공용박스 규격에 동일하게 적용됩니다.');
+  const [message, setMessage] = useUiMessage('자동설계 박스와 공용박스 규격에 동일하게 적용됩니다.');
 
   const sync = () => {
     const stored = readEnterprisePackagingPlannerState();
@@ -48,12 +51,12 @@ export default function EnterpriseManufacturingSettings() {
     }, true);
     setStepMm(safe);
     setReady(true);
-    setMessage(`${safe}mm 제조 그리드 적용 · 기존 분석 결과는 다시 계산해야 합니다.`);
+    setMessage(() => uiText("{0}mm 제조 그리드 적용 · 기존 분석 결과는 다시 계산해야 합니다.", [safe]));
   };
 
-  return <section className="enterprise-manufacturing-settings" aria-label="자동박스 제조 규격 설정">
-    <div><span>MANUFACTURING GRID</span><h3>박스 제조 치수 단위</h3><p>자동설계 내·외경과 공용 박스 규격을 항상 이 단위의 위쪽 값으로 맞춥니다. 제품 수용공간을 줄이는 반올림은 하지 않습니다.</p></div>
-    <label>제조 단위<select value={stepMm} disabled={!ready} onChange={(event) => changeStep(Number(event.target.value))}>{STEPS.map((step) => <option key={step} value={step}>{step}mm</option>)}</select></label>
-    <small role="status">{ready ? message : '기업 포장 데이터가 생성되면 설정할 수 있습니다.'}</small>
+  return <section className="enterprise-manufacturing-settings" aria-label={uiText("자동박스 제조 규격 설정")}>
+    <div><span>MANUFACTURING GRID</span><h3>{uiText("박스 제조 치수 단위")}</h3><p>{uiText("자동설계 내·외경과 공용 박스 규격을 항상 이 단위의 위쪽 값으로 맞춥니다. 제품 수용공간을 줄이는 반올림은 하지 않습니다.")}</p></div>
+    <label>{uiText("제조 단위")}<select value={stepMm} disabled={!ready} onChange={(event) => changeStep(Number(event.target.value))}>{STEPS.map((step) => <option key={step} value={step}>{step}mm</option>)}</select></label>
+    <small role="status">{ready ? message : uiText('기업 포장 데이터가 생성되면 설정할 수 있습니다.')}</small>
   </section>;
 }

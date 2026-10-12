@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ContainerSpec, LoadingResult } from './engine/types';
@@ -20,6 +21,7 @@ function readBoxSnapshot() {
 }
 
 export default function RemainingLengthIndicator() {
+  useUiLanguage();
   const physicsTarget = usePhysicsTarget();
   const [target, setTarget] = useState<HTMLElement | null>(null);
   const [boxSnapshot, setBoxSnapshot] = useState<BoxViewSnapshot | undefined>(readBoxSnapshot);
@@ -68,8 +70,8 @@ export default function RemainingLengthIndicator() {
   if (!target || remainingLengthMm === null) return null;
 
   return createPortal(
-    <small className="spec-remaining-length" title="컨테이너 안쪽부터 현재 적재 끝점까지를 제외한 문쪽 잔여 길이">
-      남은 {Math.round(remainingLengthMm).toLocaleString()} mm
+    <small className="spec-remaining-length" title={uiText("컨테이너 안쪽부터 현재 적재 끝점까지를 제외한 문쪽 잔여 길이")}>
+      {uiText(" 남은 ")}{Math.round(remainingLengthMm).toLocaleString()} mm
     </small>,
     target,
   );

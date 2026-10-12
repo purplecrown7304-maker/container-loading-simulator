@@ -1,3 +1,6 @@
+import { useUiMessage } from './useUiMessage';
+import { equipmentDisplayText } from './transportEquipmentPresentation';
+import { uiText, uiMessage, useUiLanguage } from './uiLanguage';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import CommonCartonRecommendations from './CommonCartonRecommendations';
 import { randomUniqueCargoColor } from './cargoColors';
@@ -158,6 +161,7 @@ function cargoFromProducts(products: CompanyProductItem[], assignments: ProductP
 }
 
 export default function CompanyProductLoadingFlow() {
+  useUiLanguage();
   const productInputRef = useRef<HTMLInputElement>(null);
   const equipment = useTransportEquipment();
   const container = useMemo(() => equipmentContainer(equipment), [equipment]);
@@ -168,7 +172,7 @@ export default function CompanyProductLoadingFlow() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [recommendations, setRecommendations] = useState<Record<string, ProductPackagingAssignment[]>>({});
   const [selected, setSelected] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState('회사 제품을 등록하고 출하 수량을 정한 뒤 박스를 추천받으세요.');
+  const [message, setMessage] = useUiMessage('회사 제품을 등록하고 출하 수량을 정한 뒤 박스를 추천받으세요.');
   const [runningFinal, setRunningFinal] = useState(false);
 
   const boxedProducts = useMemo(() => products.filter(requiresBoxPackaging), [products]);
@@ -197,7 +201,7 @@ export default function CompanyProductLoadingFlow() {
     writeEnterprisePackagingPlannerState(plannerState(container, nextProducts, nextBoxes));
   };
 
-  const invalidateRecommendations = (text?: string) => {
+  const invalidateRecommendations = (text?: string | (() => string)) => {
     setRecommendations({});
     setSelected({});
     if (text) setMessage(text);
@@ -237,7 +241,7 @@ export default function CompanyProductLoadingFlow() {
     persist(next);
     setDraft(emptyDraft);
     setEditingId(null);
-    invalidateRecommendations(`${id} 제품을 저장했습니다. ${draft.requiresBoxPackaging ? '등록 박스 적합성을 확인한 뒤 박스 추천을 실행하세요.' : '박스 없이 제품 자체 규격으로 직접 적재됩니다.'}`);
+    invalidateRecommendations(() => uiText('{0} 제품을 저장했습니다. {1}', [id, uiText(draft.requiresBoxPackaging ? '등록 박스 적합성을 확인한 뒤 박스 추천을 실행하세요.' : '박스 없이 제품 자체 규격으로 직접 적재됩니다.')]));
   };
 
   const importProductWorkbook = async (file: File | undefined) => {
@@ -246,7 +250,7 @@ export default function CompanyProductLoadingFlow() {
       const result = await parseProductWorkbook(file);
       if (!result.items.length) {
         const firstIssue = result.issues[0]?.message;
-        setMessage(`등록 가능한 제품이 없습니다.${firstIssue ? ` ${firstIssue}` : ''}`);
+        setMessage(() => uiText('등록 가능한 제품이 없습니다.{0}', [firstIssue ? ` ${uiMessage(firstIssue)}` : '']));
         return;
       }
 
@@ -276,7 +280,7 @@ export default function CompanyProductLoadingFlow() {
       setDraft(emptyDraft);
       setEditingId(null);
       const issueText = result.issues.length ? ` · 확인 ${result.issues.length}건` : '';
-      invalidateRecommendations(`제품 엑셀 반영 완료 · 신규 ${newCount}종 · 기존 갱신 ${updatedCount}종${issueText}`);
+      invalidateRecommendations(() => uiText('제품 엑셀 반영 완료 · 신규 {0}종 · 기존 갱신 {1}종{2}', [newCount, updatedCount, uiMessage(issueText)]));
     } catch {
       setMessage('제품 엑셀 파일을 읽지 못했습니다. 기초 엑셀 양식의 열 이름과 파일 형식을 확인하세요.');
     } finally {
@@ -371,45 +375,45 @@ export default function CompanyProductLoadingFlow() {
     }, 120);
   };
 
-  return <section className="company-product-flow" aria-label="회사 제품 박스 추천 및 최종 적재">
+  return <section className="company-product-flow" aria-label={uiText("회사 제품 박스 추천 및 최종 적재")}>
     <header className="company-product-flow-head">
       <div>
         <span>COMPANY PRODUCT LOADING</span>
-        <h2>회사 제품 → 박스 추천 → 선택 → 최종 적재</h2>
-        <p>제품 실물 규격과 출하 수량, 박스 적재 필요 여부를 기준으로 포장 제품과 직접 적재 제품을 나눠 최종 적재까지 연결합니다.</p>
+        <h2>{uiText("회사 제품 → 박스 추천 → 선택 → 최종 적재")}</h2>
+        <p>{uiText("제품 실물 규격과 출하 수량, 박스 적재 필요 여부를 기준으로 포장 제품과 직접 적재 제품을 나눠 최종 적재까지 연결합니다.")}</p>
       </div>
-      <div className="company-equipment-badge"><small>현재 장비</small><b>{equipment.shortName}</b><span>{mm(container.length)}×{mm(container.width)}×{mm(container.height)} mm</span></div>
+      <div className="company-equipment-badge"><small>{uiText("현재 장비")}</small><b>{equipmentDisplayText(equipment, 'shortName')}</b><span>{mm(container.length)}×{mm(container.width)}×{mm(container.height)} mm</span></div>
     </header>
 
-    <div className="company-flow-steps" aria-label="진행 단계">
-      <span className={products.length ? 'done' : 'active'}><b>1</b> 제품 등록</span>
-      <span className={products.length && !Object.keys(recommendations).length ? 'active' : Object.keys(recommendations).length ? 'done' : ''}><b>2</b> 수량·포장 확정</span>
-      <span className={Object.keys(recommendations).length || !boxedProducts.length ? 'active' : ''}><b>3</b> 박스 추천·선택</span>
-      <span className={canExecute || runningFinal ? 'active' : ''}><b>4</b> 최종 적재</span>
+    <div className="company-flow-steps" aria-label={uiText("진행 단계")}>
+      <span className={products.length ? 'done' : 'active'}><b>1</b> {uiText(" 제품 등록")}</span>
+      <span className={products.length && !Object.keys(recommendations).length ? 'active' : Object.keys(recommendations).length ? 'done' : ''}><b>2</b> {uiText(" 수량·포장 확정")}</span>
+      <span className={Object.keys(recommendations).length || !boxedProducts.length ? 'active' : ''}><b>3</b> {uiText(" 박스 추천·선택")}</span>
+      <span className={canExecute || runningFinal ? 'active' : ''}><b>4</b> {uiText(" 최종 적재")}</span>
     </div>
 
     <div className="company-product-layout">
       <article className="company-product-card">
-        <div className="company-card-title"><div><h3>1. 회사 제품 등록</h3><p>한 번 등록한 제품은 다음 출하에서도 수량과 포장 방식만 바꿔 재사용합니다.</p></div><strong>{products.length}종</strong></div>
+        <div className="company-card-title"><div><h3>{uiText("1. 회사 제품 등록")}</h3><p>{uiText("한 번 등록한 제품은 다음 출하에서도 수량과 포장 방식만 바꿔 재사용합니다.")}</p></div><strong>{products.length}{uiText("종")}</strong></div>
         <input ref={productInputRef} type="file" accept=".xlsx,.xls" hidden onChange={(event) => void importProductWorkbook(event.target.files?.[0])} />
         <div className="company-excel-actions">
-          <button onClick={downloadProductTemplate}>기초 엑셀 양식 다운로드</button>
-          <button className="excel-primary" onClick={() => productInputRef.current?.click()}>제품 엑셀 업로드</button>
-          <span>제품코드 · 제품명 · L/W/H · 중량 · 출하수량 · 박스적재필요 · 박스당 최대EA</span>
+          <button onClick={downloadProductTemplate}>{uiText("기초 엑셀 양식 다운로드")}</button>
+          <button className="excel-primary" onClick={() => productInputRef.current?.click()}>{uiText("제품 엑셀 업로드")}</button>
+          <span>{uiText("제품코드 · 제품명 · L/W/H · 중량 · 출하수량 · 박스적재필요 · 박스당 최대EA")}</span>
         </div>
         <div className="company-product-form">
-          <label>제품코드<input value={draft.id} disabled={Boolean(editingId)} onChange={(e) => setDraft((value) => ({ ...value, id: e.target.value }))} placeholder="PRD-001" /></label>
-          <label>제품명<input value={draft.name} onChange={(e) => setDraft((value) => ({ ...value, name: e.target.value }))} placeholder="회사 제품명" /></label>
-          <label>길이 mm<input type="number" min="1" value={draft.lengthMm} onChange={(e) => setDraft((value) => ({ ...value, lengthMm: Number(e.target.value) }))} /></label>
-          <label>폭 mm<input type="number" min="1" value={draft.widthMm} onChange={(e) => setDraft((value) => ({ ...value, widthMm: Number(e.target.value) }))} /></label>
-          <label>높이 mm<input type="number" min="1" value={draft.heightMm} onChange={(e) => setDraft((value) => ({ ...value, heightMm: Number(e.target.value) }))} /></label>
-          <label>제품중량 kg<input type="number" min="0.001" step="0.1" value={draft.weightKg} onChange={(e) => setDraft((value) => ({ ...value, weightKg: Number(e.target.value) }))} /></label>
-          <label className="quantity-field">출하 수량 EA<input type="number" min="1" step="1" value={draft.quantity} onChange={(e) => setDraft((value) => ({ ...value, quantity: Number(e.target.value) }))} /></label>
-          <label className="packaging-mode-field">박스 적재<select value={draft.requiresBoxPackaging ? 'box' : 'direct'} onChange={(e) => setDraft((value) => ({ ...value, requiresBoxPackaging: e.target.value === 'box' }))}><option value="box">필요</option><option value="direct">불필요 · 직접 적재</option></select></label>
+          <label>{uiText("제품코드")}<input value={draft.id} disabled={Boolean(editingId)} onChange={(e) => setDraft((value) => ({ ...value, id: e.target.value }))} placeholder="PRD-001" /></label>
+          <label>{uiText("제품명")}<input value={draft.name} onChange={(e) => setDraft((value) => ({ ...value, name: e.target.value }))} placeholder={uiText("회사 제품명")} /></label>
+          <label>{uiText("길이 mm")}<input type="number" min="1" value={draft.lengthMm} onChange={(e) => setDraft((value) => ({ ...value, lengthMm: Number(e.target.value) }))} /></label>
+          <label>{uiText("폭 mm")}<input type="number" min="1" value={draft.widthMm} onChange={(e) => setDraft((value) => ({ ...value, widthMm: Number(e.target.value) }))} /></label>
+          <label>{uiText("높이 mm")}<input type="number" min="1" value={draft.heightMm} onChange={(e) => setDraft((value) => ({ ...value, heightMm: Number(e.target.value) }))} /></label>
+          <label>{uiText("제품중량 kg")}<input type="number" min="0.001" step="0.1" value={draft.weightKg} onChange={(e) => setDraft((value) => ({ ...value, weightKg: Number(e.target.value) }))} /></label>
+          <label className="quantity-field">{uiText("출하 수량 EA")}<input type="number" min="1" step="1" value={draft.quantity} onChange={(e) => setDraft((value) => ({ ...value, quantity: Number(e.target.value) }))} /></label>
+          <label className="packaging-mode-field">{uiText("박스 적재")}<select value={draft.requiresBoxPackaging ? 'box' : 'direct'} onChange={(e) => setDraft((value) => ({ ...value, requiresBoxPackaging: e.target.value === 'box' }))}><option value="box">{uiText("필요")}</option><option value="direct">{uiText("불필요 · 직접 적재")}</option></select></label>
         </div>
         <div className="company-inline-actions">
-          <button className="primary" onClick={saveProduct}>{editingId ? '제품 수정 저장' : '제품 등록'}</button>
-          {editingId && <button onClick={() => { setEditingId(null); setDraft(emptyDraft); }}>취소</button>}
+          <button className="primary" onClick={saveProduct}>{editingId ? uiText("제품 수정 저장") : uiText("제품 등록")}</button>
+          {editingId && <button onClick={() => { setEditingId(null); setDraft(emptyDraft); }}>{uiText("취소")}</button>}
         </div>
 
         <div className="company-product-list">
@@ -426,42 +430,42 @@ export default function CompanyProductLoadingFlow() {
                   ? '현재 등록 박스 0종 적합'
                   : '박스 등록 후 자동 판정';
             return <div key={item.id} className="company-product-row">
-              <div><b>{item.id} · {item.name}</b><span>{mm(item.length)}×{mm(item.width)}×{mm(item.height)} mm · {item.weightKg}kg · {needsBox ? `박스당 최대 ${item.maxUnitsPerBox ?? 24}EA` : '직접 적재'}</span></div>
-              <label>출하수량<input type="number" min="1" step="1" value={item.quantity} onChange={(e) => changeQuantity(item.id, Number(e.target.value))} /></label>
-              <div className={`company-product-remark ${remarkClass}`}><small>비고</small><b>{remark}</b><span>{remarkDetail}</span></div>
-              <button onClick={() => editProduct(item)}>수정</button>
-              <button onClick={() => removeProduct(item.id)}>삭제</button>
+              <div><b>{item.id} · {item.name}</b><span>{mm(item.length)}×{mm(item.width)}×{mm(item.height)} mm · {item.weightKg}kg · {needsBox ? uiText("박스당 최대 {0}EA", [item.maxUnitsPerBox ?? 24]) : uiText("직접 적재")}</span></div>
+              <label>{uiText("출하수량")}<input type="number" min="1" step="1" value={item.quantity} onChange={(e) => changeQuantity(item.id, Number(e.target.value))} /></label>
+              <div className={`company-product-remark ${remarkClass}`}><small>{uiText("비고")}</small><b>{uiText(remark)}</b><span>{uiMessage(remarkDetail)}</span></div>
+              <button onClick={() => editProduct(item)}>{uiText("수정")}</button>
+              <button onClick={() => removeProduct(item.id)}>{uiText("삭제")}</button>
             </div>;
-          }) : <div className="company-empty">등록된 회사 제품이 없습니다.</div>}
+          }) : <div className="company-empty">{uiText("등록된 회사 제품이 없습니다.")}</div>}
         </div>
       </article>
 
       <article className="company-product-card recommendation-card">
-        <div className="company-card-title"><div><h3>2. 제품별 박스 추천</h3><p>박스 적재가 필요한 제품만 크기·수량·중량·컨테이너 효율을 비교합니다.</p></div><strong>보유 박스 {boxes.length}종</strong></div>
+        <div className="company-card-title"><div><h3>{uiText("2. 제품별 박스 추천")}</h3><p>{uiText("박스 적재가 필요한 제품만 크기·수량·중량·컨테이너 효율을 비교합니다.")}</p></div><strong>{uiText("보유 박스 ")}{boxes.length}{uiText("종")}</strong></div>
         <div className="company-inline-actions split">
-          <button onClick={refreshBoxes}>회사 박스 목록 새로고침</button>
-          <button className="primary" onClick={recommend} disabled={!boxedProducts.length}>박스 추천 실행</button>
+          <button onClick={refreshBoxes}>{uiText("회사 박스 목록 새로고침")}</button>
+          <button className="primary" onClick={recommend} disabled={!boxedProducts.length}>{uiText("박스 추천 실행")}</button>
         </div>
-        {!boxes.length && boxedProducts.length > 0 && <p className="company-note">회사 보유 박스가 아직 없으면 자동설계 박스를 추천합니다. 보유 박스의 내·외경과 허용중량은 아래 ‘고급 포장 설정 / 회사 박스 관리’에서 등록할 수 있습니다.</p>}
+        {!boxes.length && boxedProducts.length > 0 && <p className="company-note">{uiText("회사 보유 박스가 아직 없으면 자동설계 박스를 추천합니다. 보유 박스의 내·외경과 허용중량은 아래 ‘고급 포장 설정 / 회사 박스 관리’에서 등록할 수 있습니다.")}</p>}
 
         <div className="company-recommendations">
           {products.map((product) => {
             if (!requiresBoxPackaging(product)) return <section key={product.id} className="company-recommend-product direct-product">
-              <header><div><b>{product.id} · {product.name}</b><span>{product.quantity} EA 출하</span></div><small>박스 불필요</small></header>
-              <div className="company-empty direct">제품 자체 규격 {mm(product.length)}×{mm(product.width)}×{mm(product.height)}mm로 직접 적재합니다. 안전상 기본 적층은 1단으로 적용됩니다.</div>
+              <header><div><b>{product.id} · {product.name}</b><span>{product.quantity} {uiText(" EA 출하")}</span></div><small>{uiText("박스 불필요")}</small></header>
+              <div className="company-empty direct">{uiText("제품 자체 규격 ")}{mm(product.length)}×{mm(product.width)}×{mm(product.height)}{uiText("mm로 직접 적재합니다. 안전상 기본 적층은 1단으로 적용됩니다.")}</div>
             </section>;
             const list = recommendations[product.id] ?? [];
             return <section key={product.id} className="company-recommend-product">
-              <header><div><b>{product.id} · {product.name}</b><span>{product.quantity} EA 출하</span></div>{list.length > 0 && <small>{list.length}개 후보</small>}</header>
+              <header><div><b>{product.id} · {product.name}</b><span>{product.quantity} {uiText(" EA 출하")}</span></div>{list.length > 0 && <small>{list.length}{uiText("개 후보")}</small>}</header>
               {list.length ? <div className="company-box-options">{list.map((item, index) => {
                 const checked = selected[product.id] === item.boxId;
                 return <label key={`${product.id}-${item.boxId}`} className={`company-box-option ${checked ? 'selected' : ''}`}>
                   <input type="radio" name={`box-${product.id}`} checked={checked} onChange={() => setSelected((value) => ({ ...value, [product.id]: item.boxId }))} />
-                  <div className="rank"><b>{index + 1}</b><span>{index === 0 ? '추천' : '대안'}</span></div>
-                  <div className="box-copy"><b>{item.boxName}</b><span>{mm(item.outerLength)}×{mm(item.outerWidth)}×{mm(item.outerHeight)} mm</span><small>{item.source === 'catalog' ? '회사 보유 박스' : '자동설계 박스'} · 박스당 {item.unitsPerBox}EA · 총 {item.boxesNeeded}박스</small></div>
-                  <div className="box-score"><b>{pct(item.productFillRate)}</b><span>제품 충진</span><small>적재 예상 {item.simulatedLoadedBoxes}/{item.boxesNeeded}</small></div>
+                  <div className="rank"><b>{index + 1}</b><span>{index === 0 ? uiText("추천") : uiText("대안")}</span></div>
+                  <div className="box-copy"><b>{item.boxName}</b><span>{mm(item.outerLength)}×{mm(item.outerWidth)}×{mm(item.outerHeight)} mm</span><small>{item.source === 'catalog' ? uiText("회사 보유 박스") : uiText("자동설계 박스")} {uiText(" · 박스당 ")}{item.unitsPerBox}{uiText("EA · 총 ")}{item.boxesNeeded}{uiText("박스")}</small></div>
+                  <div className="box-score"><b>{pct(item.productFillRate)}</b><span>{uiText("제품 충진")}</span><small>{uiText("적재 예상 ")}{item.simulatedLoadedBoxes}/{item.boxesNeeded}</small></div>
                 </label>;
-              })}</div> : Object.keys(recommendations).length ? <div className="company-empty danger">이 제품에 맞는 박스를 찾지 못했습니다.</div> : <div className="company-empty">박스 추천 실행 후 후보가 표시됩니다.</div>}
+              })}</div> : Object.keys(recommendations).length ? <div className="company-empty danger">{uiText("이 제품에 맞는 박스를 찾지 못했습니다.")}</div> : <div className="company-empty">{uiText("박스 추천 실행 후 후보가 표시됩니다.")}</div>}
             </section>;
           })}
         </div>
@@ -471,9 +475,9 @@ export default function CompanyProductLoadingFlow() {
     <CommonCartonRecommendations container={container} products={boxedProducts} boxes={boxes} />
 
     <div className="company-final-bar">
-      <div><b>3. 선택 완료 → 최종 적재 실행</b><span>박스 필요 {selectedAssignments.length}/{boxedProducts.length}개 제품 선택 · 직접 적재 {directProducts.length}종 · 포장박스 {selectedAssignments.reduce((sum, item) => sum + item.boxesNeeded, 0)}BOX</span></div>
-      <button className="primary" disabled={!canExecute} onClick={executeFinal}>{runningFinal ? '최종 적재 계산 중…' : '선택 완료 · 최종 적재 실행'}</button>
+      <div><b>{uiText("3. 선택 완료 → 최종 적재 실행")}</b><span>{uiText("박스 필요 ")}{selectedAssignments.length}/{boxedProducts.length}{uiText("개 제품 선택 · 직접 적재 ")}{directProducts.length}{uiText("종 · 포장박스 ")}{selectedAssignments.reduce((sum, item) => sum + item.boxesNeeded, 0)}BOX</span></div>
+      <button className="primary" disabled={!canExecute} onClick={executeFinal}>{runningFinal ? uiText("최종 적재 계산 중…") : uiText("선택 완료 · 최종 적재 실행")}</button>
     </div>
-    <p className={`company-flow-message ${runningFinal ? 'running' : ''}`} aria-live="polite">{message}</p>
+    <p className={`company-flow-message ${runningFinal ? 'running' : ''}`} aria-live="polite">{uiMessage(message)}</p>
   </section>;
 }

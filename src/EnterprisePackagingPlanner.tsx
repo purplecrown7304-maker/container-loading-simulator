@@ -1,3 +1,4 @@
+import { uiText, uiMessage, useUiLanguage } from './uiLanguage';
 import { useEffect, useMemo, useState } from 'react';
 import { createEnterprisePackagingManifest, writeEnterprisePackagingManifest } from './enterprisePackagingManifest';
 import {
@@ -150,6 +151,7 @@ function boxToDraft(item: BoxCatalogItem): BoxDraft {
 }
 
 export default function EnterprisePackagingPlanner() {
+  const language = useUiLanguage();
   const stored = useMemo(() => typeof window === 'undefined' ? null : readPlanner(), []);
   const [container, setContainer] = useState<ContainerSpec>(() => stored?.container ?? readStoredState()?.container ?? defaultContainer);
   const [products, setProducts] = useState<ProductItem[]>(stored?.products ?? []);
@@ -169,11 +171,11 @@ export default function EnterprisePackagingPlanner() {
     if (!quick || quick.querySelector('.product-packaging-shortcut')) return;
     const button = document.createElement('button');
     button.className = 'product-packaging-shortcut';
-    button.textContent = '제품→박스 자동설계';
+    button.textContent = uiText('제품→박스 자동설계');
     button.addEventListener('click', () => document.getElementById('product-packaging-planner')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     quick.prepend(button);
     return () => button.remove();
-  }, []);
+  }, [language]);
 
   const invalidatePlan = (text?: string) => {
     setPlan(null);
@@ -296,7 +298,7 @@ export default function EnterprisePackagingPlanner() {
     if (!plan?.cargo.length) return setMessage('적용할 설계 결과가 없습니다.');
     const unverified = plan.assignments.filter((item) => item.strengthStatus === 'design-target').length;
     const warning = unverified ? `\n자동설계 ${unverified}종은 강도 미검증 상태이므로 실제 적재에는 1단으로 적용됩니다.` : '';
-    if (!window.confirm(`현재 메인 화물 목록을 최적 포장박스 ${plan.totalBoxes}EA로 교체할까요?${warning}`)) return;
+    if (!window.confirm(uiText("현재 메인 화물 목록을 최적 포장박스 {0}EA로 교체할까요?{1}", [plan.totalBoxes, uiMessage(warning)]))) return;
     writeEnterprisePackagingManifest(createEnterprisePackagingManifest(plan, container, products, boxes));
     writeStoredState({ container, cargo: plan.cargo }, true);
     setMessage(`메인 적재 화면에 ${plan.cargo.length}개 화물행 · ${plan.totalBoxes}EA 포장박스를 적용했습니다. 물리 최적 자동 적재와 관성 검증을 다시 실행하세요.`);
@@ -322,115 +324,115 @@ export default function EnterprisePackagingPlanner() {
 
   const hasCostInputs = settings.containerFreightCost > 0 || settings.handlingCostPerCarton > 0 || settings.newBoxSetupCost > 0 || settings.cartonSkuCarryCost > 0 || settings.generatedBoxUnitCost > 0 || boxes.some((box) => (box.unitCost ?? 0) > 0);
 
-  return <section id="product-packaging-planner" className="product-packaging-planner enterprise-packaging-planner" aria-label="기업 제품 포장박스 자동 설계">
+  return <section id="product-packaging-planner" className="product-packaging-planner enterprise-packaging-planner" aria-label={uiText("기업 제품 포장박스 자동 설계")}>
     <header className="packaging-header">
-      <div><span className="packaging-kicker">ENTERPRISE CARTONIZATION</span><h2>제품 목록 → 공용 박스 최소화 → 컨테이너 최적 적재</h2><p>제품 취급조건, 보유 박스, 신규 규격, 잔량 혼합, 컨테이너 적재율과 비용을 한 번에 계산합니다.</p></div>
-      <div className="packaging-actions"><button onClick={addSamples}>샘플 불러오기</button><button className="primary" onClick={run}>기업 포장 최적화</button></div>
+      <div><span className="packaging-kicker">ENTERPRISE CARTONIZATION</span><h2>{uiText("제품 목록 → 공용 박스 최소화 → 컨테이너 최적 적재")}</h2><p>{uiText("제품 취급조건, 보유 박스, 신규 규격, 잔량 혼합, 컨테이너 적재율과 비용을 한 번에 계산합니다.")}</p></div>
+      <div className="packaging-actions"><button onClick={addSamples}>{uiText("샘플 불러오기")}</button><button className="primary" onClick={run}>{uiText("기업 포장 최적화")}</button></div>
     </header>
 
     <div className="packaging-grid enterprise-settings-grid">
       <article className="packaging-panel">
-        <h3>1. 목표 컨테이너 / 자동설계</h3>
+        <h3>{uiText("1. 목표 컨테이너 / 자동설계")}</h3>
         <div className="packaging-form compact">
-          <label>길이(m)<input type="number" min="0.1" step="0.01" value={container.length} onChange={(e) => { setContainer((v) => ({ ...v, length: Number(e.target.value) })); invalidatePlan(); }} /></label>
-          <label>폭(m)<input type="number" min="0.1" step="0.01" value={container.width} onChange={(e) => { setContainer((v) => ({ ...v, width: Number(e.target.value) })); invalidatePlan(); }} /></label>
-          <label>높이(m)<input type="number" min="0.1" step="0.01" value={container.height} onChange={(e) => { setContainer((v) => ({ ...v, height: Number(e.target.value) })); invalidatePlan(); }} /></label>
-          <label>최대중량(kg)<input type="number" min="1" value={container.maxPayloadKg} onChange={(e) => { setContainer((v) => ({ ...v, maxPayloadKg: Number(e.target.value) })); invalidatePlan(); }} /></label>
-          <label>자동설계 최대총중량<input type="number" min="1" step="1" value={settings.maxGrossKg} onChange={(e) => { setSettings((v) => ({ ...v, maxGrossKg: Number(e.target.value) })); invalidatePlan(); }} /></label>
-          <label>자동설계 박스단가<input type="number" min="0" step="0.01" value={settings.generatedBoxUnitCost} onChange={(e) => { setSettings((v) => ({ ...v, generatedBoxUnitCost: Number(e.target.value) })); invalidatePlan(); }} /></label>
+          <label>{uiText("길이(m)")}<input type="number" min="0.1" step="0.01" data-enterprise-container-field="length" value={container.length} onChange={(e) => { setContainer((v) => ({ ...v, length: Number(e.target.value) })); invalidatePlan(); }} /></label>
+          <label>{uiText("폭(m)")}<input type="number" min="0.1" step="0.01" data-enterprise-container-field="width" value={container.width} onChange={(e) => { setContainer((v) => ({ ...v, width: Number(e.target.value) })); invalidatePlan(); }} /></label>
+          <label>{uiText("높이(m)")}<input type="number" min="0.1" step="0.01" data-enterprise-container-field="height" value={container.height} onChange={(e) => { setContainer((v) => ({ ...v, height: Number(e.target.value) })); invalidatePlan(); }} /></label>
+          <label>{uiText("최대중량(kg)")}<input type="number" min="1" data-enterprise-container-field="maxPayloadKg" value={container.maxPayloadKg} onChange={(e) => { setContainer((v) => ({ ...v, maxPayloadKg: Number(e.target.value) })); invalidatePlan(); }} /></label>
+          <label>{uiText("자동설계 최대총중량")}<input type="number" min="1" step="1" value={settings.maxGrossKg} onChange={(e) => { setSettings((v) => ({ ...v, maxGrossKg: Number(e.target.value) })); invalidatePlan(); }} /></label>
+          <label>{uiText("자동설계 박스단가")}<input type="number" min="0" step="0.01" value={settings.generatedBoxUnitCost} onChange={(e) => { setSettings((v) => ({ ...v, generatedBoxUnitCost: Number(e.target.value) })); invalidatePlan(); }} /></label>
         </div>
         <div className="packaging-switch">
-          <label><input type="checkbox" checked={settings.allowCustom} onChange={(e) => { setSettings((v) => ({ ...v, allowCustom: e.target.checked })); invalidatePlan(); }} /> 컨테이너 맞춤 신규 박스 자동설계</label>
-          <label><input type="checkbox" checked={settings.familyEnabled} onChange={(e) => { setSettings((v) => ({ ...v, familyEnabled: e.target.checked })); invalidatePlan(); }} /> 여러 제품의 공용 박스 규격 최소화</label>
-          <label><input type="checkbox" checked={settings.allowMixedResidual} onChange={(e) => { setSettings((v) => ({ ...v, allowMixedResidual: e.target.checked })); invalidatePlan(); }} /> 출하 잔량 혼합박스 허용</label>
+          <label><input type="checkbox" checked={settings.allowCustom} onChange={(e) => { setSettings((v) => ({ ...v, allowCustom: e.target.checked })); invalidatePlan(); }} /> {uiText(" 컨테이너 맞춤 신규 박스 자동설계")}</label>
+          <label><input type="checkbox" checked={settings.familyEnabled} onChange={(e) => { setSettings((v) => ({ ...v, familyEnabled: e.target.checked })); invalidatePlan(); }} /> {uiText(" 여러 제품의 공용 박스 규격 최소화")}</label>
+          <label><input type="checkbox" checked={settings.allowMixedResidual} onChange={(e) => { setSettings((v) => ({ ...v, allowMixedResidual: e.target.checked })); invalidatePlan(); }} /> {uiText(" 출하 잔량 혼합박스 허용")}</label>
         </div>
         <div className="packaging-form compact">
-          <label>목표 박스 규격 수<input type="number" min="1" step="1" value={settings.targetBoxTypes} onChange={(e) => { setSettings((v) => ({ ...v, targetBoxTypes: Number(e.target.value) })); invalidatePlan(); }} /></label>
-          <label>허용 효율손실(%)<input type="number" min="0" max="100" step="1" value={settings.maxScoreLossPct} onChange={(e) => { setSettings((v) => ({ ...v, maxScoreLossPct: Number(e.target.value) })); invalidatePlan(); }} /></label>
+          <label>{uiText("목표 박스 규격 수")}<input type="number" min="1" step="1" value={settings.targetBoxTypes} onChange={(e) => { setSettings((v) => ({ ...v, targetBoxTypes: Number(e.target.value) })); invalidatePlan(); }} /></label>
+          <label>{uiText("허용 효율손실(%)")}<input type="number" min="0" max="100" step="1" value={settings.maxScoreLossPct} onChange={(e) => { setSettings((v) => ({ ...v, maxScoreLossPct: Number(e.target.value) })); invalidatePlan(); }} /></label>
         </div>
       </article>
 
       <article className="packaging-panel">
-        <h3>2. 비용 모델 <small>선택 입력</small></h3>
+        <h3>{uiText("2. 비용 모델 ")}<small>{uiText("선택 입력")}</small></h3>
         <div className="packaging-form compact">
-          <label>통화<input value={settings.currency} onChange={(e) => { setSettings((v) => ({ ...v, currency: e.target.value })); invalidatePlan(); }} /></label>
-          <label>컨테이너 1대 운임<input type="number" min="0" step="1" value={settings.containerFreightCost} onChange={(e) => { setSettings((v) => ({ ...v, containerFreightCost: Number(e.target.value) })); invalidatePlan(); }} /></label>
-          <label>박스당 작업비<input type="number" min="0" step="0.01" value={settings.handlingCostPerCarton} onChange={(e) => { setSettings((v) => ({ ...v, handlingCostPerCarton: Number(e.target.value) })); invalidatePlan(); }} /></label>
-          <label>신규규격 셋업비/종<input type="number" min="0" step="1" value={settings.newBoxSetupCost} onChange={(e) => { setSettings((v) => ({ ...v, newBoxSetupCost: Number(e.target.value) })); invalidatePlan(); }} /></label>
-          <label>박스 SKU 관리비/종<input type="number" min="0" step="1" value={settings.cartonSkuCarryCost} onChange={(e) => { setSettings((v) => ({ ...v, cartonSkuCarryCost: Number(e.target.value) })); invalidatePlan(); }} /></label>
+          <label>{uiText("통화")}<input value={settings.currency} onChange={(e) => { setSettings((v) => ({ ...v, currency: e.target.value })); invalidatePlan(); }} /></label>
+          <label>{uiText("컨테이너 1대 운임")}<input type="number" min="0" step="1" value={settings.containerFreightCost} onChange={(e) => { setSettings((v) => ({ ...v, containerFreightCost: Number(e.target.value) })); invalidatePlan(); }} /></label>
+          <label>{uiText("박스당 작업비")}<input type="number" min="0" step="0.01" value={settings.handlingCostPerCarton} onChange={(e) => { setSettings((v) => ({ ...v, handlingCostPerCarton: Number(e.target.value) })); invalidatePlan(); }} /></label>
+          <label>{uiText("신규규격 셋업비/종")}<input type="number" min="0" step="1" value={settings.newBoxSetupCost} onChange={(e) => { setSettings((v) => ({ ...v, newBoxSetupCost: Number(e.target.value) })); invalidatePlan(); }} /></label>
+          <label>{uiText("박스 SKU 관리비/종")}<input type="number" min="0" step="1" value={settings.cartonSkuCarryCost} onChange={(e) => { setSettings((v) => ({ ...v, cartonSkuCarryCost: Number(e.target.value) })); invalidatePlan(); }} /></label>
         </div>
-        <p className="packaging-safety-note">단가가 비어 있는 박스는 비용합계에서 0으로 가정하지 않고 ‘미가격 박스’로 별도 집계합니다.</p>
+        <p className="packaging-safety-note">{uiText("단가가 비어 있는 박스는 비용합계에서 0으로 가정하지 않고 ‘미가격 박스’로 별도 집계합니다.")}</p>
       </article>
 
       <article className="packaging-panel wide">
-        <h3>3. 기업 제품 목록</h3>
+        <h3>{uiText("3. 기업 제품 목록")}</h3>
         <div id="enterprise-product-form" className="packaging-form product-form enterprise-product-form">
-          <label>제품코드<input value={productDraft.id} disabled={Boolean(editingProductId)} onChange={(e) => setProductDraft((v) => ({ ...v, id: e.target.value }))} /></label>
-          <label>제품명<input value={productDraft.name} onChange={(e) => setProductDraft((v) => ({ ...v, name: e.target.value }))} /></label>
+          <label>{uiText("제품코드")}<input value={productDraft.id} disabled={Boolean(editingProductId)} onChange={(e) => setProductDraft((v) => ({ ...v, id: e.target.value }))} /></label>
+          <label>{uiText("제품명")}<input value={productDraft.name} onChange={(e) => setProductDraft((v) => ({ ...v, name: e.target.value }))} /></label>
           <label>L(mm)<input type="number" min="1" value={productDraft.lengthMm} onChange={(e) => setProductDraft((v) => ({ ...v, lengthMm: Number(e.target.value) }))} /></label>
           <label>W(mm)<input type="number" min="1" value={productDraft.widthMm} onChange={(e) => setProductDraft((v) => ({ ...v, widthMm: Number(e.target.value) }))} /></label>
           <label>H(mm)<input type="number" min="1" value={productDraft.heightMm} onChange={(e) => setProductDraft((v) => ({ ...v, heightMm: Number(e.target.value) }))} /></label>
-          <label>중량(kg)<input type="number" min="0.001" step="0.1" value={productDraft.weightKg} onChange={(e) => setProductDraft((v) => ({ ...v, weightKg: Number(e.target.value) }))} /></label>
-          <label>수량<input type="number" min="1" step="1" value={productDraft.quantity} onChange={(e) => setProductDraft((v) => ({ ...v, quantity: Number(e.target.value) }))} /></label>
-          <label>박스당 최대EA<input type="number" min="1" step="1" value={productDraft.maxUnitsPerBox} onChange={(e) => setProductDraft((v) => ({ ...v, maxUnitsPerBox: Number(e.target.value) }))} /></label>
-          <label>회전정책<select value={productDraft.orientationPolicy} onChange={(e) => setProductDraft((v) => ({ ...v, orientationPolicy: e.target.value as ProductOrientationPolicy }))}><option value="upright">세워서만</option><option value="base-rotation">바닥면 90°</option><option value="any">3축 회전 허용</option></select></label>
-          <label>박스 벽 완충여유(mm)<input type="number" min="0" step="1" value={productDraft.cushioningMm} onChange={(e) => setProductDraft((v) => ({ ...v, cushioningMm: Number(e.target.value) }))} /></label>
-          <label>제품 간격(mm)<input type="number" min="0" step="0.1" value={productDraft.productGapMm} onChange={(e) => setProductDraft((v) => ({ ...v, productGapMm: Number(e.target.value) }))} /></label>
-          <label>내부 최대적층<input type="number" min="0" step="1" value={productDraft.maxInternalLayers} onChange={(e) => setProductDraft((v) => ({ ...v, maxInternalLayers: Number(e.target.value) }))} /><small>0=자동</small></label>
-          <label className="form-check-label"><input type="checkbox" checked={productDraft.fragile} onChange={(e) => setProductDraft((v) => ({ ...v, fragile: e.target.checked }))} /> 파손주의</label>
-          <label className="form-check-label"><input type="checkbox" checked={productDraft.allowMixedCarton} onChange={(e) => setProductDraft((v) => ({ ...v, allowMixedCarton: e.target.checked }))} /> 잔량 혼합포장 허용</label>
+          <label>{uiText("중량(kg)")}<input type="number" min="0.001" step="0.1" value={productDraft.weightKg} onChange={(e) => setProductDraft((v) => ({ ...v, weightKg: Number(e.target.value) }))} /></label>
+          <label>{uiText("수량")}<input type="number" min="1" step="1" value={productDraft.quantity} onChange={(e) => setProductDraft((v) => ({ ...v, quantity: Number(e.target.value) }))} /></label>
+          <label>{uiText("박스당 최대EA")}<input type="number" min="1" step="1" value={productDraft.maxUnitsPerBox} onChange={(e) => setProductDraft((v) => ({ ...v, maxUnitsPerBox: Number(e.target.value) }))} /></label>
+          <label>{uiText("회전정책")}<select value={productDraft.orientationPolicy} onChange={(e) => setProductDraft((v) => ({ ...v, orientationPolicy: e.target.value as ProductOrientationPolicy }))}><option value="upright">{uiText("세워서만")}</option><option value="base-rotation">{uiText("바닥면 90°")}</option><option value="any">{uiText("3축 회전 허용")}</option></select></label>
+          <label>{uiText("박스 벽 완충여유(mm)")}<input type="number" min="0" step="1" value={productDraft.cushioningMm} onChange={(e) => setProductDraft((v) => ({ ...v, cushioningMm: Number(e.target.value) }))} /></label>
+          <label>{uiText("제품 간격(mm)")}<input type="number" min="0" step="0.1" value={productDraft.productGapMm} onChange={(e) => setProductDraft((v) => ({ ...v, productGapMm: Number(e.target.value) }))} /></label>
+          <label>{uiText("내부 최대적층")}<input type="number" min="0" step="1" value={productDraft.maxInternalLayers} onChange={(e) => setProductDraft((v) => ({ ...v, maxInternalLayers: Number(e.target.value) }))} /><small>{uiText("0=자동")}</small></label>
+          <label className="form-check-label"><input type="checkbox" checked={productDraft.fragile} onChange={(e) => setProductDraft((v) => ({ ...v, fragile: e.target.checked }))} /> {uiText(" 파손주의")}</label>
+          <label className="form-check-label"><input type="checkbox" checked={productDraft.allowMixedCarton} onChange={(e) => setProductDraft((v) => ({ ...v, allowMixedCarton: e.target.checked }))} /> {uiText(" 잔량 혼합포장 허용")}</label>
         </div>
-        <div className="packaging-inline-actions"><button onClick={saveProduct}>{editingProductId ? '제품 수정 저장' : '제품 등록'}</button>{editingProductId && <button onClick={resetProductDraft}>수정 취소</button>}</div>
-        <div className="packaging-list">{products.length ? products.map((item) => <div key={item.id}><span><b>{item.id}</b> {item.name}<small>{mm(item.length)}×{mm(item.width)}×{mm(item.height)}mm · {item.weightKg}kg · {item.orientationPolicy ?? 'base-rotation'} · 벽 완충 {mm(item.cushioningM ?? 0)}mm · 제품 간격 {productGapM(item) * 1000}mm{item.fragile ? ' · 파손주의' : ''}</small></span><strong>{item.quantity} EA</strong><span className="row-actions"><button onClick={() => editProduct(item)}>수정</button><button aria-label={`${item.id} 삭제`} onClick={() => { setProducts((v) => v.filter((p) => p.id !== item.id)); invalidatePlan(`${item.id} 제품을 삭제했습니다.`); }}>삭제</button></span></div>) : <p>등록된 제품이 없습니다.</p>}</div>
+        <div className="packaging-inline-actions"><button onClick={saveProduct}>{editingProductId ? uiText("제품 수정 저장") : uiText("제품 등록")}</button>{editingProductId && <button onClick={resetProductDraft}>{uiText("수정 취소")}</button>}</div>
+        <div className="packaging-list">{products.length ? products.map((item) => <div key={item.id}><span><b>{item.id}</b> {item.name}<small>{mm(item.length)}×{mm(item.width)}×{mm(item.height)}mm · {item.weightKg}kg · {item.orientationPolicy ?? 'base-rotation'} {uiText(" · 벽 완충 ")}{mm(item.cushioningM ?? 0)}{uiText("mm · 제품 간격 ")}{productGapM(item) * 1000}mm{item.fragile ? uiText(" · 파손주의") : ''}</small></span><strong>{item.quantity} EA</strong><span className="row-actions"><button onClick={() => editProduct(item)}>{uiText("수정")}</button><button aria-label={uiText("{0} 삭제", [item.id])} onClick={() => { setProducts((v) => v.filter((p) => p.id !== item.id)); invalidatePlan(`${item.id} 제품을 삭제했습니다.`); }}>{uiText("삭제")}</button></span></div>) : <p>{uiText("등록된 제품이 없습니다.")}</p>}</div>
       </article>
 
       <article className="packaging-panel wide">
-        <h3>4. 회사 보유 박스 카탈로그 <small>미등록 시 자동설계만 사용</small></h3>
+        <h3>{uiText("4. 회사 보유 박스 카탈로그 ")}<small>{uiText("미등록 시 자동설계만 사용")}</small></h3>
         <div id="enterprise-box-form" className="packaging-form box-form enterprise-box-form">
-          <label>박스코드<input value={boxDraft.id} disabled={Boolean(editingBoxId)} onChange={(e) => setBoxDraft((v) => ({ ...v, id: e.target.value }))} /></label>
-          <label>이름<input value={boxDraft.name} onChange={(e) => setBoxDraft((v) => ({ ...v, name: e.target.value }))} /></label>
-          <label>내부L<input type="number" min="1" value={boxDraft.innerLengthMm} onChange={(e) => setBoxDraft((v) => ({ ...v, innerLengthMm: Number(e.target.value) }))} /></label>
-          <label>내부W<input type="number" min="1" value={boxDraft.innerWidthMm} onChange={(e) => setBoxDraft((v) => ({ ...v, innerWidthMm: Number(e.target.value) }))} /></label>
-          <label>내부H<input type="number" min="1" value={boxDraft.innerHeightMm} onChange={(e) => setBoxDraft((v) => ({ ...v, innerHeightMm: Number(e.target.value) }))} /></label>
-          <label>외부L<input type="number" min="1" value={boxDraft.outerLengthMm} onChange={(e) => setBoxDraft((v) => ({ ...v, outerLengthMm: Number(e.target.value) }))} /></label>
-          <label>외부W<input type="number" min="1" value={boxDraft.outerWidthMm} onChange={(e) => setBoxDraft((v) => ({ ...v, outerWidthMm: Number(e.target.value) }))} /></label>
-          <label>외부H<input type="number" min="1" value={boxDraft.outerHeightMm} onChange={(e) => setBoxDraft((v) => ({ ...v, outerHeightMm: Number(e.target.value) }))} /></label>
-          <label>박스자중kg<input type="number" min="0" step="0.1" value={boxDraft.tareWeightKg} onChange={(e) => setBoxDraft((v) => ({ ...v, tareWeightKg: Number(e.target.value) }))} /></label>
-          <label>최대총중량kg<input type="number" min="0.1" step="1" value={boxDraft.maxGrossWeightKg} onChange={(e) => setBoxDraft((v) => ({ ...v, maxGrossWeightKg: Number(e.target.value) }))} /></label>
-          <label>상부허용kg<input type="number" min="0" step="1" placeholder="제한 없음" value={boxDraft.maxTopLoadKg} onChange={(e) => setBoxDraft((v) => ({ ...v, maxTopLoadKg: numberOrEmpty(e.target.value) }))} /></label>
-          <label>박스단가<input type="number" min="0" step="0.01" placeholder="미입력" value={boxDraft.unitCost} onChange={(e) => setBoxDraft((v) => ({ ...v, unitCost: numberOrEmpty(e.target.value) }))} /></label>
+          <label>{uiText("박스코드")}<input value={boxDraft.id} disabled={Boolean(editingBoxId)} onChange={(e) => setBoxDraft((v) => ({ ...v, id: e.target.value }))} /></label>
+          <label>{uiText("이름")}<input value={boxDraft.name} onChange={(e) => setBoxDraft((v) => ({ ...v, name: e.target.value }))} /></label>
+          <label>{uiText("내부L")}<input type="number" min="1" value={boxDraft.innerLengthMm} onChange={(e) => setBoxDraft((v) => ({ ...v, innerLengthMm: Number(e.target.value) }))} /></label>
+          <label>{uiText("내부W")}<input type="number" min="1" value={boxDraft.innerWidthMm} onChange={(e) => setBoxDraft((v) => ({ ...v, innerWidthMm: Number(e.target.value) }))} /></label>
+          <label>{uiText("내부H")}<input type="number" min="1" value={boxDraft.innerHeightMm} onChange={(e) => setBoxDraft((v) => ({ ...v, innerHeightMm: Number(e.target.value) }))} /></label>
+          <label>{uiText("외부L")}<input type="number" min="1" value={boxDraft.outerLengthMm} onChange={(e) => setBoxDraft((v) => ({ ...v, outerLengthMm: Number(e.target.value) }))} /></label>
+          <label>{uiText("외부W")}<input type="number" min="1" value={boxDraft.outerWidthMm} onChange={(e) => setBoxDraft((v) => ({ ...v, outerWidthMm: Number(e.target.value) }))} /></label>
+          <label>{uiText("외부H")}<input type="number" min="1" value={boxDraft.outerHeightMm} onChange={(e) => setBoxDraft((v) => ({ ...v, outerHeightMm: Number(e.target.value) }))} /></label>
+          <label>{uiText("박스자중kg")}<input type="number" min="0" step="0.1" value={boxDraft.tareWeightKg} onChange={(e) => setBoxDraft((v) => ({ ...v, tareWeightKg: Number(e.target.value) }))} /></label>
+          <label>{uiText("최대총중량kg")}<input type="number" min="0.1" step="1" value={boxDraft.maxGrossWeightKg} onChange={(e) => setBoxDraft((v) => ({ ...v, maxGrossWeightKg: Number(e.target.value) }))} /></label>
+          <label>{uiText("상부허용kg")}<input type="number" min="0" step="1" placeholder={uiText("제한 없음")} value={boxDraft.maxTopLoadKg} onChange={(e) => setBoxDraft((v) => ({ ...v, maxTopLoadKg: numberOrEmpty(e.target.value) }))} /></label>
+          <label>{uiText("박스단가")}<input type="number" min="0" step="0.01" placeholder={uiText("미입력")} value={boxDraft.unitCost} onChange={(e) => setBoxDraft((v) => ({ ...v, unitCost: numberOrEmpty(e.target.value) }))} /></label>
         </div>
-        <div className="packaging-inline-actions"><button onClick={saveBox}>{editingBoxId ? '박스 수정 저장' : '보유 박스 등록'}</button>{editingBoxId && <button onClick={resetBoxDraft}>수정 취소</button>}</div>
-        <div className="packaging-list box-list">{boxes.length ? boxes.map((item) => <div key={item.id}><span><b>{item.id}</b> {item.name}<small>외부 {mm(item.outerLength)}×{mm(item.outerWidth)}×{mm(item.outerHeight)}mm · 최대 {item.maxGrossWeightKg}kg · 상부 {item.maxTopLoadKg == null ? '제한없음' : `${item.maxTopLoadKg}kg`}</small></span><strong>{item.unitCost == null ? '단가 미입력' : money(item.unitCost, settings.currency)}</strong><span className="row-actions"><button onClick={() => editBox(item)}>수정</button><button onClick={() => { setBoxes((v) => v.filter((b) => b.id !== item.id)); invalidatePlan(`${item.id} 박스를 삭제했습니다.`); }}>삭제</button></span></div>) : <p>보유 박스 미등록 · 자동설계만 사용할 수 있습니다.</p>}</div>
+        <div className="packaging-inline-actions"><button onClick={saveBox}>{editingBoxId ? uiText("박스 수정 저장") : uiText("보유 박스 등록")}</button>{editingBoxId && <button onClick={resetBoxDraft}>{uiText("수정 취소")}</button>}</div>
+        <div className="packaging-list box-list">{boxes.length ? boxes.map((item) => <div key={item.id}><span><b>{item.id}</b> {item.name}<small>{uiText("외부 ")}{mm(item.outerLength)}×{mm(item.outerWidth)}×{mm(item.outerHeight)}{uiText("mm · 최대 ")}{item.maxGrossWeightKg}{uiText("kg · 상부 ")}{item.maxTopLoadKg == null ? uiText("제한없음") : `${item.maxTopLoadKg}kg`}</small></span><strong>{item.unitCost == null ? uiText("단가 미입력") : money(item.unitCost, settings.currency)}</strong><span className="row-actions"><button onClick={() => editBox(item)}>{uiText("수정")}</button><button onClick={() => { setBoxes((v) => v.filter((b) => b.id !== item.id)); invalidatePlan(`${item.id} 박스를 삭제했습니다.`); }}>{uiText("삭제")}</button></span></div>) : <p>{uiText("보유 박스 미등록 · 자동설계만 사용할 수 있습니다.")}</p>}</div>
       </article>
     </div>
 
-    <p className="packaging-message" aria-live="polite">{message}</p>
+    <p className="packaging-message" aria-live="polite">{uiMessage(message)}</p>
 
     {plan && <article className="packaging-result enterprise-packaging-result">
-      <div className="result-head"><div><h3>기업 포장 최적화 결과</h3><p>제품 {plan.assignments.length}종 · 최종 박스 {plan.totalBoxes}EA · 정확중량 {plan.accurateTotalCargoWeightKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}kg</p></div><button className="primary" onClick={apply} disabled={!plan.cargo.length}>메인 적재에 적용</button></div>
+      <div className="result-head"><div><h3>{uiText("기업 포장 최적화 결과")}</h3><p>{uiText("제품 ")}{plan.assignments.length}{uiText("종 · 최종 박스 ")}{plan.totalBoxes}{uiText("EA · 정확중량 ")}{plan.accurateTotalCargoWeightKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}kg</p></div><button className="primary" onClick={apply} disabled={!plan.cargo.length}>{uiText("메인 적재에 적용")}</button></div>
 
       <div className="enterprise-result-metrics">
-        <div><span>박스 규격 수</span><b>{plan.family.baselineBoxTypes} → {plan.family.selectedBoxTypes}종</b><small>{plan.family.boxTypeSavings ? `${plan.family.boxTypeSavings}종 절감` : '유지'}</small></div>
-        <div><span>출하 박스 수</span><b>{plan.baselineTotalBoxes} → {plan.totalBoxes}EA</b><small>{plan.mixedCartonSavings ? `혼합 잔량으로 ${plan.mixedCartonSavings}EA 절감` : '잔량 절감 없음'}</small></div>
-        <div><span>예상 컨테이너</span><b>{plan.shipment.containersRequired}대</b><small>{plan.shipment.fullyLoaded ? '전량 적재 가능' : `미적재 ${plan.shipment.remaining.reduce((sum, item) => sum + item.quantity, 0)}EA`}</small></div>
-        <div><span>공용화 평균 효율손실</span><b>{pct(plan.family.averageScoreLoss)}</b><small>{plan.family.targetExceeded ? `목표 ${plan.family.targetMaxBoxTypes}종 초과 · 안전규격 추가` : '목표 범위 충족'}</small></div>
-        {hasCostInputs && <div><span>확인 가능한 총비용</span><b>{money(plan.cost.totalKnownCost, plan.cost.currency)}</b><small>{plan.cost.unpricedCartons ? `단가 미입력 박스 ${plan.cost.unpricedCartons}EA 별도` : '모든 박스 단가 반영'}</small></div>}
+        <div><span>{uiText("박스 규격 수")}</span><b>{plan.family.baselineBoxTypes} → {plan.family.selectedBoxTypes}{uiText("종")}</b><small>{plan.family.boxTypeSavings ? uiText("{0}종 절감", [plan.family.boxTypeSavings]) : uiText("유지")}</small></div>
+        <div><span>{uiText("출하 박스 수")}</span><b>{plan.baselineTotalBoxes} → {plan.totalBoxes}EA</b><small>{plan.mixedCartonSavings ? uiText("혼합 잔량으로 {0}EA 절감", [plan.mixedCartonSavings]) : uiText("잔량 절감 없음")}</small></div>
+        <div><span>{uiText("예상 컨테이너")}</span><b>{plan.shipment.containersRequired}{uiText("대")}</b><small>{plan.shipment.fullyLoaded ? uiText("전량 적재 가능") : uiText("미적재 {0}EA", [plan.shipment.remaining.reduce((sum, item) => sum + item.quantity, 0)])}</small></div>
+        <div><span>{uiText("공용화 평균 효율손실")}</span><b>{pct(plan.family.averageScoreLoss)}</b><small>{plan.family.targetExceeded ? uiText("목표 {0}종 초과 · 안전규격 추가", [plan.family.targetMaxBoxTypes]) : uiText("목표 범위 충족")}</small></div>
+        {hasCostInputs && <div><span>{uiText("확인 가능한 총비용")}</span><b>{money(plan.cost.totalKnownCost, plan.cost.currency)}</b><small>{plan.cost.unpricedCartons ? uiText("단가 미입력 박스 {0}EA 별도", [plan.cost.unpricedCartons]) : uiText("모든 박스 단가 반영")}</small></div>}
       </div>
 
-      <div className="result-table-wrap"><table><thead><tr><th>제품</th><th>선정 박스</th><th>박스 외경</th><th>입수</th><th>필요 박스</th><th>총중량/Full</th><th>충진율</th><th>컨테이너 효율</th><th>설계 적층</th><th>실적용 적층</th><th>강도</th></tr></thead><tbody>
-        {plan.assignments.map((item) => <tr key={item.productId}><td><b>{item.productId}</b><small>{item.productName}</small></td><td><span className={`source-badge ${item.source}`}>{item.source === 'generated' ? '자동/공용설계' : '보유박스'}</span><small>{item.boxName}</small></td><td>{mm(item.outerLength)}×{mm(item.outerWidth)}×{mm(item.outerHeight)}</td><td>{item.unitsPerBox} EA</td><td><b>{item.boxesNeeded} EA</b></td><td>{item.grossWeightKg.toFixed(1)}kg</td><td>{pct(item.productFillRate)}</td><td>{pct(item.containerTileEfficiency)}</td><td>{item.recommendedStackLayers}단</td><td><b>{item.maxStackLayers}단</b></td><td>{item.strengthStatus === 'design-target' ? <span className="strength-warning">미검증 · 목표 {item.requiredTopLoadKg.toFixed(0)}kg</span> : `${item.maxTopLoadKg == null ? '제한없음' : `${item.maxTopLoadKg}kg`}`}</td></tr>)}
+      <div className="result-table-wrap"><table><thead><tr><th>{uiText("제품")}</th><th>{uiText("선정 박스")}</th><th>{uiText("박스 외경")}</th><th>{uiText("입수")}</th><th>{uiText("필요 박스")}</th><th>{uiText("총중량/Full")}</th><th>{uiText("충진율")}</th><th>{uiText("컨테이너 효율")}</th><th>{uiText("설계 적층")}</th><th>{uiText("실적용 적층")}</th><th>{uiText("강도")}</th></tr></thead><tbody>
+        {plan.assignments.map((item) => <tr key={item.productId}><td><b>{item.productId}</b><small>{item.productName}</small></td><td><span className={`source-badge ${item.source}`}>{item.source === 'generated' ? uiText("자동/공용설계") : uiText("보유박스")}</span><small>{item.boxName}</small></td><td>{mm(item.outerLength)}×{mm(item.outerWidth)}×{mm(item.outerHeight)}</td><td>{item.unitsPerBox} EA</td><td><b>{item.boxesNeeded} EA</b></td><td>{item.grossWeightKg.toFixed(1)}kg</td><td>{pct(item.productFillRate)}</td><td>{pct(item.containerTileEfficiency)}</td><td>{item.recommendedStackLayers}{uiText("단")}</td><td><b>{item.maxStackLayers}{uiText("단")}</b></td><td>{item.strengthStatus === 'design-target' ? <span className="strength-warning">{uiText("미검증 · 목표 ")}{item.requiredTopLoadKg.toFixed(0)}kg</span> : `${item.maxTopLoadKg == null ? '제한없음' : `${item.maxTopLoadKg}kg`}`}</td></tr>)}
       </tbody></table></div>
 
-      {plan.family.selectedBoxes.length > 0 && <section className="enterprise-subresult"><h4>선정된 공용 박스 패밀리</h4><div className="family-box-list">{plan.family.selectedBoxes.map((box) => <div key={box.id}><b>{box.name}</b><span>{mm(box.outerLength)}×{mm(box.outerWidth)}×{mm(box.outerHeight)}mm</span><small>{box.assignedProducts.join(', ')}</small></div>)}</div></section>}
+      {plan.family.selectedBoxes.length > 0 && <section className="enterprise-subresult"><h4>{uiText("선정된 공용 박스 패밀리")}</h4><div className="family-box-list">{plan.family.selectedBoxes.map((box) => <div key={box.id}><b>{box.name}</b><span>{mm(box.outerLength)}×{mm(box.outerWidth)}×{mm(box.outerHeight)}mm</span><small>{box.assignedProducts.join(', ')}</small></div>)}</div></section>}
 
-      {plan.mixedCartons.length > 0 && <section className="enterprise-subresult"><h4>혼합 잔량 박스</h4><div className="mixed-carton-list">{plan.mixedCartons.map((carton) => <div key={carton.id}><b>{carton.id} · {carton.boxName}</b><span>{carton.contents.map((item) => `${item.productId} ${item.quantity}EA`).join(' + ')}</span><small>{carton.grossWeightKg.toFixed(1)}kg · 충진율 {pct(carton.fillRate)} · {carton.maxStackLayers}단</small></div>)}</div></section>}
+      {plan.mixedCartons.length > 0 && <section className="enterprise-subresult"><h4>{uiText("혼합 잔량 박스")}</h4><div className="mixed-carton-list">{plan.mixedCartons.map((carton) => <div key={carton.id}><b>{carton.id} · {carton.boxName}</b><span>{carton.contents.map((item) => `${item.productId} ${item.quantity}EA`).join(' + ')}</span><small>{carton.grossWeightKg.toFixed(1)}{uiText("kg · 충진율 ")}{pct(carton.fillRate)} · {carton.maxStackLayers}{uiText("단")}</small></div>)}</div></section>}
 
-      {hasCostInputs && <section className="enterprise-subresult"><h4>비용 구성</h4><div className="cost-breakdown"><span>박스비 <b>{money(plan.cost.knownCartonCost, plan.cost.currency)}</b></span><span>작업비 <b>{money(plan.cost.handlingCost, plan.cost.currency)}</b></span><span>신규규격 셋업 <b>{money(plan.cost.setupCost, plan.cost.currency)}</b></span><span>박스 SKU 관리 <b>{money(plan.cost.cartonSkuCost, plan.cost.currency)}</b></span><span>운임 <b>{money(plan.cost.freightCost, plan.cost.currency)}</b></span></div></section>}
+      {hasCostInputs && <section className="enterprise-subresult"><h4>{uiText("비용 구성")}</h4><div className="cost-breakdown"><span>{uiText("박스비 ")}<b>{money(plan.cost.knownCartonCost, plan.cost.currency)}</b></span><span>{uiText("작업비 ")}<b>{money(plan.cost.handlingCost, plan.cost.currency)}</b></span><span>{uiText("신규규격 셋업 ")}<b>{money(plan.cost.setupCost, plan.cost.currency)}</b></span><span>{uiText("박스 SKU 관리 ")}<b>{money(plan.cost.cartonSkuCost, plan.cost.currency)}</b></span><span>{uiText("운임 ")}<b>{money(plan.cost.freightCost, plan.cost.currency)}</b></span></div></section>}
 
-      {plan.rejected.length > 0 && <div className="packaging-rejected"><b>설계 제외</b>{plan.rejected.map((item) => <span key={item.productId}>{item.productId}: {item.reason}</span>)}</div>}
-      {!plan.shipment.fullyLoaded && <div className="packaging-rejected"><b>컨테이너 적재 미완료</b>{plan.shipment.remaining.map((item) => <span key={item.cargoId}>{item.cargoId}: {item.quantity}EA</span>)}</div>}
-      <p className="packaging-safety-note"><b>자동설계 강도 원칙:</b> 자동/공용 신규규격의 상부하중은 제조 요구치일 뿐 인증값이 아닙니다. 강도 확인 전 메인 적재에는 1단·상부허용 0kg로 적용됩니다. 실제 원지·골종·ECT/BCT·습도·테이핑 조건을 검증한 뒤 보유박스 카탈로그에 상부허용중량을 등록하세요.</p>
+      {plan.rejected.length > 0 && <div className="packaging-rejected"><b>{uiText("설계 제외")}</b>{plan.rejected.map((item) => <span key={item.productId}>{item.productId}: {uiMessage(item.reason)}</span>)}</div>}
+      {!plan.shipment.fullyLoaded && <div className="packaging-rejected"><b>{uiText("컨테이너 적재 미완료")}</b>{plan.shipment.remaining.map((item) => <span key={item.cargoId}>{item.cargoId}: {item.quantity}EA</span>)}</div>}
+      <p className="packaging-safety-note"><b>{uiText("자동설계 강도 원칙:")}</b> {uiText(" 자동/공용 신규규격의 상부하중은 제조 요구치일 뿐 인증값이 아닙니다. 강도 확인 전 메인 적재에는 1단·상부허용 0kg로 적용됩니다. 실제 원지·골종·ECT/BCT·습도·테이핑 조건을 검증한 뒤 보유박스 카탈로그에 상부허용중량을 등록하세요.")}</p>
     </article>}
   </section>;
 }

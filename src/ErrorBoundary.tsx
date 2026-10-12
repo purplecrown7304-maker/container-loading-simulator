@@ -1,3 +1,4 @@
+import { uiText } from './uiLanguage';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 type Props = { children: ReactNode };
@@ -30,12 +31,12 @@ export default class ErrorBoundary extends Component<Props, State> {
     return (
       <main className="fatal-error-shell" role="alert">
         <section className="fatal-error-card">
-          <strong>화면을 정상적으로 표시하지 못했습니다.</strong>
+          <strong>{uiText("화면을 정상적으로 표시하지 못했습니다.")}</strong>
           <p>{this.state.message}</p>
-          <p className="muted">먼저 새로고침을 시도하고, 계속 문제가 생기면 저장된 브라우저 데이터를 초기화하세요.</p>
+          <p className="muted">{uiText("먼저 새로고침을 시도하고, 계속 문제가 생기면 저장된 브라우저 데이터를 초기화하세요.")}</p>
           <div className="fatal-error-actions">
-            <button onClick={this.reload}>새로고침</button>
-            <button className="danger" onClick={this.clearLocalData}>로컬 데이터 초기화</button>
+            <button onClick={this.reload}>{uiText("새로고침")}</button>
+            <button className="danger" onClick={this.clearLocalData}>{uiText("로컬 데이터 초기화")}</button>
           </div>
         </section>
       </main>

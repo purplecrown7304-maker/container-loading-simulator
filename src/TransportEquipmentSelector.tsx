@@ -1,3 +1,6 @@
+import { useUiMessage } from './useUiMessage';
+import { equipmentDisplayText } from './transportEquipmentPresentation';
+import { uiText, uiMessage, useUiLanguage } from './uiLanguage';
 import { useLoadingRuleset, aEquipmentDefault } from './loadingRulesPreference';
 import { useEffect, useMemo, useState } from 'react';
 import EquipmentCard3D from './EquipmentCard3D';
@@ -46,10 +49,14 @@ function nativeValueSetter(input: HTMLInputElement, value: number) {
 }
 
 function findDashboardInput(labelText: string) {
+  const key = Object.entries(FIELD_LABELS).find(([, value]) => value === labelText)?.[0];
+  const stable = key ? document.querySelector<HTMLInputElement>(`[data-container-field="${key}"]`) : null;
+  if (stable) return stable;
+  const labelsForLocale = [labelText, uiText(labelText, [], 'en'), uiText(labelText, [], 'vi')];
   const labels = Array.from(document.querySelectorAll('.dashboard-left .dashboard-card:first-child label'));
   for (const label of labels) {
     const normalized = (label.textContent ?? '').replace(/\s+/g, ' ').trim();
-    if (!normalized.startsWith(labelText)) continue;
+    if (!labelsForLocale.some(text => normalized.startsWith(text))) continue;
     const input = label.querySelector('input');
     if (input instanceof HTMLInputElement) return input;
   }
@@ -116,10 +123,10 @@ function EquipmentVisual({ item }: { item: TransportEquipment }) {
 
 function EquipmentCard({ item, active, onSelect }: { item: TransportEquipment; active: boolean; onSelect: (value: TransportEquipment) => void }) {
   return <button type="button" data-category={item.category} data-equipment-id={item.id} className={`transport-equipment-card ${active ? 'active' : ''}`} onClick={() => onSelect(item)}>
-    <span className="transport-equipment-card-name">{item.name}</span>
+    <span className="transport-equipment-card-name">{equipmentDisplayText(item, 'name')}</span>
     <EquipmentVisual item={item} />
     <span className="transport-equipment-spec">{item.length.toFixed(2)} × {item.width.toFixed(2)} × {item.height.toFixed(2)} m</span>
-    <span className="transport-equipment-payload">적재 {item.maxPayloadKg.toLocaleString()} kg</span>
+    <span className="transport-equipment-payload">{uiText("적재 ")}{item.maxPayloadKg.toLocaleString()} kg</span>
   </button>;
 }
 
@@ -128,12 +135,13 @@ function editable(item: TransportEquipment): EditableSpec {
 }
 
 export default function TransportEquipmentSelector() {
+  useUiLanguage();
   const selected = useTransportEquipment();
   const [open, setOpen] = useState(false);
   const [category, setCategory] = useState<TransportCategory>(selected.category);
   const [custom, setCustom] = useState<EditableSpec>(() => editable(selected));
   const [customTemplate, setCustomTemplate] = useState<TransportEquipment>();
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useUiMessage('');
   const ruleset=useLoadingRuleset();
   const list = useMemo(() => (category === 'container' ? CONTAINER_EQUIPMENT : TRUCK_EQUIPMENT).map(e=>ruleset==='a-v1'?aEquipmentDefault(e):e), [category,ruleset]);
 
@@ -239,37 +247,37 @@ export default function TransportEquipmentSelector() {
   return <div className="transport-selector-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
     <section className="transport-selector-modal" role="dialog" aria-modal="true" aria-labelledby="transport-selector-title">
       <header className="transport-selector-head">
-        <div><span>TRANSPORT EQUIPMENT</span><h2 id="transport-selector-title">컨테이너 및 트럭 유형</h2><p>장비를 선택하면 현재 제품/박스 목록은 유지하고 적재공간 규격과 최대 적재중량만 즉시 바꿉니다.</p></div>
-        <button type="button" onClick={() => setOpen(false)}>닫기</button>
+        <div><span>TRANSPORT EQUIPMENT</span><h2 id="transport-selector-title">{uiText("컨테이너 및 트럭 유형")}</h2><p>{uiText("장비를 선택하면 현재 제품/박스 목록은 유지하고 적재공간 규격과 최대 적재중량만 즉시 바꿉니다.")}</p></div>
+        <button type="button" onClick={() => setOpen(false)}>{uiText("닫기")}</button>
       </header>
 
       <div className="transport-category-tabs" role="tablist">
-        <button type="button" className={category === 'container' ? 'active' : ''} onClick={() => { setCategory('container'); setCustomTemplate(undefined); }}>▥ 컨테이너</button>
-        <button type="button" className={category === 'truck' ? 'active' : ''} onClick={() => { setCategory('truck'); setCustomTemplate(undefined); }}>▰ 트럭</button>
+        <button type="button" className={category === 'container' ? 'active' : ''} onClick={() => { setCategory('container'); setCustomTemplate(undefined); }}>{uiText("▥ 컨테이너")}</button>
+        <button type="button" className={category === 'truck' ? 'active' : ''} onClick={() => { setCategory('truck'); setCustomTemplate(undefined); }}>{uiText("▰ 트럭")}</button>
       </div>
-      {category === 'truck' && <p className="transport-selector-message">국내 완성 특장차 대표 사양 · 치수는 화물실 내부 · 적재중량은 화물 허용중량. 대형 특장차는 실차 제원을 등록하세요.</p>}
+      {category === 'truck' && <p className="transport-selector-message">{uiText("국내 완성 특장차 대표 사양 · 치수는 화물실 내부 · 적재중량은 화물 허용중량. 대형 특장차는 실차 제원을 등록하세요.")}</p>}
 
       <div className="transport-equipment-grid">
         {list.map(item => <EditableEquipmentCard key={item.id} item={item} active={selected.id === item.id} onSelect={choose} onMessage={setMessage} />)}
       </div>
 
       {customTemplate && <section className="transport-custom-editor">
-        <h3>{category === 'container' ? 'CUSTOM CONTAINER' : 'CUSTOM TRUCK'} 규격</h3>
+        <h3>{category === 'container' ? 'CUSTOM CONTAINER' : 'CUSTOM TRUCK'} {uiText(" 규격")}</h3>
         <div>
-          <label>내부 길이(m)<input type="number" min="0.1" step="0.01" value={custom.length} onChange={e => setCustom(v => ({ ...v, length: Number(e.target.value) }))} /></label>
-          <label>내부 폭(m)<input type="number" min="0.1" step="0.01" value={custom.width} onChange={e => setCustom(v => ({ ...v, width: Number(e.target.value) }))} /></label>
-          <label>내부 높이(m)<input type="number" min="0.1" step="0.01" value={custom.height} onChange={e => setCustom(v => ({ ...v, height: Number(e.target.value) }))} /></label>
-          <label>최대 적재중량(kg)<input type="number" min="1" step="100" value={custom.maxPayloadKg} onChange={e => setCustom(v => ({ ...v, maxPayloadKg: Number(e.target.value) }))} /></label>
-          <label>바닥 허용하중(kg/m²)<input type="number" min="1" step="100" value={custom.floorLoadLimitKgPerM2} onChange={e => setCustom(v => ({ ...v, floorLoadLimitKgPerM2: Number(e.target.value) }))} /></label>
+          <label>{uiText("내부 길이(m)")}<input type="number" min="0.1" step="0.01" value={custom.length} onChange={e => setCustom(v => ({ ...v, length: Number(e.target.value) }))} /></label>
+          <label>{uiText("내부 폭(m)")}<input type="number" min="0.1" step="0.01" value={custom.width} onChange={e => setCustom(v => ({ ...v, width: Number(e.target.value) }))} /></label>
+          <label>{uiText("내부 높이(m)")}<input type="number" min="0.1" step="0.01" value={custom.height} onChange={e => setCustom(v => ({ ...v, height: Number(e.target.value) }))} /></label>
+          <label>{uiText("최대 적재중량(kg)")}<input type="number" min="1" step="100" value={custom.maxPayloadKg} onChange={e => setCustom(v => ({ ...v, maxPayloadKg: Number(e.target.value) }))} /></label>
+          <label>{uiText("바닥 허용하중(kg/m²)")}<input type="number" min="1" step="100" value={custom.floorLoadLimitKgPerM2} onChange={e => setCustom(v => ({ ...v, floorLoadLimitKgPerM2: Number(e.target.value) }))} /></label>
         </div>
-        <button type="button" className="transport-apply-custom" onClick={applyCustom}>사용자 규격 적용</button>
+        <button type="button" className="transport-apply-custom" onClick={applyCustom}>{uiText("사용자 규격 적용")}</button>
       </section>}
 
       <footer className="transport-selector-foot">
-        <div><b>현재 선택: {selected.shortName}</b><span>{selected.length.toFixed(3)} × {selected.width.toFixed(3)} × {selected.height.toFixed(3)}m · {selected.maxPayloadKg.toLocaleString()}kg</span></div>
-        <div><span>{selected.sourceLabel}{selected.sourceUrl && <> · <a href={selected.sourceUrl} target="_blank" rel="noreferrer">제조사 제원</a></>}</span><small>{selected.note ?? '실제 장비 제원은 제조사·연식·국가별 허용중량에 따라 달라질 수 있으므로 출하 전 실제 장비 데이터를 확인하세요.'}</small></div>
+        <div><b>{uiText("현재 선택: ")}{equipmentDisplayText(selected, 'shortName')}</b><span>{selected.length.toFixed(3)} × {selected.width.toFixed(3)} × {selected.height.toFixed(3)}m · {selected.maxPayloadKg.toLocaleString()}kg</span></div>
+        <div><span>{equipmentDisplayText(selected, 'sourceLabel')}{selected.sourceUrl && <> · <a href={selected.sourceUrl} target="_blank" rel="noreferrer">{uiText("제조사 제원")}</a></>}</span><small>{(selected.note ? equipmentDisplayText(selected, 'note') : '') || uiText("실제 장비 제원은 제조사·연식·국가별 허용중량에 따라 달라질 수 있으므로 출하 전 실제 장비 데이터를 확인하세요.")}</small></div>
       </footer>
-      {message && <p className="transport-selector-message" role="status">{message}</p>}
+      {message && <p className="transport-selector-message" role="status">{uiMessage(message)}</p>}
     </section>
   </div>;
 }

@@ -1,3 +1,4 @@
+import { uiText } from './uiLanguage';
 import { useEffect } from 'react';
 import { useTransportEquipment } from './transportEquipment';
 
@@ -21,9 +22,13 @@ function setNativeInput(input: HTMLInputElement, value: number) {
 
 function matchingInput(panel: Element | null, labelText: string) {
   if (!panel) return null;
+  const key = labels.find(([value]) => value === labelText)?.[1];
+  const stable = key ? panel.querySelector<HTMLInputElement>(`[data-container-field="${key}"], [data-enterprise-container-field="${key}"]`) : null;
+  if (stable) return stable;
+  const prefixes = [labelText, uiText(labelText, [], 'en'), uiText(labelText, [], 'vi')].map(text => text.replace(/\s+/g, ''));
   for (const label of Array.from(panel.querySelectorAll('label'))) {
     const text = (label.textContent ?? '').replace(/\s+/g, '').trim();
-    if (!text.startsWith(labelText.replace(/\s+/g, ''))) continue;
+    if (!prefixes.some(prefix => text.startsWith(prefix))) continue;
     const input = label.querySelector('input');
     if (input instanceof HTMLInputElement) return input;
   }
@@ -31,9 +36,11 @@ function matchingInput(panel: Element | null, labelText: string) {
 }
 
 function mainContainerPanel() {
+  const stable = document.querySelector('.dashboard-left [data-container-field="length"]')?.closest('.dashboard-card');
+  if (stable) return stable;
   for (const panel of Array.from(document.querySelectorAll('.dashboard-left .dashboard-card'))) {
     const heading = panel.querySelector('h2')?.textContent ?? '';
-    if (heading.includes('컨테이너 정보')) return panel;
+    if (['ko', 'en', 'vi'].some(locale => heading.includes(uiText('컨테이너 정보', [], locale as 'ko' | 'en' | 'vi')))) return panel;
   }
   return null;
 }

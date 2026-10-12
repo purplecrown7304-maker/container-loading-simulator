@@ -1,5 +1,6 @@
+import { uiText as uiT, readUiLanguage } from './uiLanguage';
 import { buildLimitReviewHtml, buildLimitReviewInertiaHtml, isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
-import { buildReportDocument, reportTable, REPORT_SIGNOFF } from './reportLayout';
+import { buildReportDocument, reportTable, reportSignoff } from './reportLayout';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
 import type { PhysicsScenario } from './engine/physicsValidation';
 import {
@@ -60,7 +61,7 @@ function assessLevel(result: InertiaAnimationResult, mode: PhysicsTarget['mode']
 }
 
 function levelLabel(level: AssessmentLevel) {
-  return level === 'danger' ? '위험' : level === 'warning' ? '보완 권장' : '안정';
+  return level === 'danger' ? uiT("위험") : level === 'warning' ? uiT("보완 권장") : uiT("안정");
 }
 
 function mm(value: number) {
@@ -68,71 +69,71 @@ function mm(value: number) {
   return `${raw.toFixed(raw >= 10 ? 0 : 1)} mm`;
 }
 
-function buildEvaluation(result: InertiaAnimationResult, level: AssessmentLevel, mode: PhysicsTarget['mode']) {
+function buildEvaluation(result: InertiaAnimationResult, level: AssessmentLevel, mode: PhysicsTarget['mode'], review = false) {
   const shift = mm(result.maxHorizontalShiftM);
   const tilt = `${result.maxTiltDeg.toFixed(1)}°`;
   const slip = mm(result.maxCargoRelativeSlipM ?? 0);
   const support = mm(result.maxSupportShiftM ?? 0);
   if (level === 'stable') {
     return mode === 'pallets'
-      ? `최대 이동 ${shift}, 최대 기울기 ${tilt}, 화물↔팔레트 ${slip}, 팔레트 이동 ${support}로 내부 PASS 범위입니다.`
-      : `최대 이동 ${shift}, 최대 기울기 ${tilt}로 내부 PASS 범위입니다.`;
+      ? uiT(review ? "최대 이동 {0}, 최대 기울기 {1}, 화물↔팔레트 {2}, 팔레트 이동 {3}로 내부 기준 이내이며 WHAT-IF 검토용입니다." : "최대 이동 {0}, 최대 기울기 {1}, 화물↔팔레트 {2}, 팔레트 이동 {3}로 내부 PASS 범위입니다.", [shift, tilt, slip, support])
+      : uiT(review ? "최대 이동 {0}, 최대 기울기 {1}로 내부 기준 이내이며 WHAT-IF 검토용입니다." : "최대 이동 {0}, 최대 기울기 {1}로 내부 PASS 범위입니다.", [shift, tilt]);
   }
   const issues: string[] = [];
-  if (result.maxHorizontalShiftM > WORK_ORDER_DANGER_SHIFT_M) issues.push(`수평 이동 ${shift} · 위험 기준 초과`);
-  else if (result.maxHorizontalShiftM > INERTIA_PASS_SHIFT_M) issues.push(`수평 이동 ${shift} · PASS 기준 초과/위험 이내`);
-  if (result.maxTiltDeg > WORK_ORDER_DANGER_TILT_DEG) issues.push(`기울기 ${tilt} · 위험 기준 초과`);
-  else if (result.maxTiltDeg > INERTIA_PASS_TILT_DEG) issues.push(`기울기 ${tilt} · PASS 기준 초과/위험 이내`);
+  if (result.maxHorizontalShiftM > WORK_ORDER_DANGER_SHIFT_M) issues.push(uiT("수평 이동 {0} · 위험 기준 초과", [shift]));
+  else if (result.maxHorizontalShiftM > INERTIA_PASS_SHIFT_M) issues.push(uiT("수평 이동 {0} · PASS 기준 초과/위험 이내", [shift]));
+  if (result.maxTiltDeg > WORK_ORDER_DANGER_TILT_DEG) issues.push(uiT("기울기 {0} · 위험 기준 초과", [tilt]));
+  else if (result.maxTiltDeg > INERTIA_PASS_TILT_DEG) issues.push(uiT("기울기 {0} · PASS 기준 초과/위험 이내", [tilt]));
   if (mode === 'pallets') {
-    if ((result.maxCargoRelativeSlipM ?? 0) > WORK_ORDER_DANGER_PALLET_CARGO_SLIP_M) issues.push(`화물↔팔레트 미끄럼 ${slip} · 위험 기준 초과`);
-    else if ((result.maxCargoRelativeSlipM ?? 0) > INERTIA_PASS_PALLET_CARGO_SLIP_M) issues.push(`화물↔팔레트 미끄럼 ${slip} · PASS 기준 초과/위험 이내`);
-    if ((result.maxSupportShiftM ?? 0) > WORK_ORDER_DANGER_SUPPORT_SHIFT_M) issues.push(`팔레트 이동 ${support} · 위험 기준 초과`);
-    else if ((result.maxSupportShiftM ?? 0) > INERTIA_PASS_SUPPORT_SHIFT_M) issues.push(`팔레트 이동 ${support} · PASS 기준 초과/위험 이내`);
+    if ((result.maxCargoRelativeSlipM ?? 0) > WORK_ORDER_DANGER_PALLET_CARGO_SLIP_M) issues.push(uiT("화물↔팔레트 미끄럼 {0} · 위험 기준 초과", [slip]));
+    else if ((result.maxCargoRelativeSlipM ?? 0) > INERTIA_PASS_PALLET_CARGO_SLIP_M) issues.push(uiT("화물↔팔레트 미끄럼 {0} · PASS 기준 초과/위험 이내", [slip]));
+    if ((result.maxSupportShiftM ?? 0) > WORK_ORDER_DANGER_SUPPORT_SHIFT_M) issues.push(uiT("팔레트 이동 {0} · 위험 기준 초과", [support]));
+    else if ((result.maxSupportShiftM ?? 0) > INERTIA_PASS_SUPPORT_SHIFT_M) issues.push(uiT("팔레트 이동 {0} · PASS 기준 초과/위험 이내", [support]));
   }
-  return issues.join(' · ') || `최대 이동 ${shift}, 최대 기울기 ${tilt}로 추가 확인이 필요합니다.`;
+  return issues.join(' · ') || uiT("최대 이동 {0}, 최대 기울기 {1}로 추가 확인이 필요합니다.", [shift, tilt]);
 }
 
 function buildRecommendations(scenario: InertiaScenario, result: InertiaAnimationResult, mode: PhysicsTarget['mode']) {
   const items: string[] = [];
   if (result.maxHorizontalShiftM > INERTIA_PASS_SHIFT_M) {
-    items.push('바닥·팔레트 접촉면의 미끄럼 방지 상태를 확인하고 필요 시 미끄럼방지재를 적용합니다.');
-    items.push('화물 사이의 큰 빈 공간을 줄이고 빈 공간은 적절한 완충·고정재로 채워 이동 여유를 줄입니다.');
+    items.push(uiT("바닥·팔레트 접촉면의 미끄럼 방지 상태를 확인하고 필요 시 미끄럼방지재를 적용합니다."));
+    items.push(uiT("화물 사이의 큰 빈 공간을 줄이고 빈 공간은 적절한 완충·고정재로 채워 이동 여유를 줄입니다."));
   }
   if (result.maxTiltDeg > INERTIA_PASS_TILT_DEG) {
-    items.push('높은 적층은 낮추고 무거운 화물을 하부에 배치해 무게중심을 낮춥니다.');
-    items.push('열 또는 블록 단위의 랩핑·밴딩·결박 필요성을 검토하고 상단 돌출 적재를 줄입니다.');
+    items.push(uiT("높은 적층은 낮추고 무거운 화물을 하부에 배치해 무게중심을 낮춥니다."));
+    items.push(uiT("열 또는 블록 단위의 랩핑·밴딩·결박 필요성을 검토하고 상단 돌출 적재를 줄입니다."));
   }
   if (mode === 'pallets' && (result.maxCargoRelativeSlipM ?? 0) > INERTIA_PASS_PALLET_CARGO_SLIP_M) {
-    items.push('화물-팔레트 상대 미끄럼이 있으므로 밴딩·랩핑·미끄럼방지재가 화물과 팔레트를 함께 구속하는지 확인합니다.');
+    items.push(uiT("화물-팔레트 상대 미끄럼이 있으므로 밴딩·랩핑·미끄럼방지재가 화물과 팔레트를 함께 구속하는지 확인합니다."));
   }
   if (mode === 'pallets' && (result.maxSupportShiftM ?? 0) > INERTIA_PASS_SUPPORT_SHIFT_M) {
-    items.push('팔레트 자체 이동을 줄이도록 바닥 접촉면, 고정바와 블로킹 위치를 확인합니다.');
+    items.push(uiT("팔레트 자체 이동을 줄이도록 바닥 접촉면, 고정바와 블로킹 위치를 확인합니다."));
   }
   if (scenario === 'acceleration') {
-    items.push('출발 시 후방 관성 방향으로 밀리지 않도록 길이 방향 후방 지지·블로킹 상태를 점검합니다.');
+    items.push(uiT("출발 시 후방 관성 방향으로 밀리지 않도록 길이 방향 후방 지지·블로킹 상태를 점검합니다."));
   } else if (scenario === 'braking') {
-    items.push('급제동 시 전방 관성 방향으로 밀리지 않도록 앞쪽 지지·블로킹과 문쪽 끝단의 이동 여유를 점검합니다.');
+    items.push(uiT("급제동 시 전방 관성 방향으로 밀리지 않도록 앞쪽 지지·블로킹과 문쪽 끝단의 이동 여유를 점검합니다."));
   } else {
-    items.push('좌우 측벽 여유를 줄이고 좌우 중량 편차 및 상단 편중을 줄여 측면 전도 가능성을 낮춥니다.');
+    items.push(uiT("좌우 측벽 여유를 줄이고 좌우 중량 편차 및 상단 편중을 줄여 측면 전도 가능성을 낮춥니다."));
   }
   if (mode === 'pallets') {
-    items.push('팔레트-바닥 고정과 화물-팔레트 결속을 각각 분리해 확인하고, 랩핑/밴딩이 팔레트와 화물을 함께 구속하는지 점검합니다.');
+    items.push(uiT("팔레트-바닥 고정과 화물-팔레트 결속을 각각 분리해 확인하고, 랩핑/밴딩이 팔레트와 화물을 함께 구속하는지 점검합니다."));
   }
-  if (!items.length) items.push('현재 결과를 기준선으로 저장하고 실제 포장재·마찰계수·결박 조건을 반영한 재시험으로 확인합니다.');
+  if (!items.length) items.push(uiT("현재 결과를 기준선으로 저장하고 실제 포장재·마찰계수·결박 조건을 반영한 재시험으로 확인합니다."));
   return [...new Set(items)];
 }
 
-function assessScenario(scenario: InertiaScenario, result: InertiaAnimationResult, mode: PhysicsTarget['mode']): ScenarioAssessment {
+function assessScenario(scenario: InertiaScenario, result: InertiaAnimationResult, mode: PhysicsTarget['mode'], review = false): ScenarioAssessment {
   const info = SCENARIOS.find(item => item.id === scenario) ?? SCENARIOS[0];
   const level = assessLevel(result, mode);
   return {
     scenario,
-    label: info.label,
-    forceLabel: info.forceLabel,
+    label: uiT(info.label),
+    forceLabel: uiT(info.forceLabel),
     level,
     levelLabel: levelLabel(level),
     result,
-    evaluation: buildEvaluation(result, level, mode),
+    evaluation: buildEvaluation(result, level, mode, review),
     recommendations: buildRecommendations(scenario, result, mode),
   };
 }
@@ -140,50 +141,50 @@ function assessScenario(scenario: InertiaScenario, result: InertiaAnimationResul
 export function buildInertiaImprovementReportHtml(target: PhysicsTarget, results: InertiaResults) {
   const review = isLimitReviewTarget(target);
   const assessments = SCENARIOS
-    .map(info => results[info.id] ? assessScenario(info.id, results[info.id]!, target.mode) : null)
+    .map(info => results[info.id] ? assessScenario(info.id, results[info.id]!, target.mode, review) : null)
     .filter((item): item is ScenarioAssessment => Boolean(item));
   if (!assessments.length) return null;
 
   const worst = [...assessments].sort((a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level] || b.result.maxHorizontalShiftM - a.result.maxHorizontalShiftM || b.result.maxTiltDeg - a.result.maxTiltDeg)[0];
   const tested = assessments.length;
-  const overallLabel = review ? `${LIMIT_REVIEW_WARNING} · ${tested < 3 ? '검사 미완료' : worst.level === 'danger' ? '위험' : worst.level === 'warning' ? '내부 기준 초과' : '내부 기준 이내'}` : worst.level === 'danger'
-    ? '위험 · 작업지시서 생성 불가'
+  const overallLabel = review ? `${uiT(LIMIT_REVIEW_WARNING)} · ${tested < 3 ? uiT("검사 미완료") : worst.level === 'danger' ? uiT("위험") : worst.level === 'warning' ? uiT("내부 기준 초과") : uiT("내부 기준 이내")}` : worst.level === 'danger'
+    ? uiT("위험 · 작업지시서 생성 불가")
     : tested < 3
-      ? '검증 미완료 · 남은 시나리오 실행 필요'
+      ? uiT("검증 미완료 · 남은 시나리오 실행 필요")
       : worst.level === 'warning'
-      ? '위험 아님 · 권장사항 반영 후 작업지시서 생성 가능'
-      : '안정 · 작업지시서 생성 가능';
+      ? uiT("위험 아님 · 권장사항 반영 후 작업지시서 생성 가능")
+      : uiT("안정 · 작업지시서 생성 가능");
   const commonRecommendations = [...new Set(assessments.flatMap(item => item.recommendations))];
   const scenarioRows = SCENARIOS.map(info => {
     const assessment = assessments.find(item => item.scenario === info.id);
-    if (!assessment) return `<tr><td>${info.label}</td><td>${info.forceLabel}</td><td><span class="report-pill neutral">미실행</span></td><td colspan="3">시나리오를 실행한 뒤 결과를 확인하세요.</td></tr>`;
-    return `<tr class="${assessment.level}"><td>${assessment.label}</td><td>${assessment.forceLabel}</td><td><span class="report-pill ${assessment.level === 'stable' ? 'good' : assessment.level === 'warning' ? 'caution' : 'danger'}">${assessment.levelLabel}</span></td><td>${mm(assessment.result.maxHorizontalShiftM)}</td><td>${assessment.result.maxTiltDeg.toFixed(1)}°</td><td>${escapeHtml(review ? assessment.evaluation.replaceAll('내부 PASS 범위입니다.', '내부 기준 이내이며 WHAT-IF 검토용입니다.') : assessment.evaluation)}</td></tr>`;
+    if (!assessment) return `<tr><td>${uiT(info.label)}</td><td>${uiT(info.forceLabel)}</td><td><span class="report-pill neutral">${uiT("미실행")}</span></td><td colspan="3">${uiT("시나리오를 실행한 뒤 결과를 확인하세요.")}</td></tr>`;
+    return `<tr class="${assessment.level}"><td>${assessment.label}</td><td>${assessment.forceLabel}</td><td><span class="report-pill ${assessment.level === 'stable' ? 'good' : assessment.level === 'warning' ? 'caution' : 'danger'}">${assessment.levelLabel}</span></td><td>${mm(assessment.result.maxHorizontalShiftM)}</td><td>${assessment.result.maxTiltDeg.toFixed(1)}°</td><td>${escapeHtml(assessment.evaluation)}</td></tr>`;
   }).join('');
 
   const recommendationHtml = commonRecommendations.map((item, index) => `<li><b>${index + 1}</b><span>${escapeHtml(item)}</span></li>`).join('');
   const retestHtml = [
-    '보완 조치 후 같은 3개 시나리오를 다시 실행해 최대 이동량과 기울기가 감소했는지 비교',
-    '상자 적재는 상단 블록과 문쪽/안쪽 끝단, 팔레트 적재는 팔레트 자체 이동과 화물-팔레트 상대 이동을 함께 관찰',
-    '실제 현장 포장재, 미끄럼방지재, 결박 방식, 팔레트 규격을 시뮬레이션 입력/운영 기준과 대조',
-    '시뮬레이션 결과만으로 운송 안전을 확정하지 않고 회사·운송사·법규 기준으로 최종 검토',
+    uiT("보완 조치 후 같은 3개 시나리오를 다시 실행해 최대 이동량과 기울기가 감소했는지 비교"),
+    uiT("상자 적재는 상단 블록과 문쪽/안쪽 끝단, 팔레트 적재는 팔레트 자체 이동과 화물-팔레트 상대 이동을 함께 관찰"),
+    uiT("실제 현장 포장재, 미끄럼방지재, 결박 방식, 팔레트 규격을 시뮬레이션 입력/운영 기준과 대조"),
+    uiT("시뮬레이션 결과만으로 운송 안전을 확정하지 않고 회사·운송사·법규 기준으로 최종 검토"),
   ].map(item => `<li>${escapeHtml(item)}</li>`).join('');
 
   return buildReportDocument({
-    title: '관성 테스트 보완 보고서',
-    subtitle: `${new Date().toLocaleString('ko-KR')} · ${target.mode === 'pallets' ? 'PALLET MODE' : 'BOX MODE'} · Rapier 3D 관성 애니메이션 결과 기반`,
+    title: uiT("관성 테스트 보완 보고서"),
+    subtitle: uiT("{0} · {1} · Rapier 3D 관성 애니메이션 결과 기반", [new Date().toLocaleString({ ko: 'ko-KR', en: 'en-US', vi: 'vi-VN' }[readUiLanguage()]), target.mode === 'pallets' ? 'PALLET MODE' : 'BOX MODE']),
     status: overallLabel,
-    watermark: review ? 'WHAT-IF REVIEW · 출고 승인 아님' : undefined,
+    watermark: review ? uiT("WHAT-IF REVIEW · 출고 승인 아님") : undefined,
     tone: worst.level === 'danger' ? 'danger' : review ? 'caution' : tested < 3 ? 'neutral' : worst.level === 'warning' ? 'caution' : 'good',
-    summary: `${buildLimitReviewHtml(target)}${buildLimitReviewInertiaHtml(target, { maxHorizontalShiftM: Math.max(...assessments.map(item => item.result.maxHorizontalShiftM)), maxTiltDeg: Math.max(...assessments.map(item => item.result.maxTiltDeg)) })}<section class="summary" aria-label="관성 검증 요약"><div><span>실행 시나리오</span><b>${tested} / 3</b></div><div><span>적재 화물</span><b>${target.result.placements.length} EA</b></div><div><span>팔레트</span><b>${target.supports?.length ?? 0} EA</b></div><div class="text-metric"><span>실행 결과 중 최악 조건</span><b>${worst.label}</b></div></section>`,
+    summary: `${buildLimitReviewHtml(target)}${buildLimitReviewInertiaHtml(target, { maxHorizontalShiftM: Math.max(...assessments.map(item => item.result.maxHorizontalShiftM)), maxTiltDeg: Math.max(...assessments.map(item => item.result.maxTiltDeg)) })}<section class="summary" aria-label="${uiT("관성 검증 요약")}"><div><span>${uiT("실행 시나리오")}</span><b>${tested} / 3</b></div><div><span>${uiT("적재 화물")}</span><b>${target.result.placements.length} EA</b></div><div><span>${uiT("팔레트")}</span><b>${target.supports?.length ?? 0} EA</b></div><div class="text-metric"><span>${uiT("실행 결과 중 최악 조건")}</span><b>${worst.label}</b></div></section>`,
     sections: [
-      { title: '종합 평가와 보완할 점', description: '현재 판정과 우선 조치사항을 먼저 확인하세요.',
-        content: `<div class="overall"><b>${overallLabel}</b><span>${escapeHtml(review ? worst.evaluation.replaceAll('내부 PASS 범위입니다.', '내부 기준 이내이며 WHAT-IF 검토용입니다.') : worst.evaluation)}${tested < 3 ? ' · 미실행 시나리오는 평가에 포함되지 않았습니다.' : ''}</span></div><h3>보완할 점</h3><ol class="recommend">${recommendationHtml}</ol>` },
-      { title: '시나리오별 평가', description: '출발 가속·급정거·급회전을 모두 실행한 결과인지 확인하세요.',
-        content: reportTable('관성 시나리오별 평가표', `<table><colgroup><col style="width:13%"><col style="width:16%"><col style="width:13%"><col style="width:13%"><col style="width:12%"><col style="width:33%"></colgroup><thead><tr><th scope="col">상황</th><th scope="col">관성 조건</th><th scope="col">판정</th><th scope="col">최대 이동</th><th scope="col">최대 기울기</th><th scope="col">평가 내용</th></tr></thead><tbody>${scenarioRows}</tbody></table>`) },
-      { title: '보완 후 재시험 체크', description: '보완 전후 수치를 대조한 뒤 검토 담당자가 확인하세요.',
-        content: `<ul class="checklist">${retestHtml}</ul>${REPORT_SIGNOFF}<p class="technical-note">작업지시서는 3개 시나리오가 모두 실행되고 위험 판정이 없을 때 생성할 수 있습니다. 보완 권장 단계는 내부 PASS 기준을 일부 초과했지만 위험 기준 이내이므로 권장사항이 작업지시서에 함께 표시됩니다. 실제 운송 안전 판정은 차량, 노면, 화물 고정장치, 포장재 강도, 마찰계수 및 회사/법규 기준을 별도로 적용해야 합니다.</p>` },
+      { title: uiT("종합 평가와 보완할 점"), description: uiT("현재 판정과 우선 조치사항을 먼저 확인하세요."),
+        content: `<div class="overall"><b>${overallLabel}</b><span>${escapeHtml(worst.evaluation)}${tested < 3 ? uiT(" · 미실행 시나리오는 평가에 포함되지 않았습니다.") : ''}</span></div><h3>${uiT("보완할 점")}</h3><ol class="recommend">${recommendationHtml}</ol>` },
+      { title: uiT("시나리오별 평가"), description: uiT("출발 가속·급정거·급회전을 모두 실행한 결과인지 확인하세요."),
+        content: reportTable(uiT("관성 시나리오별 평가표"), `<table><colgroup><col style="width:13%"><col style="width:16%"><col style="width:13%"><col style="width:13%"><col style="width:12%"><col style="width:33%"></colgroup><thead><tr><th scope="col">${uiT("상황")}</th><th scope="col">${uiT("관성 조건")}</th><th scope="col">${uiT("판정")}</th><th scope="col">${uiT("최대 이동")}</th><th scope="col">${uiT("최대 기울기")}</th><th scope="col">${uiT("평가 내용")}</th></tr></thead><tbody>${scenarioRows}</tbody></table>`) },
+      { title: uiT("보완 후 재시험 체크"), description: uiT("보완 전후 수치를 대조한 뒤 검토 담당자가 확인하세요."),
+        content: `<ul class="checklist">${retestHtml}</ul>${reportSignoff()}<p class="technical-note">${uiT("작업지시서는 3개 시나리오가 모두 실행되고 위험 판정이 없을 때 생성할 수 있습니다. 보완 권장 단계는 내부 PASS 기준을 일부 초과했지만 위험 기준 이내이므로 권장사항이 작업지시서에 함께 표시됩니다. 실제 운송 안전 판정은 차량, 노면, 화물 고정장치, 포장재 강도, 마찰계수 및 회사/법규 기준을 별도로 적용해야 합니다.")}</p>` },
     ],
-    footer: `<span>관성 검증 ${tested} / 3 실행</span><span>${target.mode === 'pallets' ? '팔레트 적재' : '박스 적재'} · 내부 비교 결과</span>`,
+    footer: `<span>${uiT("관성 검증")} ${tested} ${uiT("/ 3 실행")}</span><span>${target.mode === 'pallets' ? uiT("팔레트 적재") : uiT("박스 적재")} ${uiT("· 내부 비교 결과")}</span>`,
   });
 }
 

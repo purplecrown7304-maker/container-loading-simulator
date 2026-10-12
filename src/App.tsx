@@ -1,3 +1,5 @@
+import { uiWorkflowText } from './workflowPresentation';
+import { uiText, useUiLanguage } from './uiLanguage';
 import LimitReviewControls, { LimitReviewBanner } from './LimitReviewControls';
 import { useLoadingRuleset, equipmentRules, RULESET_EVENT } from './loadingRulesPreference';
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -62,10 +64,12 @@ const emptyDraft: CargoDraft = {
 const strategyLabel = (strategy: LoadingStrategy) => strategy === 'stability' ? '안정성 우선' : strategy === 'capacity' ? '적재율 우선' : '하역 우선';
 
 function LoadingFallback() {
-  return <section className="viewer"><div className="viewer-direction"><b>3D 모듈 불러오는 중</b><span>잠시 후 표시됩니다.</span></div></section>;
+  useUiLanguage();
+  return <section className="viewer"><div className="viewer-direction"><b>{uiText("3D 모듈 불러오는 중")}</b><span>{uiText("잠시 후 표시됩니다.")}</span></div></section>;
 }
 
 export default function App() {
+  useUiLanguage();
   const equipment = useTransportEquipment();
   const ruleset = useLoadingRuleset();
   const stored = useMemo(() => readStoredState(), []);
@@ -450,7 +454,7 @@ export default function App() {
     announce('success', '저장된 데이터를 불러왔습니다.');
   };
   const resetAll = () => {
-    if (!window.confirm('등록된 화물과 저장 데이터를 모두 초기화할까요?')) return;
+    if (!window.confirm(uiText('등록된 화물과 저장 데이터를 모두 초기화할까요?'))) return;
     setContainer(defaultContainer);
     setCargo([]);
     setResult(pendingLoadingResult(defaultContainer, []));
@@ -486,17 +490,17 @@ export default function App() {
 
   return <main className="app-shell mockup-dashboard">
     <header className="topbar mockup-topbar">
-      <div className="brand-block"><span className="brand-cube" aria-hidden="true">CL</span><strong>컨테이너 적재 시뮬레이터</strong></div>
-      <nav className="main-nav" aria-label="주요 메뉴">
-        <button className={`nav-item ${navSection === 'dashboard' ? 'active' : ''}`} onClick={scrollToDashboard}>대시보드</button>
-        <button className={`nav-item ${navSection === 'viewer' ? 'active' : ''}`} onClick={scrollToViewer}>3D 보기</button>
-        <button className="nav-item" disabled={isPreview || cgChoicePending} onClick={showResults}>결과 보기</button>
+      <div className="brand-block"><span className="brand-cube" aria-hidden="true">CL</span><strong>{uiText("컨테이너 적재 시뮬레이터")}</strong></div>
+      <nav className="main-nav" aria-label={uiText("주요 메뉴")}>
+        <button className={`nav-item ${navSection === 'dashboard' ? 'active' : ''}`} onClick={scrollToDashboard}>{uiText("대시보드")}</button>
+        <button className={`nav-item ${navSection === 'viewer' ? 'active' : ''}`} onClick={scrollToViewer}>{uiText("3D 보기")}</button>
+        <button className="nav-item" disabled={isPreview || cgChoicePending} data-requires-general-cargo="true" onClick={showResults}>{uiText("결과 보기")}</button>
       </nav>
       <WorkspaceTools />
       <div className="top-actions compact">
-        <button className="secondary" onClick={loadLocal}>불러오기</button>
-        <button className="secondary" onClick={saveLocal}>저장</button>
-        <button className="secondary" onClick={printReport}>작업지시서</button>
+        <button className="secondary" onClick={loadLocal}>{uiText("불러오기")}</button>
+        <button className="secondary" onClick={saveLocal}>{uiText("저장")}</button>
+        <button className="secondary" data-action="work-order" onClick={printReport}>{uiText("작업지시서")}</button>
       </div>
     </header>
     <LimitReviewControls container={container} cargo={cargo} result={result} mode={mode} onChange={limitReview => {
@@ -505,80 +509,80 @@ export default function App() {
       announce('warning', limitReview ? '한도 초과 검토 모드입니다. 범위를 적용하고 다시 계산하세요. 검토 전용 표시와 원 기준 초과 경고가 유지됩니다.' : '엄격 모드로 전환했습니다. 이전 검토 결과는 무효화되며 원 기준으로 다시 적재해야 합니다.');
     }} />
 
-    {!stored && cargo.length === 0 && <section className="onboarding-banner" aria-label="처음 사용 안내">
-      <div><b>처음 사용하시나요?</b><span>① 컨테이너 규격 확인 → ② 로그인 후 개인 박스 등록/선택 → ③ 물리 최적 자동 적재</span></div>
+    {!stored && cargo.length === 0 && <section className="onboarding-banner" aria-label={uiText("처음 사용 안내")}>
+      <div><b>{uiText("처음 사용하시나요?")}</b><span>{uiText("① 컨테이너 규격 확인 → ② 로그인 후 개인 박스 등록/선택 → ③ 물리 최적 자동 적재")}</span></div>
     </section>}
 
     <section className="dashboard-grid">
       <aside className="dashboard-left">
         <section className="dashboard-card">
-          <h2>1. 컨테이너 정보</h2>
-          <div className="static-setting"><span>컨테이너 규격</span><b>40FT High Cube</b><small>현재 단일 규격 · 상세 규격은 아래에서 직접 수정</small></div>
+          <h2>{uiText("1. 컨테이너 정보")}</h2>
+          <div className="static-setting"><span>{uiText("컨테이너 규격")}</span><b>40FT High Cube</b><small>{uiText("현재 단일 규격 · 상세 규격은 아래에서 직접 수정")}</small></div>
           <div className="spec-list">
-            <span>내부 길이 <b>{(container.length * 1000).toLocaleString()} mm</b></span>
-            <span>내부 폭 <b>{(container.width * 1000).toLocaleString()} mm</b></span>
-            <span>내부 높이 <b>{(container.height * 1000).toLocaleString()} mm</b></span>
-            <span>적재 용적 <b>{totalVolume.toFixed(1)} m³</b></span>
-            <span>최대 적재중량 <b>{container.maxPayloadKg.toLocaleString()} kg</b></span>
-            <span>바닥 경고기준 <b>{(container.floorLoadLimitKgPerM2 ?? 1500).toLocaleString()} kg/m²</b></span>
+            <span>{uiText("내부 길이")}{' '}<b>{(container.length * 1000).toLocaleString()} mm</b></span>
+            <span>{uiText("내부 폭")}{' '}<b>{(container.width * 1000).toLocaleString()} mm</b></span>
+            <span>{uiText("내부 높이")}{' '}<b>{(container.height * 1000).toLocaleString()} mm</b></span>
+            <span>{uiText("적재 용적")}{' '}<b>{totalVolume.toFixed(1)} m³</b></span>
+            <span>{uiText("최대 적재중량")}{' '}<b>{container.maxPayloadKg.toLocaleString()} kg</b></span>
+            <span>{uiText("바닥 경고기준")}{' '}<b>{(container.floorLoadLimitKgPerM2 ?? 1500).toLocaleString()} kg/m²</b></span>
           </div>
-          <details><summary>상세 규격 / 직접 수정</summary><div className="form-grid compact-form">
-            <label>길이(m)<input type="number" min="0.01" step="0.01" value={container.length} onChange={e => updateContainer('length', e.target.value)} /></label>
-            <label>폭(m)<input type="number" min="0.01" step="0.01" value={container.width} onChange={e => updateContainer('width', e.target.value)} /></label>
-            <label>높이(m)<input type="number" min="0.01" step="0.01" value={container.height} onChange={e => updateContainer('height', e.target.value)} /></label>
-            <label>최대중량<input type="number" min="1" value={container.maxPayloadKg} onChange={e => updateContainer('maxPayloadKg', e.target.value)} /></label>
-            <label>바닥 허용하중(kg/m²)<input type="number" min="1" value={container.floorLoadLimitKgPerM2 ?? 1500} onChange={e => updateContainer('floorLoadLimitKgPerM2', e.target.value)} /></label>
-            <label>국부하중 경고배수<input type="number" min="0.1" step=".1" value={container.floorLoadWarningMultiplier ?? 3} onChange={e => updateContainer('floorLoadWarningMultiplier', e.target.value)} /></label>
+          <details><summary>{uiText("상세 규격 / 직접 수정")}</summary><div className="form-grid compact-form">
+            <label>{uiText("길이(m)")}<input type="number" min="0.01" step="0.01" data-container-field="length" value={container.length} onChange={e => updateContainer('length', e.target.value)} /></label>
+            <label>{uiText("폭(m)")}<input type="number" min="0.01" step="0.01" data-container-field="width" value={container.width} onChange={e => updateContainer('width', e.target.value)} /></label>
+            <label>{uiText("높이(m)")}<input type="number" min="0.01" step="0.01" data-container-field="height" value={container.height} onChange={e => updateContainer('height', e.target.value)} /></label>
+            <label>{uiText("최대중량")}<input type="number" min="1" data-container-field="maxPayloadKg" value={container.maxPayloadKg} onChange={e => updateContainer('maxPayloadKg', e.target.value)} /></label>
+            <label>{uiText("바닥 허용하중(kg/m²)")}<input type="number" min="1" data-container-field="floorLoadLimitKgPerM2" value={container.floorLoadLimitKgPerM2 ?? 1500} onChange={e => updateContainer('floorLoadLimitKgPerM2', e.target.value)} /></label>
+            <label>{uiText("국부하중 경고배수")}<input type="number" min="0.1" step=".1" value={container.floorLoadWarningMultiplier ?? 3} onChange={e => updateContainer('floorLoadWarningMultiplier', e.target.value)} /></label>
           </div></details>
         </section>
 
         <section className="dashboard-card cargo-browser">
-          <div className="card-heading-row"><h2>2. 적재할 화물</h2><span>{waitingCount} EA</span></div>
+          <div className="card-heading-row"><h2>{uiText("2. 적재할 화물")}</h2><span>{waitingCount} EA</span></div>
           <div className="mode-tabs">
-            <button className={mode === 'boxes' ? 'active' : ''} onClick={() => switchMode('boxes')}>박스</button>
-            <button className={mode === 'pallets' ? 'active' : ''} onClick={() => switchMode('pallets')}>팔레트</button>
-            <button className={mode === 'mixed' ? 'active' : ''} onClick={() => switchMode('mixed')}>혼합</button>
+            <button className={mode === 'boxes' ? 'active' : ''} onClick={() => switchMode('boxes')}>{uiText("박스")}</button>
+            <button className={mode === 'pallets' ? 'active' : ''} onClick={() => switchMode('pallets')}>{uiText("팔레트")}</button>
+            <button className={mode === 'mixed' ? 'active' : ''} onClick={() => switchMode('mixed')}>{uiText("혼합")}</button>
           </div>
-          {cargo.length === 0 ? <div className="empty-cargo"><b>등록된 화물이 없습니다.</b><span>로그인 후 본인의 박스 목록에서 화물을 선택하거나 새 박스를 등록하세요.</span></div> : <div className="cargo-scroll">
+          {cargo.length === 0 ? <div className="empty-cargo"><b>{uiText("등록된 화물이 없습니다.")}</b><span>{uiText("로그인 후 본인의 박스 목록에서 화물을 선택하거나 새 박스를 등록하세요.")}</span></div> : <div className="cargo-scroll">
             {cargo.map(item => <article className="cargo-list-item" key={item.id} style={{ borderLeft: `3px solid ${cargoColor(item.id, item.displayColor)}`, paddingLeft: 8 }}>
               <div className="cargo-icon" style={{ background: cargoTint(item.id, item.displayColor), color: cargoColor(item.id, item.displayColor), border: `1px solid ${cargoColor(item.id, item.displayColor)}55` }}>■</div>
-              <div><b>{item.id} {item.name}</b><span>{Math.round(item.length * 1000)} × {Math.round(item.width * 1000)} × {Math.round(item.height * 1000)} mm</span><small>{item.weightKg} kg · {item.maxTopLoadKg == null ? '상부허용 제한없음' : `상부허용 ${item.maxTopLoadKg} kg`}</small></div>
+              <div><b>{item.id} {item.name}</b><span>{Math.round(item.length * 1000)} × {Math.round(item.width * 1000)} × {Math.round(item.height * 1000)} mm</span><small>{item.weightKg} kg · {item.maxTopLoadKg == null ? uiText("상부허용 제한없음") : uiText("상부허용 {0} kg", [item.maxTopLoadKg])}</small></div>
               <strong>{item.quantity}</strong>
               <div className="cargo-inline-actions">
-                <button aria-label={`${item.id} 수량 1 감소`} onClick={() => changeQuantity(item.id, -1)}>−</button>
-                <button aria-label={`${item.id} 수량 1 증가`} onClick={() => changeQuantity(item.id, 1)}>＋</button>
-                <button onClick={() => editCargo(item)}>수정</button>
-                <button onClick={() => deleteCargo(item.id)}>삭제</button>
+                <button aria-label={uiText("{0} 수량 1 감소", [item.id])} onClick={() => changeQuantity(item.id, -1)}>−</button>
+                <button aria-label={uiText("{0} 수량 1 증가", [item.id])} onClick={() => changeQuantity(item.id, 1)}>＋</button>
+                <button onClick={() => editCargo(item)}>{uiText("수정")}</button>
+                <button onClick={() => deleteCargo(item.id)}>{uiText("삭제")}</button>
               </div>
             </article>)}
           </div>}
-          <details className="cargo-add-panel" open={Boolean(editingId)}><summary>＋ 새 화물 추가</summary><div className="cargo-form">
-            <label>코드<input value={draft.id} onChange={e => updateDraft('id', e.target.value)} disabled={Boolean(editingId)} /></label>
-            <label>이름<input value={draft.name} onChange={e => updateDraft('name', e.target.value)} /></label>
+          <details className="cargo-add-panel" open={Boolean(editingId)}><summary>{uiText("＋ 새 화물 추가")}</summary><div className="cargo-form">
+            <label>{uiText("코드")}<input value={draft.id} onChange={e => updateDraft('id', e.target.value)} disabled={Boolean(editingId)} /></label>
+            <label>{uiText("이름")}<input value={draft.name} onChange={e => updateDraft('name', e.target.value)} /></label>
             <div className="form-grid">
-              <label>길이(m)<input type="number" min="0.01" step="0.01" value={draft.length} onChange={e => updateDraft('length', e.target.value)} /></label>
-              <label>폭(m)<input type="number" min="0.01" step="0.01" value={draft.width} onChange={e => updateDraft('width', e.target.value)} /></label>
-              <label>높이(m)<input type="number" min="0.01" step="0.01" value={draft.height} onChange={e => updateDraft('height', e.target.value)} /></label>
-              <label>중량(kg)<input type="number" min="0.01" step="0.01" value={draft.weightKg} onChange={e => updateDraft('weightKg', e.target.value)} /></label>
-              <label>수량<input type="number" min="0" step="1" value={draft.quantity} onChange={e => updateDraft('quantity', e.target.value)} /></label>
-              <label>최대 적층단<input type="number" min="1" step="1" value={draft.maxStackLayers ?? 1} onChange={e => updateDraft('maxStackLayers', e.target.value)} /></label>
-              <label>상부 허용중량(kg)<input type="number" min="0" step="0.1" value={draft.maxTopLoadKg ?? ''} placeholder="제한 없음" onChange={e => updateDraft('maxTopLoadKg', e.target.value)} /></label>
-              <label><input type="checkbox" checked={draft.allowRotation !== false} onChange={e => updateDraft('allowRotation', e.target.checked)} /> 회전 허용</label>
+              <label>{uiText("길이(m)")}<input type="number" min="0.01" step="0.01" value={draft.length} onChange={e => updateDraft('length', e.target.value)} /></label>
+              <label>{uiText("폭(m)")}<input type="number" min="0.01" step="0.01" value={draft.width} onChange={e => updateDraft('width', e.target.value)} /></label>
+              <label>{uiText("높이(m)")}<input type="number" min="0.01" step="0.01" value={draft.height} onChange={e => updateDraft('height', e.target.value)} /></label>
+              <label>{uiText("중량(kg)")}<input type="number" min="0.01" step="0.01" value={draft.weightKg} onChange={e => updateDraft('weightKg', e.target.value)} /></label>
+              <label>{uiText("수량")}<input type="number" min="0" step="1" value={draft.quantity} onChange={e => updateDraft('quantity', e.target.value)} /></label>
+              <label>{uiText("최대 적층단")}<input type="number" min="1" step="1" value={draft.maxStackLayers ?? 1} onChange={e => updateDraft('maxStackLayers', e.target.value)} /></label>
+              <label>{uiText("상부 허용중량(kg)")}<input type="number" min="0" step="0.1" value={draft.maxTopLoadKg ?? ''} placeholder={uiText("제한 없음")} onChange={e => updateDraft('maxTopLoadKg', e.target.value)} /></label>
+              <label><input type="checkbox" checked={draft.allowRotation !== false} onChange={e => updateDraft('allowRotation', e.target.checked)} />{' '}{uiText("회전 허용")}</label>
             </div>
-            <button onClick={saveCargo}>{editingId ? '수정 저장' : '박스 추가'}</button>
+            <button onClick={saveCargo}>{editingId ? uiText("수정 저장") : uiText("박스 추가")}</button>
           </div></details>
-          {statusMessage && <p className={`status-message status-${statusMessage.tone}`} role={statusMessage.tone === 'error' ? 'alert' : 'status'} aria-live="polite">{statusMessage.text}</p>}
+          {statusMessage && <p className={`status-message status-${statusMessage.tone}`} role={statusMessage.tone === 'error' ? 'alert' : 'status'} aria-live="polite">{uiWorkflowText(statusMessage.text)}</p>}
         </section>
 
         <section className="dashboard-card loading-options">
-          <h2>3. 적재 옵션</h2>
+          <h2>{uiText("3. 적재 옵션")}</h2>
           <div className="fixed-option-list">
-            <span><b>적재 방식</b><em>물리 검증 자동 최적화</em></span>
-            <span><b>박스 회전</b><em>품목별 허용 설정 + 자동 방향 선택</em></span>
-            <span><b>혼합 적재</b><em>잔량에 대해 자동 허용</em></span>
-            <span><b>운송 검증</b><em>정적 · 출발 0.30g · 급제동 0.50g · 횡가속 0.35g</em></span>
+            <span><b>{uiText("적재 방식")}</b><em>{uiText("물리 검증 자동 최적화")}</em></span>
+            <span><b>{uiText("박스 회전")}</b><em>{uiText("품목별 허용 설정 + 자동 방향 선택")}</em></span>
+            <span><b>{uiText("혼합 적재")}</b><em>{uiText("잔량에 대해 자동 허용")}</em></span>
+            <span><b>{uiText("운송 검증")}</b><em>{uiText("정적 · 출발 0.30g · 급제동 0.50g · 횡가속 0.35g")}</em></span>
           </div>
-          <small className="setting-note">변경 가능한 설정만 입력 컨트롤로 표시합니다. 고정 동작은 설명으로만 표시합니다.</small>
+          <small className="setting-note">{uiText("변경 가능한 설정만 입력 컨트롤로 표시합니다. 고정 동작은 설명으로만 표시합니다.")}</small>
         </section>
       </aside>
 
@@ -588,7 +592,7 @@ export default function App() {
           <div className="viewer-host">
             {isRunning && <div className={`calculation-overlay${container.rules ? ' a-rules-calculating' : ''}`} role="status" aria-live="polite">
               <div className="calculation-progress-ring" style={{ background: `conic-gradient(#2563eb ${optimizationProgress}%, #dbe3ee 0)` }}><span>{mode === 'boxes' ? `${Math.round(optimizationProgress)}%` : '…'}</span></div>
-              <div className="calculation-progress-copy"><b>{mode === 'boxes' ? '물리 기반 최적 적재 계산 중' : '팔레트 배치 계산 중'}</b><span>{optimizationMessage || '후보 적재안을 만들고 있습니다.'}</span><small>{mode === 'boxes' ? progressLabel : '배치 완료 후 물리 안전 검증을 진행합니다'}</small></div>
+              <div className="calculation-progress-copy"><b>{mode === 'boxes' ? uiText("물리 기반 최적 적재 계산 중") : uiText("팔레트 배치 계산 중")}</b><span>{optimizationMessage ? uiWorkflowText(optimizationMessage) : uiText("후보 적재안을 만들고 있습니다.")}</span><small>{mode === 'boxes' ? uiWorkflowText(progressLabel) : uiText("배치 완료 후 물리 안전 검증을 진행합니다")}</small></div>
             </div>}
             <Suspense fallback={<LoadingFallback />}>
               <BoxLoadingViewer container={container} result={displayResult}
@@ -599,54 +603,54 @@ export default function App() {
                   const placement = displayResult.placements[index];
                   if (placement) openPackagingContents({ cargoId: placement.cargoId });
                 } : currentPalletScene?.onCargoSelect}
-                title={isPreview ? (workflowPreview?.kind === 'products' ? '선택 제품 미리보기' : '포장·화물 미리보기') : currentPalletScene?.title ?? '박스 적재 결과'} />
+                title={isPreview ? (workflowPreview?.kind === 'products' ? uiText("선택 제품 미리보기") : uiText("포장·화물 미리보기")) : uiWorkflowText(currentPalletScene?.title ?? '박스 적재 결과')} />
             </Suspense>
             <Suspense fallback={null}>
               {mode !== 'boxes' && <PalletModePanel container={container} cargo={cargo} runToken={palletRunToken} mode={mode} inputKey={inputKey} onSceneChange={setPalletScene} onRunningChange={setIsRunning} />}
             </Suspense>
           </div>
-          {isPreview && <div className="workflow-preview-status" role="status" data-preview-kind={workflowPreview?.kind ?? 'cargo'}>{floorPreview.requested === 0 ? '적재공간을 확인하고 제품을 선택하세요' : `미리보기 · ${floorPreview.shown.toLocaleString()} / ${floorPreview.requested.toLocaleString()}개 표시 · 실제 크기의 바닥 배치이며 최종 적재·안전 검증 전입니다`}</div>}
+          {isPreview && <div className="workflow-preview-status" role="status" data-preview-kind={workflowPreview?.kind ?? 'cargo'}>{floorPreview.requested === 0 ? uiText("적재공간을 확인하고 제품을 선택하세요") : uiText("미리보기 · {0} / {1}개 표시 · 실제 크기의 바닥 배치이며 최종 적재·안전 검증 전입니다", [floorPreview.shown.toLocaleString(), floorPreview.requested.toLocaleString()])}</div>}
           {mode === 'boxes' && !isPreview && <>
             {hasLongitudinalCgError(result) && <CgPlanChoice container={container} cargo={activeBoxCargo} fullResult={result} onChoose={chooseCgPlan} />}
             <VoidFillSummary result={result} compact />
           </>}
           <div className={`viewer-bottom-actions ${mode !== 'boxes' ? 'pallet-summary-active' : ''}`}>
-            <button className="result-open-action" disabled={isPreview || cgChoicePending} onClick={showResults}>결과 보기</button>
+            <button className="result-open-action" disabled={isPreview || cgChoicePending} data-requires-general-cargo="true" onClick={showResults}>{uiText("결과 보기")}</button>
             <PalletFooterSummary active={mode !== 'boxes'} />
-            <span>{physicsScore !== null ? `Rapier ${physicsScore}점 · ${physicsStrategy ? strategyLabel(physicsStrategy) : ''}` : '자동 적재 실행 시 후보를 물리 검증해 최종안을 선택합니다.'}</span>
+            <span>{physicsScore !== null ? uiText("Rapier {0}점 · {1}", [physicsScore, physicsStrategy ? uiText(strategyLabel(physicsStrategy)) : '']) : uiText("자동 적재 실행 시 후보를 물리 검증해 최종안을 선택합니다.")}</span>
           </div>
         </section>}
       </section>
 
       <aside className="dashboard-right">
-        <section className="dashboard-card viewer-final-action-row" aria-label="주요 작업">
-          <h2>주요 작업</h2>
-          <button type="button" className="viewer-final-action primary" disabled={isRunning} onClick={() => void runLoading()}>
-            {isRunning ? '검사 진행 중…' : '최종 적재 진행'}
+        <section className="dashboard-card viewer-final-action-row" aria-label={uiText("주요 작업")}>
+          <h2>{uiText("주요 작업")}</h2>
+          <button type="button" className="viewer-final-action primary" data-requires-general-cargo="true" disabled={isRunning} onClick={() => void runLoading()}>
+            {isRunning ? uiText("검사 진행 중…") : uiText("최종 적재 진행")}
           </button>
-          <button type="button" className="viewer-final-action report" disabled={isRunning} onClick={printReport}>작업지시서 보기</button>
-          <button type="button" className="viewer-final-action reset" disabled={isRunning} onClick={resetAll}>전체 초기화</button>
+          <button type="button" className="viewer-final-action report" disabled={isRunning} data-action="work-order" onClick={printReport}>{uiText("작업지시서 보기")}</button>
+          <button type="button" className="viewer-final-action reset" disabled={isRunning} onClick={resetAll}>{uiText("전체 초기화")}</button>
         </section>
 
-        <section className="dashboard-card summary-card"><h2>4. 적재 요약</h2><div className="summary-metric-grid">
-          <div><span>총 부피</span><b>{result.usedVolumeM3.toFixed(1)} / {totalVolume.toFixed(1)} m³</b><small>{fillRate.toFixed(1)}%</small></div>
-          <div><span>총 중량</span><b>{result.loadedWeightKg.toLocaleString()} / {container.maxPayloadKg.toLocaleString()} kg</b><small>{weightRate.toFixed(1)}%</small></div>
-          <div><span>사용 박스 수</span><b>{result.placements.length} EA</b></div>
-          <div><span>물리 안정성</span><b>{physicsScore !== null ? `${physicsScore} 점` : '검증 전'}</b><small>{physicsStrategy ? strategyLabel(physicsStrategy) : `${maxLayer} 층`}</small></div>
-        </div><button className={`constraint-ok ${hasConstraintFailure ? 'failure' : hasConstraintWarning ? 'warning' : ''}`} onClick={showResults}>{container.limitReview ? '검토 전용 · 출고 승인 불가' : hasConstraintFailure ? '제약 조건 실패 항목 있음' : hasConstraintWarning ? '현장 확인 항목 있음' : physicsScore !== null ? '물리 최적안 선택 완료' : '제약 조건 모두 만족'}</button></section>
+        <section className="dashboard-card summary-card"><h2>{uiText("4. 적재 요약")}</h2><div className="summary-metric-grid">
+          <div><span>{uiText("총 부피")}</span><b>{result.usedVolumeM3.toFixed(1)} / {totalVolume.toFixed(1)} m³</b><small>{fillRate.toFixed(1)}%</small></div>
+          <div><span>{uiText("총 중량")}</span><b>{result.loadedWeightKg.toLocaleString()} / {container.maxPayloadKg.toLocaleString()} kg</b><small>{weightRate.toFixed(1)}%</small></div>
+          <div><span>{uiText("사용 박스 수")}</span><b>{result.placements.length} EA</b></div>
+          <div><span>{uiText("물리 안정성")}</span><b>{physicsScore !== null ? uiText("{0} 점", [physicsScore]) : uiText("검증 전")}</b><small>{physicsStrategy ? uiText(strategyLabel(physicsStrategy)) : uiText("{0} 층", [maxLayer])}</small></div>
+        </div><button className={`constraint-ok ${hasConstraintFailure ? 'failure' : hasConstraintWarning ? 'warning' : ''}`} data-requires-general-cargo="true" onClick={showResults}>{container.limitReview ? uiText("검토 전용 · 출고 승인 불가") : hasConstraintFailure ? uiText("제약 조건 실패 항목 있음") : hasConstraintWarning ? uiText("현장 확인 항목 있음") : physicsScore !== null ? uiText("물리 최적안 선택 완료") : uiText("제약 조건 모두 만족")}</button></section>
 
-        <section className="dashboard-card constraint-card"><h2>5. 제약 조건 체크</h2><div className="constraint-list">
-          {constraintChecks.map(check => <span key={check.id} className={check.status === 'pass' ? 'constraint-pass' : check.status === 'warn' ? 'constraint-warn' : 'constraint-fail'} title={check.detail}><span>{check.label}</span><b>{check.status === 'pass' ? '통과' : check.status === 'warn' ? '확인' : '실패'}</b></span>)}
+        <section className="dashboard-card constraint-card"><h2>{uiText("5. 제약 조건 체크")}</h2><div className="constraint-list">
+          {constraintChecks.map(check => <span key={check.id} className={check.status === 'pass' ? 'constraint-pass' : check.status === 'warn' ? 'constraint-warn' : 'constraint-fail'} title={uiWorkflowText(check.detail)}><span>{uiText(check.label)}</span><b>{check.status === 'pass' ? uiText("통과") : check.status === 'warn' ? uiText("확인") : uiText("실패")}</b></span>)}
         </div></section>
 
-        <section className="dashboard-card quick-card"><h2>6. 빠른 작업</h2>
-          <button className="primary-action" onClick={() => void runLoading()} disabled={isRunning}>{isRunning ? '물리 검증 중…' : '물리 최적 자동 적재'}</button>
-          <button className="result-open-action" onClick={showResults} disabled={isRunning || isPreview}>결과 보기</button>
-          <div className="quick-row"><button onClick={printReport}>작업 지시서</button><button onClick={saveLocal}>저장</button></div>
-          <button className="danger ghost" onClick={resetAll}>전체 초기화</button>
+        <section className="dashboard-card quick-card"><h2>{uiText("6. 빠른 작업")}</h2>
+          <button className="primary-action" onClick={() => void runLoading()} disabled={isRunning}>{isRunning ? uiText("물리 검증 중…") : uiText("물리 최적 자동 적재")}</button>
+          <button className="result-open-action" data-requires-general-cargo="true" onClick={showResults} disabled={isRunning || isPreview}>{uiText("결과 보기")}</button>
+          <div className="quick-row"><button data-action="work-order" onClick={printReport}>{uiText("작업 지시서")}</button><button onClick={saveLocal}>{uiText("저장")}</button></div>
+          <button className="danger ghost" onClick={resetAll}>{uiText("전체 초기화")}</button>
         </section>
       </aside>
     </section>
-    <footer className="dashboard-footer">© Container Loading Simulator · v2.6.0 · 운영형 적재 설계 도구</footer>
+    <footer className="dashboard-footer">{uiText("© Container Loading Simulator · v2.6.0 · 운영형 적재 설계 도구")}</footer>
   </main>;
 }

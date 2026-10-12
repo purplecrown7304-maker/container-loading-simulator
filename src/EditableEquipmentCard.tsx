@@ -1,3 +1,4 @@
+import { equipmentDisplayText } from './transportEquipmentPresentation';
 import { uiText as uiT, useUiLanguage } from './uiLanguage';
 import { useEffect, useState, type ChangeEvent, type MouseEvent } from 'react';
 import EquipmentCard3D from './EquipmentCard3D';
@@ -18,7 +19,7 @@ type Props = {
   item: TransportEquipment;
   active: boolean;
   onSelect: (value: TransportEquipment) => void;
-  onMessage?: (message: string) => void;
+  onMessage?: (message: string | (() => string)) => void;
   variant?: 'selector' | 'guided';
 };
 
@@ -61,7 +62,7 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
       const dataUrl = await prepareEquipmentImage(file);
       const next = await setEquipmentImageOverride(item.id, dataUrl);
       setImageSrc(next[item.id] ?? '');
-      onMessage?.(`${item.shortName} 이미지를 Supabase 서버에 저장했습니다.`);
+      onMessage?.(`${equipmentDisplayText(item, 'shortName')} 이미지를 Supabase 서버에 저장했습니다.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : '이미지 변경에 실패했습니다.';
       onMessage?.(message);
@@ -80,7 +81,7 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
     try {
       await removeEquipmentImageOverride(item.id);
       setImageSrc('');
-      onMessage?.(`${item.shortName} 서버 이미지를 삭제하고 기본 이미지로 복원했습니다.`);
+      onMessage?.(`${equipmentDisplayText(item, 'shortName')} 서버 이미지를 삭제하고 기본 이미지로 복원했습니다.`);
     } catch (error) {
       onMessage?.(error instanceof Error ? error.message : '기본 이미지 복원에 실패했습니다.');
     } finally {
@@ -97,14 +98,14 @@ export default function EditableEquipmentCard({ item, active, onSelect, onMessag
       aria-pressed={active}
       onClick={() => onSelect(item)}
     >
-      <span className="transport-equipment-card-name">{item.name}</span>
+      <span className="transport-equipment-card-name">{equipmentDisplayText(item, 'name')}</span>
       {imageSrc ? <span className="transport-equipment-user-image"><img src={imageSrc} alt="" draggable={false} /></span> : <DefaultVisual item={item} />}
       <span className="transport-equipment-spec">{item.length.toFixed(2)} × {item.width.toFixed(2)} × {item.height.toFixed(2)} m</span>
       <span className="transport-equipment-payload">{item.requiresSpecification && !item.maxPayloadKg ? uiT("허용중량 · 실차 등록 필요") : uiT("적재 {0} kg", [item.maxPayloadKg.toLocaleString()])}</span>
       {variant === 'guided' && active && <i className="equipment-card-selected" aria-label={uiT("선택됨")}>✓</i>}
     </button>
     {isAdmin && variant === 'selector' && <div className="transport-equipment-image-actions" onClick={stopCardSelection}>
-      <label className={`transport-image-edit ${busy ? 'busy' : ''}`} title={uiT("{0} 이미지 변경", [item.shortName])}>
+      <label className={`transport-image-edit ${busy ? 'busy' : ''}`} title={uiT("{0} 이미지 변경", [equipmentDisplayText(item, 'shortName')])}>
         {busy ? uiT("처리중…") : uiT("이미지 수정")}
         <input type="file" accept="image/png,image/jpeg,image/webp" onChange={changeImage} disabled={busy} />
       </label>
