@@ -105,11 +105,39 @@ test('translated menu retains specialized-equipment work-order protection', asyn
   await page.goto('/');
   await page.getByRole('button', { name: 'Tiếng Việt', exact: true }).click();
   await page.locator('.header-equipment-pill').click();
-  await page.getByRole('dialog', { name: '컨테이너 및 트럭 유형', exact: true }).locator('.transport-equipment-card[data-equipment-id="20-tank"]').click();
+  await page.getByRole('dialog', { name: 'Loại container và xe tải', exact: true }).locator('.transport-equipment-card[data-equipment-id="20-tank"]').click();
   await expect(page.locator('.header-equipment-pill')).toContainText('20FT Tank');
   await page.locator('.header-menu-button').click();
   // A real translated menu action must still be captured before report generation.
   await page.locator('.header-menu-panel button[data-requires-general-cargo="true"]').last().click();
   await expect(page.locator('.transport-specialized-dialog')).toBeVisible();
+  await expect(page.locator('.transport-specialized-dialog')).not.toContainText(/[가-힣]/);
   await expect(page.locator('.header-equipment-pill')).toContainText('20FT Tank');
 });
+
+for (const locale of [
+  { button: 'English', language: 'en', title: 'Container and truck types', truck: '1-ton box body' },
+  { button: 'Tiếng Việt', language: 'vi', title: 'Loại container và xe tải', truck: 'Thùng kín 1 tấn' },
+]) {
+  test(`${locale.language} equipment cards preserve trusted selection and canonical specifications`, async ({ page, isMobile }) => {
+    test.skip(isMobile, 'The simulator retains its existing PC-only gate.');
+    await page.goto('/');
+    await page.getByRole('button', { name: locale.button, exact: true }).click();
+    await page.locator('.header-equipment-pill').click();
+    const dialog = page.getByRole('dialog', { name: locale.title, exact: true });
+    await expect(dialog).toBeVisible();
+    await dialog.locator('.transport-category-tabs button').last().click();
+    const card = dialog.locator('.transport-equipment-card[data-equipment-id="kr-1t-box"]');
+    await expect(card).not.toContainText(/[가-힣]/);
+    await card.click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.locator('.header-equipment-pill')).toContainText(locale.truck);
+    await expect(page.locator('[data-container-field="length"]')).toHaveValue('2.83');
+    const canonical = await page.evaluate(() => localStorage.getItem('container-loading:transport-equipment-v1'));
+    expect(canonical).not.toBeNull();
+    expect(JSON.parse(canonical!)).toMatchObject({ id: 'kr-1t-box', name: '1톤 내장탑차', length: 2.83, maxPayloadKg: 1000 });
+    await page.getByRole('button', { name: '한국어', exact: true }).click();
+    await expect(page.locator('.header-equipment-pill')).toContainText('1톤 내장탑');
+    expect(await page.evaluate(() => localStorage.getItem('container-loading:transport-equipment-v1'))).toBe(canonical);
+  });
+}

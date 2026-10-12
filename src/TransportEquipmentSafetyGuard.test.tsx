@@ -1,10 +1,11 @@
+import type { UiLanguage } from './uiLanguage';
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import TransportEquipmentSafetyGuard from './TransportEquipmentSafetyGuard';
 import { getTransportEquipment, readTransportEquipment, selectTransportEquipment } from './transportEquipment';
-import { setUiLanguage, uiText, type UiLanguage } from './uiLanguage';
+import { setUiLanguage, uiText } from './uiLanguage';
 
 let root: Root; let host: HTMLDivElement;
 const original = readTransportEquipment();
@@ -33,4 +34,21 @@ it('keeps general-cargo equipment actions available with translated labels', asy
   await act(async () => root.render(<><TransportEquipmentSafetyGuard /><button data-requires-general-cargo="true" onClick={action}>{uiText('작업지시서 보기')}</button></>));
   await act(async () => host.querySelector('button')!.click());
   expect(action).toHaveBeenCalledOnce(); expect(host.querySelector('[role="alertdialog"]')).toBeNull();
+});
+
+it.each(['ko', 'en', 'vi'] as UiLanguage[])('keeps result/work-order permission markers blocked in %s', async locale => {
+  selectTransportEquipment(getTransportEquipment('20-tank')!); setUiLanguage(locale);
+  const action = vi.fn();
+  await act(async () => root.render(<><TransportEquipmentSafetyGuard />
+    <button data-action="work-order" onClick={action}>{uiText('작업지시서')}</button>
+    <button data-requires-general-cargo="true" onClick={action}>{uiText('결과 보기')}</button>
+  </>));
+  for (const selector of ['[data-action="work-order"]', '[data-requires-general-cargo="true"]']) {
+    await act(async () => host.querySelector<HTMLButtonElement>(selector)!.click());
+  }
+  expect(action).not.toHaveBeenCalled();
+  const dialog = host.querySelector('[role="alertdialog"]');
+  expect(dialog).not.toBeNull();
+  if (locale !== 'ko') expect(dialog?.textContent).not.toMatch(/[가-힣]/);
+  expect(readTransportEquipment().id).toBe('20-tank');
 });

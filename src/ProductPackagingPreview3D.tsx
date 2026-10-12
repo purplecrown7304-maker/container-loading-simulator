@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from './uiLanguage';
 import LoadingViewer from './LoadingViewer';
 import { useMemo } from 'react';
 import { cargoColor } from './cargoColors';
@@ -56,13 +57,14 @@ function floorPreview(container: ContainerSpec, cargo: CargoItem[]) {
 }
 
 export default function ProductPackagingPreview3D({ container, cargo }: Props) {
+  useUiLanguage();
   const preview = useMemo(() => floorPreview(container, cargo), [container, cargo]);
   const result = useMemo(() => ({ placements: preview.placed.map(box => box.placement), remaining: [], validationIssues: [], usedVolumeM3: preview.placed.reduce((sum, box) => sum + box.placement.length * box.placement.width * box.placement.height, 0), loadedWeightKg: preview.placed.reduce((sum, box) => sum + box.placement.weightKg, 0) }), [preview]);
   return <section className="product-packaging-preview">
-    <div className="product-packaging-preview-head"><div><b>포장 완료 바닥 미리보기</b><span>최종 적재 전, 선택한 포장 박스를 적재공간 바닥에 1단으로 펼쳐 확인합니다.</span></div><strong>{preview.shown.toLocaleString()} / {preview.requested.toLocaleString()} BOX·EA 표시</strong></div>
+    <div className="product-packaging-preview-head"><div><b>{uiText("포장 완료 바닥 미리보기")}</b><span>{uiText("최종 적재 전, 선택한 포장 박스를 적재공간 바닥에 1단으로 펼쳐 확인합니다.")}</span></div><strong>{preview.shown.toLocaleString()} / {preview.requested.toLocaleString()} {uiText(" BOX·EA 표시")}</strong></div>
     <div className="product-packaging-canvas">
-      <LoadingViewer container={container} result={result} cargo={cargo} preview title="포장 완료 바닥 배치" />
+      <LoadingViewer container={container} result={result} cargo={cargo} preview title={uiText("포장 완료 바닥 배치")} />
     </div>
-    {preview.shown < preview.requested && <p className="product-packaging-overflow">바닥에 한 번에 펼칠 수 있는 수량을 초과했습니다. 화면에는 {preview.shown.toLocaleString()}개만 표시하며 실제 자동 적재 단계에서는 전체 {preview.requested.toLocaleString()}개를 계산합니다.</p>}
+    {preview.shown < preview.requested && <p className="product-packaging-overflow">{uiText("바닥에 한 번에 펼칠 수 있는 수량을 초과했습니다. 화면에는 ")}{preview.shown.toLocaleString()}{uiText("개만 표시하며 실제 자동 적재 단계에서는 전체 ")}{preview.requested.toLocaleString()}{uiText("개를 계산합니다.")}</p>}
   </section>;
 }

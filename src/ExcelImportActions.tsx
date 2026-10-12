@@ -1,3 +1,6 @@
+import { excelIssueMessage } from './excelPresentation';
+import { useUiMessage } from './useUiMessage';
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { downloadCargoTemplate, parseCargoWorkbook, type ImportIssue } from './excel';
@@ -13,9 +16,10 @@ const defaultContainer: ContainerSpec = {
 };
 
 export default function ExcelImportActions() {
+  useUiLanguage();
   const inputRef = useRef<HTMLInputElement>(null);
   const modeRef = useRef<ExcelImportMode>('replace');
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useUiMessage('');
   const [issues, setIssues] = useState<ImportIssue[]>([]);
   const [showReport, setShowReport] = useState(false);
 
@@ -65,7 +69,7 @@ export default function ExcelImportActions() {
       }
 
       if (result.items.length === 0) {
-        setMessage(`등록 가능한 행이 없습니다 · 오류 ${result.issues.length}건`);
+        setMessage(() => uiText("등록 가능한 행이 없습니다 · 오류 {0}건", [result.issues.length]));
         setIssues(result.issues);
         setShowReport(true);
         return;
@@ -79,9 +83,9 @@ export default function ExcelImportActions() {
       writeStoredState(next, true);
       setIssues(result.issues);
       if (mode === 'replace') {
-        setMessage(`${result.totalRows}행 처리 · ${result.items.length}건 등록 · 오류 ${result.issues.length}건 · 전체 교체`);
+        setMessage(() => uiText("{0}행 처리 · {1}건 등록 · 오류 {2}건 · 전체 교체", [result.totalRows, result.items.length, result.issues.length]));
       } else {
-        setMessage(`${result.totalRows}행 처리 · 신규 ${newCount}건 · 갱신 ${updatedCount}건 · 오류 ${result.issues.length}건 · 병합`);
+        setMessage(() => uiText("{0}행 처리 · 신규 {1}건 · 갱신 {2}건 · 오류 {3}건 · 병합", [result.totalRows, newCount, updatedCount, result.issues.length]));
       }
       setShowReport(result.issues.length > 0);
     } catch {
@@ -100,13 +104,13 @@ export default function ExcelImportActions() {
       <div className="excel-report-backdrop" onClick={() => setShowReport(false)}>
         <section className="excel-report" onClick={event => event.stopPropagation()}>
           <div className="excel-report-head">
-            <div><strong>엑셀 업로드 오류 상세</strong><span>{issues.length}건</span></div>
-            <button className="secondary" onClick={() => setShowReport(false)}>닫기</button>
+            <div><strong>{uiText("엑셀 업로드 오류 상세")}</strong><span>{uiText('{0}건', [issues.length])}</span></div>
+            <button className="secondary" onClick={() => setShowReport(false)}>{uiText("닫기")}</button>
           </div>
           <div className="excel-report-list">
             {issues.map((issue, index) => <article key={`${issue.row}-${index}`}>
-              <b>{issue.row > 0 ? `${issue.row}행` : '파일 오류'}</b>
-              <span>{issue.code ? `[${issue.code}] ` : ''}{issue.message}</span>
+              <b>{issue.row > 0 ? uiText("{0}행", [issue.row]) : uiText('파일 오류')}</b>
+              <span>{issue.code ? `[${issue.code}] ` : ''}{excelIssueMessage(issue.message)}</span>
             </article>)}
           </div>
         </section>

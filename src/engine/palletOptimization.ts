@@ -650,7 +650,12 @@ export function packOnPallets(
   // a taller plan. Height preference must not consume extra pallet bases.
   // Every profile only tightens declared limits; the original remains a candidate.
   const excessiveHeight = candidates.some(candidate => maxUnitLoadHeight(candidate.result) > Math.min(pallet.length, pallet.width) * 2);
-  const heightProfiles = strategy === 'stability' ? [.6, .9, 1.2, 1.5] : excessiveHeight ? [1.2, 1.5] : [];
+  // A full-height greedy build can strand a sparse tier in a tall final tail,
+  // even while other floor pallets have room for a complete legal tier. Compare
+  // the existing lower profiles before the terminal top-fill policy whenever
+  // cargo remains; never reinsert cartons after that policy or relax a limit.
+  const hasUnloadedCargo = candidates.every(candidate => candidate.result.remaining.some(row => row.quantity > 0));
+  const heightProfiles = strategy === 'stability' ? [.6, .9, 1.2, 1.5] : excessiveHeight || hasUnloadedCargo ? [1.2, 1.5] : [];
   for (const ratio of heightProfiles) {
     const height = Math.min(pallet.length, pallet.width) * ratio;
     const lowCargo = normalizedCargo.map(item => ({ ...item, maxStackLayers: Math.min(item.maxStackLayers ?? Infinity, Math.max(1, Math.floor((height + EPS) / item.height))) }));

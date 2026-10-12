@@ -1,3 +1,5 @@
+import { inspectionDiagnosticText } from './inspectionPresentation';
+import { uiText as uiT, uiMessage, useUiLanguage } from './uiLanguage';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
@@ -13,6 +15,7 @@ export function openSafetyInspectionCenter(kind?: InspectionKind) { window.dispa
 type Record = { state: 'running' | 'done' | 'cancelled' | 'error'; progress: number; result?: InspectionFinding; error?: string };
 
 export default function SafetyInspectionCenter() {
+  useUiLanguage();
   const [open, setOpen] = useState(false);
   const [selectedKind, setSelectedKind] = useState<InspectionKind | undefined>();
   const [target, setTarget] = useState<PhysicsTarget | undefined>(() => readPhysicsTarget());
@@ -124,19 +127,19 @@ export default function SafetyInspectionCenter() {
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
       }
     }}>
-      <header><div><span>MANUAL INSPECTION</span><h2 id="manual-inspection-title">{title}</h2><p>현재 적재 결과를 직접 점검합니다. 계산 결과는 실제 운송 안전 인증이 아닙니다.</p></div><button type="button" onClick={close}>닫기</button></header>
-      <div className="safety-center-summary"><div><span>점검 대상</span><b>{ready ? `${target.mode === 'pallets' ? '팔레트' : '박스'} 적재 · 상자 ${target.result.placements.length}개 · 팔레트 바닥판 ${target.supports?.length ?? 0}개` : '유효한 적재 결과가 없습니다. 먼저 자동 적재를 실행하세요.'}</b></div>{busy && <button type="button" onClick={cancel}>실행 취소</button>}</div>
+      <header><div><span>MANUAL INSPECTION</span><h2 id="manual-inspection-title">{uiMessage(title)}</h2><p>{uiT("현재 적재 결과를 직접 점검합니다. 계산 결과는 실제 운송 안전 인증이 아닙니다.")}</p></div><button type="button" onClick={close}>{uiT("닫기")}</button></header>
+      <div className="safety-center-summary"><div><span>{uiT("점검 대상")}</span><b>{ready ? uiT("{0} 적재 · 상자 {1}개 · 팔레트 바닥판 {2}개", [target.mode === 'pallets' ? uiT('팔레트') : uiT('박스'), target.result.placements.length, target.supports?.length ?? 0]) : uiT("유효한 적재 결과가 없습니다. 먼저 자동 적재를 실행하세요.")}</b></div>{busy && <button type="button" onClick={cancel}>{uiT("실행 취소")}</button>}</div>
       <div className="safety-center-grid">{visibleInspections.map((item, index) => {
         const row = records[item.id];
-        return <article key={item.id} aria-label={item.title} className={row?.result?.attention || row?.state === 'error' ? 'warn' : ''}>
-          <div className="safety-center-card-head"><span>0{index + 1}</span><div><b>{item.title}</b><small>{item.description}</small></div></div>
-          <strong role="status">{row?.state === 'running' ? `실행 중 ${row.progress}%` : row?.state === 'cancelled' ? '취소됨 · 결과 없음' : row?.state === 'error' ? '실행 실패' : row?.result?.summary ?? '미실행'}</strong>
-          {row?.state === 'running' && <progress aria-label={item.title + ' 진행률'} value={row.progress} max={100} />}
-          {row?.error && <p role="alert">{row.error}</p>}
-          {row?.result && <><ul className="manual-inspection-details">{row.result.details.map((line, i) => <li key={i}>{line}</li>)}</ul><p className="manual-inspection-caution">{row.result.caution}</p></>}
-          <button type="button" disabled={!ready || busy} onClick={() => run(item.id)}>{item.title} {row?.state === 'done' ? '다시 실행' : '실행'}</button>
+        return <article key={item.id} aria-label={uiMessage(item.title)} className={row?.result?.attention || row?.state === 'error' ? 'warn' : ''}>
+          <div className="safety-center-card-head"><span>0{index + 1}</span><div><b>{uiMessage(item.title)}</b><small>{uiMessage(item.description)}</small></div></div>
+          <strong role="status">{row?.state === 'running' ? uiT("실행 중 {0}%", [row.progress]) : row?.state === 'cancelled' ? uiT("취소됨 · 결과 없음") : row?.state === 'error' ? uiT("실행 실패") : inspectionDiagnosticText(row?.result?.summary ?? '미실행')}</strong>
+          {row?.state === 'running' && <progress aria-label={uiT(item.title) + uiT(" 진행률")} value={row.progress} max={100} />}
+          {row?.error && <p role="alert">{uiMessage(row.error)}</p>}
+          {row?.result && <><ul className="manual-inspection-details">{row.result.details.map((line, i) => <li key={i}>{inspectionDiagnosticText(line)}</li>)}</ul><p className="manual-inspection-caution">{inspectionDiagnosticText(row.result.caution)}</p></>}
+          <button type="button" disabled={!ready || busy} onClick={() => run(item.id)}>{uiMessage(item.title)} {row?.state === 'done' ? uiT("다시 실행") : uiT("실행")}</button>
         </article>;
       })}</div>
-      <footer aria-live="polite">{message} 닫기·뒤로 가기 시 실행 중인 계산과 점검 결과를 폐기합니다.</footer>
+      <footer aria-live="polite">{uiMessage(message)} {uiT("닫기·뒤로 가기 시 실행 중인 계산과 점검 결과를 폐기합니다.")}</footer>
     </section></div>, document.body);
 }

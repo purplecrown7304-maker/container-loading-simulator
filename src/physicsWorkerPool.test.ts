@@ -109,6 +109,35 @@ describe('physics worker pool', () => {
     await expect(runPhysicsScenarioPooled(job('cornering'))).resolves.toMatchObject({ scenario: 'cornering' });
   }, 60_000);
 
+  it.each([false, true])('contains progress callback failures after synchronous abort=%s', async (abortFirst) => {
+    vi.stubGlobal('navigator', { hardwareConcurrency: 2 });
+    const workers: Array<ReturnType<typeof fakeWorker>> = [];
+    const messages: Array<{ id: number }> = [];
+    setPhysicsWorkerFactoryForTests(() => {
+      const worker = fakeWorker();
+      worker.postMessage = message => { messages.push(message as { id: number }); };
+      workers.push(worker);
+      return worker;
+    });
+    const controller = new AbortController();
+    const job = { kind: 'physics' as const, container, placements: stackedPlacements(), scenario: 'settle' as const, supports: [] };
+    const first = runPhysicsScenarioPooled(job, () => {
+      if (abortFirst) controller.abort();
+      throw new Error('INERTIA_CERTIFICATION_CANCELLED');
+    }, controller.signal);
+    const rejected = expect(first).rejects.toMatchObject(abortFirst ? { name: 'AbortError' } : { message: 'INERTIA_CERTIFICATION_CANCELLED' });
+    const second = runPhysicsScenarioPooled(job);
+    expect(() => workers[0].onmessage?.({ data: { id: messages[0].id, progress: .5 } } as MessageEvent)).not.toThrow();
+    await rejected;
+    expect(workers).toHaveLength(2);
+    expect(stats.terminated).toBe(1);
+    // A late completion from the discarded worker cannot publish or affect the next run.
+    workers[0].onmessage?.({ data: { id: messages[0].id, result: 'obsolete' } } as MessageEvent);
+    workers[1].onmessage?.({ data: { id: messages[1].id, result: { scenario: 'settle' } } } as MessageEvent);
+    await expect(second).resolves.toEqual({ scenario: 'settle' });
+    expect(stats.terminated).toBe(1);
+  });
+
   it('runs the current-thread fallback one scenario at a time', async () => {
     setPhysicsWorkerFactoryForTests(null);
     const placements = stackedPlacements();

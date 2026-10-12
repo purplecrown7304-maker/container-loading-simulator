@@ -1,7 +1,8 @@
 import { uiText as uiT, useUiLanguage } from './uiLanguage';
 import { useEffect, useState, type ReactNode } from 'react';
-import { PALLET_CATALOG, palletMaterialLabel, type PalletType } from './engine/palletCatalog';
+import { PALLET_CATALOG, type PalletType } from './engine/palletCatalog';
 import { palletDestinationFit } from './engine/palletDestination';
+import { palletDestinationDisplayFit, palletDisplayText, palletMaterialDisplayLabel } from './palletCatalogPresentation';
 import { recommendPalletsAsync } from './engine/palletRecommendationAsync';
 import type { PalletTypeEvaluation } from './engine/palletRecommendation';
 import type { LoadingStrategy } from './engine/loadingEngine';
@@ -54,7 +55,7 @@ export default function GuidedPalletTypePicker({ input, strategy, active = true,
     { label: '자체중량', value: t => `${kg(spec(t).tareWeightKg)} kg` },
     { label: '동하중', value: t => `${kg(spec(t).maxLoadKg)} kg` },
     { label: '정하중', value: t => spec(t).maxStaticLoadKg ? `${kg(spec(t).maxStaticLoadKg!)} kg` : '값 없음' },
-    { label: '도착지 적합', value: t => palletDestinationFit(input.container, spec(t)).label },
+    { label: '도착지 적합', value: t => palletDestinationDisplayFit(input.container, spec(t)).label },
     { label: '팔레트 수', value: t => value(t, e => uiT('{0}장', [e.palletCount])) },
     { label: '팔레트당 박스 단수', value: t => value(t, e => uiT('{0}단', [e.maxTiers])) },
     { label: '팔레트 적층', value: t => !spec(t).maxStaticLoadKg ? '1단만 가능' : value(t, e => uiT('{0}단', [e.maxPalletStackLevels ?? 0])) },
@@ -63,18 +64,18 @@ export default function GuidedPalletTypePicker({ input, strategy, active = true,
   ];
   return <div className="guided-pallet-type-picker" aria-label={uiT("파렛트 선택")}>
     <div className="guided-pallet-type-heading"><div><b>{uiT("사용할 파렛트")}</b><span role="status">
-      {running ? uiT("팔레트 비교 계산 중 · {0}/{1}", [byId.size, PALLET_CATALOG.length]) : recommended ? uiT("추천: {0}", [recommended.name]) : uiT("현재 입력의 추천 계산 대기")}
+      {running ? uiT("팔레트 비교 계산 중 · {0}/{1}", [byId.size, PALLET_CATALOG.length]) : recommended ? uiT("추천: {0}", [palletDisplayText(recommended, 'name')]) : uiT("현재 입력의 추천 계산 대기")}
     </span><span>{uiT("추천 기준: 지정 규격 적합 → 미적재 수량 → 팔레트 수 → 팔레트 자중")}</span></div>
       <button type="button" role="radio" aria-checked={auto} className={auto ? 'selected' : ''} onClick={() => choosePalletType(AUTO_PALLET_TYPE)}>{uiT("추천 자동 적용")}</button>
     </div>
     <div className="guided-pallet-type-table-wrap" tabIndex={0} aria-label={uiT("팔레트 비교 표 가로 스크롤")}>
       <table className="guided-pallet-type-table" aria-label={uiT("파렛트 비교 표")}>
         <thead><tr><th scope="col">{uiT("재질")}</th><th scope="col">{uiT("이름")}</th>{fields.map(f => <th key={f.label} scope="col">{uiT(f.label)}</th>)}</tr></thead>
-        {groups.map(group => <tbody key={group.material} role="radiogroup" aria-label={uiT("{0} 파렛트", [palletMaterialLabel(group.material)])}>
+        {groups.map(group => <tbody key={group.material} role="radiogroup" aria-label={uiT("{0} 파렛트", [palletMaterialDisplayLabel(group.material)])}>
           {group.types.map(type => <tr key={type.id} className={selected.id === type.id ? 'selected' : ''}>
-            <td>{uiT(palletMaterialLabel(type.material))}</td><td className="name">
+            <td>{palletMaterialDisplayLabel(type.material)}</td><td className="name">
               <button type="button" role="radio" aria-checked={selected.id === type.id} disabled={palletDestinationFit(input.container,spec(type)).status === 'incompatible'} onClick={() => choosePalletType(type.id)}>
-                <b>{type.name}</b>{jobSpecs[type.id] && <small>{uiT("작업 설정 적용")}</small>}{type.id === recommended?.id && <em>{uiT("추천")}</em>}
+                <b>{palletDisplayText(type, 'name')}</b>{jobSpecs[type.id] && <small>{uiT("작업 설정 적용")}</small>}{type.id === recommended?.id && <em>{uiT("추천")}</em>}
               </button></td>{fields.map(f => <td key={f.label}>{(() => { const value = f.value(type); return typeof value === 'string' ? uiT(value) : value; })()}</td>)}
           </tr>)}
         </tbody>)}

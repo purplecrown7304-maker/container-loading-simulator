@@ -1,3 +1,4 @@
+import { uiText, uiMessage, uiLocale, useUiLanguage } from './uiLanguage';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ContainerSpec, LoadingResult } from './engine/types';
@@ -44,7 +45,7 @@ function readSavedWorks(): SavedWork[] {
 function savedAtLabel(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString('ko-KR', { year: '2-digit', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleString(uiLocale(), { year: '2-digit', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 function sameSize(a: ContainerSpec, b: Pick<ContainerSpec, 'length' | 'width' | 'height'>) {
@@ -73,6 +74,7 @@ function workStats(work: SavedWork) {
 }
 
 export default function SavedWorkQuickList() {
+  useUiLanguage();
   const [host, setHost] = useState<HTMLElement | null>(null);
   const [works, setWorks] = useState<SavedWork[]>(() => typeof window === 'undefined' ? [] : readSavedWorks());
   const [message, setMessage] = useState('');
@@ -130,8 +132,8 @@ export default function SavedWorkQuickList() {
   return createPortal(
     <section className="saved-work-quick-list">
       <div className="saved-work-quick-head">
-        <div><h2>저장된 계획</h2><span>{works.length}건</span></div>
-        <button type="button" onClick={() => openWorkspace('data')}>계획 관리</button>
+        <div><h2>{uiText("저장된 계획")}</h2><span>{works.length}{uiText("건")}</span></div>
+        <button type="button" onClick={() => openWorkspace('data')}>{uiText("계획 관리")}</button>
       </div>
       {visible.length ? <div className="saved-work-quick-items">
         {visible.map(work => {
@@ -140,7 +142,7 @@ export default function SavedWorkQuickList() {
             key={work.id}
             role="button"
             tabIndex={0}
-            aria-label={`${work.name} 계획 불러오기`}
+            aria-label={uiText("{0} 계획 불러오기", [work.name])}
             onClick={() => restore(work)}
             onKeyDown={event => {
               if (event.key === 'Enter' || event.key === ' ') {
@@ -152,14 +154,14 @@ export default function SavedWorkQuickList() {
             <div className="saved-work-copy">
               <b>{work.name}</b>
               <small>{equipmentLabel(work.state.container)}</small>
-              <span>제품 {stats.productTypes}종 / {stats.productUnits.toLocaleString()}EA · 박스 {stats.boxCount.toLocaleString()}개</span>
+              <span>{uiText("제품 ")}{stats.productTypes}{uiText("종 / ")}{stats.productUnits.toLocaleString()}{uiText("EA · 박스 ")}{stats.boxCount.toLocaleString()}{uiText("개")}</span>
               <time>{savedAtLabel(work.savedAt)}</time>
             </div>
-            <button type="button" onClick={event => { event.stopPropagation(); restore(work); }}>불러오기</button>
+            <button type="button" onClick={event => { event.stopPropagation(); restore(work); }}>{uiText("불러오기")}</button>
           </article>;
         })}
-      </div> : <div className="saved-work-quick-empty">저장된 계획이 없습니다.</div>}
-      {message && <p>{message}</p>}
+      </div> : <div className="saved-work-quick-empty">{uiText("저장된 계획이 없습니다.")}</div>}
+      {message && <p>{uiMessage(message)}</p>}
     </section>,
     host,
   );

@@ -1,3 +1,4 @@
+import { uiText } from './uiLanguage';
 import { cargoColor } from './cargoColors';
 import { buildWorkSequence } from './engine/workSequence';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
@@ -97,7 +98,7 @@ export function buildWorkerStepGroups(container: ContainerSpec, cargo: CargoItem
         quantity,
         cargoId: `${layer}단 전체`,
         label: breakdown,
-        zone: '안쪽 → 문쪽',
+        zone: uiText("안쪽 → 문쪽"),
         layer,
         minRow: value.minRow,
         maxRow: value.maxRow,
@@ -153,15 +154,15 @@ export function buildTopViewSvg(container: ContainerSpec, cargo: CargoItem[], re
   }).join('');
 
   const legendY = padY + plotH + 26;
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="컨테이너 위에서 본 적재도" xmlns="http://www.w3.org/2000/svg">
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${uiText("컨테이너 위에서 본 적재도")}" xmlns="http://www.w3.org/2000/svg">
     <rect width="${width}" height="${height}" rx="14" fill="#f8fafc"/>
-    <text x="${padX}" y="20" font-size="13" font-weight="800" fill="#172033">위에서 본 적재도 · 안쪽 → 문쪽</text>
+    <text x="${padX}" y="20" font-size="13" font-weight="800" fill="#172033">${uiText("위에서 본 적재도 · 안쪽 → 문쪽")}</text>
     <rect x="${padX}" y="${padY}" width="${plotW}" height="${plotH}" rx="5" fill="#fff" stroke="#64748b" stroke-width="2"/>
     ${boxes}
-    <text x="${padX - 4}" y="${padY + plotH / 2}" text-anchor="end" font-size="10" fill="#64748b">좌/우 폭</text>
+    <text x="${padX - 4}" y="${padY + plotH / 2}" text-anchor="end" font-size="10" fill="#64748b">${uiText("좌/우 폭")}</text>
     <line x1="${padX + plotW + 8}" y1="${padY}" x2="${padX + plotW + 8}" y2="${padY + plotH}" stroke="#2563eb" stroke-width="4" stroke-dasharray="8 5"/>
-    <text x="${padX + plotW - 2}" y="${padY - 8}" text-anchor="end" font-size="12" font-weight="800" fill="#2563eb">문쪽 ▶</text>
-    <text x="${padX + 2}" y="${padY - 8}" font-size="12" font-weight="800" fill="#475569">◀ 안쪽</text>
+    <text x="${padX + plotW - 2}" y="${padY - 8}" text-anchor="end" font-size="12" font-weight="800" fill="#2563eb">${uiText("문쪽 ▶")}</text>
+    <text x="${padX + 2}" y="${padY - 8}" font-size="12" font-weight="800" fill="#475569">${uiText("◀ 안쪽")}</text>
     <g transform="translate(${padX} ${legendY})">${legend(cargo, result)}</g>
   </svg>`;
 }
@@ -186,16 +187,16 @@ export function buildSideViewSvg(container: ContainerSpec, cargo: CargoItem[], r
     return `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><rect width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${cargoColor(p.cargoId)}" fill-opacity="0.78" stroke="#334155" stroke-width="0.8"/><g transform="translate(${(w / 2).toFixed(1)} ${(h / 2).toFixed(1)})">${labelForBox(index, p, groupMap, w, h)}</g></g>`;
   }).join('');
 
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="컨테이너 옆에서 본 적재도" xmlns="http://www.w3.org/2000/svg">
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${uiText("컨테이너 옆에서 본 적재도")}" xmlns="http://www.w3.org/2000/svg">
     <rect width="${width}" height="${height}" rx="14" fill="#f8fafc"/>
-    <text x="${padX}" y="20" font-size="13" font-weight="800" fill="#172033">옆에서 본 적재도 · 바닥부터 위로</text>
+    <text x="${padX}" y="20" font-size="13" font-weight="800" fill="#172033">${uiText("옆에서 본 적재도 · 바닥부터 위로")}</text>
     <rect x="${padX}" y="${padY}" width="${plotW}" height="${plotH}" rx="5" fill="#fff" stroke="#64748b" stroke-width="2"/>
     ${boxes}
     <line x1="${padX + plotW + 8}" y1="${padY}" x2="${padX + plotW + 8}" y2="${padY + plotH}" stroke="#2563eb" stroke-width="4" stroke-dasharray="8 5"/>
-    <text x="${padX + plotW - 2}" y="${padY - 8}" text-anchor="end" font-size="12" font-weight="800" fill="#2563eb">문쪽 ▶</text>
-    <text x="${padX + 2}" y="${padY - 8}" font-size="12" font-weight="800" fill="#475569">◀ 안쪽</text>
-    <text x="${padX - 8}" y="${padY + 9}" text-anchor="end" font-size="10" fill="#64748b">천장</text>
-    <text x="${padX - 8}" y="${padY + plotH}" text-anchor="end" font-size="10" fill="#64748b">바닥</text>
+    <text x="${padX + plotW - 2}" y="${padY - 8}" text-anchor="end" font-size="12" font-weight="800" fill="#2563eb">${uiText("문쪽 ▶")}</text>
+    <text x="${padX + 2}" y="${padY - 8}" font-size="12" font-weight="800" fill="#475569">${uiText("◀ 안쪽")}</text>
+    <text x="${padX - 8}" y="${padY + 9}" text-anchor="end" font-size="10" fill="#64748b">${uiText("천장")}</text>
+    <text x="${padX - 8}" y="${padY + plotH}" text-anchor="end" font-size="10" fill="#64748b">${uiText("바닥")}</text>
   </svg>`;
 }
 
@@ -218,7 +219,7 @@ function miniTopView(container: ContainerSpec, result: LoadingResult, groups: Wo
     const group = groupMap.get(index);
     return `<g><rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="1" fill="${cargoColor(p.cargoId)}" fill-opacity="0.84" stroke="#475569" stroke-width="0.5"/>${w > 17 && h > 11 && group ? `<text x="${(x + w / 2).toFixed(1)}" y="${(y + h / 2 + 3).toFixed(1)}" text-anchor="middle" font-size="8" font-weight="800" fill="#172033">${group}</text>` : ''}</g>`;
   }).join('');
-  return `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg"><rect width="${width}" height="${height}" rx="10" fill="#f8fafc" stroke="#dbe3ee"/><text x="14" y="17" font-size="10" font-weight="800" fill="#172033">${xml(title)}</text><rect x="${padX}" y="${padY}" width="${plotW}" height="${plotH}" rx="3" fill="#fff" stroke="#94a3b8"/>${boxes}<text x="${width - 15}" y="17" text-anchor="end" font-size="8" font-weight="700" fill="#2563eb">문 ▶</text></svg>`;
+  return `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg"><rect width="${width}" height="${height}" rx="10" fill="#f8fafc" stroke="#dbe3ee"/><text x="14" y="17" font-size="10" font-weight="800" fill="#172033">${xml(title)}</text><rect x="${padX}" y="${padY}" width="${plotW}" height="${plotH}" rx="3" fill="#fff" stroke="#94a3b8"/>${boxes}<text x="${width - 15}" y="17" text-anchor="end" font-size="8" font-weight="700" fill="#2563eb">${uiText("문 ▶")}</text></svg>`;
 }
 
 export function buildProgressSvgs(container: ContainerSpec, result: LoadingResult, groups: WorkerStepGroup[]) {
@@ -228,5 +229,5 @@ export function buildProgressSvgs(container: ContainerSpec, result: LoadingResul
     Math.max(1, Math.ceil(groups.length * 2 / 3)),
     groups.length,
   ];
-  return marks.map((limit, index) => miniTopView(container, result, groups, limit, `${index + 1}단계 · ${groups[limit - 1]?.layer ?? limit}단까지`));
+  return marks.map((limit, index) => miniTopView(container, result, groups, limit, uiText("{0}단계 · {1}단까지", [index + 1, groups[limit - 1]?.layer ?? limit])));
 }

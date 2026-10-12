@@ -1,4 +1,6 @@
-import { uiText as uiT, useUiLanguage } from './uiLanguage';
+import { equipmentDisplayText } from './transportEquipmentPresentation';
+import { palletDisplayText } from './palletCatalogPresentation';
+import { uiText as uiT, uiMessage, useUiLanguage } from './uiLanguage';
 import { useLoadingRuleset, aEquipmentDefault } from './loadingRulesPreference';
 import StudioIcon, { stepIcons } from './StudioIcon';
 import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -149,12 +151,12 @@ function EquipmentSelectionStage() {
     selectTransportEquipment(item); setError('');
   };
   return <section className="guided-stage-panel guided-equipment-stage">
-    <div className="guided-panel-title studio-main-title"><div><span className="studio-eyebrow">01 / SPACE</span><h1>{uiT("적재공간 선택")}</h1><p>{uiT("장비 이미지와 규격을 확인하고 선택하세요.")}</p></div><button aria-label={uiT("선택한 장비 변경")} className="guided-secondary-button" onClick={() => openEquipment(category)}>{equipment.shortName} {uiT("· 규격 편집")}</button></div>
+    <div className="guided-panel-title studio-main-title"><div><span className="studio-eyebrow">01 / SPACE</span><h1>{uiT("적재공간 선택")}</h1><p>{uiT("장비 이미지와 규격을 확인하고 선택하세요.")}</p></div><button aria-label={uiT("선택한 장비 변경")} className="guided-secondary-button" onClick={() => openEquipment(category)}>{equipmentDisplayText(equipment, 'shortName')} {uiT("· 규격 편집")}</button></div>
     <div className="guided-segmented" aria-label={uiT("운송 장비 종류")}>{(['container', 'truck'] as const).map(value => <button key={value} type="button" aria-pressed={category === value} className={category === value ? 'active' : ''} onClick={() => setCategory(value)}>{value === 'container' ? uiT("컨테이너") : uiT("트럭")}</button>)}</div>
     <div className="equipment-icon-grid" aria-label={uiT("적재공간 장비 선택")}>{items.map(item => <EditableEquipmentCard key={item.id} item={item} active={equipment.id === item.id} onSelect={choose} variant="guided" />)}</div>
     {error && <p role="alert">{uiT(error)}</p>}
-    <div className="equipment-selected-strip"><span>{uiT("내부 규격")} <b>{(equipment.length * 1000).toLocaleString()} mm × {(equipment.width * 1000).toLocaleString()} mm × {(equipment.height * 1000).toLocaleString()} mm</b></span><span>{uiT("선택한 장비")} <b>{equipment.shortName}</b></span><span>{uiT("적재중량")} <b>{equipment.maxPayloadKg.toLocaleString()} kg</b></span><span>{uiT("바닥하중")} <b>{equipment.floorLoadLimitKgPerM2.toLocaleString()} kg/m²</b></span><span>{uiT("용적")} <b>{(equipment.volumeM3 ?? equipment.length * equipment.width * equipment.height).toFixed(1)} m³</b></span></div>
-    {equipment.specializedCargo && <p className="guided-stage-help">{equipment.note}</p>}
+    <div className="equipment-selected-strip"><span>{uiT("내부 규격")} <b>{(equipment.length * 1000).toLocaleString()} mm × {(equipment.width * 1000).toLocaleString()} mm × {(equipment.height * 1000).toLocaleString()} mm</b></span><span>{uiT("선택한 장비")} <b>{equipmentDisplayText(equipment, 'shortName')}</b></span><span>{uiT("적재중량")} <b>{equipment.maxPayloadKg.toLocaleString()} kg</b></span><span>{uiT("바닥하중")} <b>{equipment.floorLoadLimitKgPerM2.toLocaleString()} kg/m²</b></span><span>{uiT("용적")} <b>{(equipment.volumeM3 ?? equipment.length * equipment.width * equipment.height).toFixed(1)} m³</b></span></div>
+    {equipment.specializedCargo && <p className="guided-stage-help">{equipmentDisplayText(equipment, 'note')}</p>}
   </section>;
 }
 
@@ -354,7 +356,7 @@ function ResultStage({ live }: { live: LiveDetail }) {
       <div><span>{uiT("중량 사용률")}</span><b>{weightRate.toFixed(1)}%</b></div>
       <div className="good"><span>{uiT("작업 판정")}</span><b>{uiT("결과 확인")}</b></div>
     </div>
-    {result?.remaining.length ? <div className="guided-unloaded-list"><div className="guided-section-label">{uiT("미적재 화물")}</div>{result.remaining.map(item => <article key={item.cargoId}><span><b>{item.cargoId}</b><small>{item.reason}</small></span><strong>{item.quantity} EA</strong></article>)}</div> : null}
+    {result?.remaining.length ? <div className="guided-unloaded-list"><div className="guided-section-label">{uiT("미적재 화물")}</div>{result.remaining.map(item => <article key={item.cargoId}><span><b>{item.cargoId}</b><small>{uiMessage(item.reason)}</small></span><strong>{item.quantity} EA</strong></article>)}</div> : null}
   </section>;
 }
 
@@ -405,7 +407,7 @@ function JobSummary({ step, live, mode, finalReady, verification, selection, str
   const palletType = resolvePalletType(usePalletTypeSelection());
   // Name the product only while the loaded spec still matches it (results edits may override).
   const palletName = palletSnapshot && Math.abs(palletSnapshot.spec.length - palletType.length) < 1e-6 && Math.abs(palletSnapshot.spec.width - palletType.width) < 1e-6
-    ? `${palletType.name} · ` : '';
+    ? `${palletDisplayText(palletType, 'name')} · ` : '';
   const boxResult = live.result;
   const loaded = mode !== 'boxes' ? palletSnapshot?.result?.placements?.length ?? 0 : boxResult?.placements.length ?? 0;
   const remaining = mode !== 'boxes' ? palletSnapshot?.result?.remaining?.reduce((sum, item) => sum + item.quantity, 0) ?? 0 : boxResult?.remaining.reduce((sum, item) => sum + item.quantity, 0) ?? 0;
@@ -419,14 +421,14 @@ function JobSummary({ step, live, mode, finalReady, verification, selection, str
   const status = finalReady && !loaded && remaining ? '적재 불가' : verificationStatusLabel(verification);
   return <details className="guided-job-summary" open={summaryOpen} onToggle={event => setSummaryOpen(event.currentTarget.open)}><summary className="studio-summary-toggle">{uiT("현재 작업 요약")}</summary>
     <div className="studio-summary-heading"><h2>{uiT("현재 작업")}</h2><span>OVERVIEW</span></div>
-    <div className="studio-summary-equipment"><StudioIcon /><b>{equipment.shortName}</b><span>{live.container.length.toFixed(2)} × {live.container.width.toFixed(2)} × {live.container.height.toFixed(2)} m</span></div>
+    <div className="studio-summary-equipment"><StudioIcon /><b>{equipmentDisplayText(equipment, 'shortName')}</b><span>{live.container.length.toFixed(2)} × {live.container.width.toFixed(2)} × {live.container.height.toFixed(2)} m</span></div>
     <dl>
-      <div><dt>{uiT("적재공간")}</dt><dd>{equipment.shortName}</dd></div>
+      <div><dt>{uiT("적재공간")}</dt><dd>{equipmentDisplayText(equipment, 'shortName')}</dd></div>
       <div><dt>{uiT("선택 제품")}</dt><dd>{Object.keys(selection).length ? uiT("{0}종 / {1} EA", [Object.keys(selection).length, selectedUnits]) : '-'}</dd></div>
       <div><dt>{uiT("포장 적재단위")}</dt><dd>{live.cargo.length ? uiT("{0}종", [live.cargo.length]) : '-'}</dd></div>
       <div><dt>{uiT("적재 유형")}</dt><dd>{uiT(guidedLoadingUnitLabel(mode))}</dd></div>
       <div><dt>{uiT("적재 전략")}</dt><dd>{strategy ? uiT(strategyLabel(strategy)) : '-'}</dd></div>
-      {mode !== 'boxes' && <div><dt>{uiT("사용 파렛트")}</dt><dd>{palletSnapshot ? uiT("{0}{1}개", [palletName, palletSnapshot.result.palletCount]) : palletType.name}</dd></div>}
+      {mode !== 'boxes' && <div><dt>{uiT("사용 파렛트")}</dt><dd>{palletSnapshot ? uiT("{0}{1}개", [palletName, palletSnapshot.result.palletCount]) : palletDisplayText(palletType, 'name')}</dd></div>}
       <div><dt>{uiT("적재")}</dt><dd>{loaded ? `${loaded} EA` : '-'}</dd></div>
       <div><dt>{uiT("미적재")}</dt><dd>{boxResult || palletSnapshot ? `${remaining} EA` : '-'}</dd></div>
       <div><dt>{uiT("총 중량")}</dt><dd>{weight ? `${Math.round(weight).toLocaleString()} / ${live.container.maxPayloadKg.toLocaleString()} kg` : `- / ${live.container.maxPayloadKg.toLocaleString()} kg`}</dd></div>

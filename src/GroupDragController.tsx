@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { assessGroupMove, selectPlacementGroup, type GroupSelectionMode } from './engine/groupPlacement';
@@ -21,14 +22,13 @@ type LoadingWindow = Window & { __containerLoadingLatestResult?: Detail };
 function modeFromButton(target: EventTarget | null): GroupSelectionMode | null | undefined {
   const button = target instanceof Element ? target.closest('.manual-group-picker button') : null;
   if (!button) return undefined;
-  const text = button.textContent?.trim();
-  if (text === '같은 품목') return 'cargo';
-  if (text === '같은 행') return 'row';
-  if (text === '같은 층') return 'layer';
+  const mode = button.getAttribute('data-group-mode');
+  if (mode === 'cargo' || mode === 'row' || mode === 'layer') return mode;
   return undefined;
 }
 
 export default function GroupDragController() {
+  useUiLanguage();
   const [detail, setDetail] = useState<Detail | null>(() => typeof window === 'undefined' ? null : ((window as LoadingWindow).__containerLoadingLatestResult ?? null));
   const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
   const [mode, setMode] = useState<GroupSelectionMode | null>(null);
@@ -107,6 +107,6 @@ export default function GroupDragController() {
   };
 
   return undoTarget && history.length > 0
-    ? createPortal(<button type="button" className="group-drag-undo" onClick={undoGroupDrag}>↶ 블록 드래그 취소</button>,undoTarget)
+    ? createPortal(<button type="button" className="group-drag-undo" onClick={undoGroupDrag}>{uiText("↶ 블록 드래그 취소")}</button>,undoTarget)
     : null;
 }

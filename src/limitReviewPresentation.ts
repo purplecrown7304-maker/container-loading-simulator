@@ -1,3 +1,4 @@
+import { uiText } from './uiLanguage';
 import type { CargoItem, ContainerSpec, LimitReviewMetric, LoadingResult } from './engine/types';
 import { decorateLimitReview } from './engine/limitReview';
 import {
@@ -80,16 +81,17 @@ export function buildLimitReviewInertiaHtml(target: ReviewTarget, evidence: { ma
     const excess = Math.max(0, metric.actual - metric.originalLimit);
     return { ...metric, key: metric.key as LimitReviewMetric['key'], unit: metric.unit as LimitReviewMetric['unit'], excess, excessPercent: excess / metric.originalLimit * 100, provenance: 'app-default', direction: 'maximum' };
   });
-  return `<h3>관성 단독 검사 · 내부 기준 / 선택 가정 비교</h3>${reviewRowsHtml(reviewRowsForMetrics(metrics))}`;
+  return `<h3>${uiText('관성 단독 검사 · 내부 기준 / 선택 가정 비교')}</h3>${reviewRowsHtml(reviewRowsForMetrics(metrics))}`;
 }
 
+// Localize only the HTML presentation. Export keys/numbers and opaque cargo IDs stay unchanged.
 function reviewRowsHtml(rows: ReturnType<typeof limitReviewRows>) {
   const headers = rows.length ? Object.keys(rows[0]).filter(key => key !== '문서용도') : [];
-  return rows.length ? `<div class="report-table-scroll"><table aria-label="WHAT-IF 원래 한도와 시나리오 비교"><thead><tr>${headers.map(header => `<th>${reportEscape(header)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${headers.map(header => `<td>${reportEscape(row[header as keyof typeof row])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : '<p>비교 수치가 없습니다. 미실행·유효하지 않은 시나리오는 승인할 수 없습니다.</p>';
+  return rows.length ? `<div class="report-table-scroll"><table aria-label="${uiText('WHAT-IF 원래 한도와 시나리오 비교')}"><thead><tr>${headers.map(header => `<th>${reportEscape(uiText(header))}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${headers.map(header => `<td>${reportEscape(header === '화물' ? row.화물 : typeof row[header as keyof typeof row] === 'string' ? uiText(String(row[header as keyof typeof row])) : row[header as keyof typeof row])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : `<p>${uiText('비교 수치가 없습니다. 미실행·유효하지 않은 시나리오는 승인할 수 없습니다.')}</p>`;
 }
 
 export function buildLimitReviewHtml(target: ReviewTarget, certification?: InertiaCertification): string {
   if (!isLimitReviewTarget(target)) return '';
   const rows = limitReviewRows(target, certification);
-  return `<aside class="limit-review-warning" role="alert"><b>${reportEscape(LIMIT_REVIEW_WARNING)}</b><p>${reportEscape(LIMIT_REVIEW_PROVENANCE)}</p></aside>${reviewRowsHtml(rows)}`;
+  return `<aside class="limit-review-warning" role="alert"><b>${reportEscape(uiText(LIMIT_REVIEW_WARNING))}</b><p>${reportEscape(uiText(LIMIT_REVIEW_PROVENANCE))}</p></aside>${reviewRowsHtml(rows)}`;
 }

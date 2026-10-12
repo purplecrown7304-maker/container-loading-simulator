@@ -1,8 +1,10 @@
+import { uiText, uiMessage, useUiLanguage } from './uiLanguage';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { exportLoadingDiagnosticsV2 } from './diagnosticExportV2';
 
 export default function DiagnosticExportResultButton() {
+  useUiLanguage();
   const [host, setHost] = useState<HTMLElement | null>(null);
   const [preparing, setPreparing] = useState(false);
 
@@ -31,7 +33,7 @@ export default function DiagnosticExportResultButton() {
     setPreparing(true);
     try {
       const exported = await exportLoadingDiagnosticsV2();
-      if (!exported.ok) window.alert(exported.message);
+      if (!exported.ok) window.alert(uiMessage(exported.message));
     } finally {
       setPreparing(false);
     }
@@ -43,9 +45,9 @@ export default function DiagnosticExportResultButton() {
       className="guided-secondary-button diagnostic-export-result-button"
       onClick={() => void run()}
       disabled={preparing}
-      title="현재 작업의 점검 ZIP 파일을 PC에 다운로드합니다."
+      title={uiText("현재 작업의 점검 ZIP 파일을 PC에 다운로드합니다.")}
     >
-      {preparing ? '점검 파일 준비 중…' : '점검 파일 다운로드'}
+      {preparing ? uiText("점검 파일 준비 중…") : uiText("점검 파일 다운로드")}
     </button>,
     host,
   );

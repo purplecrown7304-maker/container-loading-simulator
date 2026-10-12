@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { downloadEnterprisePackagingWorkbook } from './enterprisePackagingExcelExport';
@@ -29,6 +30,7 @@ function persistIfApplied(state?: StoredState | null) {
 }
 
 export default function EnterprisePackagingOutputActions() {
+  useUiLanguage();
   const [target, setTarget] = useState<Element | null>(null);
 
   useEffect(() => {
@@ -50,20 +52,20 @@ export default function EnterprisePackagingOutputActions() {
 
   const download = () => {
     const rebuilt = buildPlan();
-    if (!rebuilt) return window.alert('내보낼 기업 포장계획이 없습니다. 먼저 포장 최적화를 실행하세요.');
+    if (!rebuilt) return window.alert(uiText("내보낼 기업 포장계획이 없습니다. 먼저 포장 최적화를 실행하세요."));
     downloadEnterprisePackagingWorkbook(rebuilt.plan, rebuilt.stored.container, rebuilt.stored.products, rebuilt.stored.boxes);
   };
 
   const workOrder = () => {
     const rebuilt = buildPlan();
-    if (!rebuilt) return window.alert('생성할 포장 작업지시서가 없습니다. 먼저 포장 최적화를 실행하세요.');
+    if (!rebuilt) return window.alert(uiText("생성할 포장 작업지시서가 없습니다. 먼저 포장 최적화를 실행하세요."));
     const opened = openEnterprisePackagingWorkOrder(rebuilt.plan, rebuilt.stored.container, rebuilt.stored.products, rebuilt.stored.boxes);
-    if (!opened) window.alert('팝업이 차단되어 포장 작업지시서를 열지 못했습니다.');
+    if (!opened) window.alert(uiText("팝업이 차단되어 포장 작업지시서를 열지 못했습니다."));
   };
 
   if (!target) return null;
   return createPortal(<>
-    <button type="button" onClick={workOrder}>포장 작업지시서</button>
-    <button type="button" onClick={download}>포장계획 Excel</button>
+    <button type="button" onClick={workOrder}>{uiText("포장 작업지시서")}</button>
+    <button type="button" onClick={download}>{uiText("포장계획 Excel")}</button>
   </>, target);
 }

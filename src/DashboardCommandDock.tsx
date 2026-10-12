@@ -1,3 +1,5 @@
+import { readGuidedLoadingUnit } from './guidedLoadingUnitState';
+import { uiText, uiMessage, useUiLanguage } from './uiLanguage';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { physicsTargetFromPalletSnapshot } from './certifiedExport';
@@ -35,7 +37,7 @@ function patchCargoUi() {
   });
 
   document.querySelectorAll<HTMLParagraphElement>('.status-message').forEach(node => {
-    const initialGuide = (node.textContent ?? '').includes('처음 시작합니다.');
+    const initialGuide = ['ko', 'en', 'vi'].some(locale => (node.textContent ?? '').includes(uiText('처음 시작합니다.', [], locale as 'ko' | 'en' | 'vi')));
     node.style.display = initialGuide ? 'none' : '';
   });
 
@@ -55,14 +57,16 @@ function patchCargoUi() {
   if (empty) {
     const title = empty.querySelector<HTMLElement>('b');
     const guide = empty.querySelector<HTMLElement>('span');
-    if (title && title.textContent !== '등록된 화물이 없습니다.') title.textContent = '등록된 화물이 없습니다.';
-    const guideText = '박스 선택을 눌러 등록된 박스 목록에서 적재할 화물을 고르세요.';
+    const titleText = uiText('등록된 화물이 없습니다.');
+    if (title && title.textContent !== titleText) title.textContent = titleText;
+    const guideText = uiText('박스 선택을 눌러 등록된 박스 목록에서 적재할 화물을 고르세요.');
     if (guide && guide.textContent !== guideText) guide.textContent = guideText;
 
     const buttons = [...empty.querySelectorAll<HTMLButtonElement>('button')];
     buttons.forEach((button, index) => {
       if (index === 0) {
-        if (button.textContent !== '박스 선택') button.textContent = '박스 선택';
+        const selectText = uiText('박스 선택');
+        if (button.textContent !== selectText) button.textContent = selectText;
         button.dataset.singleBoxSelector = 'true';
         button.style.display = '';
       } else {
@@ -74,19 +78,19 @@ function patchCargoUi() {
   // 빠른 작업의 옛 샘플 복원/대체 박스선택은 제거한다.
   document.querySelectorAll<HTMLButtonElement>('.quick-card button').forEach(button => {
     const text = buttonText(button);
-    if (text === '샘플 복원' || button.classList.contains('box-select-replacement')) button.style.display = 'none';
+    if (['ko', 'en', 'vi'].some(locale => text === uiText('샘플 복원', [], locale as 'ko' | 'en' | 'vi')) || button.classList.contains('box-select-replacement')) button.style.display = 'none';
   });
 }
 
 function currentMode(): 'boxes' | 'pallets' {
   const active = document.querySelector<HTMLButtonElement>('.mode-tabs button.active');
-  return (active?.textContent ?? '').includes('팔레트') ? 'pallets' : 'boxes';
+  return active?.dataset.loadingUnit === 'pallets' || readGuidedLoadingUnit() === 'pallets' ? 'pallets' : 'boxes';
 }
 
 function openPopupHtml(html: string) {
   const popup = window.open('', '_blank');
   if (!popup) {
-    window.alert('브라우저 팝업이 차단되어 작업지시서를 열지 못했습니다. 팝업을 허용한 뒤 다시 실행하세요.');
+    window.alert(uiText("브라우저 팝업이 차단되어 작업지시서를 열지 못했습니다. 팝업을 허용한 뒤 다시 실행하세요."));
     return;
   }
   try { popup.opener = null; } catch { /* opener 변경 제한 브라우저 */ }
@@ -96,15 +100,15 @@ function openPopupHtml(html: string) {
 }
 
 function advisoryBanner(html: string, text: string) {
-  const safe = text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  const safe = uiMessage(text).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   return html.replace(
     '<body>',
-    `<body><div class="report-advisory">검토용 작업지시서 · ${safe}</div>`,
+    `<body><div class="report-advisory">${uiText('검토용 작업지시서')} · ${safe}</div>`,
   );
 }
 
 function confirmAdvisory(reason: string) {
-  return window.confirm(`현재 적재안은 작업지시서 생성에 필요한 물리 배치 조건은 충족합니다.\n\n${reason}\n\n검증 경고를 포함한 '검토용 작업지시서'를 생성할까요?`);
+  return window.confirm(uiText("현재 적재안은 작업지시서 생성에 필요한 물리 배치 조건은 충족합니다.\n\n{0}\n\n검증 경고를 포함한 '검토용 작업지시서'를 생성할까요?", [uiMessage(reason)]));
 }
 
 function boxAdvisoryReason() {
@@ -122,7 +126,7 @@ function boxAdvisoryReason() {
 function openBoxWorkOrder(detail: LoadingDetail) {
   const blockers = boxWorkOrderHardBlockers(detail.container, detail.result);
   if (blockers.length) {
-    window.alert(`작업지시서 생성 차단 · 실제 적재가 불가능한 항목이 있습니다.\n\n${blockers.map((item, index) => `${index + 1}. ${item}`).join('\n')}`);
+    window.alert(uiText("작업지시서 생성 차단 · 실제 적재가 불가능한 항목이 있습니다.\n\n{0}", [blockers.map((item, index) => `${index + 1}. ${uiMessage(item)}`).join('\n')]));
     return;
   }
 
@@ -164,19 +168,19 @@ function advisoryPalletCertification(
 
 function openPalletWorkOrder(detail: LoadingDetail, snapshot: PalletWorkSnapshot | undefined) {
   if (!snapshot) {
-    window.alert('팔레트 작업지시서를 만들 적재 결과가 없습니다. 팔레트 자동 적재를 먼저 실행하세요.');
+    window.alert(uiText("팔레트 작업지시서를 만들 적재 결과가 없습니다. 팔레트 자동 적재를 먼저 실행하세요."));
     return;
   }
 
   const blockers = palletWorkOrderHardBlockers(detail.container, snapshot);
   if (blockers.length) {
-    window.alert(`작업지시서 생성 차단 · 실제 팔레트 적재가 불가능한 항목이 있습니다.\n\n${blockers.map((item, index) => `${index + 1}. ${item}`).join('\n')}`);
+    window.alert(uiText("작업지시서 생성 차단 · 실제 팔레트 적재가 불가능한 항목이 있습니다.\n\n{0}", [blockers.map((item, index) => `${index + 1}. ${uiMessage(item)}`).join('\n')]));
     return;
   }
 
   const certification = advisoryPalletCertification(detail.container, detail.cargo, snapshot);
   if (!certification.payloadWithinLimit) {
-    window.alert('작업지시서 생성 차단 · 기본 고정 보조자재 중량까지 포함하면 컨테이너 최대 적재중량을 초과합니다.');
+    window.alert(uiText("작업지시서 생성 차단 · 기본 고정 보조자재 중량까지 포함하면 컨테이너 최대 적재중량을 초과합니다."));
     return;
   }
 
@@ -195,6 +199,7 @@ function openPalletWorkOrder(detail: LoadingDetail, snapshot: PalletWorkSnapshot
 }
 
 export default function DashboardCommandDock() {
+  const language = useUiLanguage();
   const [host, setHost] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -227,7 +232,7 @@ export default function DashboardCommandDock() {
       }
 
       const text = buttonText(button);
-      if (text !== '작업지시서' && text !== '작업 지시서') return;
+      if (button.dataset.action !== 'work-order' && !['ko', 'en', 'vi'].some(locale => ['작업지시서', '작업 지시서'].some(key => text === uiText(key, [], locale as 'ko' | 'en' | 'vi')))) return;
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
@@ -235,7 +240,7 @@ export default function DashboardCommandDock() {
       const dashboard = window as DashboardWindow;
       const detail = dashboard.__containerLoadingLatestResult;
       if (!detail) {
-        window.alert('작업지시서를 만들 적재 결과가 없습니다. 자동 적재를 먼저 실행하세요.');
+        window.alert(uiText("작업지시서를 만들 적재 결과가 없습니다. 자동 적재를 먼저 실행하세요."));
         return;
       }
 
@@ -254,26 +259,26 @@ export default function DashboardCommandDock() {
     };
   }, []);
 
+  useEffect(() => { patchCargoUi(); }, [language]);
+
   if (!host) return null;
 
   return createPortal(
-    <section className="dashboard-card dashboard-test-dock" aria-label="테스트 도구">
-      <h2>테스트 도구</h2>
+    <section className="dashboard-card dashboard-test-dock" aria-label={uiText("테스트 도구")}>
+      <h2>{uiText("테스트 도구")}</h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <button
           type="button"
           className="result-open-action"
           onClick={() => window.dispatchEvent(new Event(OPEN_PHYSICS_VALIDATION_EVENT))}
         >
-          물리 안정성 종합검증
-        </button>
+          {uiText(" 물리 안정성 종합검증 ")}</button>
         <button
           type="button"
           className="primary-action"
           onClick={() => window.dispatchEvent(new Event(OPEN_INERTIA_TEST_EVENT))}
         >
-          관성 테스트
-        </button>
+          {uiText(" 관성 테스트 ")}</button>
       </div>
     </section>,
     host,

@@ -1,3 +1,5 @@
+import { inspectionProgressText } from './inspectionPresentation';
+import { uiText as uiT, uiMessage, useUiLanguage } from './uiLanguage';
 import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -70,6 +72,7 @@ function requestTarget(detail: DirectWorkOrderRequest): PhysicsTarget {
 }
 
 export default function DirectWorkOrderOptimizer() {
+  useUiLanguage();
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [attempt, setAttempt] = useState({ index: 0, total: 0, label: '' });
@@ -307,47 +310,47 @@ export default function DirectWorkOrderOptimizer() {
       <header>
         <div>
           <span>FINAL WORK ORDER OPTIMIZER · DIRECT BOX</span>
-          <h2 id="direct-work-order-title">작업지시서 전 상자 안전 후보 비교</h2>
-          <p>출발 가속 · 급정거 · 급회전 3종을 비교해 더 안전한 배치를 우선합니다. 미통과 결과는 출고 승인 없이 위험 경고·보강 권장사항을 포함한 검토용 문서로만 생성합니다.</p>
+          <h2 id="direct-work-order-title">{uiT("작업지시서 전 상자 안전 후보 비교")}</h2>
+          <p>{uiT("출발 가속 · 급정거 · 급회전 3종을 비교해 더 안전한 배치를 우선합니다. 미통과 결과는 출고 승인 없이 위험 경고·보강 권장사항을 포함한 검토용 문서로만 생성합니다.")}</p>
         </div>
-        <button type="button" onClick={() => { if (running) publishVerificationCancelled(); cancel(); }}>{running ? '계산 취소' : '닫기'}</button>
+        <button type="button" onClick={() => { if (running) publishVerificationCancelled(); cancel(); }}>{running ? uiT("계산 취소") : uiT("닫기")}</button>
       </header>
 
-      {isLimitReviewTarget(readyReport?.target ?? readPhysicsTarget()) && <p className="final-cert-error" role="alert">{LIMIT_REVIEW_WARNING}</p>}
+      {isLimitReviewTarget(readyReport?.target ?? readPhysicsTarget()) && <p className="final-cert-error" role="alert">{uiMessage(LIMIT_REVIEW_WARNING)}</p>}
       <div className="final-cert-running">
         {running && <div className="physics-spinner" />}
-        <div><b>{message}</b><span>{search ? `추가 배치 계산 ${search.completed}/${search.total}회 · 최대 ${DIRECT_SEARCH_TIMEOUT_MS / 1000}초 · ${search.label}` : `배치 ${attempt.index}/${attempt.total} · ${running ? '관성 검사 중' : '비교 완료'}`}</span></div>
+        <div><b>{inspectionProgressText(message)}</b><span>{search ? uiT("추가 배치 계산 {0}/{1}회 · 최대 {2}초 · {3}", [search.completed, search.total, DIRECT_SEARCH_TIMEOUT_MS / 1000, inspectionProgressText(search.label)]) : uiT("배치 {0}/{1} · {2}", [attempt.index, attempt.total, running ? uiT('관성 검사 중') : uiT('비교 완료')])}</span></div>
         <progress max="100" value={percent} />
       </div>
 
       {progress && <div className="final-cert-metrics">
-        <span>현재 보강 <b>{progress.levelLabel}</b></span>
-        <span>{progress.stage === 'secured-physics' ? '보강 물리 시나리오' : '관성 시나리오'} <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
-        <span>현재 계산 <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
-        <span>출력 정책 <b>미통과는 검토용만</b></span>
+        <span>{uiT("현재 보강")} <b>{uiMessage(progress.levelLabel)}</b></span>
+        <span>{progress.stage === 'secured-physics' ? uiT("보강 물리 시나리오") : uiT("관성 시나리오")} <b>{progress.scenarioIndex}/{progress.scenarioCount}</b></span>
+        <span>{uiT("현재 계산")} <b>{Math.round(progress.physicsProgress * 100)}%</b></span>
+        <span>{uiT("출력 정책")} <b>{uiT("미통과는 검토용만")}</b></span>
       </div>}
 
       <article className="final-cert-materials">
-        <div className="final-cert-material-head"><div><b>자동 비교 범위</b><span>화물 수량 유지</span></div><strong>{attempt.total || '-'}개 배치</strong></div>
+        <div className="final-cert-material-head"><div><b>{uiT("자동 비교 범위")}</b><span>{uiT("화물 수량 유지")}</span></div><strong>{attempt.total || '-'}{uiT("개 배치")}</strong></div>
         <div className="final-cert-material-grid">
-          <div><span>상자 배치</span><b>안정성/적재율/하역</b><small>전략별 고유 배치만 비교</small></div>
-          <div><span>적재 높이</span><b>저중심 후보 우선</b><small>정적 안전점수로 선별</small></div>
-          <div><span>후보 수</span><b>최대 {MAX_DIRECT_WORK_ORDER_CANDIDATES}개</b><small>추가 배치 계산 최대 {DIRECT_SEARCH_TIMEOUT_MS / 1000}초</small></div>
-          <div><span>관성 검증</span><b>출발·급정거·급회전</b><small>가능한 3종 모두 확인</small></div>
-          <div><span>주의 결과</span><b>작업지시서 생성</b><small>권장사항 자동 기입</small></div>
-          <div><span>위험 결과</span><b>경고 포함 생성</b><small>가장 낮은 위험안 + 보강 권장</small></div>
+          <div><span>{uiT("상자 배치")}</span><b>{uiT("안정성/적재율/하역")}</b><small>{uiT("전략별 고유 배치만 비교")}</small></div>
+          <div><span>{uiT("적재 높이")}</span><b>{uiT("저중심 후보 우선")}</b><small>{uiT("정적 안전점수로 선별")}</small></div>
+          <div><span>{uiT("후보 수")}</span><b>{uiT("최대")} {MAX_DIRECT_WORK_ORDER_CANDIDATES}{uiT("개")}</b><small>{uiT("추가 배치 계산 최대")} {DIRECT_SEARCH_TIMEOUT_MS / 1000}{uiT("초")}</small></div>
+          <div><span>{uiT("관성 검증")}</span><b>{uiT("출발·급정거·급회전")}</b><small>{uiT("가능한 3종 모두 확인")}</small></div>
+          <div><span>{uiT("주의 결과")}</span><b>{uiT("작업지시서 생성")}</b><small>{uiT("권장사항 자동 기입")}</small></div>
+          <div><span>{uiT("위험 결과")}</span><b>{uiT("경고 포함 생성")}</b><small>{uiT("가장 낮은 위험안 + 보강 권장")}</small></div>
         </div>
       </article>
 
-      {notice && <p role="status">{notice}</p>}
-      {error && <div className="final-cert-error"><b>검증 처리 확인</b><span>{error}</span></div>}
+      {notice && <p role="status">{uiMessage(notice)}</p>}
+      {error && <div className="final-cert-error"><b>{uiT("검증 처리 확인")}</b><span>{uiMessage(error)}</span></div>}
       {readyReport && <div className="final-cert-actions">
         <button type="button" className="primary" onClick={() => {
           runId.current += 1;
           activeSearch.current?.abort();
           finish(running ? { ...readyReport, certification: { ...readyReport.certification, searchNotice: '추가 후보 비교를 중단하고 완료된 관성 검증 결과로 발급했습니다.' } } : readyReport, false);
-        }}>{running ? '비교 중단하고 현재 검증 결과로 발급' : '작업지시서 열기'}</button>
-        <span>검증 등급: {workOrderTargetApprovalLabel(readyReport.target, readyReport.certification)} · 경고와 권장사항을 포함합니다.</span>
+        }}>{running ? uiT("비교 중단하고 현재 검증 결과로 발급") : uiT("작업지시서 열기")}</button>
+        <span>{uiT("검증 등급:")} {inspectionProgressText(workOrderTargetApprovalLabel(readyReport.target, readyReport.certification))} {uiT("· 경고와 권장사항을 포함합니다.")}</span>
       </div>}
     </section>
   </div>;

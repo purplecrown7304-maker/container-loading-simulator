@@ -1,3 +1,5 @@
+import { uiWorkflowText } from './workflowPresentation';
+import { uiText, uiMessage, useUiLanguage } from './uiLanguage';
 import { LimitReviewBanner } from './LimitReviewControls';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -46,6 +48,7 @@ function buildPalletDetail(snapshot: ReturnType<typeof usePalletSnapshot>): Deta
 }
 
 export default function GuidedResultTabsEnhancer() {
+  useUiLanguage();
   const loadingUnit = useGuidedLoadingUnit();
   const palletSnapshot = usePalletSnapshot();
   const [latestCertification, setLatestCertification] = useState(readLatestInertiaCertification);
@@ -147,7 +150,7 @@ export default function GuidedResultTabsEnhancer() {
   return createPortal(
     <>
       {detail && <LimitReviewBanner container={detail.container} cargo={detail.cargo} result={detail.result} />}
-      <div className="guided-result-tabs interactive" role="tablist" aria-label="결과 확인 탭">
+      <div className="guided-result-tabs interactive" role="tablist" aria-label={uiText("결과 확인 탭")}>
         {tabs.map(item => <button
           key={item.id}
           type="button"
@@ -155,56 +158,56 @@ export default function GuidedResultTabsEnhancer() {
           aria-selected={tab === item.id}
           className={tab === item.id ? 'active' : ''}
           onClick={() => setTab(item.id)}
-        >{item.label}</button>)}
+        >{uiMessage(item.label)}</button>)}
       </div>
 
       {tab === 'result' && <section className="guided-result-tab-panel">
         {result && loadingUnit !== 'pallets' && <VoidFillSummary result={result} compact />}
         {result && detail ? <div className="guided-result-grid enhanced">
-          <div><span>요청</span><b>{requested.toLocaleString()} EA</b></div>
-          <div className="good"><span>적재</span><b>{result.placements.length.toLocaleString()} EA</b></div>
-          <div className={remaining ? 'warn' : 'good'}><span>미적재</span><b>{remaining.toLocaleString()} EA</b></div>
-          <div><span>CBM 사용률</span><b>{fillRate.toFixed(1)}%</b></div>
-          <div><span>중량 사용률</span><b>{weightRate.toFixed(1)}%</b></div>
-          <div className={analyses?.verified ? 'good' : ''}><span>작업 판정</span><b>{certificationLabel}</b></div>
-        </div> : <div className="guided-result-empty">표시할 최종 적재 결과가 없습니다.</div>}
+          <div><span>{uiText("요청")}</span><b>{requested.toLocaleString()} EA</b></div>
+          <div className="good"><span>{uiText("적재")}</span><b>{result.placements.length.toLocaleString()} EA</b></div>
+          <div className={remaining ? 'warn' : 'good'}><span>{uiText("미적재")}</span><b>{remaining.toLocaleString()} EA</b></div>
+          <div><span>{uiText("CBM 사용률")}</span><b>{fillRate.toFixed(1)}%</b></div>
+          <div><span>{uiText("중량 사용률")}</span><b>{weightRate.toFixed(1)}%</b></div>
+          <div className={analyses?.verified ? 'good' : ''}><span>{uiText("작업 판정")}</span><b>{uiMessage(certificationLabel)}</b></div>
+        </div> : <div className="guided-result-empty">{uiText("표시할 최종 적재 결과가 없습니다.")}</div>}
       </section>}
 
       {tab === 'unloaded' && <section className="guided-result-tab-panel">
         {result?.remaining.length ? <div className="guided-unloaded-list enhanced">
-          {result.remaining.map(item => <article key={`${item.cargoId}-${item.reason}`}>
-            <span><b>{item.cargoId}</b><small>{item.reason}</small></span><strong>{item.quantity} EA</strong>
+          {result.remaining.map(item => <article key={`${item.cargoId}-${uiMessage(item.reason)}`}>
+            <span><b>{item.cargoId}</b><small>{uiMessage(item.reason)}</small></span><strong>{item.quantity} EA</strong>
           </article>)}
-        </div> : <div className="guided-result-empty">미적재 화물이 없습니다. 등록된 적재 대상이 모두 배치되었습니다.</div>}
+        </div> : <div className="guided-result-empty">{uiText("미적재 화물이 없습니다. 등록된 적재 대상이 모두 배치되었습니다.")}</div>}
       </section>}
 
       {tab === 'weight' && <section className="guided-result-tab-panel">
         {analyses && detail ? <>
           <div className="guided-weight-grid">
-            <div><span>총 적재중량</span><b>{detail.result.loadedWeightKg.toLocaleString()} kg</b><small>한도 {detail.container.maxPayloadKg.toLocaleString()} kg</small></div>
-            <div><span>앞뒤 무게중심 편차</span><b>{analyses.balance.longitudinalDeviationPct.toFixed(1)}%</b><small>적재공간 중심 기준</small></div>
-            <div><span>좌우 무게중심 편차</span><b>{analyses.balance.lateralDeviationPct.toFixed(1)}%</b><small>적재공간 중심 기준</small></div>
-            <div><span>무게중심 높이</span><b>{analyses.balance.verticalCenterPct.toFixed(1)}%</b><small>내부 높이 대비</small></div>
-            <div><span>최대 바닥하중</span><b>{analyses.floor.maxKgPerM2.toFixed(0)} kg/m²</b><small>기준 {floorLimit.toLocaleString()} kg/m²</small></div>
-            <div><span>적재 품질</span><b>{analyses.balance.grade} · {analyses.balance.loadingQualityScore.toFixed(0)}점</b><small>무게중심 + 형상 평가</small></div>
+            <div><span>{uiText("총 적재중량")}</span><b>{detail.result.loadedWeightKg.toLocaleString()} kg</b><small>{uiText("한도 ")}{detail.container.maxPayloadKg.toLocaleString()} kg</small></div>
+            <div><span>{uiText("앞뒤 무게중심 편차")}</span><b>{analyses.balance.longitudinalDeviationPct.toFixed(1)}%</b><small>{uiText("적재공간 중심 기준")}</small></div>
+            <div><span>{uiText("좌우 무게중심 편차")}</span><b>{analyses.balance.lateralDeviationPct.toFixed(1)}%</b><small>{uiText("적재공간 중심 기준")}</small></div>
+            <div><span>{uiText("무게중심 높이")}</span><b>{analyses.balance.verticalCenterPct.toFixed(1)}%</b><small>{uiText("내부 높이 대비")}</small></div>
+            <div><span>{uiText("최대 바닥하중")}</span><b>{analyses.floor.maxKgPerM2.toFixed(0)} kg/m²</b><small>{uiText("기준 ")}{floorLimit.toLocaleString()} kg/m²</small></div>
+            <div><span>{uiText("적재 품질")}</span><b>{analyses.balance.grade} · {analyses.balance.loadingQualityScore.toFixed(0)}{uiText("점")}</b><small>{uiText("무게중심 + 형상 평가")}</small></div>
           </div>
-          <div className="guided-weight-message-list">{analyses.balance.messages.slice(0, 5).map(message => <span key={message}>{message}</span>)}</div>
-        </> : <div className="guided-result-empty">무게 분포를 계산할 적재 결과가 없습니다.</div>}
+          <div className="guided-weight-message-list">{analyses.balance.messages.slice(0, 5).map(message => <span key={uiWorkflowText(message)}>{uiWorkflowText(message)}</span>)}</div>
+        </> : <div className="guided-result-empty">{uiText("무게 분포를 계산할 적재 결과가 없습니다.")}</div>}
       </section>}
 
       {tab === 'safety' && <section className="guided-result-tab-panel">
         {analyses ? <div className="guided-safety-list">
           {analyses.checks.map(check => <article key={check.id} className={check.status}>
             <span className="guided-safety-icon">{check.status === 'pass' ? '✓' : check.status === 'warn' ? '!' : '×'}</span>
-            <span><b>{check.label}</b><small>{check.detail}</small></span>
-            <strong>{check.status === 'pass' ? '통과' : check.status === 'warn' ? '확인' : '실패'}</strong>
+            <span><b>{uiMessage(check.label)}</b><small>{uiMessage(check.detail)}</small></span>
+            <strong>{check.status === 'pass' ? uiText("통과") : check.status === 'warn' ? uiText("확인") : uiText("실패")}</strong>
           </article>)}
           <article className={analyses.verified ? 'pass' : 'warn'}>
             <span className="guided-safety-icon">{analyses.verified ? '✓' : '!'}</span>
-            <span><b>관성 3종 검사</b><small>{analyses.certification ? `검사 ${analyses.certification.testedScenarios}/3 · 최대 이동 ${(analyses.certification.maxHorizontalShiftM * 1000).toFixed(1)} mm` : '현재 적재 유형의 관성 검사 결과를 확인하세요.'}</small></span>
-            <strong>{analyses.verified ? '통과' : '확인'}</strong>
+            <span><b>{uiText("관성 3종 검사")}</b><small>{analyses.certification ? uiText("검사 {0}/3 · 최대 이동 {1} mm", [analyses.certification.testedScenarios, (analyses.certification.maxHorizontalShiftM * 1000).toFixed(1)]) : uiText("현재 적재 유형의 관성 검사 결과를 확인하세요.")}</small></span>
+            <strong>{analyses.verified ? uiText("통과") : uiText("확인")}</strong>
           </article>
-        </div> : <div className="guided-result-empty">안전 검사를 표시할 적재 결과가 없습니다.</div>}
+        </div> : <div className="guided-result-empty">{uiText("안전 검사를 표시할 적재 결과가 없습니다.")}</div>}
       </section>}
     </>,
     host,

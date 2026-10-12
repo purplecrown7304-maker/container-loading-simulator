@@ -1,4 +1,5 @@
-import { reportShipmentFields, reportShipmentValues, REPORT_SHIPMENT_SCRIPT } from './reportShipmentFields';
+import { uiText, readUiLanguage } from './uiLanguage';
+import { reportShipmentFields, reportShipmentValues, reportShipmentScript } from './reportShipmentFields';
 // Shared presentation only: calculation and export approval stay with each report.
 export const reportEscape = (value: unknown) => String(value ?? '')
   .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
@@ -14,6 +15,8 @@ type ReportDocument = {
 export function reportTable(label: string, table: string) {
   return `<div class="report-table-scroll" role="region" aria-label="${reportEscape(label)}" tabindex="0">${table}</div>`;
 }
+
+export const reportSignoff = () => `<div class="report-signoff"><div><span>${uiText("작업 담당")}</span><b>${uiText("성명 / 서명")}</b></div><div><span>${uiText("검토 담당")}</span><b>${uiText("성명 / 서명")}</b></div><div><span>${uiText("확인 일시")}</span><b>${uiText("년　　 월　　 일　　 시")}</b></div></div>`;
 
 export const REPORT_SIGNOFF = `<div class="report-signoff"><div><span>작업 담당</span><b>성명 / 서명</b></div><div><span>검토 담당</span><b>성명 / 서명</b></div><div><span>확인 일시</span><b>년　　 월　　 일　　 시</b></div></div>`;
 
@@ -52,9 +55,9 @@ export const REPORT_CSS = `
 
 export function buildReportDocument(doc: ReportDocument) {
   const sections = doc.sections.map((section, index) => `<section class="report-section" id="section-${index + 1}" aria-labelledby="heading-${index + 1}"><header class="report-section-head"><span>${String(index + 1).padStart(2, '0')}</span><div><h2 id="heading-${index + 1}">${reportEscape(section.title)}</h2><p>${reportEscape(section.description)}</p></div></header>${section.content}${index === doc.sections.length - 1 ? `<footer class="footer">${doc.footer}</footer>` : ''}</section>`).join('');
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${reportEscape(doc.title)}</title><link rel="stylesheet" href="${typeof window !== 'undefined' ? reportEscape(window.location.origin) : ''}/fonts/studio-font.css"><style>${REPORT_CSS}</style></head><body>
-    <div class="report-toolbar"><span>LOAD STUDIO · 화면에서 검토한 후 A4로 인쇄하세요.</span><div><button type="button" onclick="window.close()">닫기</button><button type="button" class="print" ${doc.shipmentFields ? 'data-report-print' : 'onclick="window.print()"'}>인쇄 / PDF 저장</button></div></div>
+  return `<!doctype html><html lang="${readUiLanguage()}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${reportEscape(doc.title)}</title><link rel="stylesheet" href="${typeof window !== 'undefined' ? reportEscape(window.location.origin) : ''}/fonts/studio-font.css"><style>${REPORT_CSS}</style></head><body>
+    <div class="report-toolbar"><span>${uiText("LOAD STUDIO · 화면에서 검토한 후 A4로 인쇄하세요.")}</span><div><button type="button" onclick="window.close()">${uiText("닫기")}</button><button type="button" class="print" ${doc.shipmentFields ? 'data-report-print' : 'onclick="window.print()"'}>${uiText("인쇄 / PDF 저장")}</button></div></div>
     ${doc.watermark ? `<div class="watermark" aria-hidden="true">${reportEscape(doc.watermark)}</div>` : ''}
-    ${doc.shipmentFields ? reportShipmentFields() : ''}<main class="sheet${doc.compact ? ' zone-report' : ''}"><header class="report-header"><div><span class="report-kicker">LOAD STUDIO / OPERATIONS</span><h1>${reportEscape(doc.title)}</h1><p>${reportEscape(doc.subtitle)}</p></div><div class="report-status ${doc.tone}"><span>${doc.compact ? '출고 전 작업 확인' : '현재 검증 상태'}</span><b>${reportEscape(doc.status)}</b></div></header>
-    ${doc.shipmentFields ? reportShipmentValues() : ''}${doc.summary}<nav class="report-nav" aria-label="문서 목차">${doc.sections.map((section, index) => `<a href="#section-${index + 1}"><b>${String(index + 1).padStart(2, '0')}</b>${reportEscape(section.title)}</a>`).join('')}</nav>${sections}</main>${doc.shipmentFields ? REPORT_SHIPMENT_SCRIPT : ''}</body></html>`;
+    ${doc.shipmentFields ? reportShipmentFields() : ''}<main class="sheet${doc.compact ? ' zone-report' : ''}"><header class="report-header"><div><span class="report-kicker">LOAD STUDIO / OPERATIONS</span><h1>${reportEscape(doc.title)}</h1><p>${reportEscape(doc.subtitle)}</p></div><div class="report-status ${doc.tone}"><span>${doc.compact ? uiText("출고 전 작업 확인") : uiText("현재 검증 상태")}</span><b>${reportEscape(doc.status)}</b></div></header>
+    ${doc.shipmentFields ? reportShipmentValues() : ''}${doc.summary}<nav class="report-nav" aria-label="${uiText("문서 목차")}">${doc.sections.map((section, index) => `<a href="#section-${index + 1}"><b>${String(index + 1).padStart(2, '0')}</b>${reportEscape(section.title)}</a>`).join('')}</nav>${sections}</main>${doc.shipmentFields ? reportShipmentScript() : ''}</body></html>`;
 }

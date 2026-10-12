@@ -1,3 +1,4 @@
+import { equipmentDisplayText } from './transportEquipmentPresentation';
 import { uiText as uiT, useUiLanguage } from './uiLanguage';
 import { openSafetyInspectionCenter } from './SafetyInspectionCenter';
 import { INSPECTIONS } from './manualInspection';
@@ -186,7 +187,7 @@ export default function ReferenceWorkspaceBar() {
       <div className="header-scene-controls">
         <button className="header-equipment-pill" type="button" onClick={openEquipment} aria-label={uiT("현재 장비 변경")}>
           <span className="equipment-kicker">{uiT("현재 장비")}</span>
-          <b>{equipment.shortName}</b>
+          <b>{equipmentDisplayText(equipment, 'shortName')}</b>
           <small>{equipment.length.toFixed(2)} × {equipment.width.toFixed(2)} × {equipment.height.toFixed(2)}m</small>
           <span aria-hidden="true">⌄</span>
         </button>

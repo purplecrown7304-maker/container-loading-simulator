@@ -1,18 +1,19 @@
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { readWeightGraphPreference } from './viewerPreferences';
 
 function findWeightToggle() {
-  return Array.from(document.querySelectorAll<HTMLButtonElement>('.pallet-weight-dock > .pallet-weight-toolbar > button'))
-    .find((button) => button.textContent?.includes('3D 무게분포')) ?? null;
+  return document.querySelector<HTMLButtonElement>('.pallet-weight-dock [data-weight-toggle]');
 }
 
-function findDockViewButton(label: string) {
+function findDockViewButton(view: string) {
   return Array.from(document.querySelectorAll<HTMLButtonElement>('.pallet-weight-dock .pallet-weight-view-buttons button'))
-    .find((button) => button.textContent?.trim() === label) ?? null;
+    .find((button) => button.getAttribute('data-preview-view') === view) ?? null;
 }
 
 export default function PalletWeightDistributionLauncher() {
+  useUiLanguage();
   const [portalTarget, setPortalTarget] = useState<Element | null>(null);
   const [open, setOpen] = useState(readWeightGraphPreference);
 
@@ -44,9 +45,9 @@ export default function PalletWeightDistributionLauncher() {
       if (!button) return;
       const dock = document.querySelector('.pallet-viewer .pallet-weight-dock');
       if (!dock?.classList.contains('open')) return;
-      const label = button.textContent?.trim();
-      if (!label) return;
-      window.requestAnimationFrame(() => findDockViewButton(label)?.click());
+      const view = button.getAttribute('data-preview-view');
+      if (!view) return;
+      window.requestAnimationFrame(() => findDockViewButton(view)?.click());
     };
 
     document.addEventListener('click', forwardView);
@@ -71,9 +72,7 @@ export default function PalletWeightDistributionLauncher() {
       className={`preview-weight-toggle pallet-weight-inline-launcher ${open ? 'active' : ''}`}
       onClick={toggle}
       aria-pressed={open}
-    >
-      3D 무게분포 {open ? 'ON' : 'OFF'}
-    </button>,
+    >{uiText("3D 무게분포 {0}", [open ? 'ON' : 'OFF'])}</button>,
     portalTarget,
   );
 }

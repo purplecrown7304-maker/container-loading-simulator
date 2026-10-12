@@ -1,3 +1,5 @@
+import { equipmentDisplayText } from './transportEquipmentPresentation';
+import { uiText, useUiLanguage } from './uiLanguage';
 import { RULESET_EVENT } from './loadingRulesPreference';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -36,10 +38,14 @@ function sameEquipment(a: TransportEquipment, b: TransportEquipment) {
 }
 
 function findDashboardInput(labelText: string) {
+  const key = DASHBOARD_FIELDS.find(([value]) => value === labelText)?.[1];
+  const stable = key ? document.querySelector<HTMLInputElement>(`[data-container-field="${key}"]`) : null;
+  if (stable) return stable;
+  const labelsForLocale = [labelText, uiText(labelText, [], 'en'), uiText(labelText, [], 'vi')];
   const labels = Array.from(document.querySelectorAll('.dashboard-left .dashboard-card:first-child label'));
   for (const label of labels) {
     const text = (label.textContent ?? '').replace(/\s+/g, ' ').trim();
-    if (!text.startsWith(labelText)) continue;
+    if (!labelsForLocale.some(value => text.startsWith(value))) continue;
     const input = label.querySelector('input');
     if (input instanceof HTMLInputElement) return input;
   }
@@ -86,13 +92,8 @@ function closestKnownEquipment(candidate: TransportEquipment) {
 }
 
 function equipmentFromCard(target: Element) {
-  const icon = target.closest('.equipment-icon-option[data-equipment-id]');
-  if (icon) return TRANSPORT_EQUIPMENT.find(item => item.id === icon.getAttribute('data-equipment-id')) ?? null;
-  const card = target.closest('.transport-equipment-card');
-  if (!card) return null;
-  const name = card.querySelector('.transport-equipment-card-name')?.textContent?.trim();
-  if (!name) return null;
-  return TRANSPORT_EQUIPMENT.find(item => item.name === name) ?? null;
+  const card = target.closest('.equipment-icon-option[data-equipment-id], .transport-equipment-card[data-equipment-id]');
+  return card ? TRANSPORT_EQUIPMENT.find(item => item.id === card.getAttribute('data-equipment-id')) ?? null : null;
 }
 
 function isExplicitDashboardSpecChange(target: Element) {
@@ -105,6 +106,7 @@ function isUnsupportedGeneralCargoAction(target: Element) {
   const label = (button.textContent ?? '').replace(/\s+/g, ' ').trim();
   // Translated presentation copy cannot determine whether this action is permitted.
   return button.dataset.requiresGeneralCargo === 'true'
+    || button.dataset.action === 'work-order'
     || button.classList.contains('primary-action')
     || label.includes('물리 최적 자동 적재')
     || label.includes('적재 최적화')
@@ -114,6 +116,7 @@ function isUnsupportedGeneralCargoAction(target: Element) {
 }
 
 export default function TransportEquipmentSafetyGuard() {
+  useUiLanguage();
   const equipment = useTransportEquipment();
   const [blocked, setBlocked] = useState(false);
   const acceptedEquipment = useRef<TransportEquipment>(readTransportEquipment());
@@ -248,12 +251,12 @@ export default function TransportEquipmentSafetyGuard() {
   return <div className="transport-specialized-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setBlocked(false); }}>
     <section className="transport-specialized-dialog" role="alertdialog" aria-modal="true" aria-labelledby="transport-specialized-title">
       <span>SPECIALIZED EQUIPMENT</span>
-      <h2 id="transport-specialized-title">{equipment.shortName}은 일반 박스 적재 대상이 아닙니다.</h2>
-      <p>{equipment.note ?? '이 장비는 특수화물 전용입니다.'}</p>
-      <p>현재 박스/팔레트 엔진으로 임의 계산하거나 일반화물 작업지시서를 발행하지 않습니다. 장비 변경은 사용자가 직접 선택할 때만 적용됩니다.</p>
+      <h2 id="transport-specialized-title">{equipmentDisplayText(equipment, 'shortName')} {uiText("은 일반 박스 적재 대상이 아닙니다.")}</h2>
+      <p>{equipment.note ? equipmentDisplayText(equipment, 'note') : uiText("이 장비는 특수화물 전용입니다.")}</p>
+      <p>{uiText("현재 박스/팔레트 엔진으로 임의 계산하거나 일반화물 작업지시서를 발행하지 않습니다. 장비 변경은 사용자가 직접 선택할 때만 적용됩니다.")}</p>
       <div>
-        <button type="button" onClick={() => { setBlocked(false); window.dispatchEvent(new CustomEvent(OPEN_TRANSPORT_SELECTOR_EVENT, { detail: { category: equipment.category } })); }}>장비 선택</button>
-        <button type="button" onClick={() => setBlocked(false)}>닫기</button>
+        <button type="button" onClick={() => { setBlocked(false); window.dispatchEvent(new CustomEvent(OPEN_TRANSPORT_SELECTOR_EVENT, { detail: { category: equipment.category } })); }}>{uiText("장비 선택")}</button>
+        <button type="button" onClick={() => setBlocked(false)}>{uiText("닫기")}</button>
       </div>
     </section>
   </div>;

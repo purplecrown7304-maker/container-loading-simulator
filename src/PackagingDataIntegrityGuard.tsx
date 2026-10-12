@@ -1,3 +1,4 @@
+import { uiText } from './uiLanguage';
 import { useEffect } from 'react';
 import { readShipmentInstructionSnapshot } from './shipmentInstruction';
 import { readStoredState } from './storage';
@@ -35,7 +36,7 @@ export default function PackagingDataIntegrityGuard() {
       });
       if (lastMismatch !== mismatchKey) {
         lastMismatch = mismatchKey;
-        window.alert('제품 포장에서 확정한 박스와 현재 자동 적재 입력이 일치하지 않습니다. 제품 포장 단계에서 포장을 다시 확정한 뒤 자동 적재를 실행하세요.');
+        window.alert(uiText('제품 포장에서 확정한 박스와 현재 자동 적재 입력이 일치하지 않습니다. 제품 포장 단계에서 포장을 다시 확정한 뒤 자동 적재를 실행하세요.'));
       }
     };
 

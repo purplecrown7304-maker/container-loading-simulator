@@ -1,3 +1,4 @@
+import { uiText, uiMessage, useUiLanguage } from './uiLanguage';
 import { Edges } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -129,6 +130,7 @@ function BoxOutline({ p, container, scale }: { p: Placement; container: Containe
 }
 
 export default function BoxLoadingViewerEquipment({ result, container }: { result: LoadingResult; container: ContainerSpec }) {
+  useUiLanguage();
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [view, setView] = useState<PreviewView>('free');
   const [cutHeight, setCutHeight] = useState(100);
@@ -185,11 +187,11 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
   }, [result.placements]);
 
   return <section className="viewer reference-viewer">
-    <div className="loading-space-toolbar" aria-label="3D 적재 공간 도구">
-      <div><b>3D 적재 공간</b><small>{container.length.toFixed(2)} × {container.width.toFixed(2)} × {container.height.toFixed(2)} m</small></div>
-      <label>높이 단면 <input data-view-only="true" aria-label="높이 단면" type="range" min="1" max="100" value={cutHeight} onChange={e => setCutHeight(Number(e.target.value))}/><output>{cutHeight === 100 ? '전체' : `${(container.height * cutHeight / 100).toFixed(2)} m 아래`}</output></label>
-      <button type="button" aria-pressed={showShell} onClick={() => setShowShell(value => !value)}>{showShell ? '외벽 숨기기' : '외벽 표시'}</button>
-      <span>표시 {visiblePlacements.length} / {result.placements.length} EA</span>
+    <div className="loading-space-toolbar" aria-label={uiText("3D 적재 공간 도구")}>
+      <div><b>{uiText("3D 적재 공간")}</b><small>{container.length.toFixed(2)} × {container.width.toFixed(2)} × {container.height.toFixed(2)} m</small></div>
+      <label>{uiText("높이 단면 ")}<input data-view-only="true" aria-label={uiText("높이 단면")} type="range" min="1" max="100" value={cutHeight} onChange={e => setCutHeight(Number(e.target.value))}/><output>{cutHeight === 100 ? uiText("전체") : uiText("{0} m 아래", [(container.height * cutHeight / 100).toFixed(2)])}</output></label>
+      <button type="button" aria-pressed={showShell} onClick={() => setShowShell(value => !value)}>{showShell ? uiText("외벽 숨기기") : uiText("외벽 표시")}</button>
+      <span>{uiText("표시 ")}{visiblePlacements.length} / {result.placements.length} EA</span>
     </div>
     <div className="reference-3d">
       <PreviewViewControls
@@ -225,17 +227,17 @@ export default function BoxLoadingViewerEquipment({ result, container }: { resul
       </Canvas>
       {showWeightGraph && <WeightDistributionPanel analysis={weightDistribution} />}
       <div className="equipment-view-badge"><b>{equipment.shortName}</b><span>{equipment.category === 'truck' ? 'TRUCK' : 'CONTAINER'} · {equipment.sourceLabel}</span></div>
-      {equipment.specializedCargo && <div className="equipment-special-warning">특수화물 전용 장비 · 박스 적재 결과는 참고용</div>}
-      {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip"><b>관성 보강 적용</b><span>미끄럼방지 {securingUsage.antiSlipMats}EA</span><span>블로킹재 {securingUsage.dunnageBlocks}EA</span>{securingUsage.loadBars > 0 && <span>고정바 {securingUsage.loadBars}EA</span>}</div>}
-      {clearances && !showWeightGraph && <div className="reference-clearance-strip"><span>안쪽 <b>{clearances.back}</b></span><span>문쪽 <b>{clearances.door}</b></span><span>좌측 <b>{clearances.left}</b></span><span>우측 <b>{clearances.right}</b></span><span>천장 <b>{clearances.top}</b></span></div>}
+      {equipment.specializedCargo && <div className="equipment-special-warning">{uiText("특수화물 전용 장비 · 박스 적재 결과는 참고용")}</div>}
+      {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip"><b>{uiText("관성 보강 적용")}</b><span>{uiText("미끄럼방지 ")}{securingUsage.antiSlipMats}EA</span><span>{uiText("블로킹재 ")}{securingUsage.dunnageBlocks}EA</span>{securingUsage.loadBars > 0 && <span>{uiText("고정바 ")}{securingUsage.loadBars}EA</span>}</div>}
+      {clearances && !showWeightGraph && <div className="reference-clearance-strip"><span>{uiText("안쪽 ")}<b>{clearances.back}</b></span><span>{uiText("문쪽 ")}<b>{clearances.door}</b></span><span>{uiText("좌측 ")}<b>{clearances.left}</b></span><span>{uiText("우측 ")}<b>{clearances.right}</b></span><span>{uiText("천장 ")}<b>{clearances.top}</b></span></div>}
       {selected && !showWeightGraph && <div className="reference-selected"><i style={{ background: cargoColor(selected.cargoId, cargoMap.get(selected.cargoId)?.displayColor) }} /><b>{cargoMap.get(selected.cargoId)?.name || selected.cargoId}</b><span>{selected.weightKg}kg · {(selected.length * selected.width * selected.height).toFixed(3)} CBM · R{addresses[selectedIndex!]?.row} C{addresses[selectedIndex!]?.column} L{addresses[selectedIndex!]?.layer}</span></div>}
     </div>
     <div className="loading-space-summary" aria-live="polite">
-      <span>공간 사용 <b>{(result.usedVolumeM3 / Math.max(0.001, container.length * container.width * container.height) * 100).toFixed(1)}%</b></span>
-      <span>잔여 체적 <b>{Math.max(0, container.length * container.width * container.height - result.usedVolumeM3).toFixed(2)} m³</b></span>
-      <span>적재 중량 <b>{result.loadedWeightKg.toLocaleString()} / {container.maxPayloadKg.toLocaleString()} kg</b></span>
-      <span className={result.validationIssues.length ? 'space-rule-error' : ''}>{container.limitReview || result.limitReview ? `WHAT-IF REVIEW · 출고 승인 불가 · 원 기준 위반 ${result.validationIssues.length}건` : result.validationIssues.length ? `규칙 위반 ${result.validationIssues.length}건` : result.placements.length ? '적재 규칙 검사 통과' : '화물을 등록하고 자동 적재를 실행하세요'}</span>
+      <span>{uiText("공간 사용 ")}<b>{(result.usedVolumeM3 / Math.max(0.001, container.length * container.width * container.height) * 100).toFixed(1)}%</b></span>
+      <span>{uiText("잔여 체적 ")}<b>{Math.max(0, container.length * container.width * container.height - result.usedVolumeM3).toFixed(2)} m³</b></span>
+      <span>{uiText("적재 중량 ")}<b>{result.loadedWeightKg.toLocaleString()} / {container.maxPayloadKg.toLocaleString()} kg</b></span>
+      <span className={result.validationIssues.length ? 'space-rule-error' : ''}>{container.limitReview || result.limitReview ? uiText("WHAT-IF REVIEW · 출고 승인 불가 · 원 기준 위반 {0}건", [result.validationIssues.length]) : result.validationIssues.length ? uiText("규칙 위반 {0}건", [result.validationIssues.length]) : result.placements.length ? uiText("적재 규칙 검사 통과") : uiText("화물을 등록하고 자동 적재를 실행하세요")}</span>
     </div>
-    {result.validationIssues.length > 0 && <details className="loading-space-issues"><summary>규칙 위반 상세</summary><ul>{result.validationIssues.map((issue, index) => <li key={index}>{issue.message}</li>)}</ul></details>}
+    {result.validationIssues.length > 0 && <details className="loading-space-issues"><summary>{uiText("규칙 위반 상세")}</summary><ul>{result.validationIssues.map((issue, index) => <li key={index}>{uiMessage(issue.message)}</li>)}</ul></details>}
   </section>;
 }

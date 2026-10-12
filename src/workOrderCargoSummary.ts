@@ -1,3 +1,4 @@
+import { readUiLanguage, uiText } from './uiLanguage';
 import type { ReportCargoCatalog } from './reportCargo';
 import { cargoColor } from './cargoColors';
 import type { CargoItem, Placement } from './engine/types';
@@ -28,7 +29,7 @@ function boxSvg(item: CargoItem, catalog?: ReportCargoCatalog) {
   const y = 18 + depth;
   const top = `${x},${y} ${x + depth},${y - depth} ${x + frontW + depth},${y - depth} ${x + frontW},${y}`;
   const side = `${x + frontW},${y} ${x + frontW + depth},${y - depth} ${x + frontW + depth},${y + frontH - depth} ${x + frontW},${y + frontH}`;
-  return `<svg viewBox="0 0 112 82" aria-label="${escapeHtml(item.id)} 적재단위 이미지" role="img">
+  return `<svg viewBox="0 0 112 82" aria-label="${escapeHtml(uiText('{0} 적재단위 이미지', [item.id]))}" role="img">
     <polygon points="${top}" fill="${color}" fill-opacity=".72" stroke="#475569" stroke-width="1.4"/>
     <polygon points="${side}" fill="${color}" fill-opacity=".50" stroke="#475569" stroke-width="1.4"/>
     <rect x="${x}" y="${y}" width="${frontW}" height="${frontH}" rx="2" fill="${color}" stroke="#475569" stroke-width="1.4"/>
@@ -38,15 +39,16 @@ function boxSvg(item: CargoItem, catalog?: ReportCargoCatalog) {
 }
 
 export function buildWorkOrderCargoSummary(cargo: CargoItem[], counts: Map<string, number>, catalog?: ReportCargoCatalog): string {
+  const locale = ({ ko: 'ko-KR', en: 'en-US', vi: 'vi-VN' } as const)[readUiLanguage()];
   const items = cargo.filter((item) => (counts.get(item.id) ?? 0) > 0);
   if (!items.length) return '';
   const cards = items.map((item) => {
     const quantity = counts.get(item.id) ?? 0;
-    const size = `${Math.round(item.length * 1000).toLocaleString()} × ${Math.round(item.width * 1000).toLocaleString()} × ${Math.round(item.height * 1000).toLocaleString()} mm`;
+    const size = `${Math.round(item.length * 1000).toLocaleString(locale)} × ${Math.round(item.width * 1000).toLocaleString(locale)} × ${Math.round(item.height * 1000).toLocaleString(locale)} mm`;
     return `<article class="cargo-intake-card">
       <div class="cargo-intake-image">${boxSvg(item, catalog)}</div>
-      <div class="cargo-intake-info"><b>${escapeHtml(catalog?.get(item.id)?.code ?? item.id)}${catalog?.get(item.id)?.partial ? ' · 잔량' : ''}</b>${!catalog ? `<span>${escapeHtml(item.name)}</span>` : ''}<strong>${quantity.toLocaleString()} EA</strong>${!catalog ? `<small>${escapeHtml(size)}</small>` : ''}</div>
+      <div class="cargo-intake-info"><b>${escapeHtml(catalog?.get(item.id)?.code ?? item.id)}${catalog?.get(item.id)?.partial ? ` · ${escapeHtml(uiText('잔량'))}` : ''}</b>${!catalog ? `<span>${escapeHtml(item.name)}</span>` : ''}<strong>${quantity.toLocaleString(locale)} EA</strong>${!catalog ? `<small>${escapeHtml(size)}</small>` : ''}</div>
     </article>`;
   }).join('');
-  return `<section class="cargo-intake"><div class="cargo-intake-title"><h3>투입 적재단위</h3><span>실제 최종 적재 수량 기준</span></div><div class="cargo-intake-grid">${cards}</div></section>`;
+  return `<section class="cargo-intake"><div class="cargo-intake-title"><h3>${escapeHtml(uiText('투입 적재단위'))}</h3><span>${escapeHtml(uiText('실제 최종 적재 수량 기준'))}</span></div><div class="cargo-intake-grid">${cards}</div></section>`;
 }

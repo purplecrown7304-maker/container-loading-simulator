@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useMemo, useState } from 'react';
 import type { CargoItem } from './engine/types';
 import { readStoredState, STORAGE_UPDATED_EVENT, type StoredState } from './storage';
@@ -19,6 +20,7 @@ function readCargoCards(): CargoItem[] {
 }
 
 export default function CargoFilterBar() {
+  useUiLanguage();
   const [cargo, setCargo] = useState<CargoItem[]>(() => readStoredState()?.cargo ?? []);
   const [query, setQuery] = useState('');
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -68,21 +70,21 @@ export default function CargoFilterBar() {
     dispatchFilter(null);
   };
 
-  return <div className="cargo-filter-bar" aria-label="적재 품목 검색">
+  return <div className="cargo-filter-bar" aria-label={uiText("적재 품목 검색")}>
     <div className="cargo-filter-input-row">
       <input
         value={query}
         onChange={e => { setQuery(e.target.value); if (activeId) setActiveId(null); }}
-        placeholder="품목 코드/품명 검색"
-        aria-label="품목 코드 또는 품명 검색"
+        placeholder={uiText("품목 코드/품명 검색")}
+        aria-label={uiText("품목 코드 또는 품명 검색")}
       />
-      {activeId && <button type="button" className="secondary" onClick={clear}>전체 보기</button>}
+      {activeId && <button type="button" className="secondary" onClick={clear}>{uiText("전체 보기")}</button>}
     </div>
     {query.trim() && !activeId && <div className="cargo-filter-results">
       {matches.length ? matches.map(item => <button type="button" key={item.id} onClick={() => apply(item.id)}>
         <b>{item.id}</b><span>{item.name}</span><small>{item.quantity} EA</small>
-      </button>) : <span className="cargo-filter-empty">일치하는 품목이 없습니다.</span>}
+      </button>) : <span className="cargo-filter-empty">{uiText("일치하는 품목이 없습니다.")}</span>}
     </div>}
-    {activeId && <div className="cargo-filter-active"><b>{activeId}</b><span>3D에서 이 품목만 표시 중</span></div>}
+    {activeId && <div className="cargo-filter-active"><b>{activeId}</b><span>{uiText("3D에서 이 품목만 표시 중")}</span></div>}
   </div>;
 }

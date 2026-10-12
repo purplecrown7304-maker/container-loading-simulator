@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from './uiLanguage';
 import { Edges } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -31,7 +32,7 @@ function doorTexture() {
   ctx.font = '800 72px sans-serif';
   ctx.fillText('CONTAINER DOOR', 450, 300);
   ctx.font = '800 58px sans-serif';
-  ctx.fillText('문', 450, 385);
+  ctx.fillText(uiText('문'), 450, 385);
   ctx.font = '800 72px sans-serif';
   ctx.fillText('←        →', 450, 500);
   const texture = new THREE.CanvasTexture(canvas);
@@ -149,11 +150,12 @@ function BoxOutline({ p, container, scale }: { p: Placement; container: Containe
 }
 
 function ContainerShell({ container, scale }: { container: ContainerSpec; scale: number }) {
+  const language = useUiLanguage();
   const length = container.length * scale;
   const width = container.width * scale;
   const height = container.height * scale;
   const doorX = length / 2;
-  const texture = useMemo(() => doorTexture(), []);
+  const texture = useMemo(() => doorTexture(), [language]);
   useEffect(() => () => texture.dispose(), [texture]);
 
   return (
@@ -199,6 +201,7 @@ function ContainerShell({ container, scale }: { container: ContainerSpec; scale:
 }
 
 export default function BoxLoadingViewerReference({ result, container }: { result: LoadingResult; container: ContainerSpec }) {
+  const language = useUiLanguage();
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [view, setView] = useState<PreviewView>('free');
   const [showLabels, setShowLabels] = useState(readBoxLabelPreference);
@@ -286,18 +289,18 @@ export default function BoxLoadingViewerReference({ result, container }: { resul
           <PreviewCameraController view={view} container={container} scale={scale} />
         </Canvas>
         {securingUsage && securingUsage.level > 0 && <div className="pallet-securing-strip">
-          <b>관성 보강 적용</b>
-          <span>미끄럼방지 {securingUsage.antiSlipMats}EA</span>
-          <span>블로킹재 {securingUsage.dunnageBlocks}EA</span>
-          {securingUsage.loadBars > 0 && <span>고정바 {securingUsage.loadBars}EA</span>}
+          <b>{uiText("관성 보강 적용")}</b>
+          <span>{uiText("미끄럼방지 ")}{securingUsage.antiSlipMats}EA</span>
+          <span>{uiText("블로킹재 ")}{securingUsage.dunnageBlocks}EA</span>
+          {securingUsage.loadBars > 0 && <span>{uiText("고정바 ")}{securingUsage.loadBars}EA</span>}
         </div>}
         {clearances && (
           <div className="reference-clearance-strip">
-            <span>안쪽 <b>{clearances.back}</b></span>
-            <span>문쪽 <b>{clearances.door}</b></span>
-            <span>좌측 <b>{clearances.left}</b></span>
-            <span>우측 <b>{clearances.right}</b></span>
-            <span>천장 <b>{clearances.top}</b></span>
+            <span>{uiText("안쪽 ")}<b>{clearances.back}</b></span>
+            <span>{uiText("문쪽 ")}<b>{clearances.door}</b></span>
+            <span>{uiText("좌측 ")}<b>{clearances.left}</b></span>
+            <span>{uiText("우측 ")}<b>{clearances.right}</b></span>
+            <span>{uiText("천장 ")}<b>{clearances.top}</b></span>
           </div>
         )}
         {selected && (

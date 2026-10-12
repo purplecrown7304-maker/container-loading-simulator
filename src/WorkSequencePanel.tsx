@@ -1,3 +1,5 @@
+import { workflowWorkInstruction } from './workflowPresentation';
+import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { buildWorkSequence } from './engine/workSequence';
@@ -17,6 +19,7 @@ function readCompleted(key:string):number[]{
 }
 
 export default function WorkSequencePanel(){
+  useUiLanguage();
   const [target,setTarget]=useState<Element|null>(null);
   const [detail,setDetail]=useState<Detail|null>(()=>typeof window==='undefined'?null:((window as LoadingWindow).__containerLoadingLatestResult??null));
   const [mode,setMode]=useState<'LOAD'|'UNLOAD'>('LOAD');
@@ -62,11 +65,11 @@ export default function WorkSequencePanel(){
   const pct=steps.length<=1?100:((safeIndex+1)/steps.length)*100;
   const donePct=(completed.size/steps.length)*100;
   return createPortal(<section className="work-sequence">
-    <div className="work-sequence-head"><div><b>작업 순서 시뮬레이션</b><span>{mode==='LOAD'?'실제 적재 순서':'실제 하역 순서'} · {steps.length}단계</span></div><div className="work-mode"><button className={mode==='LOAD'?'active':''} onClick={()=>setMode('LOAD')}>적재</button><button className={mode==='UNLOAD'?'active':''} onClick={()=>setMode('UNLOAD')}>하역</button></div></div>
+    <div className="work-sequence-head"><div><b>{uiText("작업 순서 시뮬레이션")}</b><span>{uiText("{0} · {1}단계", [uiText(mode==='LOAD'?'실제 적재 순서':'실제 하역 순서'), steps.length])}</span></div><div className="work-mode"><button className={mode==='LOAD'?'active':''} onClick={()=>setMode('LOAD')}>{uiText("적재")}</button><button className={mode==='UNLOAD'?'active':''} onClick={()=>setMode('UNLOAD')}>{uiText("하역")}</button></div></div>
     <div className="work-progress"><i style={{width:`${pct}%`}}/></div>
-    <div className="work-check-progress"><span>현장 완료 {completed.size}/{steps.length}</span><div><i style={{width:`${donePct}%`}}/></div><button onClick={resetProgress}>체크 초기화</button></div>
-    <div className="work-current"><strong>{safeIndex+1} / {steps.length}</strong><div><b>{current.cargoId} · {current.label}</b><span>{current.instruction}</span>{current.unloadPriority!==undefined&&<small>하역 우선순위 {current.unloadPriority}</small>}</div><button className={completed.has(current.step)?'checked':''} onClick={toggleComplete}>{completed.has(current.step)?'✓ 완료됨':'완료 체크'}</button></div>
-    <div className="work-controls"><button onClick={()=>setIndex(0)}>처음</button><button onClick={()=>setIndex(i=>Math.max(0,i-1))}>이전</button><button className="play" onClick={()=>setPlaying(v=>!v)}>{playing?'일시정지':'▶ 재생'}</button><button onClick={()=>setIndex(i=>Math.min(steps.length-1,i+1))}>다음</button><select value={speed} onChange={e=>setSpeed(Number(e.target.value))}><option value={0.5}>0.5×</option><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select></div>
+    <div className="work-check-progress"><span>{uiText("현장 완료 {0}/{1}", [completed.size, steps.length])}</span><div><i style={{width:`${donePct}%`}}/></div><button onClick={resetProgress}>{uiText("체크 초기화")}</button></div>
+    <div className="work-current"><strong>{safeIndex+1} / {steps.length}</strong><div><b>{current.cargoId} · {current.label}</b><span>{workflowWorkInstruction(current)}</span>{current.unloadPriority!==undefined&&<small>{uiText("하역 우선순위 {0}", [current.unloadPriority])}</small>}</div><button className={completed.has(current.step)?'checked':''} onClick={toggleComplete}>{completed.has(current.step)?uiText("✓ 완료됨"):uiText("완료 체크")}</button></div>
+    <div className="work-controls"><button onClick={()=>setIndex(0)}>{uiText("처음")}</button><button onClick={()=>setIndex(i=>Math.max(0,i-1))}>{uiText("이전")}</button><button className="play" onClick={()=>setPlaying(v=>!v)}>{playing?uiText("일시정지"):uiText("▶ 재생")}</button><button onClick={()=>setIndex(i=>Math.min(steps.length-1,i+1))}>{uiText("다음")}</button><select value={speed} onChange={e=>setSpeed(Number(e.target.value))}><option value={0.5}>0.5×</option><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select></div>
     <div className="work-strip">{steps.slice(Math.max(0,safeIndex-2),Math.min(steps.length,safeIndex+3)).map(step=><button key={`${mode}-${step.step}`} className={`${step.step===safeIndex+1?'active ':''}${completed.has(step.step)?'done':''}`} onClick={()=>setIndex(step.step-1)}><b>{completed.has(step.step)?'✓':step.step}</b><span>{step.cargoId}</span><small>L{step.layer}</small></button>)}</div>
   </section>,target);
 }

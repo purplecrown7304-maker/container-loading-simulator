@@ -1,3 +1,4 @@
+import { uiText, useUiLanguage } from './uiLanguage';
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
@@ -17,6 +18,7 @@ const ThreeLoadingViewer = lazy(() => import('./ThreeLoadingViewer'));
 
 /** All loading views share the Three.js renderer and the original models. */
 export default function LoadingViewer({ inertiaHost = false, ...props }: LoadingViewerProps) {
+  useUiLanguage();
   return inertiaHost ? <MainInertiaCanvas {...props} /> : <Renderer {...props} />;
 }
 
@@ -41,7 +43,7 @@ function MainInertiaCanvas(props: LoadingViewerProps) {
 
 function Renderer(props: LoadingViewerProps) {
   return <div className="renderer-comparison" data-renderer="three">
-    <Suspense fallback={<div className="three-comparison-pending" role="status">Three.js 화면 준비 중</div>}>
+    <Suspense fallback={<div className="three-comparison-pending" role="status">{uiText("Three.js 화면 준비 중")}</div>}>
       <ThreeLoadingViewer {...props} />
     </Suspense>
   </div>;
