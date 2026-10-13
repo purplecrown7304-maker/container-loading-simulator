@@ -1,5 +1,13 @@
 /** Inspection and safety presentation only; canonical calculations and stored assessments stay unchanged. */
 export const uiMessagesInspection: Readonly<Record<string, readonly [string, string]>> = {
+  '관성 기준 초과': ['Inertia limits exceeded', 'Vượt giới hạn quán tính'],
+  '측정 / 허용': ['measured / limit', 'đo được / giới hạn'],
+  '수평 이동 {0} / {1} mm': ['Horizontal shift {0} / {1} mm', 'Dịch chuyển ngang {0} / {1} mm'],
+  '기울기 {0} / {1}°': ['Tilt {0} / {1}°', 'Độ nghiêng {0} / {1}°'],
+  '화물 미끄럼 {0} / {1} mm': ['Cargo slip {0} / {1} mm', 'Trượt hàng {0} / {1} mm'],
+  '팔레트 이동 {0} / {1} mm': ['Pallet shift {0} / {1} mm', 'Dịch chuyển pallet {0} / {1} mm'],
+  '관성 3종 검사도 미완료입니다.': ['The three inertia scenarios are also incomplete.', 'Ba tình huống quán tính cũng chưa hoàn tất.'],
+  '재배치 또는 고정 보강 후 다시 검사하세요. 출고 승인은 차단됩니다.': ['Rearrange or reinforce the load and retest. Dispatch approval is blocked.', 'Sắp xếp lại hoặc gia cố hàng rồi kiểm tra lại. Phê duyệt xuất hàng bị chặn.'],
   "현재 적재 결과를 직접 점검합니다. 계산 결과는 실제 운송 안전 인증이 아닙니다.": [
     "Inspect the current loading result. Calculated results are not actual transport safety certification.",
     "Kiểm tra kết quả xếp hàng hiện tại. Kết quả tính toán không phải chứng nhận an toàn vận chuyển thực tế."

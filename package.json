@@ -3,6 +3,9 @@
   "private": true,
   "version": "2.6.0",
   "type": "module",
+  "overrides": {
+    "source-map-js": "1.2.2"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

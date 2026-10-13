@@ -1,6 +1,6 @@
 import { assessPhysicsVerification } from './physicsVerificationPolicy';
 import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
-import { createPhysicsTargetSignature, type InertiaCertification } from './inertiaCertification';
+import { createPhysicsTargetSignature, INERTIA_PASS_SHIFT_M, INERTIA_PASS_TILT_DEG, INERTIA_PASS_PALLET_CARGO_SLIP_M, INERTIA_PASS_SUPPORT_SHIFT_M, isInertiaStable, type InertiaCertification } from './inertiaCertification';
 import { assessWorkOrderCertification, isInertiaCertificationComplete, isPhysicsTargetVerified, physicsTargetHardFailureReasons } from './inertiaWorkOrderPolicy';
 import { readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 
@@ -33,6 +33,26 @@ export function certificationVerificationState(certification: InertiaCertificati
   }
   const hardFailures = physicsTargetHardFailureReasons(target);
   if (hardFailures.length) return { status: 'failed', reason: `적재 제약 검증 실패: ${hardFailures.join(' · ')}` };
+  // A known transport failure is the cause, even in older records whose early stop
+  // prevented the final physics suite. Never replace it with a generic missing-result message.
+  const failures = (['acceleration', 'braking', 'cornering'] as const).flatMap(scenario => {
+    const result = certification.results[scenario];
+    if (!result || isInertiaStable(result, target.mode)) return [];
+    const label = { acceleration: '출발 가속', braking: '급정거', cornering: '급회전' }[scenario];
+    const metrics = [
+      `수평 이동 ${(result.maxHorizontalShiftM * 1000).toFixed(1)} / ${(INERTIA_PASS_SHIFT_M * 1000).toFixed(0)} mm`,
+      `기울기 ${result.maxTiltDeg.toFixed(2)} / ${INERTIA_PASS_TILT_DEG.toFixed(1)}°`,
+    ];
+    if (target.mode === 'pallets') metrics.push(
+      `화물 미끄럼 ${((result.maxCargoRelativeSlipM ?? result.maxHorizontalShiftM) * 1000).toFixed(1)} / ${(INERTIA_PASS_PALLET_CARGO_SLIP_M * 1000).toFixed(0)} mm`,
+      `팔레트 이동 ${((result.maxSupportShiftM ?? 0) * 1000).toFixed(1)} / ${(INERTIA_PASS_SUPPORT_SHIFT_M * 1000).toFixed(0)} mm`,
+    );
+    return [`${label}: ${metrics.join(', ')} (측정 / 허용)`];
+  });
+  if (failures.length) {
+    const incomplete = !isInertiaCertificationComplete(certification) ? ['관성 3종 검사도 미완료입니다.'] : [];
+    return { status: 'failed', reason: ['관성 기준 초과', ...failures, ...incomplete, '재배치 또는 고정 보강 후 다시 검사하세요. 출고 승인은 차단됩니다.'].join(' · ') };
+  }
   const physics = assessPhysicsVerification(target, certification);
   if (physics.status !== 'passed') return { status: 'failed', reason: `${physics.reasons.join(' · ')} 출고 승인은 차단되며 검토용 문서만 사용할 수 있습니다.` };
   if (!isInertiaCertificationComplete(certification)) {

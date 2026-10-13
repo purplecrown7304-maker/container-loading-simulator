@@ -1,5 +1,16 @@
 import { uiMessage, uiText, readUiLanguage } from './uiLanguage';
 
+/** Only parses engine-owned workflow reasons, never user cargo names. */
+export function workflowFailureText(text: string): string {
+  if (!text.startsWith('관성 기준 초과 · ')) return uiMessage(text);
+  return text.split(' · ').map(part => {
+    const match = /^(출발 가속|급정거|급회전): (.+) \(측정 \/ 허용\)$/.exec(part);
+    if (!match) return uiText(part);
+    const metrics = match[2].split(', ').map(metric => uiMessage(metric)).join(', ');
+    return `${uiText(match[1])}: ${metrics} (${uiText('측정 / 허용')})`;
+  }).join(' · ');
+}
+
 /** Presentation-only adapter for known engine diagnostics. It never runs on cargo names,
  * IDs or input fields, and leaves all captured numeric/user values unchanged. */
 export function inspectionDiagnosticText(text: string): string {
