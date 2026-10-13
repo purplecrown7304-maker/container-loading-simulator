@@ -135,27 +135,52 @@ export function gapSecuringPlan(
 
   const maxX = Math.max(...placements.map(p => p.x + p.length));
   const rearGapM = Math.max(0, container.length - maxX);
-  if (rearGapM > MIN_GAP) {
-    const cargoTop = Math.max(...placements.map(p => p.z + p.height));
+  // A low residual row must not move every door bar beyond the tall cargo face.
+  // Follow the actual forward-most cargo face in each height band, coalescing
+  // equal faces. Each full-width bar stays in the empty space ahead of all cargo
+  // in its band; it never passes through a lower residual carton.
+  const zs = uniq([0, ...placements.flatMap(p => [p.z, p.z + p.height])]);
+  const doorFaces: Array<{ x: number; z: number; height: number }> = [];
+  for (let k = 0; k < zs.length - 1; k += 1) {
+    const z = zs[k];
+    const top = zs[k + 1];
+    const occupied = placements.filter(p => p.z < top - EPS && p.z + p.height > z + EPS);
+    if (!occupied.length) continue;
+    const x = Math.max(...occupied.map(p => p.x + p.length));
+    const previous = doorFaces.at(-1);
+    if (previous && Math.abs(previous.x - x) <= EPS && Math.abs(previous.z + previous.height - z) <= EPS) {
+      previous.height = top - previous.z;
+    } else doorFaces.push({ x, z, height: top - z });
+  }
+  for (const [index, face] of doorFaces.entries()) {
+    const gapM = Math.max(0, container.length - face.x);
+    if (gapM <= MIN_GAP) continue;
     const spanOk = inRange(container.width, settings.voidDoorBarMinSpanM, settings.voidDoorBarMaxSpanM);
     const coverage = Math.max(EPS, settings.voidDoorBarCoverageHeightM);
-    const quantity = spanOk ? Math.max(1, Math.ceil(cargoTop / coverage)) : 0;
-    const supportDepth = Math.min(0.03, rearGapM);
+    const quantity = spanOk ? Math.max(1, Math.ceil(face.height / coverage)) : 0;
+    const supportDepth = Math.min(0.03, gapM);
+    // The height map already describes voids over/beside residual cartons.
+    // Count their overlap only once when a stepped door region spans those voids.
+    const describedVolume = fills.filter(fill => fill.kind !== 'door-face').reduce((sum, fill) => {
+      const dx = Math.max(0, Math.min(container.length, fill.x + fill.length) - Math.max(face.x, fill.x));
+      const dz = Math.max(0, Math.min(face.z + face.height, fill.z + fill.height) - Math.max(face.z, fill.z));
+      return sum + dx * fill.width * dz;
+    }, 0);
     fills.push({
-      id: 'fill-door-face',
+      id: index === 0 ? 'fill-door-face' : `fill-door-face-${index}`,
       kind: 'door-face',
       material: spanOk ? 'load-bar' : 'unresolved',
       quantity,
       weightKg: quantity * settings.voidDoorBarKgPerEa,
       fixedSupportEligible: spanOk,
-      gapM: rearGapM,
-      voidVolumeM3: rearGapM * container.width * cargoTop,
-      x: maxX,
+      gapM,
+      voidVolumeM3: Math.max(0, gapM * container.width * face.height - describedVolume),
+      x: face.x,
       y: 0,
-      z: 0,
+      z: face.z,
       length: supportDepth,
       width: container.width,
-      height: cargoTop,
+      height: face.height,
     });
   }
 

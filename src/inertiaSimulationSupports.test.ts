@@ -67,11 +67,15 @@ describe('shared inertia simulation supports', () => {
   it('completes a missing scenario with the initial support geometry and saved material settings', async () => {
     const current = target();
     const originalSupports = structuredClone(current.supports);
-    const initial = await runInertiaCertification(current);
-    expect(initial.securing.level).toBe(3);
-    expect(initial.testedScenarios).toBe(2);
-    expect(initial.results.cornering).toBeUndefined();
-    // Each level starts its three scenarios together; the early stop still records only two.
+    const complete = await runInertiaCertification(current);
+    expect(complete.securing.level).toBe(3);
+    expect(complete.testedScenarios).toBe(3);
+    expect(complete.failedScenarios).toEqual(['braking']);
+    expect(complete.physicsValidation).toBeDefined();
+    expect(complete.attempts?.map(attempt => attempt.scenarios.length)).toEqual([2, 2, 3]);
+    // Older saved records may still need completion. Keep that compatibility coverage.
+    const initial = { ...complete, results: { acceleration: complete.results.acceleration, braking: complete.results.braking }, testedScenarios: 2, physicsValidation: undefined, physicsValidationSignature: undefined };
+    // Each level starts all scenarios; the final level now records all three.
     expect(runInertiaAnimation).toHaveBeenCalledTimes(9);
     expect(vi.mocked(runInertiaAnimation).mock.calls.map(call => call[2])).toEqual(
       ['acceleration', 'braking', 'cornering', 'acceleration', 'braking', 'cornering', 'acceleration', 'braking', 'cornering']);

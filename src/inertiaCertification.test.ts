@@ -66,6 +66,12 @@ describe('inertia certification', () => {
     expect(isInertiaStable(animation(0.012, 1.81))).toBe(false);
   });
 
+  it('rejects invalid motion metrics instead of treating NaN as stable', () => {
+    expect(isInertiaStable(animation(NaN, 0))).toBe(false);
+    expect(isInertiaStable(animation(0, -1))).toBe(false);
+    expect(isInertiaStable(animation(0, 0, { maxCargoRelativeSlipM: NaN }), 'pallets')).toBe(false);
+  });
+
   it('separately rejects excessive cargo-on-pallet slip', () => {
     expect(isInertiaStable(animation(0.006, 0.9, { maxCargoRelativeSlipM: 0.007, maxSupportShiftM: 0.005 }), 'pallets')).toBe(true);
     expect(isInertiaStable(animation(0.006, 0.9, { maxCargoRelativeSlipM: 0.0081, maxSupportShiftM: 0.005 }), 'pallets')).toBe(false);

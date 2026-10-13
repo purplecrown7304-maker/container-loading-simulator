@@ -171,7 +171,7 @@ export function createPhysicsTargetSignature(target: PhysicsTarget) {
     .sort((a, b) => a.cargoId.localeCompare(b.cargoId) || a.quantity - b.quantity || a.reason.localeCompare(b.reason))
     .map(item => [item.cargoId, item.quantity, item.reason]);
   return JSON.stringify({
-    physicsModel: 'restraint-v6-explicit-supports',
+    physicsModel: 'restraint-v7-stepped-door-faces',
     limitReview: target.container.limitReview ?? target.result.limitReview?.config,
     rulesMetadata: target.container.rules ? { cargo: target.cargo, ruleset: target.result.ruleset, orientation: target.result.placements.map(p=>[p.unitId,p.orientation]) } : undefined,
     bandingLayout: target.mode === 'pallets' ? 'grid-v1' : undefined,
@@ -201,6 +201,9 @@ export function requestCertifiedResults(detail: CertificationRequestDetail) {
 }
 
 export function isInertiaStable(result: InertiaAnimationResult, mode: PhysicsTarget['mode'] = 'boxes') {
+  const metrics = [result.maxHorizontalShiftM, result.maxTiltDeg];
+  if (mode === 'pallets') metrics.push(result.maxCargoRelativeSlipM ?? result.maxHorizontalShiftM, result.maxSupportShiftM ?? 0);
+  if (!metrics.every(value => Number.isFinite(value) && value >= 0)) return false;
   if (result.maxHorizontalShiftM > INERTIA_PASS_SHIFT_M || result.maxTiltDeg > INERTIA_PASS_TILT_DEG) return false;
   if (mode === 'pallets') {
     if ((result.maxCargoRelativeSlipM ?? result.maxHorizontalShiftM) > INERTIA_PASS_PALLET_CARGO_SLIP_M) return false;
@@ -352,8 +355,8 @@ export async function runInertiaCertification(
   shouldCancel?: () => boolean,
 ): Promise<InertiaCertification> {
   // The three scenarios of a level are started together on the worker pool and read back in the
-  // fixed order below, so the recorded results, early stop and attempts are those of the old
-  // sequential loop. Runs of the last level are kept for the work-order completion step.
+  // fixed order below. Intermediate levels may stop early, but the final level must record
+  // all three scenarios so a failed run still has complete, actionable evidence.
   const session = createInertiaRunSession();
   const targetKey = inertiaTargetKey(target.container, target.result.placements);
   let completed = false;
@@ -427,7 +430,7 @@ async function certifyLevels(
       onScenarioResult?.(result, level);
       if (!isInertiaStable(result, target.mode)) {
         allPassed = false;
-        if (!numericalReview) break;
+        if (!numericalReview && rawLevel < 3) break;
       }
     }
     // Scenarios after an early stop are not recorded; free their workers unless kept.

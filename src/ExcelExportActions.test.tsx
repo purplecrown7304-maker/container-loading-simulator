@@ -218,7 +218,7 @@ it('keeps fresh level-3 Excel and work-order materials free of uninstalled gener
 
 it('does not export an old-model generic-bar certification as a current workbook', async () => {
   const old = certification(base, { securing: { ...buildSecuringUsage(base, 3), loadBars: 2 } });
-  old.targetSignature = old.targetSignature.replace('restraint-v6-explicit-supports', 'restraint-v5-unit-load');
+  old.targetSignature = old.targetSignature.replace('restraint-v7-stepped-door-faces', 'restraint-v6-explicit-supports');
   await exportCurrent(base, old);
   expect(XLSX.writeFile).not.toHaveBeenCalled();
 });

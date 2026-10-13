@@ -1,4 +1,5 @@
 import { equipmentDisplayText } from './transportEquipmentPresentation';
+import { workflowFailureText } from './inspectionPresentation';
 import { palletDisplayText } from './palletCatalogPresentation';
 import { uiText as uiT, uiMessage, useUiLanguage } from './uiLanguage';
 import { useLoadingRuleset, aEquipmentDefault } from './loadingRulesPreference';
@@ -435,7 +436,7 @@ function JobSummary({ step, live, mode, finalReady, verification, selection, str
 
       <div className="guided-status-row" data-verification-status={verification.status}><dt>{uiT("상태")}</dt><dd><i className={verification.status === 'passed' ? 'good' : running ? 'running' : ''}/>{uiT(status)}</dd></div>
     </dl>
-    {verification.reason && <p className="guided-stage-help" role={verification.status === 'failed' ? 'alert' : 'status'}>{uiT(verification.reason)}</p>}
+    {verification.reason && <p className="guided-stage-help" role={verification.status === 'failed' ? 'alert' : 'status'}>{workflowFailureText(verification.reason)}</p>}
     <div className="studio-capacity"><span>{uiT("공간 사용률")}<b>{mode === 'boxes' ? `${fillRate.toFixed(1)}%` : uiT("팔레트 결과 참고")}</b></span><meter aria-label={uiT("공간 사용률")} min="0" max="100" value={mode === 'boxes' ? Math.min(100, fillRate) : 0}/><small>{uiT("전체 공간")} {maxVolume.toFixed(1)} m³</small></div>
     {step === 5 && !running && !finalReady && <div className="guided-loading-run-confirmation" aria-label={uiT("자동 적재 실행 설정 확인")}>
       <b>{uiT("실행 설정 확인")}</b>

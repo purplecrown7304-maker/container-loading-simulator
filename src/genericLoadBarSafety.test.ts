@@ -70,7 +70,7 @@ describe('unverified generic load bars cannot supply virtual restraint', () => {
   it('invalidates old model evidence and changed orientation permissions without depending on list order', () => {
     const current = target('boxes');
     const original = createPhysicsTargetSignature(current);
-    expect(JSON.parse(original).physicsModel).toBe('restraint-v6-explicit-supports');
+    expect(JSON.parse(original).physicsModel).toBe('restraint-v7-stepped-door-faces');
     const restricted = { ...current, cargo: current.cargo.map(c => ({ ...c, allowedOrientations: ['WLH'] as const })) };
     expect(createPhysicsTargetSignature(restricted as unknown as PhysicsTarget)).not.toBe(original);
     expect(createPhysicsTargetSignature({ ...current, cargo: current.cargo.map(c => ({ ...c, thisSideUp: true })) })).not.toBe(original);
