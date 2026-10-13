@@ -75,7 +75,7 @@ test('recovers the 74-carton truck load with allowed rotation and no invented lo
   expect(actual.level).toBe(1);
   expect(actual.shift).toBeLessThanOrEqual(.012);
   expect(actual.tilt).toBeLessThanOrEqual(1.8);
-  expect(actual.model).toBe('restraint-v6-explicit-supports');
+  expect(actual.model).toBe('restraint-v7-stepped-door-faces');
   expect(actual.voidFillPlan.fills.find((f: any) => f.kind === 'door-face')).toMatchObject({
     material: 'unresolved', fixedSupportEligible: false, quantity: 0, weightKg: 0,
   });
