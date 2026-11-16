@@ -42,7 +42,7 @@
 구현·검증과 운영 반영은 별도입니다. 프로젝트 운영 규칙에 따른 승인 후 진행합니다.
 
 1. 대상 프로젝트가 `src/supabaseConfig.ts`와 일치하는지 확인합니다.
-2. 새 migration `20261116045620_loading_admin_member_management.sql`만 적용합니다.
+2. 새 migration `20261116052106_loading_admin_member_management.sql`만 적용합니다.
    기존 회원·관리자 세션 테이블은 이미 존재해야 합니다. 과거 migration이나 seed를
    재실행하지 않습니다.
 3. `container-admin-api/index.ts`와 `_shared/adminMembersAction.ts`를 함께 배포합니다.
@@ -65,6 +65,11 @@ pnpm dlx supabase@3.1.0 functions deploy container-admin-api --remote=oyxhaeccuu
 ```
 
 ## 검증
+
+2026-11-16 운영 프로젝트 `oyxhaeccuuradutspcik`에 위 migration을 적용하고
+`container-admin-api` 버전 4를 배포했습니다. migration 파일의 버전은 실제
+운영 이력과 일치시켰습니다. RPC는 `service_role`에만 실행을 허용하며,
+인증 없는 실제 회원관리 HTTP 요청의 401 응답을 확인했습니다.
 
 `adminMembers.database.test.ts`는 실제 PostgreSQL WASM(PGlite)에 합성 회원·세션을
 만들어 RLS, 실행 권한, 검색·페이지, 정보 노출, 변경 충돌, 세션 폐기와 실패 시

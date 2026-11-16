@@ -45,7 +45,7 @@ describe('admin member migration on real PostgreSQL', () => {
       alter table public.loading_member_data enable row level security;
       revoke all on public.app_admin_upload_sessions,public.loading_members,public.loading_member_sessions,public.loading_member_data from public,anon,authenticated;
       grant select,insert,update,delete on public.app_admin_upload_sessions,public.loading_members,public.loading_member_sessions,public.loading_member_data to service_role;`);
-    await db.exec(readFileSync(new URL('../supabase/migrations/20261116045620_loading_admin_member_management.sql', import.meta.url), 'utf8'));
+    await db.exec(readFileSync(new URL('../supabase/migrations/20261116052106_loading_admin_member_management.sql', import.meta.url), 'utf8'));
   }, 30000);
   afterAll(async () => { await db?.close(); });
   beforeEach(async () => {
