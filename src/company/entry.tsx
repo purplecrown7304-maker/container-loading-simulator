@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import CompanyWorkspace from './CompanyWorkspace';
 import ErrorBoundary from '../ErrorBoundary';
 import { initializeUiLanguage } from '../uiLanguage';
+import '../tokens.css';
+import '../workbench-foundation.css';
 
 initializeUiLanguage();
 

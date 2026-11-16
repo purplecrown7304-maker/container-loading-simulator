@@ -32,6 +32,8 @@ export default function AdminAccessControl() {
       setMessage('');
       setPassword('');
       setOpen(false);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '관리자 세션을 확인하지 못했습니다. 다시 시도하세요.');
     } finally {
       setBusy(false);
     }

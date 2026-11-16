@@ -152,7 +152,7 @@ function EquipmentSelectionStage() {
     selectTransportEquipment(item); setError('');
   };
   return <section className="guided-stage-panel guided-equipment-stage">
-    <div className="guided-panel-title studio-main-title"><div><span className="studio-eyebrow">01 / SPACE</span><h1>{uiT("적재공간 선택")}</h1><p>{uiT("장비 이미지와 규격을 확인하고 선택하세요.")}</p></div><button aria-label={uiT("선택한 장비 변경")} className="guided-secondary-button" onClick={() => openEquipment(category)}>{equipmentDisplayText(equipment, 'shortName')} {uiT("· 규격 편집")}</button></div>
+    <div className="guided-panel-title studio-main-title"><div><span className="studio-eyebrow">01 / Space</span><h1>{uiT("적재공간 선택")}</h1><p>{uiT("장비 이미지와 규격을 확인하고 선택하세요.")}</p></div><button aria-label={uiT("선택한 장비 변경")} className="guided-secondary-button" onClick={() => openEquipment(category)}>{equipmentDisplayText(equipment, 'shortName')} {uiT("· 규격 편집")}</button></div>
     <div className="guided-segmented" aria-label={uiT("운송 장비 종류")}>{(['container', 'truck'] as const).map(value => <button key={value} type="button" aria-pressed={category === value} className={category === value ? 'active' : ''} onClick={() => setCategory(value)}>{value === 'container' ? uiT("컨테이너") : uiT("트럭")}</button>)}</div>
     <div className="equipment-icon-grid" aria-label={uiT("적재공간 장비 선택")}>{items.map(item => <EditableEquipmentCard key={item.id} item={item} active={equipment.id === item.id} onSelect={choose} variant="guided" />)}</div>
     {error && <p role="alert">{uiT(error)}</p>}
@@ -173,7 +173,7 @@ function StepRail({ step, furthest, selectionCount, packagedReady, strategy, ver
 }) {
   useUiLanguage();
   return <section className="guided-step-rail" aria-label={uiT("작업 준비 단계")}>
-    <div className="studio-rail-heading"><span>WORKSPACE</span><h2>{uiT("적재 계획")}</h2><p>{uiT("공간 선택부터 출하까지")}</p></div>
+    <div className="studio-rail-heading"><span>Workspace</span><h2>{uiT("적재 계획")}</h2><p>{uiT("공간 선택부터 출하까지")}</p></div>
     <div className="guided-step-list">
       {steps.map(item => {
         const complete = item.id < step
@@ -189,7 +189,7 @@ function StepRail({ step, furthest, selectionCount, packagedReady, strategy, ver
           : item.id === 5 ? (finalReady && verification.status !== 'passed' ? '적재 불가' : verificationStatusLabel(verification))
           : finalReady ? '확인 가능' : '-';
         return <button key={item.id} data-workspace-step={item.id} type="button" aria-haspopup="dialog" aria-current={current ? 'step' : undefined} className={`${current ? 'current' : ''} ${complete ? 'complete' : ''}`} disabled={!enabled} onClick={() => enabled && onStep(item.id)}>
-          <span className="guided-step-dot">{complete ? '✓' : <StudioIcon name={stepIcons[item.id - 1]}/>}</span>
+          <span className="guided-step-dot"><StudioIcon name={complete ? 'check' : stepIcons[item.id - 1]}/></span>
           <span className="guided-step-copy"><b>{uiT(item.label)}</b><small>{String(item.id).padStart(2, '0')} · {uiT(meta)}</small></span>
         </button>;
       })}
@@ -241,7 +241,7 @@ function ProductSelectionStage({ container, selection, onSelection }: {
 
   return <section className="guided-stage-panel guided-product-stage">
     <div className="guided-panel-title"><div><h1>{uiT("제품 선택")}</h1><p>{uiT("등록된 회사 제품에서 이름 또는 제품코드를 찾고 이번 출하 수량만 입력합니다.")}</p></div><span className="guided-selected-total">{Object.keys(selection).length}{uiT("종 ·")} {total.toLocaleString()} EA</span></div>
-    <div className="guided-product-search"><span>⌕</span><input data-view-only="true" aria-label={uiT("제품 검색")} value={query} onChange={event => setQuery(event.target.value)} placeholder={uiT("제품명 또는 제품코드 검색")} /></div>
+    <div className="guided-product-search"><span aria-hidden="true"><StudioIcon name="search" /></span><input data-view-only="true" aria-label={uiT("제품 검색")} value={query} onChange={event => setQuery(event.target.value)} placeholder={uiT("제품명 또는 제품코드 검색")} /></div>
     {!products.length ? <div className="guided-empty product-empty"><b>{uiT("등록된 회사 제품이 없습니다.")}</b><span>{uiT("제품 등록은 우측 상단 메뉴 → 회사 제품 관리에서 합니다.")}</span></div> : !normalizedQuery && !filtered.length ? <div className="guided-empty product-empty"><b>{uiT("제품을 검색하세요.")}</b><span>{uiT("제품명 또는 제품코드를 입력하면 일치하는 제품만 표시합니다.")}</span></div> : <div className="guided-product-table">
       <div className="guided-product-table-head"><span>{uiT("제품 정보")}</span><span>{uiT("포장")}</span><span>{uiT("자동 추천 상자")}</span><span>{uiT("이번 출하 수량")}</span></div>
       {filtered.map(product => {
@@ -329,8 +329,8 @@ function PackagingStage({ container, selection, onBundle }: {
         const active = list.find(item => item.boxId === choices[product.id]);
         return <article key={product.id} className={!active ? 'warning' : ''}>
           <div><b>{product.name}</b><span>{product.id} {uiT("· 제품")} {product.quantity}EA</span></div>
-          <div className="guided-package-choice">{list.length ? <><select value={choices[product.id] ?? ''} onChange={event => setChoices(current => ({ ...current, [product.id]: event.target.value }))}>{list.map((item, index) => <option key={`${item.boxId}-${index}`} value={item.boxId}>{index + 1}{uiT("순위 ·")} {Math.round(item.outerLength * 1000)}×{Math.round(item.outerWidth * 1000)}×{Math.round(item.outerHeight * 1000)} · {item.source === 'catalog' ? uiT("보유") : uiT("신규")}</option>)}</select>{active && <span>{active.unitsPerBox}{uiT("EA/BOX · 충진율")} {Math.round(active.productFillRate * 100)}% · {active.boxName}</span>}{active && <span>{uiT("자동 적재 최대")} {active.maxStackLayers}{uiT("단")}{active.strengthStatus === 'design-target' ? uiT(" · 신규 박스 강도 미확인") : uiT(" · 높이·상부하중 반영")}</span>}</> : <><strong className="warn">{uiT("추천 가능한 박스 없음")}</strong><span>{uiT("제품 관리 또는 박스 관리에서 조건을 확인하세요.")}</span></>}</div>
-          <div>{active ? <><b>{active.boxesNeeded} BOX</b><span>{uiT("포장 후 수량")}</span><button type="button" className="guided-package-inspect" data-view-only="true" onClick={() => openPackagingContents({ productId: product.id })} aria-label={uiT("{0} 박스 내부 보기", [product.name])}><svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><path d="M3 10 16 4 29 10 29 23 16 29 3 23Z M3 10 16 16 29 10 M16 16V29" fill="#eef5ff" stroke="currentColor" strokeWidth="1.5"/></svg>{uiT("박스 내부 보기")}</button></> : <><b>-</b><span>{uiT("포장 불가")}</span></>}</div>
+          <div className="guided-package-choice">{list.length ? <><select aria-label={`${product.name} · ${uiT("제품 포장")}`} value={choices[product.id] ?? ''} onChange={event => setChoices(current => ({ ...current, [product.id]: event.target.value }))}>{list.map((item, index) => <option key={`${item.boxId}-${index}`} value={item.boxId}>{index + 1}{uiT("순위 ·")} {Math.round(item.outerLength * 1000)}×{Math.round(item.outerWidth * 1000)}×{Math.round(item.outerHeight * 1000)} · {item.source === 'catalog' ? uiT("보유") : uiT("신규")}</option>)}</select>{active && <span>{active.unitsPerBox}{uiT("EA/BOX · 충진율")} {Math.round(active.productFillRate * 100)}% · {active.boxName}</span>}{active && <span>{uiT("자동 적재 최대")} {active.maxStackLayers}{uiT("단")}{active.strengthStatus === 'design-target' ? uiT(" · 신규 박스 강도 미확인") : uiT(" · 높이·상부하중 반영")}</span>}</> : <><strong className="warn">{uiT("추천 가능한 박스 없음")}</strong><span>{uiT("제품 관리 또는 박스 관리에서 조건을 확인하세요.")}</span></>}</div>
+          <div>{active ? <><b>{active.boxesNeeded} BOX</b><span>{uiT("포장 후 수량")}</span><button type="button" className="guided-package-inspect" data-view-only="true" onClick={() => openPackagingContents({ productId: product.id })} aria-label={uiT("{0} 박스 내부 보기", [product.name])}><StudioIcon name="package" />{uiT("박스 내부 보기")}</button></> : <><b>-</b><span>{uiT("포장 불가")}</span></>}</div>
         </article>;
       })}
     </div>
@@ -421,7 +421,7 @@ function JobSummary({ step, live, mode, finalReady, verification, selection, str
   const running = verification.status === 'running';
   const status = finalReady && !loaded && remaining ? '적재 불가' : verificationStatusLabel(verification);
   return <details className="guided-job-summary" open={summaryOpen} onToggle={event => setSummaryOpen(event.currentTarget.open)}><summary className="studio-summary-toggle">{uiT("현재 작업 요약")}</summary>
-    <div className="studio-summary-heading"><h2>{uiT("현재 작업")}</h2><span>OVERVIEW</span></div>
+    <div className="studio-summary-heading"><h2>{uiT("현재 작업")}</h2><span>Overview</span></div>
     <div className="studio-summary-equipment"><StudioIcon /><b>{equipmentDisplayText(equipment, 'shortName')}</b><span>{live.container.length.toFixed(2)} × {live.container.width.toFixed(2)} × {live.container.height.toFixed(2)} m</span></div>
     <dl>
       <div><dt>{uiT("적재공간")}</dt><dd>{equipmentDisplayText(equipment, 'shortName')}</dd></div>

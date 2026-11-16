@@ -8,7 +8,8 @@ import StudioIcon from './StudioIcon';
 import ViewerBackgroundSelector from './ViewerBackgroundSelector';
 import LoadingRulesSelector from './LoadingRulesSelector';
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { ADMIN_ACCESS_EVENT, isAdminSession, loginAdmin, logoutAdmin } from './adminAccess';
+import { ADMIN_ACCESS_EVENT, isAdminSession, loginAdmin, logoutAdmin, readAdminSessionExpiry } from './adminAccess';
+import AdminMemberManager from './AdminMemberManager';
 import { exportLoadingDiagnostics } from './diagnosticExport';
 import { LOCAL_OPERATOR_EVENT, logoutLocalOperator, readLocalOperator, type LocalOperator } from './localOperator';
 import {
@@ -35,6 +36,7 @@ export default function ReferenceWorkspaceBar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
   const [loginRole, setLoginRole] = useState<LoginRole>('member');
   const [memberMode, setMemberMode] = useState<MemberMode>('login');
   const [operator, setOperator] = useState<LocalOperator | null>(() => readSupabaseMember());
@@ -48,6 +50,7 @@ export default function ReferenceWorkspaceBar() {
   const [loginBusy, setLoginBusy] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const accountRef = useRef<HTMLDivElement>(null);
+  const memberOpener = useRef<HTMLButtonElement | null>(null);
 
   const openEquipment = () => {
     setMenuOpen(false);
@@ -157,6 +160,8 @@ export default function ReferenceWorkspaceBar() {
       setAdminPassword('');
       setLoginMessage('');
       setLoginOpen(false);
+    } catch (error) {
+      setLoginMessage(error instanceof Error ? error.message : '관리자 세션을 확인하지 못했습니다. 다시 시도하세요.');
     } finally {
       setLoginBusy(false);
     }
@@ -168,7 +173,47 @@ export default function ReferenceWorkspaceBar() {
     setIsAdmin(false);
     setOperator(null);
     setAccountOpen(false);
+    setMembersOpen(false);
   };
+
+  const openMemberManager = () => {
+    if (!isAdminSession()) { renewAdminSession(); return; }
+    memberOpener.current = document.activeElement?.closest('.header-menu-wrap')
+      ? menuRef.current?.querySelector<HTMLButtonElement>('.header-menu-button') ?? null
+      : accountRef.current?.querySelector<HTMLButtonElement>('.header-login-button') ?? null;
+    setMembersOpen(true);
+    setMenuOpen(false);
+    setAccountOpen(false);
+  };
+  const closeMemberManager = () => {
+    setMembersOpen(false);
+    window.requestAnimationFrame(() => { if (memberOpener.current?.isConnected) memberOpener.current.focus(); });
+  };
+  const renewAdminSession = () => {
+    logoutAdmin();
+    setMembersOpen(false);
+    setLoginRole('admin');
+    setAdminPassword('');
+    setLoginMessage('관리자 로그인이 만료되었습니다. 다시 로그인하세요.');
+    setLoginOpen(true);
+  };
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const expires = readAdminSessionExpiry() ?? Date.now();
+    const timer = window.setTimeout(() => {
+      if (isAdminSession()) return;
+      logoutAdmin();
+      setMembersOpen(false);
+      if (membersOpen) {
+        setLoginRole('admin');
+        setAdminPassword('');
+        setLoginMessage('관리자 로그인이 만료되었습니다. 다시 로그인하세요.');
+        setLoginOpen(true);
+      }
+    }, Math.min(Math.max(0, expires - Date.now() + 50), 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [isAdmin, membersOpen]);
 
   const accountName = isAdmin ? '관리자' : operator?.name ?? '';
   const accountInitial = isAdmin ? 'A' : operator?.name.slice(0, 1).toUpperCase() || 'M';
@@ -189,7 +234,7 @@ export default function ReferenceWorkspaceBar() {
           <span className="equipment-kicker">{uiT("현재 장비")}</span>
           <b>{equipmentDisplayText(equipment, 'shortName')}</b>
           <small>{equipment.length.toFixed(2)} × {equipment.width.toFixed(2)} × {equipment.height.toFixed(2)}m</small>
-          <span aria-hidden="true">⌄</span>
+          <span aria-hidden="true"><StudioIcon name="chevronDown" /></span>
         </button>
         <ViewerBackgroundSelector />
         <LoadingRulesSelector />
@@ -207,6 +252,7 @@ export default function ReferenceWorkspaceBar() {
               <div className="account-summary"><b>{isAdmin ? uiT(accountName) : accountName}</b><small>{isAdmin ? uiT("관리자 권한") : uiT("Supabase 회원")}</small></div>
               {!isAdmin && operator?.email && <div className="member-account-email">{operator.email}</div>}
               {!isAdmin && <button type="button" onClick={() => { openWorkspace('data'); setAccountOpen(false); }}>{uiT("저장한 계획")}</button>}
+              {isAdmin && <button type="button" onClick={openMemberManager}>{uiT("회원 관리")}</button>}
               <button type="button" onClick={logout}>{uiT("로그아웃")}</button>
             </div>}
           </> : <button className="header-login-button" type="button" onClick={openLogin}>{uiT("로그인")}</button>}
@@ -214,60 +260,63 @@ export default function ReferenceWorkspaceBar() {
 
         <div className="header-menu-wrap" ref={menuRef}>
           <button className={`header-menu-button ${menuOpen ? 'active' : ''}`} type="button" onClick={() => { setMenuOpen(v => !v); setAccountOpen(false); }} aria-haspopup="menu" aria-expanded={menuOpen}>
-            <span aria-hidden="true">☰</span> {uiT("메뉴")} </button>
+            <span aria-hidden="true"><StudioIcon name="menu" /></span> {uiT("메뉴")} </button>
           {menuOpen && <nav className="header-menu-panel final-workflow-menu" aria-label={uiT("적재 작업 전체 메뉴")}>
             <section>
               <strong>{uiT("핵심 작업")}</strong>
               <button type="button" onClick={() => runAndClose(() => window.dispatchEvent(new Event(OPEN_COMPANY_WORKSPACE_EVENT)))}>
-                <span>▦</span><div><b>{uiT("기업 작업 공간")}</b><small>{uiT("직원 권한 · 출하 계획 공유 · 업무 검토와 이력")}</small></div>
+                <span aria-hidden="true"><StudioIcon name="building" /></span><div><b>{uiT("기업 작업 공간")}</b><small>{uiT("직원 권한 · 출하 계획 공유 · 업무 검토와 이력")}</small></div>
               </button>
               <button data-requires-general-cargo="true" className="menu-primary" type="button" onClick={() => runAndClose(() => dispatchAppAction('run-loading'))}>
-                <span>▶</span><div><b>{uiT("최종 적재 진행")}</b><small>{uiT("적재 계산 · 제약 · 물리 · 관성 검증을 순서대로 실행")}</small></div>
+                <span aria-hidden="true"><StudioIcon name="play" /></span><div><b>{uiT("최종 적재 진행")}</b><small>{uiT("적재 계산 · 제약 · 물리 · 관성 검증을 순서대로 실행")}</small></div>
               </button>
               <button data-requires-general-cargo="true" type="button" onClick={() => runAndClose(() => dispatchAppAction('show-results'))}>
-                <span>◎</span><div><b>{uiT("결과 확인")}</b><small>{uiT("적재 · 미적재 · 무게분포 · 안전검사 결과 확인")}</small></div>
+                <span aria-hidden="true"><StudioIcon name="result" /></span><div><b>{uiT("결과 확인")}</b><small>{uiT("적재 · 미적재 · 무게분포 · 안전검사 결과 확인")}</small></div>
               </button>
               <button type="button" onClick={() => void exportDiagnostics()}>
-                <span>⌁</span><div><b>{uiT("점검 파일 다운로드")}</b><small>{uiT("최종 배치 · 미적재 · 무게중심 · 물리/관성 결과를 ZIP으로 저장")}</small></div>
+                <span aria-hidden="true"><StudioIcon name="download" /></span><div><b>{uiT("점검 파일 다운로드")}</b><small>{uiT("최종 배치 · 미적재 · 무게중심 · 물리/관성 결과를 ZIP으로 저장")}</small></div>
               </button>
               <button data-requires-general-cargo="true" type="button" onClick={() => runAndClose(() => dispatchAppAction('print-report'))}>
-                <span>▤</span><div><b>{uiT("작업지시서 보기")}</b><small>{uiT("최종 적재가 완료된 결과를 작업지시서로 확인")}</small></div>
+                <span aria-hidden="true"><StudioIcon name="report" /></span><div><b>{uiT("작업지시서 보기")}</b><small>{uiT("최종 적재가 완료된 결과를 작업지시서로 확인")}</small></div>
               </button>
               <button type="button" onClick={() => runAndClose(() => dispatchAppAction('viewer'))}>
-                <span>◫</span><div><b>{uiT("3D 적재 보기")}</b><small>{uiT("현재 적재 결과를 3D 시뮬레이터에서 확인")}</small></div>
+                <span aria-hidden="true"><StudioIcon name="view" /></span><div><b>{uiT("3D 적재 보기")}</b><small>{uiT("현재 적재 결과를 3D 시뮬레이터에서 확인")}</small></div>
               </button>
             </section>
 
             <section aria-label={uiT("점검 메뉴")}><strong>{uiT("점검")}</strong>{INSPECTIONS.map(item => <button key={item.id} type="button" onClick={() => runAndClose(() => item.id === 'inertia'
               ? window.dispatchEvent(new Event(OPEN_INERTIA_TEST_EVENT))
-              : openSafetyInspectionCenter(item.id))}><span aria-hidden="true">{item.id === 'inertia' ? '▶' : '✓'}</span><div><b>{uiT(item.title)}</b><small>{item.id === 'inertia' ? uiT("출발·급정거·급회전 3D 애니메이션 재생") : uiT(item.description)}</small></div></button>)}</section>
+              : openSafetyInspectionCenter(item.id))}><span aria-hidden="true"><StudioIcon name={item.id === 'inertia' ? 'activity' : 'check'} /></span><div><b>{uiT(item.title)}</b><small>{item.id === 'inertia' ? uiT("출발·급정거·급회전 3D 애니메이션 재생") : uiT(item.description)}</small></div></button>)}</section>
 
             <section data-menu-section="preparation">
               <strong>{uiT("작업 준비")}</strong>
               <button data-menu-action="equipment" type="button" onClick={openEquipment}>
-                <span>▥</span><div><b>{uiT("컨테이너 · 차량 선택")}</b><small>{uiT("현재 작업에 사용할 운송 장비를 직접 선택")}</small></div>
+                <span aria-hidden="true"><StudioIcon name="space" /></span><div><b>{uiT("컨테이너 · 차량 선택")}</b><small>{uiT("현재 작업에 사용할 운송 장비를 직접 선택")}</small></div>
               </button>
               <button data-menu-action="boxes" type="button" onClick={() => runAndClose(() => openWorkspace('boxes'))}>
-                <span>□</span><div><b>{uiT("박스 · 화물 선택")}</b><small>{uiT("개인 등록 박스 선택, 수량 입력, 신규 박스 Excel 추가")}</small></div>
+                <span aria-hidden="true"><StudioIcon name="package" /></span><div><b>{uiT("박스 · 화물 선택")}</b><small>{uiT("개인 등록 박스 선택, 수량 입력, 신규 박스 Excel 추가")}</small></div>
               </button>
             </section>
 
             <section>
               <strong>{uiT("데이터 · 관리")}</strong>
+              {isAdmin && <button type="button" onClick={openMemberManager}>
+                <span aria-hidden="true"><StudioIcon name="building" /></span><div><b>{uiT("회원 관리")}</b><small>{uiT("가입 회원의 이름과 이용 상태를 관리합니다.")}</small></div>
+              </button>}
               <button type="button" onClick={() => runAndClose(() => dispatchAppAction('save-local'))}>
-                <span>↓</span><div><b>{uiT("현재 작업 저장")}</b><small>{uiT("현재 장비와 화물 계획을 브라우저에 저장")}</small></div>
+                <span aria-hidden="true"><StudioIcon name="download" /></span><div><b>{uiT("현재 작업 저장")}</b><small>{uiT("현재 장비와 화물 계획을 브라우저에 저장")}</small></div>
               </button>
               <button type="button" onClick={() => runAndClose(() => dispatchAppAction('load-local'))}>
-                <span>↑</span><div><b>{uiT("저장 작업 불러오기")}</b><small>{uiT("브라우저에 저장된 최근 작업 데이터 적용")}</small></div>
+                <span aria-hidden="true"><StudioIcon name="upload" /></span><div><b>{uiT("저장 작업 불러오기")}</b><small>{uiT("브라우저에 저장된 최근 작업 데이터 적용")}</small></div>
               </button>
               <button type="button" onClick={() => runAndClose(() => openWorkspace('data'))}>
-                <span>▣</span><div><b>{uiT("계획 관리")}</b><small>{uiT("이름을 붙여 여러 작업 계획 저장 · 복원")}</small></div>
+                <span aria-hidden="true"><StudioIcon name="cargo" /></span><div><b>{uiT("계획 관리")}</b><small>{uiT("이름을 붙여 여러 작업 계획 저장 · 복원")}</small></div>
               </button>
               <button data-menu-action="vehicle-spec" type="button" onClick={() => runAndClose(() => openWorkspace('vehicles'))}>
-                <span>▰</span><div><b>{uiT("차량 규격 관리")}</b><small>{uiT("기본 차량과 사용자 차량 규격 관리")}</small></div>
+                <span aria-hidden="true"><StudioIcon name="truck" /></span><div><b>{uiT("차량 규격 관리")}</b><small>{uiT("기본 차량과 사용자 차량 규격 관리")}</small></div>
               </button>
               <button className="final-menu-danger" type="button" onClick={() => runAndClose(() => dispatchAppAction('reset-all'))}>
-                <span>↺</span><div><b>{uiT("전체 초기화")}</b><small>{uiT("현재 작업의 화물과 적재 결과를 초기화")}</small></div>
+                <span aria-hidden="true"><StudioIcon name="reset" /></span><div><b>{uiT("전체 초기화")}</b><small>{uiT("현재 작업의 화물과 적재 결과를 초기화")}</small></div>
               </button>
             </section>
           </nav>}
@@ -306,5 +355,6 @@ export default function ReferenceWorkspaceBar() {
         </button>
       </form>
     </div>}
+    {isAdmin && membersOpen && <AdminMemberManager open={membersOpen} onClose={closeMemberManager} onAuthExpired={renewAdminSession} />}
   </>;
 }

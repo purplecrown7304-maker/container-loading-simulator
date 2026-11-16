@@ -3,6 +3,7 @@ import { uiText, useUiLanguage } from './uiLanguage';
 import { openProductTool } from './productToolEvents';
 import { openSafetyInspectionCenter } from './SafetyInspectionCenter';
 import { openTransportEquipmentSpecManager } from './TransportEquipmentSpecManager';
+import { studioIconPaths } from './StudioIcon';
 
 function closeHeaderMenu() {
   const menu = document.querySelector<HTMLElement>('.final-workflow-menu');
@@ -24,12 +25,18 @@ function setButtonCopy(button: HTMLButtonElement | null, title: string, descript
   if (descriptionNode && descriptionNode.textContent !== description) descriptionNode.textContent = description;
 }
 
-function createMenuButton(className: string, icon: string, title: string, description: string, onClick: () => void) {
+function createMenuButton(className: string, icon: keyof typeof studioIconPaths, title: string, description: string, onClick: () => void) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = className;
   const iconNode = document.createElement('span');
-  iconNode.textContent = icon;
+  iconNode.setAttribute('aria-hidden', 'true');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  for (const [name, value] of Object.entries({ viewBox: '0 0 24 24', width: '18', height: '18', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })) svg.setAttribute(name, value);
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', studioIconPaths[icon]);
+  svg.appendChild(path);
+  iconNode.appendChild(svg);
   const copy = document.createElement('div');
   const titleNode = document.createElement('b');
   titleNode.textContent = uiText(title);
@@ -62,7 +69,7 @@ function syncWorkPreparationMenu() {
   if (!companyButton) {
     companyButton = createMenuButton(
       'product-menu-company-action',
-      '▦',
+      'cargo',
       '회사 제품 관리',
       '제품 등록 · Excel 업로드 · 제품 마스터 관리',
       () => { openProductTool('products'); closeHeaderMenu(); },

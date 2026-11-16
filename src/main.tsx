@@ -109,6 +109,7 @@ import './studio-motion.css';
 import './studio-viewport.css';
 import './persistent-workspace.css';
 import './viewer-background-selector.css';
+import './workbench-foundation.css';
 
 function isMobileServiceClient(): boolean {
   const nav = navigator as Navigator & { userAgentData?: { mobile?: boolean } };
@@ -123,7 +124,7 @@ function renderMobileServiceNotice() {
   root.innerHTML = `
     <main style="min-height:100dvh;display:grid;place-items:center;padding:24px;background:#f5f5f7;color:#1d1d1f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Malgun Gothic',sans-serif">
       <section style="width:min(100%,520px);padding:40px 28px;border:1px solid #d2d2d7;border-radius:18px;background:#fff;box-shadow:0 18px 48px rgba(0,0,0,.08);text-align:center">
-        <div style="font-size:44px;line-height:1;margin-bottom:18px" aria-hidden="true">🖥️</div>
+        <div style="margin-bottom:24px;color:#535d6a" aria-hidden="true"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M8 21h8M12 16v5"/></svg></div>
         <h1 style="margin:0 0 12px;font-size:24px">${uiText('모바일 버전 준비 중')}</h1>
         <p style="margin:0;color:#6e6e73;line-height:1.7">${uiText('현재 물류 적재 시뮬레이터는 PC 웹 버전만 제공됩니다.')}<br>${uiText('데스크톱 또는 노트북에서 이용해 주세요.')}</p>
         <p><a href="/workspace.html?view=company">${uiText('기업 작업 공간 · 저장된 계획 보기')}</a></p>
