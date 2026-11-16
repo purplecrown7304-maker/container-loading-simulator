@@ -1,54 +1,62 @@
-:root{
-  --font-2xs:11px;
-  --font-xs:13px;
-  --font-sm:15px;
-  --font-base:16px;
-  --font-lg:18px;
-  --font-xl:20px;
-  --line-compact:1.35;
-  --line-readable:1.55;
-
-  --color-primary:#2563eb;
-  --color-text:#172033;
-  --color-muted:#64748b;
-  --color-border:#dbe3ee;
-  --color-surface:#ffffff;
-  --color-warning:#b45309;
-
-  --control-height-sm:32px;
-  --control-height-md:38px;
-  --control-height-lg:44px;
-
-  --z-viewer-content:10;
-  --z-viewer-control:20;
-  --z-viewer-badge:30;
-  --z-floating-ui:100;
-  --z-modal:1000;
-  --z-toast:2000;
-}
-
-/* Load Studio visual system — owned by this feature.
-   Dense work theme: 8px radius, 1px lines, 32px controls, compact shell. */
+/* Load Studio · a quiet workbench around the live loading scene.
+   Design refinement follows unslop by Damir Sokolovsky (@heydamir), CC BY 4.0. */
 :root {
---studio-ink: #111827;
---studio-secondary: #4b5563;
---studio-faint: #6b7280;
---studio-line: #e3e6eb;
---studio-line-strong: #cfd5dd;
---studio-bg: #f2f4f7;
---studio-surface: #ffffff;
---studio-sunken: #f7f8fa;
---studio-blue: #2563eb;
---studio-blue-strong: #1d4ed8;
---studio-blue-tint: #eef4ff;
---studio-green: #15803d;
---studio-green-tint: #ecfdf3;
---studio-radius: 8px;
---studio-radius-sm: 6px;
---studio-header-h: 48px;
---studio-control-h: 32px;
---studio-gap: 12px;
---color-primary: var(--studio-blue);
---color-text: var(--studio-ink);
---color-border: var(--studio-line);
+  --font-2xs: 12px;
+  --font-xs: 13px;
+  --font-sm: 14px;
+  --font-base: 14px;
+  --font-lg: 18px;
+  --font-xl: 24px;
+  --line-compact: 1.4;
+  --line-readable: 1.6;
+
+  --studio-ink: #202630;
+  --studio-secondary: #535d6a;
+  --studio-faint: #67717e;
+  --studio-line: #e3e6eb;
+  --studio-line-strong: #cdd3dc;
+  --studio-bg: #f3f4f6;
+  --studio-surface: #ffffff;
+  --studio-sunken: #f8f9fb;
+  --studio-blue: #2563eb;
+  --studio-blue-strong: #1d4ed8;
+  --studio-blue-tint: #eef4ff;
+  --studio-green: #187047;
+  --studio-green-tint: #edf7f1;
+  --studio-warning: #945b15;
+  --studio-warning-tint: #fff8ed;
+  --studio-danger: #b83939;
+  --studio-danger-tint: #fff2f2;
+
+  --studio-space-1: 4px;
+  --studio-space-2: 8px;
+  --studio-space-3: 12px;
+  --studio-space-4: 16px;
+  --studio-space-6: 24px;
+  --studio-radius: 12px;
+  --studio-radius-sm: 8px;
+  --studio-radius-panel: 16px;
+  --studio-header-h: 56px;
+  --studio-control-h: 36px;
+  --studio-gap: 16px;
+  --studio-shadow: 0 8px 24px rgb(24 30 40 / 6%);
+  --studio-dialog-shadow: 0 24px 64px rgb(24 30 40 / 16%);
+  --studio-focus: #2563eb;
+
+  --color-primary: var(--studio-blue);
+  --color-text: var(--studio-ink);
+  --color-muted: var(--studio-faint);
+  --color-border: var(--studio-line);
+  --color-surface: var(--studio-surface);
+  --color-warning: var(--studio-warning);
+  --control-height-sm: 32px;
+  --control-height-md: 36px;
+  --control-height-lg: 40px;
+
+  --z-viewer-content: 10;
+  --z-viewer-control: 20;
+  --z-viewer-badge: 30;
+  --z-floating-ui: 100;
+  --z-modal: 1000;
+  --z-toast: 2000;
 }

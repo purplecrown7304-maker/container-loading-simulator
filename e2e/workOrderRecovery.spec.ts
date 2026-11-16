@@ -48,8 +48,8 @@ test('stalled optional re-layout completes and a blocked warning report opens wi
   const fixture = directLoadingFixtures.unstableTwoBox20ft;
   const products = page.getByRole('dialog', { name: '회사 제품 관리' });
   await expect(products).toBeVisible();
-  await products.getByLabel('제품코드').fill('SLENDER');
-  await products.getByLabel('제품명').fill('검증용 고형상 박스');
+  await products.getByLabel('제품코드', { exact: true }).fill('SLENDER');
+  await products.getByLabel('제품명', { exact: true }).fill('검증용 고형상 박스');
   await products.getByLabel('길이 mm').fill(String(fixture.length * 1000));
   await products.getByLabel('폭 mm').fill(String(fixture.width * 1000));
   await products.getByLabel('높이 mm').fill(String(fixture.height * 1000));

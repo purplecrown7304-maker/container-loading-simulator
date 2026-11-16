@@ -13,8 +13,8 @@ async function openProductManager(page: import('@playwright/test').Page) {
 
 async function registerDirectProduct(page: import('@playwright/test').Page, id = 'E2E-DIRECT') {
   const dialog = await openProductManager(page);
-  await dialog.getByLabel('제품코드').fill(id);
-  await dialog.getByLabel('제품명').fill('E2E 직접 적재 제품');
+  await dialog.getByLabel('제품코드', { exact: true }).fill(id);
+  await dialog.getByLabel('제품명', { exact: true }).fill('E2E 직접 적재 제품');
   await dialog.getByLabel('길이 mm').fill('200');
   await dialog.getByLabel('폭 mm').fill('150');
   await dialog.getByLabel('높이 mm').fill('100');

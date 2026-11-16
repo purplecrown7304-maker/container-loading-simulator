@@ -1,5 +1,6 @@
 import { uiWorkflowText } from './workflowPresentation';
 import { uiText, useUiLanguage } from './uiLanguage';
+import StudioIcon from './StudioIcon';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { assessManualMove, supportsOtherPlacement } from './engine/manualPlacement';
@@ -216,7 +217,7 @@ export default function ManualPlacementEditor() {
         </div>
         <button className="manual-apply" disabled={!groupAssessment?.valid || groupIndices.length===0} onClick={applyGroup}>{uiText("선택 블록 이동 적용")}</button>
       </> : <>
-        {locked && <div className="manual-lock">{uiText("🔒 위 화물을 지지하는 박스입니다. 상부 박스를 먼저 이동하세요.")}</div>}
+        {locked && <div className="manual-lock"><StudioIcon name="lock" /> {uiText("🔒 위 화물을 지지하는 박스입니다. 상부 박스를 먼저 이동하세요.").replace('🔒 ', '')}</div>}
         {snapReason && snapReason !== '드래그 위치' && <div className="manual-smart-snap">{uiText("✦ 스마트 스냅 · {0}", [uiText(snapReason)])}</div>}
         <div className="manual-controls">
           {(['x','y','z'] as const).map(axis => <div className="manual-axis" key={axis}><b>{axis.toUpperCase()}</b><button onClick={()=>nudge(axis,-0.05)}>−5cm</button><input type="number" step="0.05" value={position[axis].toFixed(2)} onChange={e=>{setSnapReason(null);setPosition(p=>({...p,[axis]:Math.max(0,Number(e.target.value)||0)}));}}/><button onClick={()=>nudge(axis,0.05)}>+5cm</button></div>)}

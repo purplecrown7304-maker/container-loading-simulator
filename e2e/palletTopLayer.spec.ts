@@ -67,7 +67,7 @@ test('sparse top tier moves to a final pallet and diagnostics download a local Z
   expect(result.pallets[1]).toMatchObject({ tail: true, count: 1 });
   await page.screenshot({ path: test.info().outputPath('pallet-top-layer.png'), fullPage: true });
 
-  await page.getByRole('button', { name: /메뉴/, exact: false }).filter({ has: page.locator('span', { hasText: '☰' }) }).click();
+  await page.getByRole('button', { name: '메뉴', exact: true }).click();
   const downloadAction = page.getByRole('button', { name: /점검 파일 다운로드/ });
   await expect(downloadAction).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('diagnostic-download-menu.png'), fullPage: true });

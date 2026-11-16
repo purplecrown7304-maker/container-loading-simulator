@@ -11,8 +11,8 @@ test('A rules keep the canvas, run a real worker and invalidate results on switc
  await expect.poll(()=>page.evaluate(()=>(window as any).__containerLoadingLatestResult?.container.rules?.version)).toBe('a-v1');
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:open-product-tool', { detail: 'products' })));
   const product = page.getByRole('dialog', { name: '회사 제품 관리' });
-  await product.getByLabel('제품코드').fill('A-QA');
-  await product.getByLabel('제품명').fill('점검용 샘플');
+  await product.getByLabel('제품코드', { exact: true }).fill('A-QA');
+  await product.getByLabel('제품명', { exact: true }).fill('점검용 샘플');
   await product.getByLabel('길이 mm').fill('400'); await product.getByLabel('폭 mm').fill('300'); await product.getByLabel('높이 mm').fill('200');
   await product.getByLabel('중량 kg').fill('2'); await product.getByLabel('박스 적재').selectOption('no');
   await product.getByRole('button', { name: '제품 등록' }).click(); await product.locator('header button').click();
@@ -83,8 +83,8 @@ test('going back cancels an in-flight A worker without publishing a partial layo
  await expect.poll(()=>page.evaluate(()=>(window as any).__containerLoadingLatestResult?.container.rules?.version)).toBe('a-v1');
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:open-product-tool', { detail: 'products' })));
   const product = page.getByRole('dialog', { name: '회사 제품 관리' });
-  await product.getByLabel('제품코드').fill('A-QA');
-  await product.getByLabel('제품명').fill('점검용 샘플');
+  await product.getByLabel('제품코드', { exact: true }).fill('A-QA');
+  await product.getByLabel('제품명', { exact: true }).fill('점검용 샘플');
   await product.getByLabel('길이 mm').fill('400'); await product.getByLabel('폭 mm').fill('300'); await product.getByLabel('높이 mm').fill('200');
   await product.getByLabel('중량 kg').fill('2'); await product.getByLabel('박스 적재').selectOption('no');
   await product.getByRole('button', { name: '제품 등록' }).click(); await product.locator('header button').click();

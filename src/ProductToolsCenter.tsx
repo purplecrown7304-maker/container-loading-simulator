@@ -288,7 +288,7 @@ export default function ProductToolsCenter() {
 
   return <div className="product-tools-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setView(null); }}>
     <section className="product-tools-dialog" role="dialog" aria-modal="true" aria-label={view === 'products' ? uiText("회사 제품 관리") : uiText("범용 및 추가 박스 추천")}>
-      <header><div><span>COMPANY DATA</span><h2>{view === 'products' ? uiText("회사 제품 관리") : uiText("범용 · 추가 박스 스펙 추천")}</h2><p>{view === 'products' ? uiText("제품 마스터를 관리합니다. 실제 출하 수량은 메인 2단계 제품 선택에서 입력합니다.") : uiText("등록 제품 전체와 현재 회사 박스를 함께 분석해 공용화 규격과 추가 보유할 박스 스펙을 제안합니다. 추천만으로 개인 박스 목록에는 추가되지 않습니다.")}</p></div><button type="button" onClick={() => setView(null)}>×</button></header>
+      <header><div><span>Company data</span><h2>{view === 'products' ? uiText("회사 제품 관리") : uiText("범용 · 추가 박스 스펙 추천")}</h2><p>{view === 'products' ? uiText("제품 마스터를 관리합니다. 실제 출하 수량은 메인 2단계 제품 선택에서 입력합니다.") : uiText("등록 제품 전체와 현재 회사 박스를 함께 분석해 공용화 규격과 추가 보유할 박스 스펙을 제안합니다. 추천만으로 개인 박스 목록에는 추가되지 않습니다.")}</p></div><button type="button" aria-label={uiText("닫기")} onClick={() => setView(null)}>×</button></header>
 
       {view === 'products' ? <div className="product-tools-body">
         <input ref={inputRef} hidden type="file" accept=".xlsx,.xls" onChange={event => void importWorkbook(event.target.files?.[0])}/>
@@ -304,7 +304,7 @@ export default function ProductToolsCenter() {
           <label>{uiText("박스 적재")}<select value={draft.requiresBoxPackaging ? 'yes' : 'no'} onChange={event => setDraft(value => ({ ...value, requiresBoxPackaging: event.target.value === 'yes' }))}><option value="yes">{uiText("필요")}</option><option value="no">{uiText("불필요 · 직접 적재")}</option></select></label>
           <div className="product-master-form-buttons"><button className="primary" onClick={saveProduct}>{editingId ? uiText("제품 수정 저장") : uiText("제품 등록")}</button>{editingId && <button onClick={() => { setEditingId(null); setDraft(emptyDraft); }}>{uiText("취소")}</button>}</div>
         </div>
-        <div className="product-master-search"><input value={query} onChange={event => setQuery(event.target.value)} placeholder={uiText("제품명 또는 제품코드 검색")}/></div>
+        <div className="product-master-search"><input value={query} onChange={event => setQuery(event.target.value)} aria-label={uiText("제품명 또는 제품코드 검색")} placeholder={uiText("제품명 또는 제품코드 검색")}/></div>
         <div className="product-master-list">
           <div className="product-master-head"><span>{uiText("제품 정보")}</span><span>{uiText("박스 적합성")}</span><span>{uiText("자동 추천 포장")}</span><span>{uiText("관리")}</span></div>
           {filtered.map(product => {

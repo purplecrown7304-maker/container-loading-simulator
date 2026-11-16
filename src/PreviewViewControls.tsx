@@ -71,6 +71,7 @@ export function PreviewViewControls({
       type="button"
       data-preview-view={value}
       className={view === value ? 'active' : ''}
+      aria-pressed={view === value}
       onClick={() => onViewChange(value)}
     >
       {uiText(label)}
