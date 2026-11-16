@@ -31,8 +31,8 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:open-product-tool', { detail: 'products' })));
   const fixture = directLoadingFixtures.threeBox40ft;
   const product = page.getByRole('dialog', { name: '회사 제품 관리' });
-  await product.getByLabel('제품코드').fill('INSPECTION');
-  await product.getByLabel('제품명').fill('점검용 샘플');
+  await product.getByLabel('제품코드', { exact: true }).fill('INSPECTION');
+  await product.getByLabel('제품명', { exact: true }).fill('점검용 샘플');
   await product.getByLabel('길이 mm').fill(String(fixture.length * 1000)); await product.getByLabel('폭 mm').fill(String(fixture.width * 1000)); await product.getByLabel('높이 mm').fill(String(fixture.height * 1000));
   await product.getByLabel('중량 kg').fill(String(fixture.weightKg)); await product.getByLabel('박스 적재').selectOption('no');
   await product.getByRole('button', { name: '제품 등록' }).click(); await product.locator('header button').click();

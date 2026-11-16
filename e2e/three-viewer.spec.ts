@@ -10,8 +10,8 @@ async function registerDirectProduct(page: import('@playwright/test').Page, id: 
   const fixture = directLoadingFixtures.twelveBox40ft;
   const dialog = page.getByRole('dialog', { name: '회사 제품 관리' });
   await expect(dialog).toBeVisible();
-  await dialog.getByLabel('제품코드').fill(id);
-  await dialog.getByLabel('제품명').fill('가이드 스모크 제품');
+  await dialog.getByLabel('제품코드', { exact: true }).fill(id);
+  await dialog.getByLabel('제품명', { exact: true }).fill('가이드 스모크 제품');
   await dialog.getByLabel('길이 mm').fill(String(fixture.length * 1000));
   await dialog.getByLabel('폭 mm').fill(String(fixture.width * 1000));
   await dialog.getByLabel('높이 mm').fill(String(fixture.height * 1000));
