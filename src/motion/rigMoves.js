@@ -1,6 +1,18 @@
 import { Vector3 } from 'three';
 import { easeInCubic, easeOutCubic } from './easing.js';
 
+/** @param {import('three').Matrix4} matrix @returns {boolean} */
+function isTRSMatrix(matrix) {
+  const m = matrix.elements;
+  for (let index = 0; index < 16; index++) if (!Number.isFinite(m[index])) return false;
+  if (Math.abs(m[3]) > 1e-10 || Math.abs(m[7]) > 1e-10 || Math.abs(m[11]) > 1e-10 || Math.abs(m[15] - 1) > 1e-10) return false;
+  const x = Math.hypot(m[0], m[1], m[2]), y = Math.hypot(m[4], m[5], m[6]), z = Math.hypot(m[8], m[9], m[10]);
+  return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) && x > 0 && y > 0 && z > 0
+    && Math.abs(m[0] / x * (m[4] / y) + m[1] / x * (m[5] / y) + m[2] / x * (m[6] / y)) <= 1e-8
+    && Math.abs(m[0] / x * (m[8] / z) + m[1] / x * (m[9] / z) + m[2] / x * (m[10] / z)) <= 1e-8
+    && Math.abs(m[4] / y * (m[8] / z) + m[5] / y * (m[9] / z) + m[6] / y * (m[10] / z)) <= 1e-8;
+}
+
 /**
  * @typedef {object} MovingRig
  * @property {import('three').Object3D} root
@@ -27,6 +39,8 @@ import { easeInCubic, easeOutCubic } from './easing.js';
  * Production rig translation driven only by the caller's frame clock. It changes
  * presentation transforms, never cargo ownership, loading results or validation.
  * All poses use world X, so rotated/scaled parents retain the requested path.
+ * Manual root matrices retain their linear part; manual wheels must be TRS.
+ * Caller-managed matrixWorldAutoUpdate=false roots/wheels are not modified.
  * Reusable scratch vectors avoid per-frame Three object allocations.
  */
 export class RigMoveManager {
@@ -61,11 +75,16 @@ export class RigMoveManager {
       || !this._readWorld(rig.root)) throw new RangeError('Invalid rig move');
     for (let index = 0; index < rig.wheels.length; index++) {
       const wheel = rig.wheels[index];
-      if (!wheel?.isObject3D || !Number.isFinite(wheel.rotation.z)) throw new RangeError('Invalid rig wheel');
+      if (!wheel?.isObject3D || wheel.matrixWorldAutoUpdate === false
+        || (wheel.matrixAutoUpdate ? !Number.isFinite(wheel.rotation.z) : !isTRSMatrix(wheel.matrix))) throw new RangeError('Invalid rig wheel matrix or world update mode');
     }
     const from = this._moves.has(rig.root) ? this._world.x : x0;
     if (!Number.isFinite(x1 - from) || !Number.isFinite((x1 - from) / rig.wheelRadius)
       || !this._setWorldX(rig.root, from)) throw new RangeError('Invalid rig move distance');
+    for (let index = 0; index < rig.wheels.length; index++) {
+      const wheel = rig.wheels[index];
+      if (!wheel.matrixAutoUpdate) wheel.matrix.decompose(wheel.position, wheel.quaternion, wheel.scale);
+    }
     const previous = this._moves.get(rig.root);
     if (previous) this._remove(previous);
     const move = { rig, x0, x1, t0, d, ease, hideAfter, onDone, from, to: x1, id: this._nextId++, index: this._active.length };
@@ -123,6 +142,7 @@ export class RigMoveManager {
 
   /** @private @param {import('three').Object3D} root @returns {boolean} */
   _readWorld(root) {
+    if (root.matrixWorldAutoUpdate === false) return false;
     root.getWorldPosition(this._world);
     if (!Number.isFinite(this._world.x) || !Number.isFinite(this._world.y) || !Number.isFinite(this._world.z)) return false;
     if (root.parent) {
@@ -137,7 +157,9 @@ export class RigMoveManager {
     this._local.copy(this._world); this._local.x = x;
     if (root.parent) root.parent.worldToLocal(this._local);
     if (!Number.isFinite(this._local.x) || !Number.isFinite(this._local.y) || !Number.isFinite(this._local.z)) return false;
-    root.position.copy(this._local); root.updateMatrix();
+    root.position.copy(this._local);
+    if (root.matrixAutoUpdate) root.updateMatrix();
+    else { root.matrix.setPosition(this._local); root.matrixWorldNeedsUpdate = true; }
     return true;
   }
 
@@ -150,7 +172,10 @@ export class RigMoveManager {
     const wheels = move.rig.wheels;
     for (let index = 0; index < wheels.length; index++) if (!Number.isFinite(wheels[index].rotation.z - turn)) return false;
     if (!this._setWorldX(move.rig.root, x)) return false;
-    for (let index = 0; index < wheels.length; index++) wheels[index].rotation.z -= turn;
+    for (let index = 0; index < wheels.length; index++) {
+      const wheel = wheels[index]; wheel.rotation.z -= turn;
+      if (!wheel.matrixAutoUpdate) wheel.updateMatrix();
+    }
     return true;
   }
 

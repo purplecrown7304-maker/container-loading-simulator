@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Group, Vector3 } from 'three';
+import { Euler, Group, Matrix4, Quaternion, Vector3 } from 'three';
 import { RigMoveManager } from './rigMoves.js';
 
 function rig() {
@@ -118,5 +118,44 @@ describe('production rig move manager', () => {
     manager.schedule({ rig: second, x0: 0, x1: 2, t0: 0, d: 1, onDone: () => order.push('second') });
     manager.skip(); expect(order).toEqual(['first', 'second']); expect(world(first.root).x).toBe(1); expect(manager.isBusy).toBe(true);
     manager.skip(); expect(order).toEqual(['first', 'second', 'new']); expect(world(first.root).x).toBe(4); expect(manager.isBusy).toBe(false);
+  });
+  it.each([false, true])('preserves a direct manual root matrix and flags with fields synced=%s', synced => {
+    const manager = new RigMoveManager(), moving = rig();
+    const initial = new Matrix4().compose(new Vector3(4, 2, 3), new Quaternion().setFromEuler(new Euler(.12, .6, .08, 'YXZ')), new Vector3(2, 3, 4));
+    moving.root.matrixAutoUpdate = false; moving.root.matrix.copy(initial);
+    if (synced) initial.decompose(moving.root.position, moving.root.quaternion, moving.root.scale);
+    moving.root.matrixWorldNeedsUpdate = true; moving.root.updateWorldMatrix(true, false, true);
+    manager.schedule({ rig: moving, x0: 4, x1: 10, t0: 0, d: 1 });
+    expect(moving.root.matrix.elements).toEqual(initial.elements);
+    manager.update(.5); expect(moving.root.matrix.elements.slice(0, 12)).toEqual(initial.elements.slice(0, 12));
+    manager.skip(); expect(world(moving.root).toArray()).toEqual([10, 2, 3]);
+    expect(moving.root.matrix.elements.slice(0, 12)).toEqual(initial.elements.slice(0, 12));
+    const scale = moving.root.getWorldScale(new Vector3()); expect(scale.x).toBeCloseTo(2); expect(scale.y).toBeCloseTo(3); expect(scale.z).toBeCloseTo(4);
+    expect(moving.root.matrixAutoUpdate).toBe(false); expect(moving.root.matrixWorldAutoUpdate).toBe(true); manager.dispose();
+  });
+  it('synchronizes direct manual wheel TRS once and writes the visible matrix when spinning', () => {
+    const manager = new RigMoveManager(), moving = rig(), wheel = moving.wheels[0];
+    const position = new Vector3(1, .5, 0), scale = new Vector3(.4, .5, .6);
+    wheel.matrixAutoUpdate = false; wheel.matrix.compose(position, new Quaternion().setFromEuler(new Euler(.1, .2, .3)), scale);
+    wheel.matrixWorldNeedsUpdate = true; const initial = wheel.matrix.clone();
+    const decompose = vi.spyOn(wheel.matrix, 'decompose');
+    manager.schedule({ rig: moving, x0: 0, x1: .5, t0: 0, d: 1 });
+    expect(decompose).toHaveBeenCalledOnce(); expect(wheel.matrix.equals(initial)).toBe(true);
+    manager.update(.5); expect(wheel.matrix.equals(initial)).toBe(false); manager.skip();
+    const expected = new Matrix4().compose(position, new Quaternion().setFromEuler(new Euler(.1, .2, -.7)), scale);
+    wheel.matrix.elements.forEach((value, index) => expect(value).toBeCloseTo(expected.elements[index], 12));
+    expect(decompose).toHaveBeenCalledOnce(); expect(wheel.matrixAutoUpdate).toBe(false); expect(wheel.matrixWorldAutoUpdate).toBe(true); manager.dispose();
+  });
+  it('rejects caller-managed world matrices and non-TRS manual wheels before changing an active move', () => {
+    const manager = new RigMoveManager(), moving = rig(), bad = rig();
+    manager.schedule({ rig: moving, x0: 0, x1: 10, t0: 0, d: 1 }); manager.update(.2);
+    const current = world(moving.root).toArray(), options = { rig: bad, x0: 4, x1: 9, t0: 0, d: 1 };
+    bad.root.matrixWorldAutoUpdate = false;
+    expect(() => manager.schedule(options)).toThrow(RangeError); expect(bad.root.matrixWorldAutoUpdate).toBe(false);
+    bad.root.matrixWorldAutoUpdate = true; bad.wheels[0].matrixWorldAutoUpdate = false;
+    expect(() => manager.schedule(options)).toThrow(RangeError); expect(bad.wheels[0].matrixWorldAutoUpdate).toBe(false);
+    bad.wheels[0].matrixWorldAutoUpdate = true; bad.wheels[0].matrixAutoUpdate = false; bad.wheels[0].matrix.elements[4] = .2;
+    expect(() => manager.schedule(options)).toThrow(RangeError); expect(bad.root.position.x).toBe(0);
+    expect(world(moving.root).toArray()).toEqual(current); expect(manager.isBusy).toBe(true); manager.skip(); manager.dispose();
   });
 });

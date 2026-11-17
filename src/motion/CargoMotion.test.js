@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BoxGeometry, Euler, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene, Vector3 } from 'three';
+import { BoxGeometry, Euler, Group, Matrix4, Mesh, MeshBasicMaterial, PerspectiveCamera, Quaternion, Scene, Vector3 } from 'three';
 import { CargoMotion, DEFAULT_MOTION_OPTIONS } from './CargoMotion.js';
 
 const pose = (x = 0, y = 0, z = 0, ry = 0) => ({ x, y, z, ry });
@@ -201,5 +201,48 @@ describe('CargoMotion production orchestration', () => {
     const scene = new Scene(), camera = new PerspectiveCamera(), controls = { target: new Vector3(), enabled: true, update() {}, addEventListener: vi.fn() };
     expect(() => new CargoMotion({ scene, camera, controls, options: { rig: { ...rig(scene), wheelRadius: 0 } } })).toThrow(/rig/);
     expect(controls.addEventListener).not.toHaveBeenCalled();
+  });
+  it.each([false, true])('preserves direct manual cargo TRS and flags with fields synced=%s', async synced => {
+    const scene = new Scene(), object = new Group(); scene.add(object);
+    const initial = new Matrix4().compose(new Vector3(4, 2, 3), new Quaternion().setFromEuler(new Euler(.12, .6, .08, 'YXZ')), new Vector3(2, 3, 4));
+    object.matrixAutoUpdate = false; object.matrix.copy(initial);
+    if (synced) initial.decompose(object.position, object.quaternion, object.scale);
+    object.matrixWorldNeedsUpdate = true; object.updateWorldMatrix(true, false, true);
+    const decompose = vi.spyOn(object.matrix, 'decompose'), motion = new CargoMotion({ scene });
+    const pending = motion.replan({ fromPlan: plan(unit('a', pose(4, 2, 3, .6), object)), toPlan: plan(unit('a', pose(10, 2, 3, .6), object)) });
+    initial.elements.forEach((value, index) => expect(object.matrix.elements[index]).toBeCloseTo(value, 12));
+    expect(decompose).toHaveBeenCalledOnce(); motion.update(.05); expect(decompose).toHaveBeenCalledOnce();
+    motion.skip(); await pending;
+    expect(object.getWorldPosition(new Vector3()).distanceTo(new Vector3(10, 2, 3))).toBeLessThan(1e-12);
+    for (let index = 0; index < 12; index++) expect(object.matrix.elements[index]).toBeCloseTo(initial.elements[index], 12);
+    const scale = object.getWorldScale(new Vector3()); expect(scale.x).toBeCloseTo(2); expect(scale.y).toBeCloseTo(3); expect(scale.z).toBeCloseTo(4);
+    expect(object.parent).toBe(scene); expect(object.matrixAutoUpdate).toBe(false); expect(object.matrixWorldAutoUpdate).toBe(true); motion.dispose();
+  });
+  it('rejects unsupported manual cargo matrices before preemption and leaves custom adapters unrestricted', async () => {
+    const scene = new Scene(), valid = new Group(); scene.add(valid);
+    const motion = new CargoMotion({ scene });
+    const pending = motion.replan({ fromPlan: plan(unit('a', pose(), valid)), toPlan: plan(unit('a', pose(10), valid)) });
+    motion.update(.05); const current = valid.position.clone();
+    const matrices = [new Matrix4().makeShear(.2, 0, 0, 0, 0, 0), new Matrix4().makeScale(0, 1, 1), new Matrix4()];
+    matrices[2].elements[3] = .01;
+    for (const matrix of matrices) {
+      const bad = new Group(); scene.add(bad); bad.matrixAutoUpdate = false; bad.matrix.copy(matrix); bad.matrixWorldNeedsUpdate = true;
+      const fields = [bad.position.toArray(), bad.quaternion.toArray(), bad.scale.toArray()];
+      expect(() => motion.replan({ fromPlan: plan(), toPlan: plan(unit('b', pose(4), bad)) })).toThrow(/TRS/);
+      expect(bad.matrix.equals(matrix)).toBe(true); expect([bad.position.toArray(), bad.quaternion.toArray(), bad.scale.toArray()]).toEqual(fields);
+      expect(bad.matrixAutoUpdate).toBe(false); expect(valid.position.equals(current)).toBe(true); expect(motion.isBusy).toBe(true);
+    }
+    const externallyManaged = new Group(); externallyManaged.matrixWorldAutoUpdate = false;
+    expect(() => motion.replan({ fromPlan: plan(), toPlan: plan(unit('b', pose(4), externallyManaged)) })).toThrow(/matrixWorldAutoUpdate/);
+    expect(externallyManaged.matrixWorldAutoUpdate).toBe(false); expect(valid.position.equals(current)).toBe(true);
+    const badRig = rig(scene); badRig.root.matrixWorldAutoUpdate = false;
+    expect(() => motion.switchTruck({ toRig: badRig, fromPlan: plan(), toPlan: plan() })).toThrow(/matrixWorldAutoUpdate/);
+    expect(badRig.root.matrixWorldAutoUpdate).toBe(false); expect(valid.position.equals(current)).toBe(true);
+    motion.skip(); await pending; motion.dispose();
+    const setup = custom(), manual = new Group(); manual.matrixAutoUpdate = false; manual.matrixWorldAutoUpdate = false; manual.matrix.copy(matrices[0]);
+    const untouched = manual.matrix.clone();
+    const customPending = setup.motion.replan({ fromPlan: plan(), toPlan: plan(unit('a', pose(4), manual)) }); setup.motion.skip(); await customPending;
+    expect(setup.poses.get('a')).toEqual(pose(4)); expect(manual.matrix.equals(untouched)).toBe(true);
+    expect(manual.matrixAutoUpdate).toBe(false); expect(manual.matrixWorldAutoUpdate).toBe(false); setup.motion.dispose();
   });
 });

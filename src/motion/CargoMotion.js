@@ -6,6 +6,8 @@
  * Without a custom adapter a stable ID must retain its Object3D between plans.
  * Default adapter parents must have uniform world scale and no shear; custom
  * adapters retain responsibility for any more general affine transforms.
+ * Direct manual cargo matrices must be finite affine TRS and are synchronized
+ * to their fields once at binding. Caller-managed world-update mode is rejected.
  * @typedef {import('./CargoMotion.d.ts').MotionId} MotionId
  * @typedef {import('./CargoMotion.d.ts').MotionPose} MotionPose
  * @typedef {import('./CargoMotion.d.ts').MotionUnit} MotionUnit
@@ -47,6 +49,18 @@ const lexical = (a, b) => String(a) < String(b) ? -1 : String(a) > String(b) ? 1
 /** @param {MotionPose} a @param {MotionPose} b */
 const movedPose = (a, b) => Math.abs(a.x - b.x) > 1e-6 || Math.abs(a.y - b.y) > 1e-6
   || Math.abs(a.z - b.z) > 1e-6 || Math.abs(shortestAngleDelta(a.ry, b.ry)) > 1e-6;
+
+/** @param {import('three').Matrix4} matrix @returns {boolean} */
+function isTRSMatrix(matrix) {
+  const m = matrix.elements;
+  for (let index = 0; index < 16; index++) if (!Number.isFinite(m[index])) return false;
+  if (Math.abs(m[3]) > 1e-10 || Math.abs(m[7]) > 1e-10 || Math.abs(m[11]) > 1e-10 || Math.abs(m[15] - 1) > 1e-10) return false;
+  const x = Math.hypot(m[0], m[1], m[2]), y = Math.hypot(m[4], m[5], m[6]), z = Math.hypot(m[8], m[9], m[10]);
+  return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) && x > 0 && y > 0 && z > 0
+    && Math.abs(m[0] / x * (m[4] / y) + m[1] / x * (m[5] / y) + m[2] / x * (m[6] / y)) <= 1e-8
+    && Math.abs(m[0] / x * (m[8] / z) + m[1] / x * (m[9] / z) + m[2] / x * (m[10] / z)) <= 1e-8
+    && Math.abs(m[4] / y * (m[8] / z) + m[5] / y * (m[9] / z) + m[6] / y * (m[10] / z)) <= 1e-8;
+}
 
 /** Public externally clocked cargo/rig/camera controller. */
 export class CargoMotion {
@@ -274,6 +288,11 @@ export class CargoMotion {
     if (!rig?.root?.isObject3D || !Array.isArray(rig.wheels) || rig.wheels.some(wheel => !wheel?.isObject3D || !Number.isFinite(wheel.rotation.z))
       || !Number.isFinite(rig.wheelRadius) || rig.wheelRadius <= 0 || !finitePoint(rig.doorPoint)
       || !Number.isFinite(rig.parkX) || !Number.isFinite(rig.offX)) throw new RangeError('Invalid cargo motion rig');
+    if (rig.root.matrixWorldAutoUpdate === false) throw new RangeError('Moving rigs require matrixWorldAutoUpdate=true');
+    for (let index = 0; index < rig.wheels.length; index++) {
+      const wheel = rig.wheels[index];
+      if (wheel.matrixWorldAutoUpdate === false || (!wheel.matrixAutoUpdate && !isTRSMatrix(wheel.matrix))) throw new RangeError('Moving rig wheels require TRS matrices and automatic world updates');
+    }
     rig.root.updateWorldMatrix(true, false);
     if (!Number.isFinite(this._worldX(rig.root)) || !finitePoint(this._rigPosition)
       || (rig.root.parent && !Number.isFinite(rig.root.parent.matrixWorld.determinant()))
@@ -289,12 +308,19 @@ export class CargoMotion {
     const y = m[4] * m[4] + m[5] * m[5] + m[6] * m[6];
     const z = m[8] * m[8] + m[9] * m[9] + m[10] * m[10];
     const tolerance = Math.max(x, y, z) * 1e-8;
-    if (!m.every(Number.isFinite) || x <= 0 || y <= 0 || z <= 0 || Math.abs(x - y) > tolerance || Math.abs(x - z) > tolerance
+    if (!m.every(Number.isFinite) || Math.abs(m[3]) > 1e-10 || Math.abs(m[7]) > 1e-10 || Math.abs(m[11]) > 1e-10 || Math.abs(m[15] - 1) > 1e-10
+      || x <= 0 || y <= 0 || z <= 0 || Math.abs(x - y) > tolerance || Math.abs(x - z) > tolerance
       || Math.abs(m[0] * m[4] + m[1] * m[5] + m[2] * m[6]) > tolerance
       || Math.abs(m[0] * m[8] + m[1] * m[9] + m[2] * m[10]) > tolerance
       || Math.abs(m[4] * m[8] + m[5] * m[9] + m[6] * m[10]) > tolerance) {
       throw new RangeError('Default cargo adapter requires uniform, nonsheared parent transforms');
     }
+  }
+  /** Validate before preempting any active sequence; custom adapters own all matrices.
+   * @param {import('three').Object3D} object */
+  _validateManualObject(object) {
+    if (object.matrixWorldAutoUpdate === false) throw new RangeError('Default cargo adapter requires matrixWorldAutoUpdate=true');
+    if (!object.matrixAutoUpdate && !isTRSMatrix(object.matrix)) throw new RangeError('Default cargo adapter requires finite affine TRS manual matrices without shear or perspective');
   }
   /** @param {MotionPlan} fromPlan @param {MotionPlan} toPlan @returns {Plans} */
   _validatePlans(fromPlan, toPlan) {
@@ -311,6 +337,7 @@ export class CargoMotion {
           if (!unit.object3D?.isObject3D || (objects.has(unit.object3D) && objects.get(unit.object3D) !== unit.id)
             || (byId.has(unit.id) && byId.get(unit.id) !== unit.object3D)) throw new RangeError('Default motion IDs require one stable Object3D each');
           objects.set(unit.object3D, unit.id); byId.set(unit.id, unit.object3D);
+          this._validateManualObject(unit.object3D);
           unit.object3D.updateWorldMatrix(true, false);
           this._validateAttachment(unit.object3D.parent);
           unit.object3D.getWorldPosition(this._position);
@@ -369,6 +396,9 @@ export class CargoMotion {
           this.skip();
           this._bindings.clear(); this._parents.clear();
           if (!this._customAdapter) for (const unit of [...plans.from, ...plans.to]) {
+            if (!this._bindings.has(unit.id) && !unit.object3D.matrixAutoUpdate) {
+              unit.object3D.matrix.decompose(unit.object3D.position, unit.object3D.quaternion, unit.object3D.scale);
+            }
             this._bindings.set(unit.id, unit.object3D);
             this._parents.set(unit.id, unit.object3D.parent);
           }
