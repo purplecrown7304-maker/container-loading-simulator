@@ -27,6 +27,11 @@ export type StagingYardPanelProps = {
   onZonePage: (page: number) => void;
   onArrange: () => void;
   onPackagingDetails?: () => void;
+  flightEnabled?: boolean;
+  flightReducedMotion?: boolean;
+  flightCount?: number;
+  onFlightEnabled?: (enabled: boolean) => void;
+  onSkipFlight?: () => void;
 };
 const LIST_PAGE_SIZE = 4;
 const locationLabel = (location: StagingUnit['location']) => location === 'vehicle' ? '현재 차량' : location === 'other-vehicle' ? '다른 차량' : '대기장';
@@ -76,6 +81,14 @@ export default function StagingYardPanel(props: StagingYardPanelProps) {
       {([{ value: 'all', label: '전체 보기' }, { value: 'vehicle', label: '차량 내부' }, { value: 'yard', label: '대기장 보기' }] as const).map(item => <button key={item.value} type="button" data-view-only="true" aria-pressed={props.view === item.value} onClick={() => props.onView(item.value)}>{uiText(item.label)}</button>)}
     </div>
     <ViewerQualityControls />
+    {props.onFlightEnabled && <div className="staging-flight-controls" data-view-only="true">
+      <label><input type="checkbox" checked={props.flightEnabled !== false} disabled={props.flightReducedMotion}
+        onChange={event => props.onFlightEnabled?.(event.target.checked)} />{uiText('화물 이동 연출')}</label>
+      {props.flightReducedMotion && <small>{uiText('동작 줄이기 설정에 따라 즉시 배치합니다.')}</small>}
+      {Boolean(props.flightCount) && <div role="status"><span>{uiText('배치 확정 · {0}개 화물 이동 연출 중', [props.flightCount ?? 0])}</span>
+        <button type="button" data-view-only="true" onClick={props.onSkipFlight}>{uiText('연출 건너뛰기')}</button>
+        <small>{uiText('수량은 최종 배치 기준입니다. 이동 연출은 실제 상차 경로 검증이 아닙니다.')}</small></div>}
+    </div>}
     {props.inventory.packagingStatus === 'pending' && <p className="staging-panel-notice" role="status">{uiText('포장 계획 계산 중')}</p>}
     {props.inventory.packagingStatus === 'error' && <p className="staging-panel-warning" role="status">{uiText('포장 계획을 확인하세요')}</p>}
     {props.message && <p className="staging-panel-message" role="status">{uiMessage(props.message)}</p>}

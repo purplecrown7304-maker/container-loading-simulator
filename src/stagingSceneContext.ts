@@ -3,6 +3,7 @@ import type { Placement } from './engine/types';
 import type { StagingInventory } from './stagingInventory';
 import type { StagingYardLayout } from './stagingYardLayout';
 import type { StagingYardDrag } from './ThreeStagingYard';
+import type { StagingFlightSequence } from './stagingFlights';
 
 export type StagingCameraView = 'all' | 'vehicle' | 'yard';
 export type StagingSceneBridge = {
@@ -15,6 +16,9 @@ export type StagingSceneBridge = {
   viewRequest: number;
   dragging: boolean;
   preview: { unitId: string; candidate: Placement; valid: boolean; reasons: string[] } | null;
+  /** Transient display poses; never serialized or passed to loading/physics. */
+  flight?: StagingFlightSequence | null;
+  completeFlight?: (id: number) => void;
   selectUnit: (id: string | null) => void;
   selectVehicleUnit: (kind: 'cargo' | 'support', index: number) => void;
   setView: (view: StagingCameraView) => void;

@@ -1,6 +1,11 @@
 /** View labels only; source IDs, quantities and engine reasons are preserved. */
 export const uiMessagesStaging: Readonly<Record<string, readonly [string, string]>> = {
   '기본 포장과 실제 운송 보강 계획을 함께 표시합니다.': ['Shows base packaging and the recorded transport securing plan.', 'Hiển thị bao gói cơ bản cùng phương án gia cố vận chuyển đã ghi nhận.'],
+  '화물 이동 연출': ['Animate cargo movements', 'Hiệu ứng di chuyển hàng'],
+  '동작 줄이기 설정에 따라 즉시 배치합니다.': ['Reduced motion is enabled; cargo is placed immediately.', 'Đã bật giảm chuyển động; hàng được xếp ngay.'],
+  '배치 확정 · {0}개 화물 이동 연출 중': ['Plan accepted · animating {0} cargo units', 'Đã xác nhận phương án · đang di chuyển {0} đơn vị hàng'],
+  '연출 건너뛰기': ['Skip animation', 'Bỏ qua hiệu ứng'],
+  '수량은 최종 배치 기준입니다. 이동 연출은 실제 상차 경로 검증이 아닙니다.': ['Counts reflect the accepted plan. Animation does not verify a physical loading route.', 'Số lượng theo phương án đã xác nhận. Hiệu ứng không kiểm chứng đường xếp hàng thực tế.'],
   '3D 품질': ['3D quality', 'Chất lượng 3D'],
   '고품질': ['High', 'Cao'],
   '표준': ['Standard', 'Tiêu chuẩn'],

@@ -94,3 +94,8 @@
 .staging-panel-excluded { margin-top: 12px; }
 .staging-panel-excluded > summary { cursor: pointer; color: var(--studio-warning, #945b15); }
 @media (prefers-reduced-motion: reduce) { .staging-yard-panel button { transition: none; } }
+.staging-flight-controls { display: grid; gap: 6px; margin: 8px 0; font-size: 11px; }
+.staging-flight-controls > label { display: flex; flex-direction: row; align-items: center; gap: 6px; }
+.staging-flight-controls input { width: auto; margin: 0; accent-color: var(--studio-accent, #2563eb); }
+.staging-flight-controls > div { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--studio-line, #e3e6eb); border-radius: 8px; background: var(--studio-sunken, #f8f9fb); }
+.staging-flight-controls small { color: var(--studio-faint, #67717e); line-height: 1.5; }

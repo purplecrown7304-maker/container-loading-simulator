@@ -29,6 +29,7 @@ import { useTransportEquipment } from './transportEquipment';
 import { vehicleRigForEquipment } from './threeVehicleLayout';
 import { openPackagingContents } from './packagingContentsModel';
 import { uiText } from './uiLanguage';
+import { useStagingFlights } from './useStagingFlights';
 
 type HistoryEntry = { previous: { result: LoadingResult; pallets: PalletLoad[] }; selection: string | null;
   identity: StagingIdentityHints; yardPallets: PalletLoad[]; snapshot?: PalletSnapshot };
@@ -139,11 +140,13 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     result: normalizedPlan.result, pallets: normalizedPlan.pallets ?? [], palletSpec: spec, mode: props.mode,
     securingLevel: Math.max(1, ...(normalizedPlan.pallets ?? []).map(load => load.bandingPlan?.securingLevel ?? 1)) as 1 | 2 | 3,
     strategy, materials: readSecuringMaterialSettings() }), [props.container, sourceCargo, normalizedPlan, spec, props.mode, strategy]);
+  const flights = useStagingFlights({ epoch, inventory, layout, planKey: currentPlanKey, container: props.container,
+    vehicleRig: vehicleRigForEquipment(equipment), calculating: props.calculating, confirmed, isPreview: props.isPreview });
   const snapshotSource = useMemo(() => props.mode === 'boxes' ? undefined
     : rawPlan && snapshot ? rawPlan.pallets === snapshot.result.pallets ? snapshot : { ...snapshot, result: { ...snapshot.result, pallets: rawPlan.pallets ?? snapshot.result.pallets } }
       : emptyStagingPalletSnapshot(spec, props.mode), [props.mode, rawPlan, snapshot, spec]);
-  const live = useRef({ props, epoch, base, signature, inventory, context, selected, current, snapshotSource, spec, palletType, confirmed });
-  live.current = { props, epoch, base, signature, inventory, context, selected, current, snapshotSource, spec, palletType, confirmed };
+  const live = useRef({ props, epoch, base, signature, inventory, layout, currentPlanKey, flights, context, selected, current, snapshotSource, spec, palletType, confirmed });
+  live.current = { props, epoch, base, signature, inventory, layout, currentPlanKey, flights, context, selected, current, snapshotSource, spec, palletType, confirmed };
 
   const update = useCallback((change: (value: Control) => Control) => {
     if (epochRef.current !== epoch) return;
@@ -162,6 +165,7 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     const identity = () => setOwner(ownerKey());
     const preference = () => setStrategy(readLoadingStrategyPreference() ?? 'capacity');
     const load = (event: Event) => {
+      live.current.flights.cancel();
       // Input-only notifications also apply recovered manual plans. They must not
       // resurrect a different staging snapshot still held in localStorage.
       stored.current = (event as CustomEvent<StoredState>).detail ?? readStoredState();
@@ -169,6 +173,7 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
       restorationInput.current.signature = live.current.signature;
       setControl(value => ({ ...value, history: [], selected: null, preview: null, dragging: false })); setRestoreRevision(value => value + 1); };
     const reset = () => {
+      live.current.flights.cancel();
       stored.current = null; restored.current = live.current.epoch; restorationGeneration.current++;
       drag.current = null; manualPlan.current = ''; observedPlan.current = '';
       setControl(value => ({ ...freshControl(epochRef.current), view: value.view, viewRequest: value.viewRequest }));
@@ -211,13 +216,15 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
       adoptPallet: () => publishStagingPalletPlan(now.props.inputKey, palletSnapshot) };
   }, []);
   const apply = useCallback((checked: StagingCommandAssessment, options: { yardPallets: PalletLoad[]; selected: string | null;
-    identity: StagingIdentityHints; history: HistoryEntry[]; source?: PalletSnapshot; message: string }) => {
+    identity: StagingIdentityHints; history: HistoryEntry[]; source?: PalletSnapshot; message: string; animateLoad?: boolean }) => {
     const now = live.current;
     if (!checked.valid) { update(value => ({ ...value, message: checked.reasons.join(' · '), dragging: false,
       preview: checked.candidate ? { unitId: checked.unitId, candidate: checked.candidate, valid: false, reasons: checked.reasons } : null })); return false; }
     if (now.epoch !== epochRef.current || now.props.calculating || !now.confirmed) return false;
     const application = applicationFor(checked, options.source);
     if (!now.props.onApply(application)) { update(value => ({ ...value, message: '입력이 변경되었거나 현재 계획을 적용할 준비가 되지 않았습니다.', preview: null, dragging: false })); return false; }
+    if (options.animateLoad) now.flights.queueLoad({ inventory: now.inventory, layout: now.layout, planKey: now.currentPlanKey });
+    else now.flights.cancel();
     manualPlan.current = planKey({ inputSignature: now.signature, result: checked.result, pallets: checked.pallets });
     update(value => ({ ...value, identity: options.identity, selected: options.selected, yardPallets: options.yardPallets,
       history: options.history, message: options.message, dragging: false, preview: null }));
@@ -240,6 +247,7 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
       identity: now.inventory.identity, yardPallets: now.inventory.yardUnits.filter(candidate => candidate.kind === 'pallet').map(identifiedLoad),
       snapshot: now.snapshotSource };
     return apply(checked, { yardPallets, selected: unit.id, identity, history: [...now.current.history, history],
+      animateLoad: !withdrawal,
       message: withdrawal ? '선택 화물을 대기장으로 회수했습니다. 운송 검증을 다시 실행하세요.' : '선택 화물을 차량에 배치했습니다. 운송 검증을 다시 실행하세요.' });
   }, [apply]);
   const loadSelected = useCallback(() => {
@@ -330,6 +338,7 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     }
     const application = applicationFor(checked, source);
     if (!now.props.onApply(application)) return; // The pallet owner may still be mounting.
+    now.flights.cancel();
     restorationGeneration.current++;
     manualPlan.current = planKey({ ...plan, result: checked.result, pallets: checked.pallets });
     restored.current = now.epoch;
@@ -369,6 +378,7 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
   }, []);
   const bridge: StagingSceneBridge = { inventory, layout, visibleZoneIds, selectedUnitId: current.selected, view: current.view,
     viewRequest: current.viewRequest, dragging: current.dragging, preview: current.preview,
+    flight: flights.sequence, completeFlight: flights.complete,
     selectUnit, selectVehicleUnit, setView, onDragStart, onDragMove: previewDrag, onDragEnd,
     onDraggingChange: dragging => update(value => ({ ...value, dragging, ...(!dragging ? { preview: null } : {}) })) };
   const message = [props.pendingProducts ? uiText('포장 미확정 제품 {0} EA · 포장 확정 후 실제 박스 수량이 표시됩니다.', [props.pendingProducts]) : '',
@@ -378,6 +388,8 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     busy={props.calculating || packaging.busy} canUndo={current.history.length > 0}
     canLoad={confirmed && !props.calculating && !selected?.requiresPackaging} canWithdraw={confirmed && !props.calculating}
     message={message} preview={current.preview ?? undefined} onSelect={selectUnit} onLoad={loadSelected} onWithdraw={withdraw}
+    flightEnabled={flights.enabled} flightReducedMotion={flights.reducedMotion} flightCount={flights.sequence?.flights.length ?? 0}
+    onFlightEnabled={flights.setEnabled} onSkipFlight={flights.cancel}
     onUndo={undo} onView={setView}
     onZonePage={next => update(value => ({ ...value, page: Math.max(0, Math.min(pageCount - 1, next)),
       view: 'yard', viewRequest: value.viewRequest + 1 }))}

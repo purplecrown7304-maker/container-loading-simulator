@@ -10,8 +10,26 @@ import type { VehicleModels } from './threeVehicleModels';
 import { flatRackParts } from './flatRackVisual';
 
 export type ComparisonModels = Partial<Record<ModelKey, MeshyModel>>;
+/** World-space final-to-current rigid transform; never an engine placement. */
+export type DisplayFlightTransform = { cargoIndices: readonly number[]; supportIndex?: number | null; matrix: THREE.Matrix4 };
+type VisibilityOptions = { cut: number; step: number; shell: boolean; labels: boolean; weight: boolean; showCg: boolean; selected: number | null; selectedSupport?: number | null };
+
+const near = (value: number, expected = 0) => Math.abs(value - expected) <= 1e-5;
+function isRigidDisplayMatrix(matrix: THREE.Matrix4) {
+  if (!matrix || !Array.isArray(matrix.elements) || matrix.elements.length !== 16) return false;
+  const e = matrix.elements;
+  for (let index = 0; index < 16; index++) if (!Number.isFinite(e[index])) return false;
+  return near(e[3]) && near(e[7]) && near(e[11]) && near(e[15], 1)
+    && near(e[0] * e[0] + e[1] * e[1] + e[2] * e[2], 1)
+    && near(e[4] * e[4] + e[5] * e[5] + e[6] * e[6], 1)
+    && near(e[8] * e[8] + e[9] * e[9] + e[10] * e[10], 1)
+    && near(e[0] * e[4] + e[1] * e[5] + e[2] * e[6])
+    && near(e[0] * e[8] + e[1] * e[9] + e[2] * e[10])
+    && near(e[4] * e[8] + e[5] * e[9] + e[6] * e[10])
+    && near(matrix.determinant(), 1);
+}
 type CargoBatch = { indices: number[]; meshes: THREE.InstancedMesh[]; visibleIndices: number[] };
-type LabelBatch = { indices: number[]; mesh: THREE.InstancedMesh };
+type LabelBatch = { indices: number[]; mesh: THREE.InstancedMesh; visibleIndices: number[] };
 const noRaycast = () => {};
 export function isRoadTruckBody(plan: ThreeComparisonPlan) {
   return (plan.vehicleRig !== undefined && !['none', 'articulated'].includes(plan.vehicleRig))
@@ -158,7 +176,7 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     if (!material) continue;
     const mesh = new THREE.InstancedMesh(labelGeometry, material, indices.length * 4);
     mesh.name = `Printed carton labels ${id}`; mesh.raycast = noRaycast; mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    labelBatches.push({ indices, mesh }); instanceMeshes.push(mesh); cargoRoot.add(mesh);
+    labelBatches.push({ indices, mesh, visibleIndices: [] }); instanceMeshes.push(mesh); cargoRoot.add(mesh);
   }
   const labelLocalMatrices = [
     { p: [0, 0, .5005], ry: 0 }, { p: [0, 0, -.5005], ry: Math.PI },
@@ -174,6 +192,10 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     const unit = new THREE.Group(); unit.position.fromArray(sceneCenter(support, plan.container)); unit.name = `Support_${index}`; supportRoot.add(unit);
     addModel(support.modelKey || 'wood-pallet', unit, [0, 0, 0], [support.length, support.height, support.width], { kind: 'support', index });
     return unit;
+  });
+  const initialSupports = supports.map(support => {
+    support.updateMatrix();
+    return { matrix: support.matrix.clone(), position: support.position.clone(), quaternion: support.quaternion.clone(), scale: support.scale.clone() };
   });
   for (const aid of plan.decorations) {
     const unit = new THREE.Group(); unit.position.fromArray(sceneCenter(aid, plan.container));
@@ -240,26 +262,37 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
 
   let visibleIndices: number[] = [];
   let acceptedFrame: InertiaAnimationFrame | undefined;
-  const scratch = new THREE.Matrix4();
-  function updateVisibility(options: { cut: number; step: number; shell: boolean; labels: boolean; weight: boolean; showCg: boolean; selected: number | null; selectedSupport?: number | null }) {
-    visibleIndices = visibleCargoIndexes(plan, options.cut, options.step, options.weight);
-    const visible = new Set(visibleIndices);
+  let lastVisibility: VisibilityOptions | null = null;
+  let displayFlightCount = 0, disposed = false;
+  const scratch = new THREE.Matrix4(), flightScratch = new THREE.Matrix4();
+  const assignedCargo = new Uint8Array(cargoMatrices.length), assignedSupports = new Uint8Array(supports.length);
+  const visibleCargo = new Uint8Array(cargoMatrices.length);
+  /** Flight frames only rewrite existing matrices/bounds; membership and label
+   * filtering are cached by updateVisibility when display options change. */
+  function refreshDisplayMatrices() {
+    const options = lastVisibility;
+    if (!options) return;
     equipment.visible = options.shell; supportRoot.visible = decorRoot.visible = !options.weight;
     weightRoot.visible = options.weight; cgRoot.visible = hasCg && options.showCg;
-    for (const batch of cargoBatches) {
-      batch.visibleIndices = batch.indices.filter(index => visible.has(index));
-      for (const mesh of batch.meshes) {
+    for (let batchIndex = 0; batchIndex < cargoBatches.length; batchIndex++) {
+      const batch = cargoBatches[batchIndex];
+      for (let meshIndex = 0; meshIndex < batch.meshes.length; meshIndex++) {
+        const mesh = batch.meshes[meshIndex];
         mesh.count = batch.visibleIndices.length;
-        batch.visibleIndices.forEach((index, slot) => mesh.setMatrixAt(slot, cargoMatrices[index]));
+        for (let slot = 0; slot < batch.visibleIndices.length; slot++) mesh.setMatrixAt(slot, cargoMatrices[batch.visibleIndices[slot]]);
         mesh.instanceMatrix.needsUpdate = true; mesh.computeBoundingSphere();
       }
     }
-    for (const batch of labelBatches) {
+    for (let batchIndex = 0; batchIndex < labelBatches.length; batchIndex++) {
+      const batch = labelBatches[batchIndex];
       let slot = 0;
-      if (options.labels) for (const index of batch.indices) if (visible.has(index)) for (const local of labelLocalMatrices) batch.mesh.setMatrixAt(slot++, scratch.multiplyMatrices(cargoMatrices[index], local));
+      for (let index = 0; index < batch.visibleIndices.length; index++) {
+        const cargoMatrix = cargoMatrices[batch.visibleIndices[index]];
+        for (let face = 0; face < labelLocalMatrices.length; face++) batch.mesh.setMatrixAt(slot++, scratch.multiplyMatrices(cargoMatrix, labelLocalMatrices[face]));
+      }
       batch.mesh.count = slot; batch.mesh.instanceMatrix.needsUpdate = true; batch.mesh.computeBoundingSphere();
     }
-    selection.visible = options.selected !== null && visible.has(options.selected);
+    selection.visible = options.selected !== null && visibleCargo[options.selected] === 1;
     if (options.selected !== null && cargoMatrices[options.selected]) { selection.matrix.copy(cargoMatrices[options.selected]); selection.matrixWorldNeedsUpdate = true; }
     const selectedSupport = options.selectedSupport == null ? undefined : supports[options.selectedSupport];
     supportSelection.visible = Boolean(selectedSupport) && !options.weight;
@@ -270,7 +303,70 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     }
     root.updateMatrixWorld(true);
   }
+  function updateVisibility(options: VisibilityOptions) {
+    if (disposed) return;
+    lastVisibility = { ...options };
+    visibleIndices = visibleCargoIndexes(plan, options.cut, options.step, options.weight);
+    visibleCargo.fill(0);
+    for (let index = 0; index < visibleIndices.length; index++) visibleCargo[visibleIndices[index]] = 1;
+    for (let batchIndex = 0; batchIndex < cargoBatches.length; batchIndex++) {
+      const batch = cargoBatches[batchIndex]; batch.visibleIndices.length = 0;
+      for (let index = 0; index < batch.indices.length; index++) if (visibleCargo[batch.indices[index]]) batch.visibleIndices.push(batch.indices[index]);
+    }
+    for (let batchIndex = 0; batchIndex < labelBatches.length; batchIndex++) {
+      const batch = labelBatches[batchIndex]; batch.visibleIndices.length = 0;
+      if (options.labels) for (let index = 0; index < batch.indices.length; index++) if (visibleCargo[batch.indices[index]]) batch.visibleIndices.push(batch.indices[index]);
+    }
+    refreshDisplayMatrices();
+  }
+  function restoreDisplayBaseline() {
+    for (let index = 0; index < cargoMatrices.length; index++) cargoMatrices[index].copy(initialCargo[index]);
+    for (let index = 0; index < supports.length; index++) {
+      const support = supports[index];
+      const initial = initialSupports[index];
+      support.position.copy(initial.position); support.quaternion.copy(initial.quaternion); support.scale.copy(initial.scale);
+    }
+  }
+  function applyDisplayFlights(transforms: readonly DisplayFlightTransform[]) {
+    if (disposed) return;
+    displayFlightCount = 0;
+    // An accepted Rapier pose is authoritative even if an old display consumer
+    // tries to advance or clear a flight on the same demand frame.
+    if (acceptedFrame) { refreshDisplayMatrices(); return; }
+    restoreDisplayBaseline(); assignedCargo.fill(0); assignedSupports.fill(0);
+    let valid = true;
+    for (let transformIndex = 0; transformIndex < transforms.length; transformIndex++) {
+      const transform = transforms[transformIndex];
+      if (!transform || !Array.isArray(transform.cargoIndices) || !isRigidDisplayMatrix(transform.matrix)) { valid = false; break; }
+      for (let cargoIndex = 0; cargoIndex < transform.cargoIndices.length; cargoIndex++) {
+        const index = transform.cargoIndices[cargoIndex];
+        if (!Number.isInteger(index) || index < 0 || index >= cargoMatrices.length || assignedCargo[index]) { valid = false; break; }
+        assignedCargo[index] = 1;
+      }
+      if (!valid) break;
+      const index = transform.supportIndex;
+      if (index != null) {
+        if (!Number.isInteger(index) || index < 0 || index >= supports.length || assignedSupports[index]) { valid = false; break; }
+        assignedSupports[index] = 1;
+      }
+    }
+    if (valid) for (let transformIndex = 0; transformIndex < transforms.length; transformIndex++) {
+      const transform = transforms[transformIndex];
+      if (!transform.cargoIndices.length && transform.supportIndex == null) continue;
+      for (let index = 0; index < transform.cargoIndices.length; index++) cargoMatrices[transform.cargoIndices[index]].premultiply(transform.matrix);
+      if (transform.supportIndex != null) {
+        const support = supports[transform.supportIndex];
+        flightScratch.multiplyMatrices(transform.matrix, initialSupports[transform.supportIndex].matrix)
+          .decompose(support.position, support.quaternion, support.scale);
+      }
+      displayFlightCount++;
+    }
+    if (lastVisibility) refreshDisplayMatrices();
+    else root.updateMatrixWorld(true);
+  }
   function applyFrame(frame?: InertiaAnimationFrame) {
+    if (disposed) return;
+    displayFlightCount = 0;
     acceptedFrame = frame;
     updateCenterOfGravity(frame);
     cargoMatrices.forEach((matrix, index) => {
@@ -278,23 +374,27 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
       else { const box = plan.placements[index]; poseMatrix(frame.cargo, index, new THREE.Vector3(box.length, box.height, box.width), matrix); }
     });
     supports.forEach((support, index) => {
-      if (!frame) { support.position.fromArray(sceneCenter(plan.supports[index], plan.container)); support.quaternion.identity(); }
+      if (!frame) { const initial = initialSupports[index]; support.position.copy(initial.position); support.quaternion.copy(initial.quaternion); support.scale.copy(initial.scale); }
       else {
         const offset = index * 7, poses = frame.supports;
+        support.scale.copy(initialSupports[index].scale);
         support.position.set(poses[offset], poses[offset + 1], poses[offset + 2]);
         support.quaternion.set(poses[offset + 3], poses[offset + 4], poses[offset + 5], poses[offset + 6]).normalize();
       }
     });
   }
   return {
-    isCargoVisible: (index: number) => visibleIndices.includes(index),
+    isCargoVisible: (index: number) => visibleCargo[index] === 1,
     clearanceForSelection: (selection: ClearanceSelection | null) => selectedCargoClearance(plan, selection, acceptedFrame),
-    root, modelCount, labelFaces: labelBatches.reduce((count, batch) => count + batch.indices.length * 4, 0), updateVisibility, applyFrame,
+    root, modelCount, labelFaces: labelBatches.reduce((count, batch) => count + batch.indices.length * 4, 0), updateVisibility, applyFrame, applyDisplayFlights,
+    get displayFlightActive() { return displayFlightCount > 0; },
+    get displayFlightCount() { return displayFlightCount; },
     get visibleCargo() { return visibleIndices.length; },
     get centerOfGravityVisible() { return cgRoot.visible && hasCg; },
     get centerOfGravityPosition(): [number, number, number] | null { return cgSphere ? cgSphere.position.toArray() : null; },
-    get visibleLabelFaces() { return labelBatches.reduce((count, batch) => count + batch.mesh.count, 0); },
+    get visibleLabelFaces() { let count = 0; for (let index = 0; index < labelBatches.length; index++) count += labelBatches[index].mesh.count; return count; },
     dispose() {
+      if (disposed) return; disposed = true; displayFlightCount = 0;
       for (const material of ownedMaterials) material.dispose();
       for (const mesh of instanceMeshes) mesh.dispose();
       vehicle?.dispose();

@@ -22,6 +22,7 @@ import ThreeRenderPipeline, { type RenderPipelineStatus } from './ThreeRenderPip
 import { useViewerQuality, VIEWER_QUALITY_PROFILES } from './viewerQuality';
 import ThreeSceneLighting from './ThreeSceneLighting';
 import { cameraFitAction, createCameraMotion, sampleCameraMotion, type CameraMotion, type CameraMotionPose } from './cameraMotion';
+import ThreeStagingFlights from './ThreeStagingFlights';
 
 export type ThreeComparisonSceneStats = {
   revision: number;
@@ -41,6 +42,8 @@ export type ThreeComparisonSceneStats = {
   cameraPose: string;
   cameraMoving?: boolean;
   cameraRequest?: string;
+  flightActive?: boolean;
+  flightCount?: number;
 };
 export type ThreeComparisonBenchmark = {
   durationMs: number;
@@ -178,6 +181,7 @@ function StagingVehicleOutline({ bounds }: { bounds: StagingBounds | null }) {
 function SceneContents({ resources, options, bindings, frameState }: { resources: Resources; options: ThreeComparisonSceneProps; bindings: WeakMap<InertiaAnimationFrame, number>; frameState: { current: FrameState } }) {
   const { invalidate } = useThree();
   const { plan, frameData, frameRevision, cut, shell, step, labels, weight, showCg, selected, selectedSupport } = options;
+  const flying = Boolean(options.staging?.flight && !frameData && !weight);
   const [clearance, setClearance] = useState<CargoClearance | null>(null);
   useLayoutEffect(() => {
     if (!frameData) {
@@ -189,11 +193,12 @@ function SceneContents({ resources, options, bindings, frameState }: { resources
       // own baseline; a stale/partial frame is never allowed to mix the two.
       frameState.current = { ...frameState.current, rejectedFrame: true };
     }
-    resources.updateVisibility({ cut, shell, step, labels, weight, showCg, selected, selectedSupport });
+    resources.updateVisibility({ cut, shell, step, labels, weight, showCg: showCg && !flying,
+      selected: flying ? null : selected, selectedSupport: flying ? null : selectedSupport });
     const selection = selectedSupport != null ? { kind: 'support' as const, index: selectedSupport }
       : selected != null && resources.isCargoVisible(selected) ? { kind: 'cargo' as const, index: selected } : null;
-    setClearance(weight ? null : resources.clearanceForSelection(selection)); invalidate();
-  }, [resources, plan, frameData, frameRevision, cut, shell, step, labels, weight, showCg, selected, selectedSupport, bindings, frameState, invalidate]);
+    setClearance(weight || flying ? null : resources.clearanceForSelection(selection)); invalidate();
+  }, [resources, plan, frameData, frameRevision, cut, shell, step, labels, weight, showCg, selected, selectedSupport, bindings, frameState, invalidate, flying]);
   const selectCell = (event: ThreeEvent<MouseEvent | PointerEvent>) => {
     if (!weight || event.object.userData.kind !== 'weightSurface') return;
     event.stopPropagation();
@@ -210,7 +215,9 @@ function SceneContents({ resources, options, bindings, frameState }: { resources
     } else if (data.kind === 'support') { event.stopPropagation(); options.onSupportSelect?.(data.index); }
     else if (data.kind === 'weightSurface' && weight) selectCell(event);
   };
-  return <><ThreeClearanceGuides plan={plan} clearance={options.clearanceVisible === false ? null : clearance} axis={options.clearanceAxis ?? 'width'}/><primitive object={resources.root} dispose={null} onClick={handleClick} onPointerMove={selectCell}
+  return <>{options.staging && <ThreeStagingFlights resources={resources} plan={plan} units={options.staging.inventory.vehicleUnits}
+    sequence={options.staging.flight ?? null} suspended={Boolean(frameData || weight)} onComplete={options.staging.completeFlight ?? (() => {})} />}
+    <ThreeClearanceGuides plan={plan} clearance={options.clearanceVisible === false || flying ? null : clearance} axis={options.clearanceAxis ?? 'width'}/><primitive object={resources.root} dispose={null} onClick={handleClick} onPointerMove={selectCell}
     onPointerOut={(event: ThreeEvent<PointerEvent>) => { if (event.object.userData.kind === 'weightSurface') options.onCellSelect?.(null); }} /></>;
 }
 
@@ -235,7 +242,7 @@ function SceneRuntime({ resources, options, frameState }: { resources: Resources
   useFrame(state => {
     if (!resources) return;
     const stats: ThreeComparisonSceneStats = {
-      clearance: !options.weight ? resources.clearanceForSelection(options.selectedSupport != null ? { kind: 'support', index: options.selectedSupport }
+      clearance: !options.weight && !resources.displayFlightActive ? resources.clearanceForSelection(options.selectedSupport != null ? { kind: 'support', index: options.selectedSupport }
         : options.selected != null && resources.isCargoVisible(options.selected) ? { kind: 'cargo', index: options.selected } : null) : null,
       revision: options.plan.revision, modelCount: resources.modelCount, labelFaces: resources.labelFaces,
       visibleLabelFaces: resources.visibleLabelFaces, visibleCargo: resources.visibleCargo,
@@ -245,6 +252,7 @@ function SceneRuntime({ resources, options, frameState }: { resources: Resources
       cameraPose: [...state.camera.position.toArray(), ...state.camera.quaternion.toArray()].map(value => value.toFixed(5)).join(','),
       cameraMoving: state.camera.userData.viewerTransitionActive === true,
       cameraRequest: typeof state.camera.userData.viewerViewRequest === 'string' ? state.camera.userData.viewerViewRequest : undefined,
+      flightActive: resources.displayFlightActive, flightCount: resources.displayFlightCount,
       ...frameState.current,
     };
     if (readyResource.current !== resources) { readyResource.current = resources; callbacks.current.onReady?.(stats); }
@@ -287,6 +295,9 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
   useEffect(() => { setPipelineError(''); }, [quality]);
   useEffect(() => { setYardError(''); }, [options.staging?.inventory.inputSignature]);
   useEffect(() => {
+    if (error && options.staging?.flight) options.staging.completeFlight?.(options.staging.flight.id);
+  }, [error, options.staging]);
+  useEffect(() => {
     let cancelled = false;
     let dispose: (() => void) | undefined;
     setError(''); frameState.current = { acceptedFrameStep: null, rejectedFrame: false };
@@ -327,7 +338,7 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
       {staging && <ThreeStagingYard key={yardAttempt} units={staging.inventory.yardUnits} layout={staging.layout} visibleZoneIds={staging.visibleZoneIds} selectedUnitId={staging.selectedUnitId}
         labels={{ empty: uiText('대기 화물 없음'), aisle: uiText('이동 통로'), doorClearance: uiText('출입문 여유 공간'), boxes: uiText('낱박스'), pallets: uiText('파렛트'), pending: uiText('계산 전'), checking: uiText('검토 중'), unloaded: uiText('미적재'), error: uiText('입력·포장 확인') }}
         onSelect={staging.selectUnit} onDragStart={staging.onDragStart} onDragMove={staging.onDragMove} onDragEnd={staging.onDragEnd} onDraggingChange={staging.onDraggingChange} onError={setYardError} />}
-      {staging && <StagingVehicleOutline bounds={selectedStaging?.bounds ?? null} />}
+      {staging && <StagingVehicleOutline bounds={staging.flight?.flights.some(flight => flight.unitId === staging.selectedUnitId) ? null : selectedStaging?.bounds ?? null} />}
       {staging?.preview && previewUnit && <ThreeStagingPreview unit={previewUnit} candidate={staging.preview.candidate} container={plan.container} valid={staging.preview.valid} onError={setYardError} />}
       <SceneRuntime resources={resources} options={options} frameState={frameState} />
       <ThreeRenderPipeline quality={quality.quality} ambientOcclusion={quality.ambientOcclusion} onStatus={options.onPipelineStatus} onError={setPipelineError} />
