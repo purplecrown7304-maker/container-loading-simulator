@@ -23,5 +23,5 @@ export function runPhysicsScenarioJob<J extends PhysicsScenarioJob>(
   }
   // Certification only needs motion metrics; frames are never transferred.
   return runInertiaAnimation(job.container, job.placements, job.scenario, job.supports, onProgress, job.securing,
-    { captureFrames: false, shouldCancel }) as Promise<PhysicsScenarioJobResult<J>>;
+    { captureFrames: false, captureFinalMotion: true, shouldCancel }) as Promise<PhysicsScenarioJobResult<J>>;
 }

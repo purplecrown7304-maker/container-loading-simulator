@@ -335,7 +335,7 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
       <ThreeSceneLighting quality={quality.quality} groundY={groundY} />
       <ThreeViewerEnvironment groundY={groundY} id={options.environment ?? DEFAULT_VIEWER_ENVIRONMENT} length={plan.container.length} width={plan.container.width} height={plan.container.height} attempt={options.environmentAttempt} onStatus={options.onEnvironmentStatus} />
       {resources && <SceneContents resources={resources} options={options} bindings={bindings.current} frameState={frameState} />}
-      {staging && <ThreeStagingYard key={yardAttempt} units={staging.inventory.yardUnits} layout={staging.layout} visibleZoneIds={staging.visibleZoneIds} selectedUnitId={staging.selectedUnitId}
+      {staging && <ThreeStagingYard key={yardAttempt} units={staging.inventory.yardUnits} layout={staging.layout} visibleZoneIds={staging.visibleZoneIds} selectedUnitId={staging.selectedUnitId} cartonLabelsEnabled={options.labels}
         labels={{ empty: uiText('대기 화물 없음'), aisle: uiText('이동 통로'), doorClearance: uiText('출입문 여유 공간'), boxes: uiText('낱박스'), pallets: uiText('파렛트'), pending: uiText('계산 전'), checking: uiText('검토 중'), unloaded: uiText('미적재'), error: uiText('입력·포장 확인') }}
         onSelect={staging.selectUnit} onDragStart={staging.onDragStart} onDragMove={staging.onDragMove} onDragEnd={staging.onDragEnd} onDraggingChange={staging.onDraggingChange} onError={setYardError} />}
       {staging && <StagingVehicleOutline bounds={staging.flight?.flights.some(flight => flight.unitId === staging.selectedUnitId) ? null : selectedStaging?.bounds ?? null} />}

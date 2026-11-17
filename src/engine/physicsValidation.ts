@@ -1,4 +1,4 @@
-import { runInertiaAnimation, type InertiaBodyMotion, type InertiaSecuringProfile } from './inertiaSimulation';
+import { runInertiaAnimation, isCompleteSecuredPhysicsDuration, type InertiaAnimationResult, type InertiaBodyMotion, type InertiaSecuringProfile } from './inertiaSimulation';
 export { isCompleteSecuredPhysicsDuration } from './inertiaSimulation';
 import type { ContainerSpec, Placement } from './types';
 
@@ -259,6 +259,34 @@ function summarizePhysicsMotion(
   };
 }
 
+/** Classify the complete final state from the identical secured simulation world. */
+export function securedPhysicsFromMotion(container: ContainerSpec, placements: Placement[], scenario: PhysicsScenario,
+  supports: PhysicsSupport[], securing: InertiaSecuringProfile, result: InertiaAnimationResult): PhysicsValidationResult {
+  const steps = Math.round(result.simulatedSeconds * 60);
+  if (result.scenario !== scenario || result.cargoCount !== placements.length || result.supportCount !== supports.length
+    || !isCompleteSecuredPhysicsDuration(placements.length + supports.length, steps, result.simulatedSeconds)
+    || !result.finalMotion || result.finalMotion.cargo.length !== placements.length || result.finalMotion.supports.length !== supports.length) {
+    throw new Error('PHYSICS_MOTION_INCOMPLETE');
+  }
+  const motionFor = (item: Placement | PhysicsSupport, motion: InertiaBodyMotion): MotionMetrics => {
+    const center = toPhysicsCenter(container, item);
+    const values = [...Object.values(motion.position), ...Object.values(motion.rotation), ...Object.values(motion.linearVelocity), ...Object.values(motion.angularVelocity)];
+    if (!values.every(Number.isFinite)) throw new Error('PHYSICS_NON_FINITE_MOTION');
+    const base = {
+      horizontalShiftM: Math.hypot(motion.position.x - center.x, motion.position.z - center.z),
+      verticalShiftM: motion.position.y - center.y,
+      tiltDeg: tiltFromQuaternion(motion.rotation),
+      linearSpeedMps: magnitude(motion.linearVelocity),
+      angularSpeedRadps: magnitude(motion.angularVelocity),
+      outOfBounds: isCenterOutOfBounds(container, item, motion.position),
+    };
+    return { ...base, ...describePhysicsMotion(base) };
+  };
+  const cargoMotion = result.finalMotion.cargo.map((motion, index): PhysicsPlacementResult => ({ index, cargoId: placements[index].cargoId, ...motionFor(placements[index], motion) }));
+  const supportMotion = result.finalMotion.supports.map((motion, index): PhysicsSupportResult => ({ index, id: supports[index].id, ...motionFor(supports[index], motion) }));
+  return { ...summarizePhysicsMotion(scenario, steps, cargoMotion, supportMotion), securingProfile: securing };
+}
+
 /** 현재 적재 좌표를 Rapier 월드에 복제해 중력/운송가속도에서 유지되는지 검증한다. */
 export async function runPhysicsValidation(
   container: ContainerSpec,
@@ -284,26 +312,7 @@ export async function runPhysicsValidation(
   if (securing) {
     const result = await runInertiaAnimation(container, placements, scenario, supports, onProgress, securing,
       { captureFrames: false, captureFinalMotion: true, shouldCancel });
-    if (!result.finalMotion || result.finalMotion.cargo.length !== placements.length || result.finalMotion.supports.length !== supports.length) {
-      throw new Error('PHYSICS_MOTION_INCOMPLETE');
-    }
-    const motionFor = (item: Placement | PhysicsSupport, motion: InertiaBodyMotion): MotionMetrics => {
-      const center = toPhysicsCenter(container, item);
-      const values = [...Object.values(motion.position), ...Object.values(motion.rotation), ...Object.values(motion.linearVelocity), ...Object.values(motion.angularVelocity)];
-      if (!values.every(Number.isFinite)) throw new Error('PHYSICS_NON_FINITE_MOTION');
-      const base = {
-        horizontalShiftM: Math.hypot(motion.position.x - center.x, motion.position.z - center.z),
-        verticalShiftM: motion.position.y - center.y,
-        tiltDeg: tiltFromQuaternion(motion.rotation),
-        linearSpeedMps: magnitude(motion.linearVelocity),
-        angularSpeedRadps: magnitude(motion.angularVelocity),
-        outOfBounds: isCenterOutOfBounds(container, item, motion.position),
-      };
-      return { ...base, ...describePhysicsMotion(base) };
-    };
-    const cargoMotion = result.finalMotion.cargo.map((motion, index): PhysicsPlacementResult => ({ index, cargoId: placements[index].cargoId, ...motionFor(placements[index], motion) }));
-    const supportMotion = result.finalMotion.supports.map((motion, index): PhysicsSupportResult => ({ index, id: supports[index].id, ...motionFor(supports[index], motion) }));
-    return { ...summarizePhysicsMotion(scenario, Math.round(result.simulatedSeconds * 60), cargoMotion, supportMotion), securingProfile: securing };
+    return securedPhysicsFromMotion(container, placements, scenario, supports, securing, result);
   }
 
   const RAPIER = await getRapier();

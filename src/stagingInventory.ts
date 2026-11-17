@@ -7,7 +7,7 @@ import type { LoadingStrategy } from './engine/loadingEngine';
 export type StagingMode = 'boxes' | 'pallets' | 'mixed';
 export type StagingReason = { reason: string; reasonCode?: string };
 export type StagingBoxIdentity = { id: string; cargoId: string; stableId: string };
-export type StagingUnitContent = { cargoId: string; name: string; boxCount: number; displayColor?: string };
+export type StagingUnitContent = { cargoId: string; name: string; boxCount: number; displayColor?: string; labelCode?: string; unitsPerPackage?: number };
 /** Aliases only, never a second quantity/location store. */
 export type StagingIdentityHints = { unitToStableId: Record<string, string> };
 export type StagingUnit = {
@@ -322,7 +322,7 @@ export function buildStagingInventory(input: StagingInventoryInput): StagingInve
     const row = cargo.get(box.cargoId)!;
     return { id: box.stableId, kind: 'box', name: row.name || row.id, cargoId: row.id, cargoIds: [row.id],
       length: row.length, width: row.width, height: row.height, weightKg: row.weightKg, boxCount: 1,
-      displayColor: row.displayColor, contents: [{ cargoId: row.id, name: row.productName || row.name || row.id, boxCount: 1, displayColor: row.displayColor }], unloadPriorities: priorities([row.id], cargo), location,
+      displayColor: row.displayColor, contents: [{ cargoId: row.id, name: row.productName || row.name || row.id, boxCount: 1, displayColor: row.displayColor, labelCode: row.boxId || row.id, unitsPerPackage: row.unitsPerPackage }], unloadPriorities: priorities([row.id], cargo), location,
       verdict: location === 'yard' ? 'pending' : 'placed', reasons: [], boxUnits: [box], ...extra };
   }
   function palletUnit(load: PalletLoad, boxUnits: StagingBoxIdentity[], location: StagingUnit['location'], extra: Partial<StagingUnit> = {}): StagingUnit {
@@ -331,7 +331,7 @@ export function buildStagingInventory(input: StagingInventoryInput): StagingInve
     const height = Math.max(load.height, ...load.cargoPlacements.map(p => p.z - load.z + p.height)) + load.packagingExtraHeightM;
     const id = 'staging-pallet:' + encodeURIComponent(input.scopeKey) + ':' + fingerprint(boxUnits.map(box => box.stableId).sort());
     return { id, kind: 'pallet', name: 'P-' + load.palletIndex, cargoIds,
-      contents: cargoIds.map(cargoId => { const row = cargo.get(cargoId)!; return { cargoId, name: row.productName || row.name || cargoId, boxCount: memberCounts.get(cargoId)!, displayColor: row.displayColor }; }),
+      contents: cargoIds.map(cargoId => { const row = cargo.get(cargoId)!; return { cargoId, name: row.productName || row.name || cargoId, boxCount: memberCounts.get(cargoId)!, displayColor: row.displayColor, labelCode: row.boxId || row.id, unitsPerPackage: row.unitsPerPackage }; }),
       length: load.length, width: load.width, height, weightKg: load.totalWeightKg,
       boxCount: boxUnits.length, displayColor: cargo.get(cargoIds[0])?.displayColor,
       unloadPriorities: priorities(cargoIds, cargo), location, verdict: location === 'yard' ? 'pending' : 'placed',

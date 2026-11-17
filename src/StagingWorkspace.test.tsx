@@ -96,15 +96,15 @@ describe('staging workspace controller', () => {
   it('shows all small shipments, pages large yards and never invents boxes from unconfirmed EA', async () => {
     await render({ cargo: [{ ...cargo[0], quantity: 20 }] }); await settle();
     expect(bridge.visibleZoneIds).toHaveLength(bridge.layout.zones.length); expect(panel.zonePageCount).toBe(1);
-    await render({ inputKey: 'large', cargo: [{ ...cargo[0], quantity: 100 }] }); await settle();
+    await render({ inputKey: 'large', cargo: [{ ...cargo[0], quantity: 1500 }] }); await settle();
     expect(bridge.visibleZoneIds).toHaveLength(4); const first = [...bridge.visibleZoneIds];
     await act(async () => panel.onZonePage(1)); expect(bridge.visibleZoneIds.some(id => first.includes(id))).toBe(false);
-    expect(bridge.inventory.summary.total.boxes).toBe(100);
+    expect(bridge.inventory.summary.total.boxes).toBe(1500);
     const result = props.result, request = bridge.viewRequest, applicationCount = applications.length;
     await act(async () => bridge.setView('all'));
     expect(bridge.view).toBe('all'); expect(bridge.viewRequest).toBe(request + 1);
     expect(panel.zonePage).toBe(0); expect(bridge.visibleZoneIds).toEqual(first);
-    expect(bridge.inventory.summary.total.boxes).toBe(100); expect(props.result).toBe(result); expect(applications).toHaveLength(applicationCount);
+    expect(bridge.inventory.summary.total.boxes).toBe(1500); expect(props.result).toBe(result); expect(applications).toHaveLength(applicationCount);
     await act(async () => panel.onZonePage(1));
     await act(async () => bridge.setView('vehicle'));
     expect(panel.zonePage).toBe(1); expect(bridge.visibleZoneIds.some(id => first.includes(id))).toBe(false);

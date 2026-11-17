@@ -4,7 +4,7 @@ import { runPhysicsScenarioJob, type PhysicsScenarioJob } from './engine/physics
 import { runPhysicsValidationSuite } from './engine/physicsValidation';
 import type { ContainerSpec, Placement } from './engine/types';
 import { buildInertiaSimulationSupports, buildSecuringUsage, runInertiaCertification, securingProfileForUsage } from './inertiaCertification';
-import { clearInertiaScenarioRuns, createInertiaRunSession, inertiaTargetKey } from './inertiaScenarioRuns';
+import { clearInertiaScenarioRuns, createInertiaRunSession, inertiaTargetKey, readInertiaRunPhysics } from './inertiaScenarioRuns';
 import { completeCertificationForWorkOrder } from './inertiaWorkOrderPolicy';
 import { runPhysicsValidationSuiteParallel } from './physicsParallel';
 import type { PhysicsTarget } from './physicsTarget';
@@ -12,6 +12,7 @@ import { physicsWorkerCount, runPhysicsScenarioPooled, setPhysicsWorkerFactoryFo
 
 /** In-process stand-in for the browser worker: structured-clone in, real Rapier, clone out. */
 const stats = { created: 0, running: 0, peak: 0, terminated: 0 };
+const submitted: PhysicsScenarioJob[] = [];
 function fakeWorker() {
   stats.created += 1;
   let alive = true;
@@ -21,6 +22,7 @@ function fakeWorker() {
     terminate: () => { alive = false; stats.terminated += 1; },
     postMessage: (message: unknown) => {
       const { id, job } = structuredClone(message) as { id: number; job: PhysicsScenarioJob };
+      submitted.push(job);
       stats.running += 1;
       stats.peak = Math.max(stats.peak, stats.running);
       const send = (data: unknown) => { if (alive) worker.onmessage?.({ data: structuredClone(data) } as MessageEvent); };
@@ -49,6 +51,7 @@ function target(): PhysicsTarget {
 
 beforeEach(() => {
   Object.assign(stats, { created: 0, running: 0, peak: 0, terminated: 0 });
+  submitted.length = 0;
   clearInertiaScenarioRuns();
   vi.stubGlobal('navigator', { hardwareConcurrency: 4 });
   setPhysicsWorkerFactoryForTests(fakeWorker);
@@ -76,7 +79,7 @@ describe('physics worker pool', () => {
     const usage = buildSecuringUsage(current, 2);
     const supports = buildInertiaSimulationSupports(current, usage);
     const securing = securingProfileForUsage('boxes', usage);
-    const direct = await runInertiaAnimation(container, current.result.placements, 'braking', supports, undefined, securing, { captureFrames: false });
+    const direct = await runInertiaAnimation(container, current.result.placements, 'braking', supports, undefined, securing, { captureFrames: false, captureFinalMotion: true });
     const pooled = await runPhysicsScenarioPooled({ kind: 'inertia', container, placements: current.result.placements, scenario: 'braking', supports, securing });
     expect(pooled).toEqual(direct);
   }, 60_000);
@@ -170,6 +173,34 @@ describe('physics worker pool', () => {
 });
 
 describe('shared inertia runs', () => {
+  it('reuses only live exact-input final motion and computes the same full suite with one fresh world instead of four', async () => {
+    const current = target(), usage = buildSecuringUsage(current, 2);
+    const inputs = { container, placements: current.result.placements, supports: buildInertiaSimulationSupports(current, usage), securing: securingProfileForUsage('boxes', usage) };
+    const session = createInertiaRunSession(), scenarios = ['acceleration', 'braking', 'cornering'] as const;
+    const runs = await Promise.all(scenarios.map(scenario => session.start(inertiaTargetKey(container, inputs.placements), { ...inputs, scenario }).wait()));
+    const results = Object.fromEntries(runs.map(result => [result.scenario, result]));
+    expect(runs.every(result => result.finalMotion === undefined)).toBe(true);
+    const start = submitted.length;
+    const reused = await runPhysicsValidationSuiteParallel(container, inputs.placements, undefined, inputs.supports, undefined, inputs.securing, results);
+    expect(submitted.slice(start).map(job => job.scenario)).toEqual(['settle']);
+    const fresh = await runPhysicsValidationSuite(container, inputs.placements, undefined, inputs.supports, undefined, inputs.securing);
+    expect(reused).toEqual(fresh);
+    const probe = { ...inputs, scenario: 'acceleration' as const };
+    expect(readInertiaRunPhysics(probe, runs[0])).toEqual(fresh.scenarios[1]);
+    expect(readInertiaRunPhysics(probe, structuredClone(runs[0]))).toBeUndefined();
+    for (const change of [
+      { container: { ...container, height: container.height + .1 } },
+      { placements: inputs.placements.map(p => ({ ...p, weightKg: p.weightKg + 1 })) },
+      { supports: [] }, { securing: { ...inputs.securing, frictionCoefficient: .123 } }, { scenario: 'braking' as const },
+    ]) expect(readInertiaRunPhysics({ ...probe, ...change }, runs[0])).toBeUndefined();
+    const clonedStart = submitted.length;
+    expect(await runPhysicsValidationSuiteParallel(container, inputs.placements, undefined, inputs.supports, undefined, inputs.securing, structuredClone(results))).toEqual(fresh);
+    expect(submitted.length - clonedStart).toBe(4);
+    const controller = new AbortController(); controller.abort();
+    await expect(runPhysicsValidationSuiteParallel(container, inputs.placements, undefined, inputs.supports, controller.signal, inputs.securing, results)).rejects.toMatchObject({ name: 'AbortError' });
+    session.release();
+  }, 60_000);
+
   it('reuses a run for identical inputs and starts a new one when any input differs', async () => {
     const current = target();
     const usage = buildSecuringUsage(current, 1);

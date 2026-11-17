@@ -29,7 +29,7 @@ export async function completeSecuredPhysicsValidation(
       scenario, scenarioIndex: ['settle', 'acceleration', 'braking', 'cornering'].indexOf(scenario) + 1, scenarioCount: 4,
       physicsProgress: progress, stage: 'secured-physics' });
   }, buildInertiaSimulationSupports(target, certification.securing), controller.signal,
-  securingProfileForUsage(target.mode, certification.securing));
+  securingProfileForUsage(target.mode, certification.securing), certification.results);
   checkCancelled();
   return { ...certification, physicsValidation: result, physicsValidationSignature: signature };
 }

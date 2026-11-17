@@ -17,7 +17,7 @@ const summary = (samples: Sample[], key: keyof Sample) => {
 
 /** Reproducible CPU preparation measurements, not FPS or a GPU benchmark.
  * One SKU, 5 measured runs after a warmup, all inventory retained, four zones
- * (32 boxes) displayed. Original normalized carton geometry is shared; texture
+ * (1024 boxes) displayed. Original normalized carton geometry is shared; texture
  * loading, canvas labels and WebGL submission are intentionally outside timing.
  * No timing threshold can weaken loading/validation or make this test flaky.
  */
@@ -54,7 +54,8 @@ describe('large staging yard CPU preparation measurements', () => {
         displayGeometryReferences = geometries.size; displayMaterialReferences = materials.size;
         expect(inventory.summary.total.looseBoxes).toBe(quantity); expect(inventory.summary.yard.boxes).toBe(quantity);
         expect(layout.slots).toHaveLength(quantity); expect(stable.slots).toHaveLength(quantity);
-        expect(displayed).toBe(32); expect(resources.renderedUnitIds).toHaveLength(32); expect(instanceCount).toBe(32);
+        expect(displayed).toBe(1024); expect(resources.renderedUnitIds).toHaveLength(1024); expect(instanceCount).toBe(1024);
+        expect(zoneCount).toBe(Math.ceil(quantity / 256));
         expect(new Set(stable.slots.map(slot => slot.unitId)).size).toBe(quantity);
         resources.dispose();
         if (iteration >= 0) samples.push({ inventoryMs: afterInventory - beforeInventory, layoutMs: afterLayout - afterInventory,

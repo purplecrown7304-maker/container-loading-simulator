@@ -100,6 +100,25 @@ async function overviewScreenshot(page: Page, filename: string) {
   await page.screenshot({ path: test.info().outputPath(filename) });
 }
 
+test('compact waiting stacks retain product labels and allow the information switch before loading', async ({ page }) => {
+  test.setTimeout(120000);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await boot(page, [box({ quantity: 200, productName: '냉각 팬', boxId: 'BOX-42', unitsPerPackage: 24 })]);
+  const viewer = page.locator('.viewer-host .three-comparison-viewer');
+  await panel(page).getByLabel('3D 품질', { exact: true }).selectOption('performance');
+  await chooseView(page, '대기장 보기');
+  await expect(viewer.getByRole('button', { name: '박스 정보 ON', exact: true })).toBeEnabled();
+  await viewer.getByRole('button', { name: '박스 정보 ON', exact: true }).click();
+  await expect(viewer.getByRole('button', { name: '박스 정보 OFF', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await viewer.getByRole('button', { name: '박스 정보 OFF', exact: true }).click();
+  await expect(viewer.getByRole('button', { name: '박스 정보 ON', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(countRow(page, '전체 준비량')).toHaveText(['0', '200']);
+  await expect(countRow(page, '대기량')).toHaveText(['0', '200']);
+  await expect(viewer).toHaveAttribute('data-three-count', '0');
+  await expect(page.getByText('대기장 표시 실패', { exact: false })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('compact-waiting-labels.png') });
+});
+
 for (const viewport of [{ width: 1366, height: 768 }, { width: 1920, height: 1080 }]) {
   test(`20 real boxes conserve identity through loading, withdrawal, undo and cloud restore at ${viewport.width}`, async ({ page }) => {
     test.setTimeout(120000);
