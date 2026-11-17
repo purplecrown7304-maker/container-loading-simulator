@@ -210,7 +210,7 @@ function SceneContents({ resources, options, bindings, frameState }: { resources
     } else if (data.kind === 'support') { event.stopPropagation(); options.onSupportSelect?.(data.index); }
     else if (data.kind === 'weightSurface' && weight) selectCell(event);
   };
-  return <>{options.clearanceVisible !== false && <ThreeClearanceGuides plan={plan} clearance={clearance} axis={options.clearanceAxis ?? 'width'}/>}<primitive object={resources.root} dispose={null} onClick={handleClick} onPointerMove={selectCell}
+  return <><ThreeClearanceGuides plan={plan} clearance={options.clearanceVisible === false ? null : clearance} axis={options.clearanceAxis ?? 'width'}/><primitive object={resources.root} dispose={null} onClick={handleClick} onPointerMove={selectCell}
     onPointerOut={(event: ThreeEvent<PointerEvent>) => { if (event.object.userData.kind === 'weightSurface') options.onCellSelect?.(null); }} /></>;
 }
 

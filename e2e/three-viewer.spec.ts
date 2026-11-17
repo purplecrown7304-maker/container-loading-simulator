@@ -99,6 +99,10 @@ test('Three renders the real loading plan and preserves certification during vie
   await expect(page.getByRole('slider', { name: 'Three.js 적재 순서', exact: true })).toHaveValue('12', { timeout: 10_000 });
   await expect(viewer.locator('canvas')).toHaveCount(1);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('container-loading:placement-select', { detail: { index: 0 } })));
+  const clearance = viewer.getByRole('button', { name: '경계 거리', exact: true });
+  await expect(clearance).toHaveAttribute('aria-expanded', 'false');
+  await clearance.click();
+  await expect(clearance).toHaveAttribute('aria-expanded', 'true');
   await expect(viewer.locator('.unity-inspector')).toContainText('THREE-TEST');
   await page.getByRole('button', { name: '외벽 표시', exact: true }).click();
   await page.getByRole('button', { name: '입체', exact: true }).click();
