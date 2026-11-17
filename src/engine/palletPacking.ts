@@ -206,7 +206,10 @@ function slotFor(
   const baseSurface = { x: load.x, y: load.y, z: load.z + pallet.height, length: pallet.length, width: pallet.width };
   // Mixed-height cartons must sit on real surfaces, not multiples of their own height.
   // Support and cumulative layer/top-load checks below remain mandatory at every surface.
-  const surfaces = [...new Set([baseSurface.z, ...load.cargoPlacements.map(placement => placement.z + placement.height)])]
+  // A single-layer carton can only sit on the deck. Elevated candidates always
+  // have a supporting carton below and therefore fail the same stacking check.
+  const deckOnly = item.strengthUnverified || (item.maxStackLayers !== undefined && item.maxStackLayers < 2);
+  const surfaces = [...new Set([baseSurface.z, ...(deckOnly ? [] : load.cargoPlacements.map(placement => placement.z + placement.height))])]
     .filter(z => z + item.height + reserveHeight <= container.height + EPS)
     .sort((a, b) => a - b);
 
@@ -792,6 +795,10 @@ export function absorbSparsePallets(
   let pallets = input.map((load) => ({ ...load, cargoPlacements: load.cargoPlacements.map((p) => ({ ...p })), centerOfGravity: { ...load.centerOfGravity } }));
   let removed = 0;
   let changed = true;
+  // Failed source moves are rolled back, so later sources repeatedly probe the
+  // same unchanged targets. Cache only a null slot on an untouched original;
+  // appended cartons create new support surfaces and must always be retried.
+  const unavailable = new WeakMap<PalletLoad, Set<string>>();
   while (changed && pallets.length > 1) {
     changed = false;
     const sources = pallets
@@ -811,8 +818,17 @@ export function absorbSparsePallets(
         let best: { target: typeof targets[number]; placement: Placement; index: number } | null = null;
         targets.forEach((target, index) => {
           if (strategy === 'unloading' && stopOf(target.work, cargoMap) !== (item.unloadPriority ?? 0)) return;
+          const untouched = target.work.cargoPlacements.length === target.original.cargoPlacements.length;
+          if (untouched && unavailable.get(target.original)?.has(item.id)) return;
           const placement = slotFor(target.work, item, pallet, container, cargoMap);
-          if (!placement) return;
+          if (!placement) {
+            if (untouched) {
+              const failed = unavailable.get(target.original) ?? new Set<string>();
+              failed.add(item.id);
+              unavailable.set(target.original, failed);
+            }
+            return;
+          }
           if (placement.z + placement.height - target.work.z - target.work.height > maxCargoHeight + EPS) return;
           // Pallets below the target must carry the extra carton. Packaging is counted at
           // its maximum because the minimum-packaging recount happens after the move.
