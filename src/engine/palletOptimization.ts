@@ -3,6 +3,8 @@ import { validateAPlan } from './loadSimAdapter';
 import { centerPalletPlan } from './palletCentering';
 import { validateOperationalLoading } from './operationalValidator';
 import { palletSupportBodies } from './palletPlanValidation';
+import { flattenPalletLayers } from './palletLayerRepacking';
+import { palletLoadsWithinFloorLoadLimit } from './palletFloorLoad';
 import {
   absorbSparsePallets,
   unsupportedReviewPalletResult,
@@ -348,6 +350,7 @@ function consolidateUntilStable(
           length: pallet.length,
           width: pallet.width,
           height: container.height,
+          floorLoadLimitKgPerM2: container.floorLoadLimitKgPerM2,
           maxPayloadKg: Math.min(
             container.maxPayloadKg,
             pallet.maxLoadKg + pallet.tareWeightKg + pallet.cornerGuardWeightKg + pallet.wrappingWeightKg,
@@ -367,6 +370,8 @@ function consolidateUntilStable(
           target.y,
           target.z,
         );
+        const replacement = pallets.filter((_, index) => index !== sourceIndex && index !== targetIndex).concat(shifted);
+        if (!palletLoadsWithinFloorLoadLimit(container, replacement, pallet)) continue;
         pallets[targetIndex] = shifted;
         pallets.splice(sourceIndex, 1);
         passes += 1;
@@ -447,6 +452,8 @@ export function consolidateFinalSparsePallets(
         const targetIndex = pallets.indexOf(target);
         const sourceIndex = pallets.indexOf(source);
         if (targetIndex < 0 || sourceIndex < 0) continue;
+        const replacement = pallets.filter((_, index) => index !== sourceIndex && index !== targetIndex).concat(shifted);
+        if (!palletLoadsWithinFloorLoadLimit(container, replacement, pallet)) continue;
         pallets[targetIndex] = shifted;
         pallets.splice(sourceIndex, 1);
         passes += 1;
@@ -476,6 +483,7 @@ function absorbIntoSpareTopLayers(
   const maxCargoHeight = Math.max(0, container.height - pallet.height - packagingReserve(pallet));
   const absorbed = absorbSparsePallets(input.pallets, cargo, pallet, container, strategy, maxCargoHeight);
   if (!absorbed.removed) return { result: input, passes: 0 };
+  if (!palletLoadsWithinFloorLoadLimit(container, absorbed.pallets, pallet)) return { result: input, passes: 0 };
   return { result: rebuildMetrics(input, absorbed.pallets, absorbed.removed, container), passes: absorbed.removed };
 }
 
@@ -636,7 +644,7 @@ export function packOnPallets(
   if(isARules(container)) {
     const cfg=aConfig(container);
     // Vehicle clearances restrict the planning envelope, not the pallet's internal footprint.
-    container={...container,length:container.length-cfg.margins.l/1000,width:container.width-cfg.margins.w/1000,height:container.height-(cfg.margins.h+cfg.forkliftClearance)/1000,rules:undefined};
+    container={...container,length:container.length-cfg.margins.l/1000,width:container.width-cfg.margins.w/1000,height:container.height-(cfg.margins.h+cfg.forkliftClearance)/1000,rules:undefined,floorLoadLimitKgPerM2:undefined};
   } else {
     // Legacy ceiling clearance (LOADING_RULES R-5): plan inside it, as A does with its own margins.
     container=planningContainer(container);
@@ -678,7 +686,7 @@ export function packOnPallets(
   }
   const errors=new WeakMap<PalletPackingResult,number>();
   const hardErrors=(result:PalletPackingResult)=>{
-    if(!isARules(originalContainer))return 0;
+    if(!isARules(originalContainer))return palletLoadsWithinFloorLoadLimit(originalContainer,result.pallets,pallet) ? 0 : 1;
     const cached=errors.get(result);if(cached!==undefined)return cached;
     const p=centerPalletPlan(result,originalContainer);
     const n=validateAPlan(originalContainer,normalizedCargo,p.placements,p.pallets.map(s=>({id:String(s.palletIndex),x:s.x,y:s.y,z:s.z,length:s.length,width:s.width,height:s.height,weightKg:s.totalWeightKg-s.cargoWeightKg,unitCenterOfGravity:s.centerOfGravity,unitHeightM:Math.max(s.height,...s.cargoPlacements.map(b=>b.z+b.height-s.z))+s.packagingExtraHeightM}))).filter(f=>f.severity==='error').length;
@@ -729,6 +737,15 @@ export function packOnPallets(
     if (preference(candidate.result, selected.result)) selected = candidate;
   }
 
+  // Reuse existing bases and loaded cartons. Mixed floor orientations can fill
+  // the unused strip beside a homogeneous grid, lowering its tallest tier
+  // without paying for another pallet or changing any declared safety limit.
+  // A-rules retain their independent planner and final acceptance contract.
+  if (!isARules(originalContainer)) {
+    const flattened = flattenPalletLayers(selected.result, originalContainer, normalizedCargo, pallet);
+    if (flattened !== selected.result) selected.result = rebuildMetrics(flattened, flattened.pallets, 0, originalContainer);
+  }
+
   const redistributed = strategy === 'stability'
     ? redistributeForLowUtilization(selected.result, container, pallet)
     : { result: selected.result, redistributed: false };
@@ -762,7 +779,7 @@ export function packOnPallets(
   // the perimeter instead of leaving visible holes inside the top surface. Carton set,
   // pallet assignment and every hard safety constraint remain unchanged.
   const cargoById = new Map(normalizedCargo.map(item => [item.id, item]));
-  const holesArranged = placeTopTierHolesInsideAll(redistributed.result.pallets, cargoById, pallet);
+  const holesArranged = placeTopTierHolesInsideAll(redistributed.result.pallets, cargoById, pallet, originalContainer);
   if (holesArranged.some((load, index) => load !== redistributed.result.pallets[index])) {
     redistributed.result = rebuildMetrics(redistributed.result, holesArranged, 0, container);
   }

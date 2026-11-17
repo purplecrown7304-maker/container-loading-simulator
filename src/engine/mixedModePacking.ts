@@ -5,6 +5,8 @@ import { defaultPalletSpec, packOnPallets, type OptimizedPalletPackingResult, ty
 import type { LoadingStrategy } from './loadingEngine';
 import type { CargoItem, ContainerSpec, Placement } from './types';
 import { planningContainer } from './constraints';
+import { preflightCargoInput } from './inputPreflight';
+import { centerLegacyMixedPlan } from './mixedPlanCentering';
 
 const EPS = 1e-9;
 const PALLET_UNIT_PREFIX = '__MIXED_PALLET_UNIT__';
@@ -74,10 +76,15 @@ export function buildPalletPackaging(
   cargo: CargoItem[],
   pallet: PalletSpec = defaultPalletSpec,
   strategy: LoadingStrategy = 'capacity',
-  options: { independentVehicleHeight?: boolean } = {},
+  options: { independentVehicleHeight?: boolean; respectVehicleFloorLoad?: boolean } = {},
 ): OptimizedPalletPackingResult {
   const buildSpec = { ...pallet, maxStackLevels: 1 };
   const envelope = builderContainer(container, cargo, buildSpec);
+  // Vehicle-independent staging keeps its own envelope. Actual MIXED planning
+  // must enforce raw carton projection before rigid pallet units hide that load.
+  if (options.respectVehicleFloorLoad && !isARules(container)) {
+    envelope.floorLoadLimitKgPerM2 = container.floorLoadLimitKgPerM2;
+  }
   let preparedCargo = cargo;
   if (options.independentVehicleHeight) {
     // The deck's own load/support/stack constraints stay intact. Unknown carton
@@ -241,14 +248,18 @@ export function packMixedMode(
   options: MixedModeOptions = {},
 ): MixedModePackingResult {
   if (container.limitReview !== undefined) return {...packOnPallets(container,cargo,pallet,strategy),mixed:{enabled:true,directBoxCount:0,directFloorBoxCount:0,palletBoxCount:0,palletCount:0,demotedPalletCount:0,candidateCount:0,minPalletFillRatio:options.minPalletFillRatio??0.7,totalLoadedWeightKg:0,palletFillRates:[]}};
+  const acceptanceContainer = container;
   container = planningContainer(container);
-  const active = cargo.filter((item) => item.quantity > 0);
+  // Normalize before choosing pallet/direct paths. Otherwise the per-SKU map in
+  // directCargo silently replaces conflicting original specs with the last row.
+  const preflight = preflightCargoInput(cargo, { compareMixedLoadingMethod: true });
+  const active = preflight.cargo;
   const threshold = Math.max(0, Math.min(1, options.minPalletFillRatio ?? 0.7));
   const candidateCap = Math.max(2, Math.floor(options.maxDemotionCandidates ?? 10));
   const buildSpec = { ...pallet, maxStackLevels: 1 };
   const palletCargo = active.filter(item => item.mixedLoadingMethod !== 'direct');
   const explicitDirect = active.filter(item => item.mixedLoadingMethod === 'direct');
-  const built = buildPalletPackaging(container, palletCargo, buildSpec, strategy);
+  const built = buildPalletPackaging(container, palletCargo, buildSpec, strategy, { respectVehicleFloorLoad: true });
   const cargoById = new Map(active.map((item) => [item.id, item]));
   const fillRows = built.pallets.map((load) => ({
     load,
@@ -357,11 +368,13 @@ export function packMixedMode(
   if (best) {
     best.result.optimization.candidateCount = evaluated;
     best.result.mixed.candidateCount = evaluated;
-    return best.result;
+    best.result.remaining = [...preflight.rejected, ...best.result.remaining];
+    return centerLegacyMixedPlan(best.result, acceptanceContainer, active);
   }
 
-  return {
+  const fallback: MixedModePackingResult = {
     ...built,
+    remaining: [...preflight.rejected, ...built.remaining],
     optimization: {
       strategy,
       selectedStackTarget: 1,
@@ -387,4 +400,5 @@ export function packMixedMode(
       })),
     },
   };
+  return centerLegacyMixedPlan(fallback, acceptanceContainer, active);
 }
