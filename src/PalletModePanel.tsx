@@ -10,7 +10,7 @@ import { validateOperationalLoading } from './engine/operationalValidator';
 import { packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
 import { packMixedMode, type MixedModePackingResult } from './engine/mixedModePacking';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
-import { INERTIA_CERTIFICATION_EVENT, createPhysicsTargetSignature, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
+import { INERTIA_CERTIFICATION_EVENT, clearLatestInertiaCertification, createPhysicsTargetSignature, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
 import { clearPhysicsTarget, publishPhysicsTarget, readPhysicsTarget } from './physicsTarget';
 import { palletJobSpec, recordPalletJobSpec } from './palletJobSpecs';
 import { resolvePalletType, subscribePalletTypeSelection } from './palletTypeSelection';
@@ -18,6 +18,9 @@ import { clearPalletSnapshot, publishPalletSnapshot, readPalletSnapshot } from '
 import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT } from './autoCertification';
 import { cargoStackRestrictions } from './cargoStackRestrictions';
 import { palletAdvisoryFindings } from './engine/palletPlanValidation';
+import { assessStagingRestore, rebuildStagingPalletResult } from './engine/stagingCommands';
+import { readSecuringMaterialSettings } from './securingMaterialSettings';
+import { STAGING_PALLET_PLAN_EVENT, STAGING_PALLET_READY_EVENT, sameStagingPalletSpec, stagingPalletSceneData, type StagingPalletPlanDetail } from './stagingPalletBridge';
 
 export type PalletViewerScene = LoadingViewerProps & { inputKey: string };
 type Props = { container: ContainerSpec; cargo: CargoItem[]; runToken: number; mode?: 'pallets' | 'mixed'; inputKey: string; onSceneChange: (scene: PalletViewerScene | null) => void; onRunningChange: (running: boolean) => void };
@@ -136,6 +139,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
   const result = (calculated?.key === inputKey ? calculated.result : EMPTY_RESULT) as OptimizedPalletPackingResult | MixedModePackingResult;
   const [specRunToken, setSpecRunToken] = useState(0);
   const consumedRun = useRef({ run: 0, spec: 0 });
+  const cancelActiveRun = useRef<(() => void) | null>(null);
   const adoptedResult = useRef<{ result: OptimizedPalletPackingResult; certification: InertiaCertification } | null>(null);
   const [opened, setOpened] = useState<PalletLoad | null>(null);
   const modelKey = palletModelKey(spec);
@@ -154,6 +158,8 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
     let publishTimer: number | undefined;
     if (typeof Worker !== 'undefined') {
       const worker = new Worker(new URL('./engine/palletRules.worker.ts', import.meta.url), {type:'module'});
+      const cancel = () => { cancelled = true; worker.terminate(); };
+      cancelActiveRun.current = cancel;
       worker.onmessage = (event: MessageEvent<{result?:OptimizedPalletPackingResult | MixedModePackingResult;error?:string}>) => {
         worker.terminate();
         if(cancelled)return;
@@ -163,7 +169,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       };
       worker.onerror = () => { worker.terminate(); if(!cancelled){onRunningChange(false);window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT,{detail:{mode:'pallets',error:'A 규칙 계산 오류'}}));} };
       worker.postMessage({container,cargo:cargo.filter(item=>item.quantity>0),spec:sanitizeSpec(spec),mode,strategy:readLoadingStrategyPreference()??'capacity'});
-      return () => {cancelled=true;worker.terminate();};
+      return () => { cancel(); if (cancelActiveRun.current === cancel) cancelActiveRun.current = null; };
     }
     const timer = window.setTimeout(() => {
       try {
@@ -179,7 +185,9 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
         }
       }
     }, 0);
-    return () => { cancelled = true; window.clearTimeout(timer); window.clearTimeout(publishTimer); };
+    const cancel = () => { cancelled = true; window.clearTimeout(timer); window.clearTimeout(publishTimer); };
+    cancelActiveRun.current = cancel;
+    return () => { cancel(); if (cancelActiveRun.current === cancel) cancelActiveRun.current = null; };
   }, [runToken, specRunToken, inputKey, spec]);
 
   useEffect(() => {
@@ -286,24 +294,56 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       usedVolumeM3: result.placements.reduce((sum, placement) => sum + placement.length * placement.width * placement.height, 0),
       validationIssues: validatePlacements(container, result.placements),
       operationalFindings: [...validateOperationalLoading(container, cargo, result.placements, supports), ...palletAdvisoryFindings(container, result, spec)],
+      ...('securingBudget' in result ? { securingBudget: result.securingBudget as LoadingResult['securingBudget'] } : {}),
     };
     publishPhysicsTarget({ mode: 'pallets', container, cargo, result: loadingResult, supports });
   }, [container, cargo, result, modelKey]);
 
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
   const securingUsage = certification?.securing ?? null;
-  const scene = useMemo(() => ({
-    result: {
-      ruleset:container.rules?.version,
-      placements: result.placements,
-      remaining: result.remaining,
-      loadedWeightKg: 'mixed' in result ? result.mixed.totalLoadedWeightKg : result.totalPalletizedWeightKg,
-      usedVolumeM3: result.placements.reduce((sum, p) => sum + p.length * p.width * p.height, 0),
-      validationIssues: validatePlacements(container, result.placements),
-      operationalFindings: [...validateOperationalLoading(container, cargo, result.placements, result.pallets.map(p => ({ id: `PALLET-${p.palletIndex}`, unitCenterOfGravity:p.centerOfGravity, unitHeightM:Math.max(p.height,...p.cargoPlacements.map(b=>b.z+b.height-p.z))+p.packagingExtraHeightM, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) }))), ...palletAdvisoryFindings(container, result, spec)],
-    },
-    supports: result.pallets.map(p => ({ modelKey, id: `PALLET-${p.palletIndex}`, unitCenterOfGravity:p.centerOfGravity, unitHeightM:Math.max(p.height,...p.cargoPlacements.map(b=>b.z+b.height-p.z))+p.packagingExtraHeightM, x: p.x, y: p.y, z: p.z, length: p.length, width: p.width, height: p.height, weightKg: Math.max(.01, p.totalWeightKg - p.cargoWeightKg) })),
-  }), [container, cargo, result, modelKey]);
+  const scene = useMemo(() => stagingPalletSceneData(container, cargo, { spec, result }), [container, cargo, result, spec]);
+
+  useEffect(() => {
+    const onStagingPlan = (event: Event) => {
+      const detail = (event as CustomEvent<StagingPalletPlanDetail>).detail;
+      if (!detail || detail.accepted || detail.inputKey !== inputKey) return;
+      const requested = detail.snapshot;
+      if (!requested?.spec || !requested.result || !Array.isArray(requested.result.placements)
+        || !Array.isArray(requested.result.pallets) || !Array.isArray(requested.result.remaining)) return;
+      const currentSpec = palletJobSpec(resolvePalletType());
+      if (!sameStagingPalletSpec(requested.spec, currentSpec)) {
+        detail.reasons = ['현재 선택한 파렛트 작업 규격과 일치하지 않습니다.']; return;
+      }
+      if ((mode === 'mixed') !== ('mixed' in requested.result)) {
+        detail.reasons = ['현재 적재 모드와 일치하지 않습니다.']; return;
+      }
+      try {
+        const requestedScene = stagingPalletSceneData(container, cargo, requested);
+        const checked = assessStagingRestore({ container, cargo, result: scene.result, pallets: result.pallets,
+          palletSpec: currentSpec, mode, materials: readSecuringMaterialSettings(), strategy: readLoadingStrategyPreference() ?? 'capacity' },
+        { result: requestedScene.result, pallets: requested.result.pallets });
+        if (!checked.valid) { detail.reasons = checked.reasons; return; }
+        const next = rebuildStagingPalletResult(requested.result, checked.result, checked.pallets, container);
+        // Cancel the owning automatic run synchronously; even a queued callback
+        // must not overwrite this explicitly accepted current-input plan.
+        cancelActiveRun.current?.(); cancelActiveRun.current = null;
+        adoptedResult.current = null;
+        recordPalletJobSpec(resolvePalletType().id, requested.spec);
+        setSpec(requested.spec); setCalculated({ key: inputKey, result: next });
+        setOpened(null); setCertification(null); clearLatestInertiaCertification();
+        onRunningChange(false);
+        detail.accepted = true;
+      } catch {
+        detail.reasons = ['현재 조건으로 파렛트 계획을 적용하지 못했습니다.'];
+      }
+    };
+    window.addEventListener(STAGING_PALLET_PLAN_EVENT, onStagingPlan);
+    return () => window.removeEventListener(STAGING_PALLET_PLAN_EVENT, onStagingPlan);
+  }, [container, cargo, inputKey, mode, result, scene, onRunningChange]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(STAGING_PALLET_READY_EVENT, { detail: { inputKey } }));
+  }, [inputKey]);
 
   useEffect(() => {
     if (result === EMPTY_RESULT) return;

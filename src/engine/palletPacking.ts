@@ -30,6 +30,9 @@ export type PalletSpec = {
 };
 
 export type PalletLoad = {
+  /** Actual source securing-plan metadata retained through whole-unit moves.
+   * No mass is added here; the existing securing budget owns material weight. */
+  bandingPlan?: { straps: number; securingLevel: 0 | 1 | 2 | 3; wrapping?: boolean; cornerGuards?: boolean };
   /** Residual cartons collected after regular top tiers are completed. */
   isMixedTail?: boolean;
   palletIndex: number;
@@ -303,7 +306,7 @@ function topSupportingBoxes(load: PalletLoad) {
   return load.cargoPlacements.filter((p) => Math.abs(p.z + p.height - top) <= FLAT_TOP_TOLERANCE);
 }
 
-function canSupportUpper(lower: PalletLoad, upperWeightKg: number, cargoMap: Map<string, CargoItem>, pallet: PalletSpec) {
+export function canSupportUpper(lower: PalletLoad, upperWeightKg: number, cargoMap: Map<string, CargoItem>, pallet: PalletSpec) {
   if (pallet.maxStaticLoadKg !== undefined && lower.cargoWeightKg + lower.packagingWeightKg + upperWeightKg > pallet.maxStaticLoadKg + EPS) return false;
   if (upperWeightKg > pallet.maxSupportedTopWeightKg + EPS) return false;
   const supporters = topSupportingBoxes(lower);

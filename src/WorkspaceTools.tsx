@@ -13,6 +13,7 @@ import { readStoredState, writeStoredState, type StoredState } from './storage';
 import { OPEN_WORKSPACE_EVENT, type WorkspaceOpenDetail } from './uiEvents';
 import { applyPersonalStackPolicyToCargo } from './boxStackingPolicy';
 import { writeManualOverride } from './engine/manualOverride';
+import { readGuidedLoadingUnit } from './guidedLoadingUnitState';
 import { CARTON_MATERIAL_ORDER, CARTON_MATERIALS, cartonMaterialLabel, estimateCartonTopLoad, type CartonMaterial } from './engine/cartonMaterial';
 
 const BOX_KEY = 'container-loading-workspace-boxes-v1';
@@ -59,7 +60,14 @@ function todayKey() { return new Date().toISOString().slice(0, 10); }
 
 function currentState(): StoredState | null {
   const latest = (window as LoadingWindow).__containerLoadingLatestResult;
-  return latest ? { container: latest.container, cargo: latest.cargo, result: latest.result } : readStoredState();
+  const saved = readStoredState();
+  const sameInput = latest && saved && JSON.stringify([latest.container, latest.cargo]) === JSON.stringify([saved.container, saved.cargo]);
+  // Pallet plans live in their canonical snapshot, while the legacy latest
+  // publication may still be the empty box scene for these same inputs.
+  if (sameInput && saved.staging?.mode === (readGuidedLoadingUnit() ?? 'boxes')) {
+    return saved.staging.mode === 'boxes' ? { ...saved, result: latest.result } : saved;
+  }
+  return latest ? { container: latest.container, cargo: latest.cargo, result: latest.result } : saved;
 }
 
 function viewTitle(view: Exclude<View, null>) {
@@ -309,9 +317,9 @@ export default function WorkspaceTools({ showNav = true }: Props) {
     if (!state) return setMessage('저장할 현재 작업 데이터가 없습니다.');
     const name = boxName.trim() || `작업 ${boxes.length + 1}`;
     const currentResult = (window as LoadingWindow).__containerLoadingLatestResult;
-    const result = currentResult
-      && JSON.stringify({ container: currentResult.container, cargo: currentResult.cargo }) === JSON.stringify(state)
-      ? currentResult.result
+    const result = currentResult && (!state.staging || state.staging.mode === 'boxes')
+      && JSON.stringify([currentResult.container, currentResult.cargo]) === JSON.stringify([state.container, state.cargo])
+      ? state.result ?? currentResult.result
       : undefined;
     setBoxes(previous => [{ id: crypto.randomUUID(), name, savedAt: new Date().toISOString(), state, ...(result ? { result } : {}) }, ...previous].slice(0, 30));
     setBoxName('');

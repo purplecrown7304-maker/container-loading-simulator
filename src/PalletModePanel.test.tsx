@@ -7,6 +7,9 @@ import { INERTIA_CERTIFICATION_EVENT, createPhysicsTargetSignature, readLatestIn
 import { packOnPallets } from './engine/palletOptimization';
 import { readPhysicsTarget, clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
 import { clearPalletSnapshot, readPalletSnapshot, publishPalletSnapshot } from './palletSnapshotStore';
+import { publishStagingPalletPlan } from './stagingPalletBridge';
+import { palletJobSpec } from './palletJobSpecs';
+import { resolvePalletType } from './palletTypeSelection';
 
 vi.mock('./engine/palletCentering', async importOriginal => ({ ...await importOriginal<object>(), centerPalletCargo: (value: unknown) => value }));
 vi.mock('./engine/palletOptimization', async importOriginal => {
@@ -92,4 +95,51 @@ it('keeps an explicitly applied certified pallet candidate available synchronous
   expect(readPhysicsTarget()).toBe(target);
   expect(readLatestInertiaCertification()).toBe(certified);
   expect(consumeNextPalletCenteredResultOverride()).toBeNull();
+});
+
+it('acknowledges only a current-input current-spec safe staging plan and clears old certification', async () => {
+  await render(0, 'A'); await render(1, 'A');
+  await act(async () => vi.runOnlyPendingTimers()); await act(async () => vi.runOnlyPendingTimers());
+  const snapshot = readPalletSnapshot()!;
+  const certified = { mode: 'pallets', status: 'passed', targetSignature: 'old' } as InertiaCertification;
+  (window as Window & { __containerLoadingLatestCertification?: InertiaCertification }).__containerLoadingLatestCertification = certified;
+  await act(async () => {
+    expect(publishStagingPalletPlan('old', snapshot)).toBe(false);
+    expect(publishStagingPalletPlan('A', { ...snapshot, spec: { ...snapshot.spec, width: snapshot.spec.width + .1 } })).toBe(false);
+    const invalid = { ...snapshot, result: { ...snapshot.result, placements: [{ cargoId: 'A', unitId: 'A-1', x: 100, y: 0, z: 0,
+      length: .5, width: .4, height: .3, weightKg: 10 }] } };
+    expect(publishStagingPalletPlan('A', invalid)).toBe(false);
+    expect(readLatestInertiaCertification()).toBe(certified);
+    expect(publishStagingPalletPlan('A', snapshot)).toBe(true);
+    expect(readLatestInertiaCertification()).toBeUndefined();
+  });
+  expect(readPalletSnapshot()?.result.palletCount).toBe(0);
+  expect(onSceneChange.mock.calls.at(-1)?.[0]?.inputKey).toBe('A');
+  expect(packOnPallets).toHaveBeenCalledTimes(1);
+});
+
+it('cancels a pending automatic worker so its late result cannot overwrite an acknowledged staging plan', async () => {
+  const workers: Array<{ onmessage?: (event: MessageEvent) => void; terminate: ReturnType<typeof vi.fn> }> = [];
+  class PendingWorker {
+    onmessage?: (event: MessageEvent) => void;
+    onerror?: () => void;
+    terminate = vi.fn();
+    postMessage = vi.fn();
+    constructor() { workers.push(this); }
+  }
+  vi.stubGlobal('Worker', PendingWorker);
+  await render(0, 'A'); await render(1, 'A');
+  const packed = { pallets: [], placements: [], remaining: [{ cargoId: 'A', quantity: 1, reason: '현재 대기' }], palletCount: 0,
+    loadedCargoWeightKg: 0, totalPackagingWeightKg: 0, avoidedPackagingWeightKg: 0, packagedPalletCount: 0,
+    totalPalletizedWeightKg: 0, consolidatedPallets: 0, lateralImbalanceKg: 0, stackedPallets: 0, maxUsedStackLevel: 0,
+    optimization: { selectedStackTarget: 0, candidateCount: 0, floorPositions: 0, redistributedForLowUtilization: false, consolidationPasses: 0 } };
+  expect(workers).toHaveLength(1);
+  await act(async () => {
+    expect(publishStagingPalletPlan('A', { spec: palletJobSpec(resolvePalletType()), result: packed })).toBe(true);
+    workers[0].onmessage?.({ data: { result: { ...packed, remaining: [{ cargoId: 'A', quantity: 1, reason: '늦은 이전 결과' }] } } } as MessageEvent);
+  });
+  expect(workers[0].terminate).toHaveBeenCalled();
+  expect(readPalletSnapshot()?.result.remaining[0].reason).not.toBe('늦은 이전 결과');
+  expect(onSceneChange.mock.calls.at(-1)?.[0]?.result.remaining[0].reason).not.toBe('늦은 이전 결과');
+  expect(packOnPallets).not.toHaveBeenCalled();
 });

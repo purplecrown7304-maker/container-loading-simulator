@@ -1,5 +1,5 @@
 import { Box3, DoubleSide, Group, Mesh, Plane, Vector3 } from 'three';
-import { createMeshyMaterial, type MeshyModel } from './threeComparisonModels';
+import { acquireStudioCartonGeometry, createStudioCartonMaterial, type MeshyModel } from './threeComparisonModels';
 
 /** Existing Meshy closed carton, opened by display-only clipping. Not a new Meshy generation. */
 export function createPackagingCartonScene(source: MeshyModel, inner: number[], outer: number[], scale: number) {
@@ -9,21 +9,20 @@ export function createPackagingCartonScene(source: MeshyModel, inner: number[], 
     || inner.some((v, i) => v > outer[i])) throw new Error('Invalid carton display dimensions');
   const [l, w, h] = inner.map(v => v / scale);
   const interior = new Box3(new Vector3(-l / 2, -h / 2, -w / 2), new Vector3(l / 2, h / 2, w / 2));
-  const materials = source.parts.map(part => {
-    const material = createMeshyMaterial(part.texture, { clipInterior: interior });
-    material.side = DoubleSide;
-    // Cut at the physical inner surfaces: top, front and camera-facing right.
-    // No source faces/UVs are changed and no model geometry enters the product volume.
-    material.clippingPlanes = [
-      new Plane(new Vector3(0, -1, 0), h / 2),
-      new Plane(new Vector3(0, 0, -1), w / 2),
-      new Plane(new Vector3(-1, 0, 0), l / 2),
-    ];
-    return material;
-  });
+  const cartonGeometry = acquireStudioCartonGeometry();
+  const material = createStudioCartonMaterial({ clipInterior: interior });
+  material.side = DoubleSide;
+  // Cut at the physical inner surfaces: top, front and camera-facing right.
+  // The original source asset is untouched; only production display is cut.
+  material.clippingPlanes = [
+    new Plane(new Vector3(0, -1, 0), h / 2),
+    new Plane(new Vector3(0, 0, -1), w / 2),
+    new Plane(new Vector3(-1, 0, 0), l / 2),
+  ];
+  const materials = [material];
   const object = new Group();
   object.name = 'Meshy carton · open cutaway';
-  source.parts.forEach((part, i) => object.add(new Mesh(part.geometry, materials[i])));
+  const mesh = new Mesh(cartonGeometry.geometry, materials[0]); mesh.receiveShadow = true; object.add(mesh);
   object.scale.set(outer[0] / scale, outer[2] / scale, outer[1] / scale);
-  return { object, dispose: () => materials.forEach(material => material.dispose()) };
+  return { object, dispose: () => { materials.forEach(material => material.dispose()); cartonGeometry.release(); } };
 }

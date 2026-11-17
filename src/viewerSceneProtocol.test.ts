@@ -31,3 +31,19 @@ it('keeps pallet bases in their existing units without counting tare as cargo we
   expect(plan.centerOfGravity.y).toBeCloseTo((.8 * 10 + 1 * 25) / 35);
   expect(plan.centerOfGravity.z).toBeCloseTo((.4 * 10 + .075 * 25) / 35);
 });
+
+it('carries visual packaging into decorations without changing positions, floor weights or center of gravity', () => {
+  const container = { length: 6, width: 2.4, height: 2.6, maxPayloadKg: 1000 };
+  const support = { id: 'P1', x: 1, y: .5, z: 0, length: 1.2, width: 1, height: .15, weightKg: 25 };
+  const result = { placements: [{ cargoId: 'A', x: 1.1, y: .6, z: .15, length: .6, width: .4, height: .5, weightKg: 10 }],
+    remaining: [], validationIssues: [], usedVolumeM3: .12, loadedWeightKg: 35 };
+  const before = JSON.stringify({ result, support });
+  const original = viewerPlan(container, result, 3, [], { supports: [support] });
+  const packaged = { ...support, visualPackaging: { wrapping: true, cornerGuards: true, bandingStraps: 2 } };
+  const plan = viewerPlan(container, result, 4, [], { supports: [packaged], securing: null });
+  expect(plan.decorations.filter(item => item.wrapping)).toHaveLength(1);
+  expect(plan.decorations.filter(item => item.modelKey === 'corner-guard')).toHaveLength(4);
+  expect(plan.decorations.filter(item => item.color === '#1f2937')).toHaveLength(6);
+  expect(plan.centerOfGravity).toEqual(original.centerOfGravity); expect(plan.cells).toEqual(original.cells);
+  expect(plan.placements).toEqual(original.placements); expect(JSON.stringify({ result, support })).toBe(before);
+});

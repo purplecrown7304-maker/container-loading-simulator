@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { buildWeightSurfaceGeometry, weightSurfaceCellIndex } from './weightSurfaceGeometry';
 import { viewerPlan } from './viewerSceneProtocol';
-import { acceptSceneFrame, poseMatrix, sceneBoxMatrix, sceneCameraPose, sceneCenter, visibleCargoIndexes } from './threeComparisonSceneState';
+import { acceptSceneFrame, poseMatrix, sceneBoxMatrix, sceneCameraPose, sceneCenter, stagingSceneCameraPose, stagingVehicleSelection, visibleCargoIndexes } from './threeComparisonSceneState';
+import { buildStagingYardLayout } from './stagingYardLayout';
+import type { StagingUnit } from './stagingInventory';
 import { createComparisonSceneResources, requiredComparisonModelKeys, type ComparisonModels } from './threeComparisonSceneResources';
 import { createMeshyMaterial, MESHY_MODEL_KEYS } from './threeComparisonModels';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
@@ -18,6 +20,52 @@ function fixture(revision = 1) {
     supports: [{ id: 'p', x: 1, y: .5, z: 0, length: 1.2, width: 1, height: .15, weightKg: 25 }], geometry: 'platform',
   });
 }
+const stagingBox = (id: string, patch: Partial<StagingUnit> = {}): StagingUnit => ({ id, kind: 'box', name: id, cargoId: 'A', cargoIds: ['A'], length: .6, width: .4, height: .5, weightKg: 10, boxCount: 1, unloadPriorities: [], location: 'yard', verdict: 'pending', reasons: [], boxUnits: [{ id, stableId: id, cargoId: 'A' }], ...patch });
+
+describe('staging camera fit and root-unit selection', () => {
+  it('fits vehicle interior, current yard zone and their combined scene without fitting hidden distant zones', () => {
+    const plan = fixture();
+    const units = Array.from({ length: 24 }, (_, index) => stagingBox(`yard-${index}`));
+    const layout = buildStagingYardLayout(units, { container: plan.container, vehicleRig: 'articulated' });
+    const visible = [layout.zones[0].id];
+    const pose = stagingSceneCameraPose(plan, 'all', 16 / 9, layout, visible);
+    const distant = { ...layout, bounds: { min: [-10000, -1, -10000] as [number, number, number], max: [10000, 10000, 10000] as [number, number, number] },
+      zones: [...layout.zones, { ...layout.zones[0], id: 'FAR', start: 10000, end: 10020, bounds: { min: [10000, -1, -5] as [number, number, number], max: [10020, 5, 5] as [number, number, number] } }] };
+    expect(stagingSceneCameraPose(plan, 'all', 16 / 9, distant, visible)).toEqual(pose);
+    const inside = stagingSceneCameraPose(plan, 'vehicle', 16 / 9, distant, visible);
+    expect(inside.bounds).toEqual({ min: [-3, 0, -1.2], max: [3, 2.6, 1.2] });
+    const yard = stagingSceneCameraPose(plan, 'yard', 16 / 9, distant, visible);
+    expect(yard.bounds).toEqual(layout.zones[0].bounds);
+    expect(pose.bounds.max[0]).toBeGreaterThan(inside.bounds.max[0]);
+    expect(Number.isFinite(pose.distance)).toBe(true);
+  });
+  it('keeps every fitted bound corner inside portrait and landscape camera frustums', () => {
+    const plan = fixture(), layout = buildStagingYardLayout([stagingBox('box')], { container: plan.container, vehicleRig: 'articulated' });
+    for (const aspect of [.45, 16 / 9, 2.5]) for (const view of ['all', 'vehicle', 'yard'] as const) {
+      const pose = stagingSceneCameraPose(plan, view, aspect, layout, [layout.zones[0].id]);
+      const camera = new THREE.PerspectiveCamera(40, aspect, .02, pose.distance * 5);
+      camera.position.copy(pose.position); camera.lookAt(pose.target); camera.updateMatrixWorld();
+      for (const x of [pose.bounds.min[0], pose.bounds.max[0]]) for (const y of [pose.bounds.min[1], pose.bounds.max[1]]) for (const z of [pose.bounds.min[2], pose.bounds.max[2]]) {
+        const projected = new THREE.Vector3(x, y, z).project(camera);
+        expect(Math.abs(projected.x)).toBeLessThanOrEqual(1); expect(Math.abs(projected.y)).toBeLessThanOrEqual(1);
+        expect(projected.z).toBeGreaterThan(-1); expect(projected.z).toBeLessThan(1);
+      }
+    }
+  });
+  it('selects loose vehicle indices and whole pallet support/bounds while excluding yard and other vehicles', () => {
+    const plan = fixture(), support = plan.supports[0];
+    const pallet = stagingBox('pallet', { kind: 'pallet', location: 'vehicle', length: support.length, width: support.width, height: 1.2, sourcePlacementIndexes: [0, 1],
+      pallet: { ...support, palletIndex: 8, stackColumn: 1, stackLevel: 1, cargoPlacements: plan.placements.slice(0, 2), cargoWeightKg: 20, packagingWeightKg: 0, packagingExtraHeightM: 0, cornerGuardsUsed: false, wrappingUsed: false, totalWeightKg: 45, centerOfGravity: { x: 1.5, y: 1, z: .7 } } });
+    const loose = stagingBox('loose', { location: 'vehicle', sourcePlacementIndex: 2 });
+    const units = [pallet, loose, stagingBox('yard'), stagingBox('other', { location: 'other-vehicle', sourcePlacementIndex: 0 })];
+    const selection = stagingVehicleSelection(plan, units, pallet.id);
+    expect(selection.cargoIndex).toBeNull(); expect(selection.supportIndex).toBe(0);
+    selection.bounds!.min.forEach((value, index) => expect(value).toBeCloseTo([-2, 0, -.7][index]));
+    selection.bounds!.max.forEach((value, index) => expect(value).toBeCloseTo([-.8, 1.2, .3][index]));
+    expect(stagingVehicleSelection(plan, units, loose.id).cargoIndex).toBe(2);
+    for (const id of ['yard', 'other', null]) expect(stagingVehicleSelection(plan, units, id)).toEqual({ cargoIndex: null, supportIndex: null, bounds: null });
+  });
+});
 function frameFor(plan: ReturnType<typeof fixture>, step = 2): InertiaAnimationFrame {
   return {
     cargo: new Float32Array(plan.placements.flatMap((box, index) => [...sceneCenter(box, plan.container).map(value => value + index * .1), 0, 0, Math.SQRT1_2, Math.SQRT1_2])),
@@ -175,15 +223,22 @@ describe('Three comparison scene resources', () => {
     expect(() => createComparisonSceneResources(plan, {}, new Map())).toThrow('Required Meshy asset is missing');
   });
 
-  it('instances actual model parts, keeps 4 label faces inside the physical box and tracks visibility', () => {
+  it('instances the production carton at exact physical dimensions with four flush face labels and tracks visibility', () => {
     const plan = fixture(), before = JSON.stringify(plan), { scene } = resourcesFor(plan);
     scene.updateVisibility(shown);
     expect(scene.modelCount).toBe(4); expect(scene.labelFaces).toBe(12); expect(scene.visibleLabelFaces).toBe(12); expect(scene.visibleCargo).toBe(3);
     const label = scene.root.getObjectByName('Printed carton labels A') as THREE.InstancedMesh;
     const matrix = new THREE.Matrix4(); label.getMatrixAt(0, matrix);
     const position = new THREE.Vector3().setFromMatrixPosition(matrix);
-    expect(position.z).toBeCloseTo(-.4 + .4 * .99 * .503);
-    expect(position.z).toBeLessThan(-.2);
+    expect(position.z).toBeCloseTo(-.4 + .4 * .5005);
+    expect(Math.abs(position.z - (-.2))).toBeLessThan(.001);
+    const carton = scene.root.getObjectByName('Cartons ' + plan.placements[0].color) as THREE.InstancedMesh;
+    expect((carton.material as THREE.MeshStandardMaterial).map).toBeNull();
+    expect((carton.material as THREE.MeshStandardMaterial).userData.studioCartonSurface).toBe('kraft-no-atlas');
+    const physical = new THREE.Matrix4(); carton.getMatrixAt(0, physical);
+    const cartonBounds = carton.geometry.boundingBox!.clone().applyMatrix4(physical);
+    expect(cartonBounds.min.y).toBeCloseTo(plan.placements[0].z);
+    expect(cartonBounds.getSize(new THREE.Vector3()).toArray()).toEqual(expect.arrayContaining([expect.closeTo(.6), expect.closeTo(.5), expect.closeTo(.4)]));
     scene.updateVisibility({ ...shown, cut: 20 });
     expect(scene.visibleCargo).toBe(2); expect(scene.visibleLabelFaces).toBe(8);
     scene.updateVisibility({ ...shown, labels: false }); expect(scene.visibleLabelFaces).toBe(0);
@@ -203,8 +258,8 @@ describe('Three comparison scene resources', () => {
     expect(support.children).toHaveLength(2);
     expect(scene.root.getObjectByName('Cargo selection')!.matrix.elements[12]).toBeCloseTo(frame.cargo[0]);
     const label = scene.root.getObjectByName('Printed carton labels A') as THREE.InstancedMesh, labelMatrix = new THREE.Matrix4(); label.getMatrixAt(0, labelMatrix);
-    const cargo = plan.placements[0], expectedCargo = poseMatrix(frame.cargo, 0, new THREE.Vector3(cargo.length * .99, cargo.height * .99, cargo.width * .99));
-    const expected = new THREE.Vector3(0, 0, .503).applyMatrix4(expectedCargo), actual = new THREE.Vector3().setFromMatrixPosition(labelMatrix);
+    const cargo = plan.placements[0], expectedCargo = poseMatrix(frame.cargo, 0, new THREE.Vector3(cargo.length, cargo.height, cargo.width));
+    const expected = new THREE.Vector3(0, 0, .5005).applyMatrix4(expectedCargo), actual = new THREE.Vector3().setFromMatrixPosition(labelMatrix);
     expect(actual.distanceTo(expected)).toBeLessThan(1e-6);
     scene.applyFrame(); scene.updateVisibility(shown);
     expect(support.position.y).toBeCloseTo(.075); expect(support.quaternion.w).toBe(1); scene.dispose();
@@ -225,6 +280,25 @@ describe('Three comparison scene resources', () => {
 });
 
 describe('selected cargo boundary resources', () => {
+  it('renders only explicitly planned wrapping as translucent film attached to its whole pallet and preserves other wire decorations', () => {
+    const plan = fixture(), support = plan.supports[0];
+    const wrapping = { x: support.x - .012, y: support.y - .012, z: support.height, length: support.length + .024, width: support.width + .024, height: 1, color: '#68b9e7', supportIndex: 0, wire: true, wrapping: true as const };
+    const wire = { x: 4, y: 0, z: 0, length: .3, width: .2, height: .4, color: '#b78650', supportIndex: -1, wire: true };
+    plan.decorations = [wrapping, wire];
+    const { scene } = resourcesFor(plan), film = scene.root.getObjectByName('Pallet stretch film') as THREE.Mesh;
+    expect(film).toBeDefined(); expect(film.parent!.parent!.name).toBe('Support_0');
+    const material = film.material as THREE.MeshStandardMaterial;
+    expect(material.transparent).toBe(true); expect(material.opacity).toBe(.16); expect(material.roughness).toBe(.8);
+    expect(material.side).toBe(THREE.DoubleSide); expect(material.depthWrite).toBe(false); expect(material.userData.aoExclude).toBe(true); expect(film.renderOrder).toBe(2);
+    expect(scene.root.getObjectByName('Securing')!.children[0].children).toHaveLength(12);
+    const hits: THREE.Intersection[] = []; film.raycast(new THREE.Raycaster(), hits); expect(hits).toEqual([]);
+    const local = film.parent!.position.clone(), frame = frameFor(plan); scene.applyFrame(frame); scene.root.updateMatrixWorld(true);
+    const pallet = scene.root.getObjectByName('Support_0')!;
+    expect(film.getWorldPosition(new THREE.Vector3()).distanceTo(local.applyQuaternion(pallet.quaternion).add(pallet.position))).toBeLessThan(1e-6);
+    const dispose = vi.spyOn(material, 'dispose'); scene.dispose(); expect(dispose).toHaveBeenCalledOnce();
+    plan.decorations = [wire]; const noWrapping = resourcesFor(plan).scene;
+    expect(noWrapping.root.getObjectByName('Pallet stretch film')).toBeUndefined(); noWrapping.dispose();
+  });
   it('uses the last accepted frame and restores static physical bounds with the plan', () => {
     const plan = fixture(), { scene } = resourcesFor(plan), selection = {kind:'cargo' as const,index:0};
     scene.applyFrame(); scene.updateVisibility({...shown,selected:0});

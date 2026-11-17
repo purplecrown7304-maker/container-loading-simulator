@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { selectedCargoClearance, type ClearanceSelection } from './cargoClearance';
 import { buildWeightSurfaceGeometry } from './weightSurfaceGeometry';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
-import { createMeshyMaterial, meshyTint, type MeshyModel, type ModelKey } from './threeComparisonModels';
-import { poseMatrix, sceneBoxMatrix, sceneCenter, UNITY_CARTON_SCALE, visibleCargoIndexes, type ThreeComparisonPlan } from './threeComparisonSceneState';
+import { acquireStudioCartonGeometry, createLitMeshyMaterial, createPalletFilmMaterial, createStudioCartonMaterial, meshyTint, type MeshyModel, type ModelKey } from './threeComparisonModels';
+import { poseMatrix, sceneBoxMatrix, sceneCenter, visibleCargoIndexes, type ThreeComparisonPlan } from './threeComparisonSceneState';
 
 import { createVehicleResources } from './threeVehicleResources';
 import type { VehicleModels } from './threeVehicleModels';
@@ -29,15 +29,7 @@ export function requiredComparisonModelKeys(plan: ThreeComparisonPlan): ModelKey
 }
 
 function surfaceMaterial(color: THREE.ColorRepresentation) {
-  return new THREE.ShaderMaterial({
-    uniforms: { tint: { value: meshyTint(color) } },
-    vertexShader: `varying vec3 worldNormal;
-      void main(){worldNormal=normalize(mat3(modelMatrix)*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-    fragmentShader: `uniform vec3 tint;varying vec3 worldNormal;
-      void main(){float light=.62+.38*max(0.,dot(normalize(worldNormal),normalize(vec3(.4,1.,.6))));gl_FragColor=vec4(tint*light,1.);
-      }`,
-    toneMapped: false,
-  });
+  return new THREE.MeshStandardMaterial({ color: meshyTint(color).convertSRGBToLinear(), roughness: .88, metalness: .02 });
 }
 
 /** Owns only per-scene material/primitive objects. Meshy geometry and textures are cache-owned. */
@@ -49,11 +41,13 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
   root.add(equipment, cargoRoot, supportRoot, decorRoot, weightRoot, cgRoot);
   const { length: l, width: w, height: h } = plan.container;
   const boxGeometry = new THREE.BoxGeometry(1, 1, 1), labelGeometry = new THREE.PlaneGeometry(1, 1), sphereGeometry = new THREE.SphereGeometry(.08, 20, 12);
+  const cartonGeometry = plan.placements.length ? acquireStudioCartonGeometry() : null;
   const ownedMaterials: THREE.Material[] = [], instanceMeshes: THREE.InstancedMesh[] = [];
   const mat = (color: THREE.ColorRepresentation) => { const material = surfaceMaterial(color); ownedMaterials.push(material); return material; };
   const cube = (name: string, position: number[], size: number[], material: THREE.Material, parent: THREE.Object3D, data?: Record<string, unknown>) => {
     const mesh = new THREE.Mesh(boxGeometry, material); mesh.name = name;
     mesh.position.fromArray(position); mesh.scale.fromArray(size); parent.add(mesh);
+    mesh.receiveShadow = true;
     if (data) mesh.userData = data; else mesh.raycast = noRaycast;
     return mesh;
   };
@@ -65,23 +59,25 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     }
   };
   let modelCount = 0;
-  const materials = new Map<string, THREE.ShaderMaterial[]>();
+  const materials = new Map<string, THREE.MeshStandardMaterial[]>();
   const modelMaterials = (key: ModelKey, tint: THREE.Color, clipInterior?: THREE.Box3) => {
     const id = `${key}:${tint.getHexString()}:${Boolean(clipInterior)}`;
     let value = materials.get(id);
     const model = models[key];
     if (!model) throw new Error(`Required Meshy asset is missing: ${key}`);
+    const parts = key === 'carton' && cartonGeometry ? [{ ...model.parts[0], geometry: cartonGeometry.geometry }] : model.parts;
     if (!value) {
-      value = model.parts.map(part => createMeshyMaterial(part.texture, { tint, clipInterior }));
+      value = parts.map(part => key === 'carton' ? createStudioCartonMaterial({ tint, clipInterior }) : createLitMeshyMaterial(part.texture, { tint, clipInterior, roughness: key === 'plastic-pallet' ? .5 : .84 }));
       ownedMaterials.push(...value); materials.set(id, value);
     }
-    return { model, materials: value };
+    return { model: { ...model, parts }, materials: value };
   };
   const addModel = (key: ModelKey, parent: THREE.Object3D, position: number[], size: number[], data?: Record<string, unknown>, clipInterior?: THREE.Box3) => {
     const group = new THREE.Group(); group.position.fromArray(position); group.scale.fromArray(size); parent.add(group);
     const model = modelMaterials(key, new THREE.Color(1, 1, 1), clipInterior);
     model.model.parts.forEach((part, index) => {
       const mesh = new THREE.Mesh(part.geometry, model.materials[index]); mesh.name = `Meshy ${key}`;
+      mesh.castShadow = key !== 'container-shell'; mesh.receiveShadow = true;
       if (data) mesh.userData = data; else mesh.raycast = noRaycast;
       group.add(mesh);
     });
@@ -122,7 +118,7 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
   if (vehicle) { equipment.add(vehicle.root); modelCount += vehicle.modelCount; }
   if (plan.vehicle && !plan.vehicleRig) addModel('truck-cab', equipment, [-l / 2 - w * .64, h * .43, 0], [w * 1.15, h * 1.03, w]);
 
-  const cargoMatrices = plan.placements.map(box => sceneBoxMatrix(box, plan.container, UNITY_CARTON_SCALE));
+  const cargoMatrices = plan.placements.map(box => sceneBoxMatrix(box, plan.container));
   const initialCargo = cargoMatrices.map(matrix => matrix.clone());
   const cargoBatches: CargoBatch[] = [], labelBatches: LabelBatch[] = [];
   const byColor = new Map<string, number[]>();
@@ -136,6 +132,7 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     const batch: CargoBatch = { indices, meshes: [], visibleIndices: [] };
     model.parts.forEach((part, index) => {
       const mesh = new THREE.InstancedMesh(part.geometry, mapped[index], indices.length);
+      mesh.castShadow = true; mesh.receiveShadow = true;
       mesh.name = `Cartons ${color}`; mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.userData = { kind: 'cargo', batch };
       // Unity selects a physical box collider, not every Meshy triangle. Preserve
@@ -164,8 +161,8 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     labelBatches.push({ indices, mesh }); instanceMeshes.push(mesh); cargoRoot.add(mesh);
   }
   const labelLocalMatrices = [
-    { p: [0, 0, .503], ry: 0 }, { p: [0, 0, -.503], ry: Math.PI },
-    { p: [.503, 0, 0], ry: Math.PI / 2 }, { p: [-.503, 0, 0], ry: -Math.PI / 2 },
+    { p: [0, 0, .5005], ry: 0 }, { p: [0, 0, -.5005], ry: Math.PI },
+    { p: [.5005, 0, 0], ry: Math.PI / 2 }, { p: [-.5005, 0, 0], ry: -Math.PI / 2 },
   ].map(face => new THREE.Matrix4().compose(new THREE.Vector3(...face.p), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), face.ry), new THREE.Vector3(.82, .62, 1)));
   const selection = new THREE.Group(); selection.name = 'Cargo selection'; selection.matrixAutoUpdate = false; cargoRoot.add(selection);
   edgeBox([0, 0, 0], [1, 1, 1], mat(new THREE.Color(1, .6, .04)), selection, .025);
@@ -183,7 +180,11 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     const parent = supports[aid.supportIndex];
     if (parent) { unit.position.sub(parent.position); parent.add(unit); } else decorRoot.add(unit);
     const size = [aid.length, aid.height, aid.width];
-    if (aid.wire) edgeBox([0, 0, 0], size, mat(aid.color), unit, .008);
+    if ('wrapping' in aid && aid.wrapping === true) {
+      const film = createPalletFilmMaterial(); ownedMaterials.push(film);
+      const mesh = cube('Pallet stretch film', [0, 0, 0], size, film, unit);
+      mesh.renderOrder = 2; mesh.castShadow = false; mesh.userData.aoExclude = true;
+    } else if (aid.wire) edgeBox([0, 0, 0], size, mat(aid.color), unit, .008);
     else if (aid.modelKey) addModel(aid.modelKey as ModelKey, unit, [0, 0, 0], size);
     else cube('Securing', [0, 0, 0], size, mat(aid.color), unit);
   }
@@ -211,7 +212,7 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
   if (hasCg) {
     // A cargo centroid is commonly inside a solid box. Render the annotation above
     // cargo so it remains visible without changing the actual models or materials.
-    const purple = new THREE.MeshBasicMaterial({ color: '#7c3aed', depthTest: false, depthWrite: false, toneMapped: false });
+    const purple = new THREE.MeshBasicMaterial({ color: '#7c3aed', depthTest: false, depthWrite: false });
     ownedMaterials.push(purple);
     cgStem = cube('CG stem', [0, 0, 0], [.025, .025, .025], purple, cgRoot); cgStem.renderOrder = 1000;
     cgSphere = new THREE.Mesh(sphereGeometry, purple); cgSphere.name = 'CG marker'; cgSphere.renderOrder = 1001; cgSphere.raycast = noRaycast; cgRoot.add(cgSphere);
@@ -274,7 +275,7 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     updateCenterOfGravity(frame);
     cargoMatrices.forEach((matrix, index) => {
       if (!frame) matrix.copy(initialCargo[index]);
-      else { const box = plan.placements[index]; poseMatrix(frame.cargo, index, new THREE.Vector3(box.length * UNITY_CARTON_SCALE, box.height * UNITY_CARTON_SCALE, box.width * UNITY_CARTON_SCALE), matrix); }
+      else { const box = plan.placements[index]; poseMatrix(frame.cargo, index, new THREE.Vector3(box.length, box.height, box.width), matrix); }
     });
     supports.forEach((support, index) => {
       if (!frame) { support.position.fromArray(sceneCenter(plan.supports[index], plan.container)); support.quaternion.identity(); }
@@ -297,6 +298,7 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
       for (const material of ownedMaterials) material.dispose();
       for (const mesh of instanceMeshes) mesh.dispose();
       vehicle?.dispose();
+      cartonGeometry?.release();
       weightGeometry.dispose(); boxGeometry.dispose(); labelGeometry.dispose(); sphereGeometry.dispose(); root.clear();
     },
   };

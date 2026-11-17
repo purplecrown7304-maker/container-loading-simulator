@@ -7,7 +7,11 @@ import { viewerWeightResult } from './viewerWeightResult';
 import type { SecuringUsage } from './inertiaCertification';
 import { securingGeometry } from './viewerSecuring';
 
-export type ViewerSceneOptions = { supports?: PhysicsSupport[]; securing?: SecuringUsage | null; geometry?: string; vehicle?: boolean };
+/** Display provenance only. Never adds restraint forces, material mass or certification. */
+export type ViewerSupport = PhysicsSupport & {
+  visualPackaging?: { wrapping: boolean; cornerGuards: boolean; bandingStraps: number };
+};
+export type ViewerSceneOptions = { supports?: ViewerSupport[]; securing?: SecuringUsage | null; geometry?: string; vehicle?: boolean };
 export function viewerPlan(container: ContainerSpec, result: LoadingResult, revision: number, cargo: Array<Pick<CargoItem, 'id' | 'displayColor'> & Partial<CargoItem>> = [], options: ViewerSceneOptions = {}) {
   const colors = new Map(cargo.map(item => [item.id, item.displayColor]));
   const cargoById = new Map(cargo.map(item => [item.id, item]));

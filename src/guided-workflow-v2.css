@@ -225,11 +225,11 @@ html[data-guided-workflow="true"] .studio-summary-heading h2 { margin: 0; font-s
 .studio-summary-equipment svg { display: none; }
 .studio-summary-equipment b { font-size: 14px; font-weight:600; letter-spacing: 0; color: var(--studio-ink); }
 .studio-summary-equipment span { color: var(--studio-faint); font-size: var(--font-2xs,11px); font-variant-numeric: tabular-nums; }
-html[data-guided-workflow="true"] .guided-job-summary dl { display: block; margin: 0; }
-html[data-guided-workflow="true"] .guided-job-summary dl>div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border: 0; border-bottom: 1px solid var(--studio-line); border-radius: 0; align-items: baseline; background: transparent; }
-html[data-guided-workflow="true"] .guided-job-summary dl>div:first-child { display: none; }
-html[data-guided-workflow="true"] .guided-job-summary dt { font-size: 12px; color: var(--studio-faint); white-space: nowrap; }
-html[data-guided-workflow="true"] .guided-job-summary dd { font-size: 12px; font-weight:600; color: var(--studio-ink); max-width: 150px; line-height: 1.4; margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+html[data-guided-workflow="true"] .guided-job-summary>dl { display: block; margin: 0; }
+html[data-guided-workflow="true"] .guided-job-summary>dl>div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border: 0; border-bottom: 1px solid var(--studio-line); border-radius: 0; align-items: baseline; background: transparent; }
+html[data-guided-workflow="true"] .guided-job-summary>dl>div:first-child { display: none; }
+html[data-guided-workflow="true"] .guided-job-summary>dl dt { font-size: 12px; color: var(--studio-faint); white-space: nowrap; }
+html[data-guided-workflow="true"] .guided-job-summary>dl dd { font-size: 12px; font-weight:600; color: var(--studio-ink); max-width: 150px; line-height: 1.4; margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 html[data-guided-workflow="true"] .guided-status-row { margin-top: 0; border-top: 0 !important; padding-top: 8px !important; }
 .studio-capacity { border-top: 0; margin-top: 8px; padding: 8px 12px; background: var(--studio-sunken); border: 1px solid var(--studio-line); border-radius: var(--studio-radius-sm); }
 .studio-capacity>span { display: flex; align-items: baseline; justify-content: space-between; font-size: 12px; color: var(--studio-faint); }
@@ -290,7 +290,7 @@ html[data-guided-workflow="true"] :is(.header-menu-panel,.header-account-menu) b
 /* Tablet: summary moves under the stage as a two-column table. */
 @media (min-width: 761px) and (max-width: 1180px) {
   html[data-guided-workflow="true"] .dashboard-right { grid-column: 2 !important; position: static !important; max-height: none !important; }
-  html[data-guided-workflow="true"] .guided-job-summary dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); column-gap: 20px; }
+  html[data-guided-workflow="true"] .guided-job-summary>dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); column-gap: 20px; }
   .studio-summary-equipment { display: none; }
   .studio-capacity { max-width: 360px; }
 }
@@ -318,7 +318,7 @@ html[data-guided-workflow="true"] :is(.header-menu-panel,.header-account-menu) b
   html[data-guided-workflow="true"] .guided-job-summary { padding: 8px 12px; }
   .studio-summary-heading { display: none; }
   .studio-summary-equipment { display: none; }
-  html[data-guided-workflow="true"] .guided-job-summary dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 16px; margin-top: 8px; }
+  html[data-guided-workflow="true"] .guided-job-summary>dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 16px; margin-top: 8px; }
   html[data-guided-workflow="true"] .guided-status-row { padding-top: 8px !important; }
   html[data-guided-workflow="true"] .guided-bottom-bar { padding: 8px 12px max(8px,env(safe-area-inset-bottom)); min-height: 52px; gap: 8px; }
   .studio-footer-step { display: none; }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { EnvironmentId } from './viewerEnvironment';
+import { linearDisplayFragment } from './threeComparisonModels';
 
 type Footprint = { length: number; width: number; height: number };
 type Part = 'sky' | 'ground' | 'scenery';
@@ -80,7 +81,10 @@ export function createViewerEnvironmentResources(id: EnvironmentId, footprint: F
   const primitiveGeometry = new Map<Primitive, THREE.BufferGeometry>();
   const batches = new Map<string, { kind: Primitive; part: Part; unlit: boolean; values: Instance[] }>();
   const ownGeometry = <T extends THREE.BufferGeometry>(geometry: T) => { geometries.add(geometry); return geometry; };
-  const ownMaterial = <T extends THREE.Material>(material: T) => { materials.add(material); return material; };
+  const ownMaterial = <T extends THREE.Material>(material: T) => {
+    if (material instanceof THREE.ShaderMaterial) material.fragmentShader = linearDisplayFragment(material.fragmentShader);
+    material.toneMapped = true; materials.add(material); return material;
+  };
   let disposed = false;
   const dispose = () => {
     if (disposed) return;

@@ -9,6 +9,10 @@ import {
   MESHY_MODEL_KEYS,
   MESHY_MODEL_MANIFEST,
   createMeshyMaterial,
+  createLitMeshyMaterial,
+  createStudioCartonMaterial,
+  acquireStudioCartonGeometry,
+  linearDisplayFragment,
   loadMeshyModel,
   meshyTint,
   normalizeMeshyGeometries,
@@ -38,6 +42,43 @@ afterEach(() => {
 });
 
 describe('original Unity Meshy asset parity', () => {
+  it('shares a bounded low-segment production edge geometry and releases it only after its last owner', () => {
+    const first = acquireStudioCartonGeometry(), second = acquireStudioCartonGeometry();
+    expect(first.geometry).toBe(second.geometry);
+    expect(first.geometry.boundingBox!.min.toArray()).toEqual([-.5, -.5, -.5]); expect(first.geometry.boundingBox!.max.toArray()).toEqual([.5, .5, .5]);
+    expect(first.geometry.getAttribute('position').count / 3).toBe(108);
+    const dispose = vi.spyOn(first.geometry, 'dispose'); first.release(); first.release(); expect(dispose).not.toHaveBeenCalled(); second.release(); expect(dispose).toHaveBeenCalledOnce();
+  });
+  it('adds a standard lit material with one map decode and retained world clipping without mutating its source texture', () => {
+    const texture = new Texture(), originalSpace = texture.colorSpace, clip = new Box3(new Vector3(-1, 0, -2), new Vector3(1, 3, 2));
+    const material = createLitMeshyMaterial(texture, { tint: '#808080', clipInterior: clip });
+    expect(material.type).toBe('MeshStandardMaterial'); expect(material.toneMapped).toBe(true); expect(material.map).toBe(texture);
+    expect(material.color.r).toBeCloseTo(new Color().setRGB(128 / 255, 128 / 255, 128 / 255).convertSRGBToLinear().r);
+    const shader = { uniforms: {}, vertexShader: '#include <common>\n#include <project_vertex>', fragmentShader: '#include <common>\n#include <clipping_planes_fragment>\n#include <map_fragment>\n#include <tonemapping_fragment>\n#include <colorspace_fragment>' } as Parameters<typeof material.onBeforeCompile>[0];
+    material.onBeforeCompile(shader, {} as Parameters<typeof material.onBeforeCompile>[1]);
+    expect(shader.fragmentShader.match(/sampledDiffuseColor.rgb = studioSRGBToLinear/g)).toHaveLength(1);
+    expect(shader.fragmentShader).toContain('discard;'); expect(shader.vertexShader).toContain('instanceMatrix * studioWorld');
+    expect(shader.uniforms.studioInteriorMin.value).not.toBe(clip.min); expect(material.userData.aoExclude).toBe(true);
+    expect(texture.colorSpace).toBe(originalSpace);
+    const textureDispose = vi.spyOn(texture, 'dispose'); material.dispose(); expect(textureDispose).not.toHaveBeenCalled(); texture.dispose();
+  });
+  it('uses clean kraft PBR for rounded cartons without sampling the incompatible baked OBJ atlas', () => {
+    const clip = new Box3(new Vector3(-.4, -.4, -.4), new Vector3(.4, .4, .4));
+    const blue = createStudioCartonMaterial({ tint: '#498bff', clipInterior: clip });
+    const red = createStudioCartonMaterial({ tint: '#f37161' });
+    expect(blue.map).toBeNull(); expect(red.map).toBeNull(); expect(blue.roughness).toBe(.92); expect(blue.metalness).toBe(0);
+    expect(blue.color).not.toEqual(red.color); expect(blue.toneMapped).toBe(true); expect(blue.userData.studioCartonSurface).toBe('kraft-no-atlas');
+    expect(blue.userData.studioClipInterior.enabled).toBe(1); expect(blue.userData.aoExclude).toBe(true);
+    const shader = { uniforms: {}, vertexShader: '#include <common>\n#include <project_vertex>', fragmentShader: '#include <common>\n#include <clipping_planes_fragment>\n#include <map_fragment>' } as Parameters<typeof blue.onBeforeCompile>[0];
+    blue.onBeforeCompile(shader, {} as Parameters<typeof blue.onBeforeCompile>[1]);
+    expect(shader.fragmentShader).not.toContain('texture2D(map'); expect(shader.fragmentShader).toContain('discard;');
+    blue.dispose(); red.dispose();
+  });
+  it('decodes procedural display color before the single native output/tone-mapping stage', () => {
+    const shader = linearDisplayFragment('void main(){gl_FragColor=vec4(.5,.5,.5,1.);}');
+    expect(shader).toContain('gl_FragColor.rgb = studioSRGBToLinear(gl_FragColor.rgb)');
+    expect(shader.match(/#include <tonemapping_fragment>/g)).toHaveLength(1); expect(shader.match(/#include <colorspace_fragment>/g)).toHaveLength(1);
+  });
   it('lists exactly the same eight roles as the Unity asset manifest', () => {
     expect([...MESHY_MODEL_KEYS].sort()).toEqual(provenance.models.map((model) => model.key).sort());
   });

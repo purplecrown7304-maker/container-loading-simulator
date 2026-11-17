@@ -260,11 +260,10 @@ export function buildInertiaSimulationSupports(target: PhysicsTarget, usage: Sec
   return [...supports, ...fixedGapSupports(gapPlan)];
 }
 
-export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel): SecuringUsage {
+export function buildSecuringUsage(target: PhysicsTarget, level: SecuringLevel, unitWeights: SecuringMaterialSettings = readSecuringMaterialSettings()): SecuringUsage {
   const supports = target.mode === 'pallets' ? (target.supports ?? []) : [];
   const palletCount = supports.length;
   const palletWeightKg = supports.reduce((sum, support) => sum + Math.max(0, support.weightKg), 0);
-  const unitWeights = readSecuringMaterialSettings();
 
   let bandingStraps = 0;
   let bandingLengthM = 0;

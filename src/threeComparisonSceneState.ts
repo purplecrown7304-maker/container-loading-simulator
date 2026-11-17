@@ -2,6 +2,9 @@ import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import type { InertiaAnimationFrame } from './engine/inertiaSimulation';
 import { vehicleLayout, type VehicleRigKind } from './threeVehicleLayout';
 import type { viewerPlan } from './viewerSceneProtocol';
+import type { StagingBounds, StagingYardLayout } from './stagingYardLayout';
+import type { StagingCameraView } from './stagingSceneContext';
+import type { StagingUnit } from './stagingInventory';
 
 export type ThreeComparisonPlan = ReturnType<typeof viewerPlan> & { vehicleRig?: VehicleRigKind; equipmentId?: string; rearAccess?: 'door' | 'rear' };
 export type SceneBox = Pick<ThreeComparisonPlan['placements'][number], 'x' | 'y' | 'z' | 'length' | 'width' | 'height'>;
@@ -72,4 +75,51 @@ export function sceneCameraPose(plan: ThreeComparisonPlan, view: string, aspect:
   }
   distance *= 1.12;
   return { target, position: new Vector3(0, 0, -distance).applyQuaternion(rotation).add(target), distance };
+}
+
+export function stagingVehicleSelection(plan: ThreeComparisonPlan, units: readonly StagingUnit[], id: string | null) {
+  const unit = units.find(item => item.id === id && item.location === 'vehicle');
+  if (!unit) return { cargoIndex: null, supportIndex: null, bounds: null };
+  if (unit.kind === 'box') {
+    const index = unit.sourcePlacementIndex;
+    return { cargoIndex: index !== undefined && plan.placements[index] ? index : null, supportIndex: null, bounds: null };
+  }
+  const pallet = unit.pallet;
+  if (!pallet) return { cargoIndex: null, supportIndex: null, bounds: null };
+  const same = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  const index = plan.supports.findIndex(support => same(support.x, pallet.x) && same(support.y, pallet.y) && same(support.z, pallet.z)
+    && same(support.length, pallet.length) && same(support.width, pallet.width) && same(support.height, pallet.height));
+  const bounds: StagingBounds = {
+    min: [pallet.x - plan.container.length / 2, pallet.z, pallet.y - plan.container.width / 2],
+    max: [pallet.x + unit.length - plan.container.length / 2, pallet.z + unit.height, pallet.y + unit.width - plan.container.width / 2],
+  };
+  return { cargoIndex: null, supportIndex: index < 0 ? null : index, bounds };
+}
+
+function unionStagingBounds(values: readonly StagingBounds[]): StagingBounds {
+  return { min: [0, 1, 2].map(axis => Math.min(...values.map(value => value.min[axis]))) as [number, number, number],
+    max: [0, 1, 2].map(axis => Math.max(...values.map(value => value.max[axis]))) as [number, number, number] };
+}
+
+/** Fits only explicitly displayed yard zones, never the complete large inventory.
+ * The legacy sceneCameraPose above remains the exact non-staging path. */
+export function stagingSceneCameraPose(plan: ThreeComparisonPlan, view: StagingCameraView, aspect: number, layout: StagingYardLayout, visibleZoneIds: readonly string[]) {
+  const { length, width, height } = plan.container;
+  const rig = vehicleLayout(plan.vehicleRig ?? 'none', plan.container);
+  const interior: StagingBounds = { min: [-length / 2, 0, -width / 2], max: [length / 2, height, width / 2] };
+  const vehicle: StagingBounds = rig.bounds.isEmpty() ? interior : unionStagingBounds([interior, { min: rig.bounds.min.toArray(), max: rig.bounds.max.toArray() }]);
+  const visible = new Set(visibleZoneIds), zones = layout.zones.filter(zone => visible.has(zone.id));
+  const yard = zones.length ? unionStagingBounds(zones.map(zone => zone.bounds)) : layout.focusBounds;
+  const bounds = view === 'vehicle' ? interior : view === 'yard' ? yard : unionStagingBounds([vehicle, yard]);
+  const target = new Vector3(...bounds.min).add(new Vector3(...bounds.max)).multiplyScalar(.5);
+  const yaw = 222 * Math.PI / 180 - Math.atan2(layout.frame.outward[1], layout.frame.outward[0]);
+  const rotation = new Quaternion().setFromEuler(new Euler(32 * Math.PI / 180, yaw, 0, 'YXZ')), inverse = rotation.clone().invert();
+  const vertical = Math.tan(20 * Math.PI / 180), horizontal = vertical * Math.max(.1, aspect);
+  let distance = .5;
+  for (const x of [bounds.min[0], bounds.max[0]]) for (const y of [bounds.min[1], bounds.max[1]]) for (const z of [bounds.min[2], bounds.max[2]]) {
+    const point = new Vector3(x, y, z).sub(target).applyQuaternion(inverse);
+    distance = Math.max(distance, Math.abs(point.x) / horizontal - point.z, Math.abs(point.y) / vertical - point.z);
+  }
+  distance *= 1.16;
+  return { target, position: new Vector3(0, 0, -distance).applyQuaternion(rotation).add(target), distance, bounds };
 }

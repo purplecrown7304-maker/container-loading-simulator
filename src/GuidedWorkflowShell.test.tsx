@@ -6,12 +6,16 @@ import GuidedWorkflowShell from './GuidedWorkflowShell';
 import { readStoredState, writeStoredState } from './storage';
 import { writeProductSelection } from './productWorkflow';
 import { publishWorkflowPreview, readWorkflowPreview } from './workflowPreview';
-import { publishGuidedLoadingUnit } from './guidedLoadingUnitState';
+import { publishGuidedLoadingUnit, readGuidedLoadingUnit } from './guidedLoadingUnitState';
 import type { ContainerSpec, LoadingResult } from './engine/types';
 import { buildSecuringUsage, clearLatestInertiaCertification, createPhysicsTargetSignature, type InertiaCertification } from './inertiaCertification';
 import { clearPhysicsTarget, publishPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
 import { publishVerificationCancelled } from './workflowVerificationState';
+import { readLoadingStrategyPreference, writeLoadingStrategyPreference } from './loadingStrategyPreference';
+import { adoptRemoteOperator } from './localOperator';
+import { ADMIN_ACCESS_EVENT } from './adminAccess';
+import { MEMBER_SESSION_KEY } from './memberAuth';
 
 // Keep the actual shell, stage components, product/packaging stores and modal lifecycle.
 // No renderer or packing/physics worker is needed to exercise DOM/confirmation ownership.
@@ -141,6 +145,50 @@ it('retains packaging confirmation and strategy across modal reopens, but resets
   await click(action());
   expect(readStoredState()!.cargo[0].quantity).toBe(4);
   expect(action().disabled).toBe(true); // The new shipment needs a deliberate strategy choice.
+});
+
+it('preserves a reloaded strategy through initial shell and packaging hydration', async () => {
+  writeLoadingStrategyPreference('capacity');
+  await mount();
+  expect(readLoadingStrategyPreference()).toBe('capacity');
+  await act(async () => { writeProductSelection({ 'RETAIN-1': 3 }); }); await settle();
+  expect(readLoadingStrategyPreference()).toBe('capacity');
+  await open(3); await click(action());
+  expect(readLoadingStrategyPreference()).toBeNull(); // Explicit new package confirmation still requires choosing.
+});
+
+it('preserves mode and strategy on same-member hydration or name change, and resets for a different account', async () => {
+  adoptRemoteOperator({ id: 'stable-member', name: 'Original name' });
+  publishGuidedLoadingUnit('mixed'); writeLoadingStrategyPreference('capacity');
+  await mount();
+  await act(async () => adoptRemoteOperator({ id: 'stable-member', name: 'Restored profile name' })); await settle();
+  expect(readGuidedLoadingUnit()).toBe('mixed'); expect(readLoadingStrategyPreference()).toBe('capacity');
+  await act(async () => adoptRemoteOperator({ id: 'different-member', name: 'New account' })); await settle();
+  expect(readGuidedLoadingUnit()).toBeNull(); expect(readLoadingStrategyPreference()).toBeNull();
+  expect(step(1).getAttribute('aria-current')).toBe('step');
+});
+
+it('recognizes a restored member before the header hydrates its local operator profile', async () => {
+  sessionStorage.setItem(MEMBER_SESSION_KEY, JSON.stringify({ token: 'synthetic', userId: 'cloud-member',
+    displayName: 'Cloud member', email: 'cloud@example.test', expiresAt: new Date(Date.now() + 3600000).toISOString() }));
+  publishGuidedLoadingUnit('mixed'); writeLoadingStrategyPreference('capacity'); await mount();
+  await act(async () => adoptRemoteOperator({ id: 'cloud-member', name: 'Hydrated profile' })); await settle();
+  expect(readGuidedLoadingUnit()).toBe('mixed'); expect(readLoadingStrategyPreference()).toBe('capacity');
+});
+
+it('resets once for an administrator boundary and preserves choices on repeated same-admin access events', async () => {
+  await mount();
+  await act(async () => {
+    publishGuidedLoadingUnit('mixed'); writeLoadingStrategyPreference('capacity');
+    sessionStorage.setItem('container-loading-admin-session-v1', JSON.stringify({ role: 'admin', userId: 'admin',
+      loggedInAt: new Date().toISOString(), sessionToken: 'a'.repeat(64), expiresAt: new Date(Date.now() + 3600000).toISOString() }));
+    window.dispatchEvent(new Event(ADMIN_ACCESS_EVENT));
+  });
+  expect(readGuidedLoadingUnit()).toBeNull(); expect(readLoadingStrategyPreference()).toBeNull();
+  await act(async () => { publishGuidedLoadingUnit('pallets'); writeLoadingStrategyPreference('stability'); window.dispatchEvent(new Event(ADMIN_ACCESS_EVENT)); });
+  expect(readGuidedLoadingUnit()).toBe('pallets'); expect(readLoadingStrategyPreference()).toBe('stability');
+  await act(async () => { sessionStorage.removeItem('container-loading-admin-session-v1'); window.dispatchEvent(new Event(ADMIN_ACCESS_EVENT)); });
+  expect(readGuidedLoadingUnit()).toBeNull(); expect(readLoadingStrategyPreference()).toBeNull();
 });
 
 it('keeps completed results and canvas available through result-modal close/reopen without republishing a plan', async () => {
