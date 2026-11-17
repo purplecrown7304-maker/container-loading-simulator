@@ -6,6 +6,7 @@ import { setNextPalletCenteredResultOverride, consumeNextPalletCenteredResultOve
 import { INERTIA_CERTIFICATION_EVENT, createPhysicsTargetSignature, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
 import { packOnPallets, type OptimizedPalletPackingResult } from './engine/palletOptimization';
 import { buildPalletLoadFromDeckPlacements } from './engine/palletPacking';
+import { packMixedMode, type MixedModePackingResult } from './engine/mixedModePacking';
 import { readPhysicsTarget, clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
 import { clearPalletSnapshot, readPalletSnapshot, publishPalletSnapshot } from './palletSnapshotStore';
 import { publishStagingPalletPlan } from './stagingPalletBridge';
@@ -22,6 +23,10 @@ vi.mock('./engine/palletOptimization', async importOriginal => {
     optimization: { selectedStackTarget: 0, candidateCount: 1, floorPositions: 0, redistributedForLowUtilization: false, consolidationPasses: 0 } })) };
 });
 vi.mock('./LoadingViewer', () => ({ default: () => <canvas /> }));
+vi.mock('./engine/mixedModePacking', async importOriginal => {
+  const actual = await importOriginal<typeof import('./engine/mixedModePacking')>();
+  return { ...actual, packMixedMode: vi.fn(actual.packMixedMode) };
+});
 
 const container = { length: 6, width: 2.4, height: 2.6, maxPayloadKg: 20000 };
 const cargo = [{ id: 'A', name: 'A', length: .5, width: .4, height: .3, weightKg: 10, quantity: 1 }];
@@ -147,20 +152,20 @@ it('cancels a pending automatic worker so its late result cannot overwrite an ac
   expect(packOnPallets).not.toHaveBeenCalled();
 });
 
-function actualTierFixture(stacked: boolean, selectedStackTarget: number): OptimizedPalletPackingResult {
+function actualTierFixture(stacked: boolean, selectedStackTarget: number, cartonTiers = 7): OptimizedPalletPackingResult {
   const spec = palletJobSpec(resolvePalletType());
   const pallets = [0, 1].map(index => {
-    const local = Array.from({ length: 28 }, (_, n) => ({ cargoId: 'A', x: (n % 2) * .5,
+    const local = Array.from({ length: cartonTiers * 4 }, (_, n) => ({ cargoId: 'A', x: (n % 2) * .5,
       y: (Math.floor(n / 2) % 2) * .4, z: Math.floor(n / 4) * .1,
       length: .5, width: .4, height: .1, weightKg: 10 }));
     const load = buildPalletLoadFromDeckPlacements(index + 1, local, spec);
-    const x = 2.45, y = stacked ? .65 : .1 + index * 1.1, z = stacked ? index * (spec.height + .7) : 0;
+    const x = 2.45, y = stacked ? .65 : .1 + index * 1.1, z = stacked ? index * (spec.height + cartonTiers * .1) : 0;
     return { ...load, x, y, z, stackColumn: 10, stackLevel: stacked ? index + 1 : 1,
       cargoPlacements: load.cargoPlacements.map(p => ({ ...p, x: p.x + x, y: p.y + y, z: p.z + z })),
       centerOfGravity: { x: load.centerOfGravity.x + x, y: load.centerOfGravity.y + y, z: load.centerOfGravity.z + z } };
   });
-  return { pallets, placements: pallets.flatMap(pallet => pallet.cargoPlacements), remaining: [], palletCount: pallets.length,
-    loadedCargoWeightKg: 560, totalPackagingWeightKg: 0, avoidedPackagingWeightKg: 0, packagedPalletCount: 0,
+  return { pallets, placements: pallets.flatMap(pallet => pallet.cargoPlacements.map(box => ({ ...box }))), remaining: [], palletCount: pallets.length,
+    loadedCargoWeightKg: pallets.reduce((sum, pallet) => sum + pallet.cargoWeightKg, 0), totalPackagingWeightKg: 0, avoidedPackagingWeightKg: 0, packagedPalletCount: 0,
     totalPalletizedWeightKg: pallets.reduce((sum, pallet) => sum + pallet.totalWeightKg, 0),
     consolidatedPallets: 0, lateralImbalanceKg: 0, stackedPallets: stacked ? 1 : 0, maxUsedStackLevel: stacked ? 2 : 1,
     optimization: { selectedStackTarget, candidateCount: 10, floorPositions: 99, redistributedForLowUtilization: false, consolidationPasses: 0 } };
@@ -194,4 +199,23 @@ it('shows zero actual tiers and floor positions when every pallet remains waitin
   await render(0, 'empty-tiers'); await render(1, 'empty-tiers');
   await act(async () => vi.runOnlyPendingTimers()); await act(async () => vi.runOnlyPendingTimers());
   expect(host.querySelector('.pallet-dock-summary')?.textContent).toContain('팔레트 0단 · 상자 최대 0단 · 바닥 0열');
+});
+
+it.each([false, true])('includes three loose-box tiers in mixed loading (pallets present: %s)', async withPallets => {
+  const base = actualTierFixture(false, 3, 2);
+  const pallets = withPallets ? base.pallets : [];
+  const loose = Array.from({ length: 3 }, (_, index) => ({ cargoId: 'A', x: 1, y: .5, z: index * .3,
+    length: .5, width: .4, height: .3, weightKg: 10 }));
+  const result: MixedModePackingResult = { ...base, pallets,
+    placements: [...(withPallets ? base.placements : []), ...loose], palletCount: pallets.length,
+    mixed: { enabled: true, directBoxCount: 3, directFloorBoxCount: 1,
+      palletBoxCount: pallets.reduce((sum, pallet) => sum + pallet.cargoPlacements.length, 0),
+      palletCount: pallets.length, demotedPalletCount: 0, candidateCount: 1, minPalletFillRatio: .7,
+      totalLoadedWeightKg: base.totalPalletizedWeightKg + 30, palletFillRates: [] } };
+  vi.mocked(packMixedMode).mockReturnValueOnce(result);
+  await render(0, 'mixed-tiers', 'mixed'); await render(1, 'mixed-tiers', 'mixed');
+  await act(async () => vi.runOnlyPendingTimers()); await act(async () => vi.runOnlyPendingTimers());
+  expect(host.querySelector('.pallet-dock-summary')?.textContent)
+    .toContain(`팔레트 ${withPallets ? 1 : 0}단 · 상자 최대 3단 · 바닥 ${withPallets ? 2 : 0}열`);
+  expect(packMixedMode).toHaveBeenCalledTimes(1);
 });

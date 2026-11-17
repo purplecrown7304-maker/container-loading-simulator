@@ -300,13 +300,20 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
   }, [container, cargo, result, modelKey]);
 
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
-  const actualStacking = useMemo(() => ({
-    palletLevels: Math.max(0, ...result.pallets.map(pallet => pallet.stackLevel)),
-    cartonTiers: Math.max(0, ...result.pallets.map(pallet => new Set(pallet.cargoPlacements
-      .map(box => Math.round((box.z - pallet.z - pallet.height) * 1e6))).size)),
-    floorPositions: new Set(result.pallets.filter(pallet => pallet.stackLevel === 1 && Math.abs(pallet.z) <= 1e-6)
-      .map(pallet => `${Math.round(pallet.x * 1e6)}:${Math.round(pallet.y * 1e6)}`)).size,
-  }), [result.pallets]);
+  const actualStacking = useMemo(() => {
+    const key = (box: Placement) => JSON.stringify([box.cargoId, Math.round(box.x * 1e6), Math.round(box.y * 1e6), Math.round(box.z * 1e6)]);
+    // Centering may clone pallet cartons into result.placements. Match coordinates
+    // rather than object identity so upper pallets are not counted again as loose tiers.
+    const palletCartons = new Set(result.pallets.flatMap(pallet => pallet.cargoPlacements.map(key)));
+    const looseTiers = new Set(result.placements.filter(box => !palletCartons.has(key(box))).map(box => Math.round(box.z * 1e6)));
+    return {
+      palletLevels: Math.max(0, ...result.pallets.map(pallet => pallet.stackLevel)),
+      cartonTiers: Math.max(looseTiers.size, ...result.pallets.map(pallet => new Set(pallet.cargoPlacements
+        .map(box => Math.round((box.z - pallet.z - pallet.height) * 1e6))).size)),
+      floorPositions: new Set(result.pallets.filter(pallet => pallet.stackLevel === 1 && Math.abs(pallet.z) <= 1e-6)
+        .map(pallet => `${Math.round(pallet.x * 1e6)}:${Math.round(pallet.y * 1e6)}`)).size,
+    };
+  }, [result.pallets, result.placements]);
   const actualStackingText = uiText("팔레트 {0}단 · 상자 최대 {1}단 · 바닥 {2}열",
     [actualStacking.palletLevels, actualStacking.cartonTiers, actualStacking.floorPositions]);
   const securingUsage = certification?.securing ?? null;
@@ -375,7 +382,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
                 <span>{uiText("팔레트")}{' '}<b>{result.palletCount}</b></span>
                 <span>{uiText("화물")}{' '}<b>{result.placements.length} EA</b></span>
                 <span>{uiText("중량")}{' '}<b>{result.totalPalletizedWeightKg.toFixed(0)} kg</b></span>
-                <span><b>{actualStackingText}</b></span>
+                <span className="pallet-actual-stacking"><b>{actualStackingText}</b></span>
               </div>
               {clearances && (
                 <div className="reference-clearance-strip">
