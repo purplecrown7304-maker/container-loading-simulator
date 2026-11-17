@@ -111,6 +111,9 @@ export function createInertiaRunSession(): InertiaRunSession {
             physicsEvidence.set(result, { key, physics: structuredClone(physics) });
           } catch { /* Incomplete/invalid snapshots require fresh final physics validation. */ }
         }
+        // Keep the established metrics-only certification/storage shape. The
+        // detached final pose has already been classified in live evidence.
+        delete result.finalMotion;
         created.settled = true;
         created.progress = 1;
         evictSettled();

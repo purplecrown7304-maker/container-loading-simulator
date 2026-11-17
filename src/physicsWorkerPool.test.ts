@@ -179,6 +179,7 @@ describe('shared inertia runs', () => {
     const session = createInertiaRunSession(), scenarios = ['acceleration', 'braking', 'cornering'] as const;
     const runs = await Promise.all(scenarios.map(scenario => session.start(inertiaTargetKey(container, inputs.placements), { ...inputs, scenario }).wait()));
     const results = Object.fromEntries(runs.map(result => [result.scenario, result]));
+    expect(runs.every(result => result.finalMotion === undefined)).toBe(true);
     const start = submitted.length;
     const reused = await runPhysicsValidationSuiteParallel(container, inputs.placements, undefined, inputs.supports, undefined, inputs.securing, results);
     expect(submitted.slice(start).map(job => job.scenario)).toEqual(['settle']);
