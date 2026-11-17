@@ -1,6 +1,8 @@
 import { aConfig, isARules } from './loadingRuleset';
 import { validateAPlan } from './loadSimAdapter';
 import { centerPalletPlan } from './palletCentering';
+import { validateOperationalLoading } from './operationalValidator';
+import { palletSupportBodies } from './palletPlanValidation';
 import {
   absorbSparsePallets,
   unsupportedReviewPalletResult,
@@ -326,6 +328,10 @@ function consolidateUntilStable(
   let pallets = input.pallets.map(cloneLoad);
   let passes = 0;
   let changed = true;
+  // Repacking depends on the pair's cargo, not its current vehicle coordinates.
+  // Large homogeneous shipments contain many identical, impossible pairs. Keep
+  // negative results within this pass; successful merges still run every check.
+  const failedPairs = new Set<string>();
 
   while (changed) {
     changed = false;
@@ -336,6 +342,8 @@ function consolidateUntilStable(
         if (!canPairMerge(target, source, pallets)) continue;
         const pairCargo = cargoCountsFromLoads([target, source], cargoMap);
         const expected = target.cargoPlacements.length + source.cargoPlacements.length;
+        const pairKey = JSON.stringify(pairCargo);
+        if (failedPairs.has(pairKey)) continue;
         const virtualContainer: ContainerSpec = {
           length: pallet.length,
           width: pallet.width,
@@ -346,7 +354,10 @@ function consolidateUntilStable(
           ),
         };
         const packed = packOnPalletsBase(virtualContainer, pairCargo, { ...pallet, maxStackLevels: 1 });
-        if (packed.palletCount !== 1 || packed.placements.length !== expected || packed.remaining.some((item) => item.quantity > 0)) continue;
+        if (packed.palletCount !== 1 || packed.placements.length !== expected || packed.remaining.some((item) => item.quantity > 0)) {
+          failedPairs.add(pairKey);
+          continue;
+        }
         const merged = packed.pallets[0];
         const originalHeight = Math.max(loadCargoHeight(target), loadCargoHeight(source));
         if (!pallet.minimizePackaging && loadCargoHeight(merged) > originalHeight + CONSOLIDATION_HEIGHT_TOLERANCE_M) continue;
@@ -721,6 +732,21 @@ export function packOnPallets(
   const redistributed = strategy === 'stability'
     ? redistributeForLowUtilization(selected.result, container, pallet)
     : { result: selected.result, redistributed: false };
+  if (redistributed.redistributed && !isARules(originalContainer)) {
+    const hasErrors = (plan: PalletPackingResult) => {
+      const centered = centerPalletPlan(plan, originalContainer);
+      return validateOperationalLoading(originalContainer, normalizedCargo, centered.placements, palletSupportBodies(centered))
+        .some(finding => finding.severity === 'error');
+    };
+    // Spreading an odd number of columns across the full vehicle can pin both
+    // ends to the walls and prevent the final CG-centering translation. Keep
+    // the already-built safe plan when this optional postpass invalidates it.
+    // No cargo/pallet is removed, and the existing acceptance limits decide.
+    if (hasErrors(redistributed.result) && !hasErrors(selected.result)) {
+      redistributed.result = selected.result;
+      redistributed.redistributed = false;
+    }
+  }
   if (buildStrategy === 'unloading') {
     const groups = new Map<number, PalletLoad[]>();
     for (const load of redistributed.result.pallets) groups.set(load.stackColumn, [...(groups.get(load.stackColumn) ?? []), load]);

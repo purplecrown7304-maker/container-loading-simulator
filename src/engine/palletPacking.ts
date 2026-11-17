@@ -206,7 +206,10 @@ function slotFor(
   const baseSurface = { x: load.x, y: load.y, z: load.z + pallet.height, length: pallet.length, width: pallet.width };
   // Mixed-height cartons must sit on real surfaces, not multiples of their own height.
   // Support and cumulative layer/top-load checks below remain mandatory at every surface.
-  const surfaces = [...new Set([baseSurface.z, ...load.cargoPlacements.map(placement => placement.z + placement.height)])]
+  // A single-layer carton can only sit on the deck. Elevated candidates always
+  // have a supporting carton below and therefore fail the same stacking check.
+  const deckOnly = item.strengthUnverified || (item.maxStackLayers !== undefined && item.maxStackLayers < 2);
+  const surfaces = [...new Set([baseSurface.z, ...(deckOnly ? [] : load.cargoPlacements.map(placement => placement.z + placement.height))])]
     .filter(z => z + item.height + reserveHeight <= container.height + EPS)
     .sort((a, b) => a - b);
 
@@ -254,6 +257,23 @@ function slotFor(
   return null;
 }
 
+/** Work copies only append cartons. Cache misses on their untouched original;
+ * an append may create a new support surface, even for a previously failed SKU. */
+function createSlotSearch(pallet: PalletSpec, container: ContainerSpec, cargoMap: Map<string, CargoItem>) {
+  const unavailable = new WeakMap<PalletLoad, Set<string>>();
+  return (original: PalletLoad, work: PalletLoad, item: CargoItem) => {
+    const untouched = work.cargoPlacements.length === original.cargoPlacements.length;
+    if (untouched && unavailable.get(original)?.has(item.id)) return null;
+    const placement = slotFor(work, item, pallet, container, cargoMap);
+    if (!placement && untouched) {
+      const failed = unavailable.get(original) ?? new Set<string>();
+      failed.add(item.id);
+      unavailable.set(original, failed);
+    }
+    return placement;
+  };
+}
+
 function centerCargoOnPallet(load: PalletLoad, pallet: PalletSpec) {
   if (!load.cargoPlacements.length) return;
   const minX = Math.min(...load.cargoPlacements.map((p) => p.x));
@@ -272,27 +292,28 @@ function centerCargoOnPallet(load: PalletLoad, pallet: PalletSpec) {
 
 function tryConsolidate(pallets: PalletLoad[], cargoMap: Map<string, CargoItem>, pallet: PalletSpec, container: ContainerSpec, strategy: Strategy) {
   let removed = 0;
+  const findSlot = createSlotSearch(pallet, container, cargoMap);
   for (let sourceIndex = pallets.length - 1; sourceIndex > 0; sourceIndex -= 1) {
     const source = pallets[sourceIndex];
-    const targets = pallets.slice(0, sourceIndex).map((p) => ({ ...p, cargoPlacements: [...p.cargoPlacements] }));
+    const targets = pallets.slice(0, sourceIndex).map(original => ({ original, work: { ...original, cargoPlacements: [...original.cargoPlacements] } }));
     let success = true;
     for (const placement of source.cargoPlacements) {
       const item = cargoMap.get(placement.cargoId);
       if (!item) { success = false; break; }
       let moved = false;
       for (const target of targets) {
-        if (strategy === 'unloading' && stopOf(target, cargoMap) !== (item.unloadPriority ?? 0)) continue;
-        const candidate = slotFor(target, item, pallet, container, cargoMap);
+        if (strategy === 'unloading' && stopOf(target.work, cargoMap) !== (item.unloadPriority ?? 0)) continue;
+        const candidate = findSlot(target.original, target.work, item);
         if (!candidate) continue;
-        target.cargoPlacements.push(candidate);
-        target.cargoWeightKg += item.weightKg;
+        target.work.cargoPlacements.push(candidate);
+        target.work.cargoWeightKg += item.weightKg;
         moved = true;
         break;
       }
       if (!moved) { success = false; break; }
     }
     if (success) {
-      for (let i = 0; i < targets.length; i += 1) pallets[i] = targets[i];
+      for (let i = 0; i < targets.length; i += 1) pallets[i] = targets[i].work;
       pallets.splice(sourceIndex, 1);
       removed += 1;
     }
@@ -792,6 +813,7 @@ export function absorbSparsePallets(
   let pallets = input.map((load) => ({ ...load, cargoPlacements: load.cargoPlacements.map((p) => ({ ...p })), centerOfGravity: { ...load.centerOfGravity } }));
   let removed = 0;
   let changed = true;
+  const findSlot = createSlotSearch(pallet, container, cargoMap);
   while (changed && pallets.length > 1) {
     changed = false;
     const sources = pallets
@@ -811,7 +833,7 @@ export function absorbSparsePallets(
         let best: { target: typeof targets[number]; placement: Placement; index: number } | null = null;
         targets.forEach((target, index) => {
           if (strategy === 'unloading' && stopOf(target.work, cargoMap) !== (item.unloadPriority ?? 0)) return;
-          const placement = slotFor(target.work, item, pallet, container, cargoMap);
+          const placement = findSlot(target.original, target.work, item);
           if (!placement) return;
           if (placement.z + placement.height - target.work.z - target.work.height > maxCargoHeight + EPS) return;
           // Pallets below the target must carry the extra carton. Packaging is counted at
