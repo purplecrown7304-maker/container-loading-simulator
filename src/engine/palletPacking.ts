@@ -3,6 +3,8 @@ import { hasAdequateSupport } from './support';
 import { canPlaceByStackingRules, projectedTopLoadKg } from './stacking';
 import { packByBlockSpaceBeamV2 } from './blockSpaceBeamPackerV2';
 import { planningContainer } from './constraints';
+import { withinFloorLoadLimit, FLOOR_LOAD_REASON } from './floorLoadLimit';
+import { palletCargoFloorLimit, palletFloorBody, palletLoadsWithinFloorLoadLimit } from './palletFloorLoad';
 
 export type PalletSpec = {
   /** Operational minimum for a regular pallet's top tier; final mixed tails are exempt. */
@@ -58,7 +60,7 @@ export type PalletPackingResult = {
   limitReview?: LimitReviewMetadata;
   pallets: PalletLoad[];
   placements: Placement[];
-  remaining: Array<{ cargoId: string; quantity: number; reason: string }>;
+  remaining: Array<{ cargoId: string; quantity: number; reason: string; reasonCode?: string }>;
   palletCount: number;
   loadedCargoWeightKg: number;
   totalPackagingWeightKg: number;
@@ -181,6 +183,7 @@ function slotFor(
   pallet: PalletSpec,
   container: ContainerSpec,
   cargoMap: Map<string, CargoItem>,
+  floorBlockedIds?: Set<string>,
 ): Placement | null {
   if (load.cargoWeightKg + item.weightKg > pallet.maxLoadKg + EPS) return null;
   const reserveHeight =
@@ -202,6 +205,13 @@ function slotFor(
     })
     .filter((o) => o.colsX > 0 && o.colsY > 0)
     .sort((a, b) => (b.colsX * b.colsY) - (a.colsX * a.colsY) || Number(a.rotated) - Number(b.rotated));
+
+  const cargoFloorLimit = palletCargoFloorLimit(container, pallet);
+  if (cargoFloorLimit !== undefined && options.length && item.weightKg / (item.length * item.width) > cargoFloorLimit + EPS) {
+    floorBlockedIds?.add(item.id);
+    return null;
+  }
+  const floorBodies = cargoFloorLimit === undefined ? null : [...load.cargoPlacements, palletFloorBody(load, pallet, true)];
 
   const baseSurface = { x: load.x, y: load.y, z: load.z + pallet.height, length: pallet.length, width: pallet.width };
   // Mixed-height cartons must sit on real surfaces, not multiples of their own height.
@@ -251,6 +261,10 @@ function slotFor(
       if (collides || candidate.z + candidate.height > container.height + EPS) continue;
       if (!hasAdequateSupport(candidate, load.cargoPlacements, baseSurface)) continue;
       if (!canPlaceByStackingRules(item, candidate, load.cargoPlacements, cargoMap)) continue;
+      if (floorBodies && !withinFloorLoadLimit(container, candidate, floorBodies)) {
+        floorBlockedIds?.add(item.id);
+        continue;
+      }
       return candidate;
     }
   }
@@ -368,13 +382,24 @@ function hasPalletFootprintSupport(lower: PalletLoad, pallet: PalletSpec) {
   return hasAdequateSupport(footprint, lower.cargoPlacements);
 }
 
-function columnSupportsNewLoad(loads: PalletLoad[], newLoad: PalletLoad, cargoMap: Map<string, CargoItem>, pallet: PalletSpec) {
+function columnSupportsNewLoad(loads: PalletLoad[], newLoad: PalletLoad, cargoMap: Map<string, CargoItem>, pallet: PalletSpec,
+  container: ContainerSpec, floorBlockedIds: Set<string>) {
   for (let i = 0; i < loads.length; i += 1) {
     const existingAbove = loads.slice(i + 1).reduce((sum, p) => sum + p.totalWeightKg, 0);
     if (!canSupportUpper(loads[i], existingAbove + newLoad.totalWeightKg, cargoMap, pallet)) return false;
   }
   const immediateLower = loads[loads.length - 1];
-  return Boolean(immediateLower && hasPalletFootprintSupport(immediateLower, pallet));
+  if (!immediateLower || !hasPalletFootprintSupport(immediateLower, pallet)) return false;
+  if (palletCargoFloorLimit(container, pallet) !== undefined) {
+    const dx = immediateLower.x - newLoad.x, dy = immediateLower.y - newLoad.y;
+    const moved = { ...newLoad, x: immediateLower.x, y: immediateLower.y,
+      cargoPlacements: newLoad.cargoPlacements.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })) };
+    if (!palletLoadsWithinFloorLoadLimit(container, [...loads, moved], pallet)) {
+      newLoad.cargoPlacements.forEach(p => floorBlockedIds.add(p.cargoId));
+      return false;
+    }
+  }
+  return true;
 }
 
 function moveLoad(load: PalletLoad, x: number, y: number, z: number, level: number, column: number, pallet: PalletSpec) {
@@ -386,7 +411,8 @@ function moveLoad(load: PalletLoad, x: number, y: number, z: number, level: numb
   load.centerOfGravity = palletCog(load, pallet);
 }
 
-function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number; y: number }>, container: ContainerSpec, pallet: PalletSpec, cargoMap: Map<string, CargoItem>, strategy: Strategy) {
+function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number; y: number }>, container: ContainerSpec, pallet: PalletSpec, cargoMap: Map<string, CargoItem>, strategy: Strategy,
+  floorBlockedIds: Set<string>) {
   // Keep the final residual tail last within its stop, even when it is heavier.
   pallets.sort((a, b) => (strategy === 'unloading' ? stopOf(b, cargoMap) - stopOf(a, cargoMap) : 0)
     || Number(Boolean(a.isMixedTail)) - Number(Boolean(b.isMixedTail))
@@ -395,6 +421,11 @@ function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number
   const unplaced: PalletLoad[] = [];
   const maxLevels = Math.max(1, Math.floor(pallet.maxStackLevels || 1));
   for (const load of pallets) {
+    if (!palletLoadsWithinFloorLoadLimit(container, [load], pallet)) {
+      load.cargoPlacements.forEach(p => floorBlockedIds.add(p.cargoId));
+      unplaced.push(load);
+      continue;
+    }
     let best: { column: number; level: number; z: number; score: number } | null = null;
     for (let c = 0; c < columns.length; c += 1) {
       const column = columns[c];
@@ -404,7 +435,7 @@ function arrangePalletStacks(pallets: PalletLoad[], positions: Array<{ x: number
       const z = palletTop(lower);
       const movedTop = z + (palletTop(load) - load.z);
       if (movedTop > container.height + EPS) continue;
-      if (!columnSupportsNewLoad(column.loads, load, cargoMap, pallet)) continue;
+      if (!columnSupportsNewLoad(column.loads, load, cargoMap, pallet, container, floorBlockedIds)) continue;
       const score = column.positionIndex * 10 + column.loads.length;
       if (!best || score < best.score) best = { column: c, level: column.loads.length + 1, z, score };
     }
@@ -479,11 +510,15 @@ function densePackOnePallet(cargo: CargoItem[], pallet: PalletSpec, container: C
   const availableHeight = Math.max(0, container.height - pallet.height - reserveHeight);
   if (availableHeight <= EPS) return null;
 
+  const cargoFloorLimit = palletCargoFloorLimit(container, pallet);
+  if (cargoFloorLimit !== undefined && cargoFloorLimit <= 0) return null;
+
   const packAt = (height: number) => packByBlockSpaceBeamV2({
     length: pallet.length,
     width: pallet.width,
     height,
     maxPayloadKg: pallet.maxLoadKg,
+    ...(cargoFloorLimit === undefined ? {} : { floorLoadLimitKgPerM2: cargoFloorLimit }),
   }, cargo, strategy);
 
   // One full-height run establishes the maximum quantity this heuristic can place.
@@ -666,6 +701,7 @@ function repackLoadedCargoDensely(
 
   if (rebuilt.length > input.length) return { pallets: input, removed: 0 };
   applyMinimumPackaging(rebuilt, pallet);
+  if (rebuilt.some(load => !palletLoadsWithinFloorLoadLimit(container, [load], pallet))) return { pallets: input, removed: 0 };
   rebuilt.forEach((load) => { load.centerOfGravity = palletCog(load, pallet); });
   const originalCount = [...frozen.values()].reduce((sum, value) => sum + value, 0);
   const rebuiltCount = rebuilt.reduce((sum, load) => sum + load.cargoPlacements.length, 0);
@@ -686,6 +722,7 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
   const cargoMap = new Map(active.map((item) => [item.id, item]));
   const remaining = new Map(active.map((item) => [item.id, item.quantity]));
   const pallets: PalletLoad[] = [];
+  const floorBlockedIds = new Set<string>();
   let totalPalletizedWeight = 0;
   const packagingReserveWeight =
     (pallet.useCornerGuards ? pallet.cornerGuardWeightKg : 0) +
@@ -714,7 +751,7 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
         // Unloading keeps each pallet within one stop so it can be removed intact.
         if (unavailable.has(load)) continue;
         if (strategy === 'unloading' && stopOf(load, cargoMap) !== (item.unloadPriority ?? 0)) continue;
-        const candidate = slotFor(load, item, pallet, container, cargoMap);
+        const candidate = slotFor(load, item, pallet, container, cargoMap, floorBlockedIds);
         if (!candidate) { unavailable.add(load); continue; }
         if (!(totalPalletizedWeight + item.weightKg <= container.maxPayloadKg + EPS)) continue;
         target = load;
@@ -723,7 +760,7 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
       }
       if (!target) {
         const empty = makeLoad();
-        const candidate = slotFor(empty, item, pallet, container, cargoMap);
+        const candidate = slotFor(empty, item, pallet, container, cargoMap, floorBlockedIds);
         if (!candidate) break;
         if (totalPalletizedWeight + pallet.tareWeightKg + packagingReserveWeight + item.weightKg > container.maxPayloadKg + EPS) break;
         pallets.push(empty);
@@ -754,7 +791,7 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
       let placement: Placement | null = null;
       for (let index = pallets.length - 1; index >= 0; index -= 1) {
         if (strategy === 'unloading' && stopOf(pallets[index], cargoMap) !== (item.unloadPriority ?? 0)) continue;
-        const candidate = slotFor(pallets[index], item, pallet, container, cargoMap);
+        const candidate = slotFor(pallets[index], item, pallet, container, cargoMap, floorBlockedIds);
         if (!candidate) continue;
         target = pallets[index];
         placement = candidate;
@@ -774,7 +811,7 @@ function buildInitialPallets(cargo: CargoItem[], pallet: PalletSpec, container: 
   pallets.forEach((load) => { load.centerOfGravity = palletCog(load, pallet); });
 
   const dense = repackLoadedCargoDensely(pallets, cargoMap, pallet, container, strategy);
-  return { pallets: dense.pallets, remaining, consolidated: consolidated + dense.removed, cargoMap };
+  return { pallets: dense.pallets, remaining, consolidated: consolidated + dense.removed, cargoMap, floorBlockedIds };
 }
 
 function isColumnTop(load: PalletLoad, all: PalletLoad[]) {
@@ -844,6 +881,8 @@ export function absorbSparsePallets(
             const stackedAbove = below.slice(i + 1).reduce((sum, load) => sum + load.totalWeightKg, 0) + upperWeight;
             if (!canSupportUpper(below[i], stackedAbove, cargoMap, pallet)) return;
           }
+          if (below.length && !palletLoadsWithinFloorLoadLimit(container, [...below, { ...target.work,
+            cargoPlacements: [...target.work.cargoPlacements, placement] }], pallet, true)) return;
           if (!best || placement.z < best.placement.z - EPS || (Math.abs(placement.z - best.placement.z) <= EPS && index < best.index)) {
             best = { target, placement, index };
           }
@@ -888,8 +927,8 @@ export function unsupportedReviewPalletResult(container: ContainerSpec, cargo: C
 export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pallet: PalletSpec = defaultPalletSpec, strategy: Strategy = 'capacity'): PalletPackingResult {
   if (container.limitReview !== undefined) return unsupportedReviewPalletResult(container,cargo);
   container = planningContainer(container);
-  const { pallets, remaining, consolidated, cargoMap } = buildInitialPallets(cargo, pallet, container, strategy);
-  return finishPalletPacking(pallets, remaining, consolidated, cargoMap, container, pallet, strategy);
+  const { pallets, remaining, consolidated, cargoMap, floorBlockedIds } = buildInitialPallets(cargo, pallet, container, strategy);
+  return finishPalletPacking(pallets, remaining, consolidated, cargoMap, container, pallet, strategy, floorBlockedIds);
 }
 
 /** Footprint at the highest occupied tier, measured against the usable pallet deck. */
@@ -910,6 +949,7 @@ export function applyTopLayerFillPolicy(input: PalletPackingResult, cargo: Cargo
   const minimum = pallet.minTopLayerFillRatio ?? 0.5;
   if (minimum <= 0 || !input.pallets.length) return input;
   const cargoMap = new Map(cargo.map(item => [item.id, item]));
+  const floorBlockedIds = new Set(input.remaining.filter(row => row.reasonCode === 'FLOOR_LOAD_LIMIT').map(row => row.cargoId));
   const pending = new Map<string, number>();
   const putBack = (placements: Placement[]) => placements.forEach(p => pending.set(p.cargoId, (pending.get(p.cargoId) ?? 0) + 1));
   const strip = (load: PalletLoad) => {
@@ -936,7 +976,7 @@ export function applyTopLayerFillPolicy(input: PalletPackingResult, cargo: Cargo
       .find(load => palletTopLayerFill(load) + EPS < minimum || (
         new Set(load.cargoPlacements.map(p => p.z.toFixed(6))).size === 1 && cargo.some(item => {
           if (strategy === 'unloading' && stopOf(load, cargoMap) !== (item.unloadPriority ?? 0)) return false;
-          const candidate = slotFor(load, item, pallet, container, cargoMap);
+          const candidate = slotFor(load, item, pallet, container, cargoMap, floorBlockedIds);
           return candidate && Math.abs(candidate.z - load.cargoPlacements[0].z) <= EPS;
         })
       ));
@@ -957,7 +997,7 @@ export function applyTopLayerFillPolicy(input: PalletPackingResult, cargo: Cargo
     const accepts = [...pending.keys()].some(id => {
       const item = cargoMap.get(id)!;
       if (strategy === 'unloading' && stopOf(load, cargoMap) !== (item.unloadPriority ?? 0)) return false;
-      const candidate = slotFor(load, item, pallet, container, cargoMap);
+      const candidate = slotFor(load, item, pallet, container, cargoMap, floorBlockedIds);
       return candidate && Math.abs(candidate.z - base) <= EPS;
     });
     if (accepts) putBack(load.cargoPlacements);
@@ -977,7 +1017,7 @@ export function applyTopLayerFillPolicy(input: PalletPackingResult, cargo: Cargo
       for (const item of rows) {
         if (!(pending.get(item.id) ?? 0) || load.cargoWeightKg + item.weightKg > available + EPS) continue;
         if (strategy === 'unloading' && load.cargoPlacements.length && stopOf(load, cargoMap) !== (item.unloadPriority ?? 0)) continue;
-        const placement = slotFor(load, item, pallet, container, cargoMap);
+        const placement = slotFor(load, item, pallet, container, cargoMap, floorBlockedIds);
         if (placement && (!best || placement.z < best.placement.z - EPS)) best = { item, placement };
       }
       if (!best) break;
@@ -1007,7 +1047,7 @@ export function applyTopLayerFillPolicy(input: PalletPackingResult, cargo: Cargo
   }
   const remaining = new Map(input.remaining.map(row => [row.cargoId, row.quantity]));
   for (const [id, quantity] of pending) if (quantity > 0) remaining.set(id, (remaining.get(id) ?? 0) + quantity);
-  const result = finishPalletPacking([...regular, ...tails], remaining, input.consolidatedPallets, cargoMap, container, pallet, strategy);
+  const result = finishPalletPacking([...regular, ...tails], remaining, input.consolidatedPallets, cargoMap, container, pallet, strategy, floorBlockedIds);
   result.remaining = result.remaining.map(row => row.quantity > (input.remaining.find(old => old.cargoId === row.cargoId)?.quantity ?? 0)
     ? { ...row, reason: `최상단 최소충전율 ${Math.round(minimum * 100)}% 적용 후: ${row.reason}` } : row);
   return result;
@@ -1086,10 +1126,13 @@ export function placeTopTierHolesInside(load: PalletLoad, cargoMap: Map<string, 
 }
 
 /** Applies {@link placeTopTierHolesInside} and keeps any stacked pallet on it supported. */
-export function placeTopTierHolesInsideAll(pallets: PalletLoad[], cargoMap: Map<string, CargoItem>, pallet: PalletSpec) {
-  return pallets.map(load => {
+export function placeTopTierHolesInsideAll(pallets: PalletLoad[], cargoMap: Map<string, CargoItem>, pallet: PalletSpec,
+  container?: ContainerSpec) {
+  const arranged = pallets.map(load => {
     const next = placeTopTierHolesInside(load, cargoMap);
     if (next === load) return load;
+    if (container && !palletLoadsWithinFloorLoadLimit(container,
+      pallets.filter(other => other.stackColumn === load.stackColumn).map(other => other === load ? next : other), pallet)) return load;
     const above = pallets.filter(other => other !== load && other.stackColumn === load.stackColumn && other.stackLevel > load.stackLevel);
     if (above.length) {
       const aboveWeight = above.reduce((sum, other) => sum + other.totalWeightKg, 0);
@@ -1097,11 +1140,13 @@ export function placeTopTierHolesInsideAll(pallets: PalletLoad[], cargoMap: Map<
     }
     return { ...next, centerOfGravity: palletCog(next, pallet) };
   });
+  return container && !palletLoadsWithinFloorLoadLimit(container, arranged, pallet) ? pallets : arranged;
 }
 
-function finishPalletPacking(pallets: PalletLoad[], remaining: Map<string, number>, consolidated: number, cargoMap: Map<string, CargoItem>, container: ContainerSpec, pallet: PalletSpec, strategy: Strategy): PalletPackingResult {
+function finishPalletPacking(pallets: PalletLoad[], remaining: Map<string, number>, consolidated: number, cargoMap: Map<string, CargoItem>, container: ContainerSpec, pallet: PalletSpec, strategy: Strategy,
+  floorBlockedIds = new Set<string>()): PalletPackingResult {
   const positions = palletPositions(container, pallet);
-  const unplaced = arrangePalletStacks(pallets, positions, container, pallet, cargoMap, strategy);
+  const unplaced = arrangePalletStacks(pallets, positions, container, pallet, cargoMap, strategy, floorBlockedIds);
   const unplacedSet = new Set(unplaced);
   for (const load of unplaced) {
     for (const placement of load.cargoPlacements) {
@@ -1126,8 +1171,9 @@ function finishPalletPacking(pallets: PalletLoad[], remaining: Map<string, numbe
           ? '박스 크기가 파렛트 바닥 또는 컨테이너 유효 높이에 맞지 않음 · 허용 회전 검사 완료'
           : item.weightKg > pallet.maxLoadKg + EPS ? '박스 1개 중량이 파렛트 허용 적재중량을 초과함'
           : totalPalletizedWeightKg + item.weightKg > container.maxPayloadKg + EPS ? '컨테이너 최대 적재 중량 초과 · 파렛트와 포장재 중량 포함'
+          : floorBlockedIds.has(cargoId) ? `FLOOR_LOAD_LIMIT: ${FLOOR_LOAD_REASON}`
           : '사용 가능한 파렛트 공간에서 지지·적층단·누적 상부하중·포장 여유를 만족하는 추가 위치 없음';
-      return { cargoId, quantity, reason };
+      return { cargoId, quantity, reason, ...(reason.startsWith('FLOOR_LOAD_LIMIT:') ? { reasonCode: 'FLOOR_LOAD_LIMIT' } : {}) };
     });
   const left = placedPallets
     .filter((p) => lateralSide(p.centerOfGravity.y, container.width) < 0)

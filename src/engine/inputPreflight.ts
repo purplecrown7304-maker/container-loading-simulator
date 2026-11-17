@@ -42,19 +42,22 @@ function rowError(item: CargoItem) {
   return null;
 }
 
-function samePhysicalSpec(a: CargoItem, b: CargoItem) {
+function samePhysicalSpec(a: CargoItem, b: CargoItem, compareMixedLoadingMethod: boolean) {
   return a.length === b.length
     && a.width === b.width
     && a.height === b.height
     && a.weightKg === b.weightKg
     && a.maxStackLayers === b.maxStackLayers
     && a.maxTopLoadKg === b.maxTopLoadKg
+    && (a.strengthUnverified === true) === (b.strengthUnverified === true)
+    && (a.topLoadLimitExplicit === true) === (b.topLoadLimitExplicit === true)
+    && (!compareMixedLoadingMethod || a.mixedLoadingMethod === b.mixedLoadingMethod)
     && a.allowRotation === b.allowRotation
     && a.unloadPriority === b.unloadPriority
     && JSON.stringify([a.allowedOrientations,a.thisSideUp,a.cgOffsetMm,a.friction,a.maxTopPressureKgPerM2,a.segregationClass,a.tempZone,a.floorOnly,a.unitKind]) === JSON.stringify([b.allowedOrientations,b.thisSideUp,b.cgOffsetMm,b.friction,b.maxTopPressureKgPerM2,b.segregationClass,b.tempZone,b.floorOnly,b.unitKind]);
 }
 
-export function preflightCargoInput(rows: CargoItem[]): CargoPreflightResult {
+export function preflightCargoInput(rows: CargoItem[], options: { compareMixedLoadingMethod?: boolean } = {}): CargoPreflightResult {
   const rejected: RejectedCargoRow[] = [];
   const valid: CargoItem[] = [];
 
@@ -79,7 +82,7 @@ export function preflightCargoInput(rows: CargoItem[]): CargoPreflightResult {
   const cargo: CargoItem[] = [];
   for (const [id, group] of grouped) {
     const first = group[0];
-    const conflict = group.some((item) => !samePhysicalSpec(first, item));
+    const conflict = group.some((item) => !samePhysicalSpec(first, item, options.compareMixedLoadingMethod === true));
     if (conflict) {
       rejected.push({
         cargoId: id,

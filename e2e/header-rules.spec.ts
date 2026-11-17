@@ -36,6 +36,9 @@ for (const width of [320, 480, 481, 761, 1280]) {
 }
 
 test('header rules preserve explicitly entered custom equipment and honor guest reset after reload', async ({ page }) => {
+  // Keep the full equipment/rules/reload workflow and its assertion deadlines;
+  // allow repeated scene initialization on CI's software WebGL renderer.
+  test.setTimeout(60_000);
   const equipmentKey = 'container-loading:transport-equipment-v1';
   const equipment = {
     id: 'custom-container', category: 'container', name: 'CUSTOM CONTAINER', shortName: 'Custom Container', geometry: 'custom',

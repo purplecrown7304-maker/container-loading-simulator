@@ -5,6 +5,7 @@ import { cargoWithUnloadingPolicy } from './unloadingPolicy';
 import { CONTACT_TOLERANCE_M, MIN_SUPPORT_RATIO, supportContactArea } from './support';
 import { findMatchingEquipment } from '../transportEquipment';
 import { candidateIndexes, footprintGridFor } from './footprintGrid';
+import { configuredFloorLoadLimit, placementsWithinFloorLoadLimit } from './floorLoadLimit';
 import type { CargoItem, ContainerSpec, OperationalRuleFinding, Placement } from './types';
 
 const EPS = 1e-6;
@@ -322,6 +323,17 @@ function checkUnloadOrder(bodies: Body[]) {
 
 function cargoOnly(bodies: Body[]) {
   return bodies.filter(body => body.kind === 'cargo');
+}
+
+function checkFloorLoad(container: ContainerSpec, bodies: Body[]) {
+  const limit = configuredFloorLoadLimit(container);
+  if (limit === undefined || placementsWithinFloorLoadLimit(container, bodies.map(body => body.placement))) return [];
+  // Use the same exact vertical projection as legacy candidate/final audits. Every
+  // carton tier and physical pallet/deck tare contributes at its own footprint;
+  // a larger pallet is not an unmodelled spreader plate. The concentration-warning
+  // multiplier never raises this configured hard limit.
+  return [finding('FLOOR_LOAD_LIMIT', 'error',
+    `투영 국부 바닥하중이 장비 허용 ${limit}kg/m²를 초과했습니다.`, [], undefined, limit)];
 }
 
 function checkWeightAndCog(container: ContainerSpec, bodies: Body[], proportionalLongitudinal = false) {
@@ -662,6 +674,7 @@ export function validateOperationalLoading(
     ...checkHalfWeight(container, bodies, approvedDirectBox),
     ...checkSegregation(container, bodies),
     ...checkHeavyOnLight(bodies, supporters),
+    ...checkFloorLoad(container, bodies),
   ];
 }
 

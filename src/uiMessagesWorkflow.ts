@@ -596,6 +596,14 @@ export const uiMessagesWorkflow: Readonly<Record<string, readonly [string, strin
     "{0} levels · {1} floor columns",
     "{0} tầng · {1} cột trên sàn"
   ],
+  "팔레트 {0}단 · 상자 최대 {1}단 · 바닥 {2}열": [
+    "Pallet levels: {0} · max carton tiers: {1} · floor positions: {2}",
+    "Pallet: {0} tầng · thùng tối đa: {1} tầng · {2} vị trí trên sàn"
+  ],
+  "적재 단수": [
+    "Stacking levels",
+    "Số tầng xếp"
+  ],
   "안쪽": [
     "Inner end",
     "Phía trong"

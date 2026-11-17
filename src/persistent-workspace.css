@@ -113,6 +113,7 @@ html[data-guided-workflow="true"] .mockup-dashboard .viewer-bottom-actions.palle
 .pallet-info-dock .dock-label { flex: 1 1 100%; font-size:12px !important; font-weight:600; letter-spacing: 0; color: #64748b !important; }
 .pallet-info-dock .pallet-securing-strip .dock-label { color: #16803c !important; }
 .pallet-info-dock span { white-space: nowrap; }
+.pallet-info-dock .pallet-actual-stacking { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .pallet-info-dock span b { color: #172033; font-size:12px; }
 .pallet-info-dock .reference-clearance-strip span b { color: #92400e; }
 .pallet-info-dock .pallet-securing-strip > span { padding: 0 !important; border: 0 !important; background: transparent !important; font-weight:600; }
