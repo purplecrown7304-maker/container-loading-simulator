@@ -31,6 +31,9 @@ for (const query of ['', '?renderer=unity', '?renderer=compare']) {
 }
 
 test('the single global background preference survives main-page reload and remains usable on narrow mobile', async ({ page }) => {
+  // Three scene initialization repeats on both reloads; software WebGL on CI can
+  // exceed 30 seconds cumulatively while every individual assertion still passes.
+  test.setTimeout(60_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await expect(page.locator('.guided-step-list button')).toHaveCount(6);
