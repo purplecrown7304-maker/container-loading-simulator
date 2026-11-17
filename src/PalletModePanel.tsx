@@ -300,6 +300,15 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
   }, [container, cargo, result, modelKey]);
 
   const clearances = useMemo(() => clearanceValues(container, result.placements), [container, result.placements]);
+  const actualStacking = useMemo(() => ({
+    palletLevels: Math.max(0, ...result.pallets.map(pallet => pallet.stackLevel)),
+    cartonTiers: Math.max(0, ...result.pallets.map(pallet => new Set(pallet.cargoPlacements
+      .map(box => Math.round((box.z - pallet.z - pallet.height) * 1e6))).size)),
+    floorPositions: new Set(result.pallets.filter(pallet => pallet.stackLevel === 1 && Math.abs(pallet.z) <= 1e-6)
+      .map(pallet => `${Math.round(pallet.x * 1e6)}:${Math.round(pallet.y * 1e6)}`)).size,
+  }), [result.pallets]);
+  const actualStackingText = uiText("팔레트 {0}단 · 상자 최대 {1}단 · 바닥 {2}열",
+    [actualStacking.palletLevels, actualStacking.cartonTiers, actualStacking.floorPositions]);
   const securingUsage = certification?.securing ?? null;
   const scene = useMemo(() => stagingPalletSceneData(container, cargo, { spec, result }), [container, cargo, result, spec]);
 
@@ -366,7 +375,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
                 <span>{uiText("팔레트")}{' '}<b>{result.palletCount}</b></span>
                 <span>{uiText("화물")}{' '}<b>{result.placements.length} EA</b></span>
                 <span>{uiText("중량")}{' '}<b>{result.totalPalletizedWeightKg.toFixed(0)} kg</b></span>
-                <span>{uiText("배치")}{' '}<b>{uiText("{0}단 · 바닥 {1}열", [result.optimization.selectedStackTarget, result.optimization.floorPositions])}</b></span>
+                <span><b>{actualStackingText}</b></span>
               </div>
               {clearances && (
                 <div className="reference-clearance-strip">
@@ -397,7 +406,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
           {'mixed' in result && <div><span>{uiText("혼합 절감 팔레트")}</span><strong>{result.mixed.demotedPalletCount}</strong></div>}
           <div><span>{uiText("적층 팔레트")}</span><strong>{result.stackedPallets}</strong></div>
           <div><span>{uiText("총 팔레트화 중량")}</span><strong>{result.totalPalletizedWeightKg.toFixed(0)} kg</strong></div>
-          <div><span>{uiText("전역 최적화")}</span><strong>{uiText("{0}단 후보 · 바닥 {1}열", [result.optimization.selectedStackTarget, result.optimization.floorPositions])}</strong></div>
+          <div><span>{uiText("적재 단수")}</span><strong>{actualStackingText}</strong></div>
           <div><span>{uiText("재배치 / 병합")}</span><strong>{uiText("{0} · {1}회", [result.optimization.redistributedForLowUtilization ? uiText('균등분산') : uiText('기본배치'), result.optimization.consolidationPasses])}</strong></div>
           <div><span>{uiText("관성 보강")}</span><strong>{securingUsage ? uiText(securingUsage.levelLabel) : uiText("결과 보기 전 검증")}</strong></div>
           <div><span>{uiText("보조자재 중량")}</span><strong>{securingUsage ? uiText("약 {0} kg", [securingUsage.estimatedNonCargoWeightKg.toFixed(1)]) : '-'}</strong></div>

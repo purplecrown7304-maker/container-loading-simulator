@@ -4,12 +4,14 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import PalletModePanel from './PalletModePanel';
 import { setNextPalletCenteredResultOverride, consumeNextPalletCenteredResultOverride } from './engine/palletCentering';
 import { INERTIA_CERTIFICATION_EVENT, createPhysicsTargetSignature, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
-import { packOnPallets } from './engine/palletOptimization';
+import { packOnPallets, type OptimizedPalletPackingResult } from './engine/palletOptimization';
+import { buildPalletLoadFromDeckPlacements } from './engine/palletPacking';
 import { readPhysicsTarget, clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
 import { clearPalletSnapshot, readPalletSnapshot, publishPalletSnapshot } from './palletSnapshotStore';
 import { publishStagingPalletPlan } from './stagingPalletBridge';
 import { palletJobSpec } from './palletJobSpecs';
 import { resolvePalletType } from './palletTypeSelection';
+import { setUiLanguage, type UiLanguage } from './uiLanguage';
 
 vi.mock('./engine/palletCentering', async importOriginal => ({ ...await importOriginal<object>(), centerPalletCargo: (value: unknown) => value }));
 vi.mock('./engine/palletOptimization', async importOriginal => {
@@ -29,10 +31,11 @@ const render = (runToken: number, inputKey: string, mode: 'pallets' | 'mixed' = 
   mode={mode} inputKey={inputKey} onSceneChange={onSceneChange} onRunningChange={onRunningChange} />));
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.useFakeTimers(); vi.clearAllMocks();
+  setUiLanguage('ko');
   clearPhysicsTarget(); clearPalletSnapshot();
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); setUiLanguage('ko'); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 it('does not calculate on mode entry, and supplies a scene without mounting another main canvas after explicit run', async () => {
   await render(0, 'A');
@@ -142,4 +145,53 @@ it('cancels a pending automatic worker so its late result cannot overwrite an ac
   expect(readPalletSnapshot()?.result.remaining[0].reason).not.toBe('늦은 이전 결과');
   expect(onSceneChange.mock.calls.at(-1)?.[0]?.result.remaining[0].reason).not.toBe('늦은 이전 결과');
   expect(packOnPallets).not.toHaveBeenCalled();
+});
+
+function actualTierFixture(stacked: boolean, selectedStackTarget: number): OptimizedPalletPackingResult {
+  const spec = palletJobSpec(resolvePalletType());
+  const pallets = [0, 1].map(index => {
+    const local = Array.from({ length: 28 }, (_, n) => ({ cargoId: 'A', x: (n % 2) * .5,
+      y: (Math.floor(n / 2) % 2) * .4, z: Math.floor(n / 4) * .1,
+      length: .5, width: .4, height: .1, weightKg: 10 }));
+    const load = buildPalletLoadFromDeckPlacements(index + 1, local, spec);
+    const x = 2.45, y = stacked ? .65 : .1 + index * 1.1, z = stacked ? index * (spec.height + .7) : 0;
+    return { ...load, x, y, z, stackColumn: 10, stackLevel: stacked ? index + 1 : 1,
+      cargoPlacements: load.cargoPlacements.map(p => ({ ...p, x: p.x + x, y: p.y + y, z: p.z + z })),
+      centerOfGravity: { x: load.centerOfGravity.x + x, y: load.centerOfGravity.y + y, z: load.centerOfGravity.z + z } };
+  });
+  return { pallets, placements: pallets.flatMap(pallet => pallet.cargoPlacements), remaining: [], palletCount: pallets.length,
+    loadedCargoWeightKg: 560, totalPackagingWeightKg: 0, avoidedPackagingWeightKg: 0, packagedPalletCount: 0,
+    totalPalletizedWeightKg: pallets.reduce((sum, pallet) => sum + pallet.totalWeightKg, 0),
+    consolidatedPallets: 0, lateralImbalanceKg: 0, stackedPallets: stacked ? 1 : 0, maxUsedStackLevel: stacked ? 2 : 1,
+    optimization: { selectedStackTarget, candidateCount: 10, floorPositions: 99, redistributedForLowUtilization: false, consolidationPasses: 0 } };
+}
+
+it.each([2, 3])('shows actual pallet and carton tiers instead of the %s-level search target', async searchTarget => {
+  vi.mocked(packOnPallets).mockReturnValueOnce(actualTierFixture(false, searchTarget));
+  await render(0, 'tiers'); await render(1, 'tiers');
+  await act(async () => vi.runOnlyPendingTimers()); await act(async () => vi.runOnlyPendingTimers());
+  expect(host.querySelector('.pallet-dock-summary')?.textContent).toContain('팔레트 1단 · 상자 최대 7단 · 바닥 2열');
+  expect(host.querySelector('.pallet-metrics')?.textContent).toContain('적재 단수팔레트 1단 · 상자 최대 7단 · 바닥 2열');
+  expect(host.textContent).not.toContain('단 후보');
+  expect(readPalletSnapshot()?.result.optimization.selectedStackTarget).toBe(searchTarget);
+});
+
+it.each([
+  ['ko', '팔레트 2단 · 상자 최대 7단 · 바닥 1열'],
+  ['en', 'Pallet levels: 2 · max carton tiers: 7 · floor positions: 1'],
+  ['vi', 'Pallet: 2 tầng · thùng tối đa: 7 tầng · 1 vị trí trên sàn'],
+] as const)('localizes two stacked pallets without adding their seven carton tiers together in %s', async (locale, expected) => {
+  setUiLanguage(locale as UiLanguage);
+  vi.mocked(packOnPallets).mockReturnValueOnce(actualTierFixture(true, 3));
+  await render(0, 'stacked-tiers'); await render(1, 'stacked-tiers');
+  await act(async () => vi.runOnlyPendingTimers()); await act(async () => vi.runOnlyPendingTimers());
+  expect(host.querySelector('.pallet-dock-summary')?.textContent).toContain(expected);
+  expect(host.querySelector('.pallet-metrics')?.textContent).toContain(expected);
+  expect(host.querySelector('.pallet-dock-summary')?.textContent).not.toContain('14');
+});
+
+it('shows zero actual tiers and floor positions when every pallet remains waiting', async () => {
+  await render(0, 'empty-tiers'); await render(1, 'empty-tiers');
+  await act(async () => vi.runOnlyPendingTimers()); await act(async () => vi.runOnlyPendingTimers());
+  expect(host.querySelector('.pallet-dock-summary')?.textContent).toContain('팔레트 0단 · 상자 최대 0단 · 바닥 0열');
 });
