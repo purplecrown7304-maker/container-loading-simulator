@@ -1,6 +1,8 @@
 import { aConfig, isARules } from './loadingRuleset';
 import { validateAPlan } from './loadSimAdapter';
 import { centerPalletPlan } from './palletCentering';
+import { validateOperationalLoading } from './operationalValidator';
+import { palletSupportBodies } from './palletPlanValidation';
 import {
   absorbSparsePallets,
   unsupportedReviewPalletResult,
@@ -730,6 +732,21 @@ export function packOnPallets(
   const redistributed = strategy === 'stability'
     ? redistributeForLowUtilization(selected.result, container, pallet)
     : { result: selected.result, redistributed: false };
+  if (redistributed.redistributed && !isARules(originalContainer)) {
+    const hasErrors = (plan: PalletPackingResult) => {
+      const centered = centerPalletPlan(plan, originalContainer);
+      return validateOperationalLoading(originalContainer, normalizedCargo, centered.placements, palletSupportBodies(centered))
+        .some(finding => finding.severity === 'error');
+    };
+    // Spreading an odd number of columns across the full vehicle can pin both
+    // ends to the walls and prevent the final CG-centering translation. Keep
+    // the already-built safe plan when this optional postpass invalidates it.
+    // No cargo/pallet is removed, and the existing acceptance limits decide.
+    if (hasErrors(redistributed.result) && !hasErrors(selected.result)) {
+      redistributed.result = selected.result;
+      redistributed.redistributed = false;
+    }
+  }
   if (buildStrategy === 'unloading') {
     const groups = new Map<number, PalletLoad[]>();
     for (const load of redistributed.result.pallets) groups.set(load.stackColumn, [...(groups.get(load.stackColumn) ?? []), load]);

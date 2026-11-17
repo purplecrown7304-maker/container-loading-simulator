@@ -46,7 +46,7 @@ jobs:
     # Playwright 1.60 supports Ubuntu 24.04, while ubuntu-latest now resolves to
     # 26.04 and fails during browser/dependency installation before tests run.
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -60,9 +60,10 @@ jobs:
       - name: Install Chromium for E2E
         run: npx playwright install --with-deps chromium
       - name: Browser smoke tests
-        # Measured b74 run reached case 129/137 without an assertion failure at
-        # 25 min. Keep per-test deadlines and every test; allow aggregate headroom.
-        timeout-minutes: 35
+        # The 141-case suite reached case 134 without assertion failures at the
+        # 35 min aggregate deadline (run 44076784577). Keep every test and its
+        # individual deadline; give the complete suite enough runner headroom.
+        timeout-minutes: 45
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/results.json
         run: npm run test:e2e -- --project=chromium-desktop --max-failures=3 --reporter=line,json
