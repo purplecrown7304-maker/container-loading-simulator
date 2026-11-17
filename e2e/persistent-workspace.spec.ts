@@ -167,18 +167,30 @@ test('one real canvas survives equipment, product, packaging, loading-unit, resu
   await expect(viewer.locator('.unity-summary')).toContainText('5.90');
   await assertCanvas();
   workspace = await selectProduct(page);
-  // The staging preview keeps 25 mm gaps: six 0.98 m cartons need 6.005 m,
-  // exceeding the 5.90 m floor. The final packing below must still load all six.
-  await expect(viewer).toHaveAttribute('data-three-count', '5');
-  await expect(page.locator('.workflow-preview-status')).toContainText('5 / 6개 표시');
+  // Selected product EA is not yet confirmed shipping cargo. Prepared cartons
+  // stay in the rear yard, so no floor-preview subset is placed in the vehicle.
+  await expect(viewer).toHaveAttribute('data-three-count', '0');
+  await expect(page.locator('.workflow-preview-status')).toHaveAttribute('data-preview-kind', 'products');
+  await expect(page.locator('.workflow-preview-status')).toContainText('선택 제품 6 EA');
   await assertCanvas();
   await workspace.getByRole('button', { name: /다음: 제품 포장/ }).click();
   await expect(page.locator('.workflow-preview-status')).toHaveAttribute('data-preview-kind', 'packaging');
+  await expect(page.locator('.workflow-preview-status')).toContainText('준비 화물 6개');
+  const yard = page.locator('[data-staging-yard-panel]');
+  const countRow = (label: string) => yard.locator('.staging-panel-counts > div').filter({ has: page.getByText(label, { exact: true }) }).locator('dd > span');
+  await expect(countRow('전체 준비량')).toHaveText(['0', '6']);
+  await expect(countRow('현재 차량 배치량')).toHaveText(['0', '0']);
+  await expect(countRow('대기량')).toHaveText(['0', '6']);
+  await expect(countRow('대기 중 미적재량')).toHaveText(['0', '0']);
+  await expect(viewer).toHaveAttribute('data-three-count', '0');
   await assertCanvas();
   await workspace.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
   await workspace.getByRole('radio', { name: /파렛트 적재/ }).click();
   await assertCanvas();
   await workspace.getByRole('radio', { name: /박스 직접 적재/ }).click();
+  await expect(countRow('전체 준비량')).toHaveText(['0', '6']);
+  await expect(countRow('대기량')).toHaveText(['0', '6']);
+  await expect(viewer).toHaveAttribute('data-three-count', '0');
   await workspace.getByRole('radio', { name: /공간효율 우선/ }).click();
   await workspace.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();

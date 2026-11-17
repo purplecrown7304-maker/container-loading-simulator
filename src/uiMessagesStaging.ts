@@ -89,6 +89,7 @@ export const uiMessagesStaging: Readonly<Record<string, readonly [string, string
   '대기장 다시 시도': ['Retry staging yard', 'Thử lại khu chờ'],
   '선택 제품 {0} EA · 포장 계획 확정 후 대기장에 표시됩니다': ['{0} selected product units · shown in the yard after packaging is confirmed', '{0} sản phẩm đã chọn · hiển thị tại khu chờ sau khi xác nhận đóng gói'],
   '미리보기 · 준비 화물은 차량 후방 대기장에 표시됩니다. 최종 적재·안전 검증 전입니다.': ['Preview · prepared cargo is shown behind the vehicle, before final loading and safety verification.', 'Xem trước · hàng đã chuẩn bị hiển thị phía sau xe, trước khi xếp và kiểm chứng an toàn cuối cùng.'],
+  '미리보기 · 준비 화물 {0}개는 차량 후방 대기장에 표시됩니다. 최종 적재·안전 검증 전입니다.': ['Preview · {0} prepared cargo units are shown behind the vehicle, before final loading and safety verification.', 'Xem trước · {0} đơn vị hàng đã chuẩn bị hiển thị phía sau xe, trước khi xếp và kiểm chứng an toàn cuối cùng.'],
   '현재 조건을 만족하는 차량 내부 적재 위치를 찾지 못했습니다.': ['No vehicle placement satisfies the current conditions.', 'Không tìm được vị trí trong xe đáp ứng các điều kiện hiện tại.'],
   '포장 계획을 계산하지 못했습니다. 입력과 포장 설정을 확인하세요.': ['Could not prepare packaging. Check the input and packaging settings.', 'Không thể tính đóng gói. Kiểm tra dữ liệu và thiết lập đóng gói.'],
   '포장 미확정 제품 {0} EA · 포장 확정 후 실제 박스 수량이 표시됩니다.': ['{0} product units await packaging · actual box counts appear after confirmation.', '{0} sản phẩm chưa xác nhận đóng gói · số thùng thực tế hiển thị sau khi xác nhận.'],

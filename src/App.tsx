@@ -662,7 +662,7 @@ export default function App() {
           </div>
           {isPreview && <div className="workflow-preview-status" role="status" data-preview-kind={workflowPreview?.kind ?? 'cargo'}>{pendingProducts
             ? uiText("선택 제품 {0} EA · 포장 계획 확정 후 대기장에 표시됩니다", [pendingProducts.toLocaleString()])
-            : uiText("미리보기 · 준비 화물은 차량 후방 대기장에 표시됩니다. 최종 적재·안전 검증 전입니다.")}</div>}
+            : uiText("미리보기 · 준비 화물 {0}개는 차량 후방 대기장에 표시됩니다. 최종 적재·안전 검증 전입니다.", [preflightCargoInput(stagingCargo).cargo.reduce((sum, item) => sum + item.quantity, 0).toLocaleString()])}</div>}
           {mode === 'boxes' && !isPreview && <>
             {hasLongitudinalCgError(result) && <CgPlanChoice container={container} cargo={activeBoxCargo} fullResult={result} onChoose={chooseCgPlan} />}
             <VoidFillSummary result={result} compact />

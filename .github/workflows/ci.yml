@@ -43,7 +43,9 @@ jobs:
   browser:
     needs: predeploy
     name: Desktop Chromium
-    runs-on: ubuntu-latest
+    # Playwright 1.60 supports Ubuntu 24.04, while ubuntu-latest now resolves to
+    # 26.04 and fails during browser/dependency installation before tests run.
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - name: Checkout

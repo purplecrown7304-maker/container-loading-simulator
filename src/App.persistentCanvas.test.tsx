@@ -132,6 +132,7 @@ it('main packaging canvas selection resolves the exact residual carton without r
   try {
     await act(async () => publishWorkflowPreview({ kind: 'packaging', cargo: [carton] }));
     const canvas = host.querySelector('canvas');
+    expect(host.querySelector('.workflow-preview-status')?.textContent).toContain('준비 화물 1개');
     expect(captured.props!.result.placements).toEqual([]);
     const row = host.querySelector<HTMLButtonElement>('.staging-panel-unit-list button');
     expect(row).not.toBeNull(); await act(async () => row!.click());
