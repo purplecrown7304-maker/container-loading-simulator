@@ -8,6 +8,8 @@ import { acquireStudioCartonGeometry, createLitMeshyMaterial, createPalletFilmMa
 import type { StagingUnit } from './stagingInventory';
 import type { StagingYardLayout, StagingYardSlot } from './stagingYardLayout';
 import type { Placement } from './engine/types';
+import { acquireComparisonLabels } from './threeComparisonLabels';
+import { stagingCartonLabelPlan } from './stagingCartonLabels';
 
 type YardModels = Partial<Record<ModelKey, MeshyModel>>;
 export type StagingYardDrag = { unitId: string; point: [number, number, number]; cancelled?: boolean };
@@ -20,6 +22,7 @@ export type ThreeStagingYardProps = {
   /** Explicit zone paging; the owner retains all inventory and layout slots. */
   visibleZoneIds?: readonly string[];
   labels?: Partial<StagingYardLabels>;
+  cartonLabelsEnabled?: boolean;
   onSelect?: (unitId: string) => void;
   onDragStart?: (drag: StagingYardDrag) => void;
   onDragMove?: (drag: StagingYardDrag) => void;
@@ -29,7 +32,7 @@ export type ThreeStagingYardProps = {
   dragPlaneY?: number;
   onError?: (message: string) => void;
 };
-type Part = { unitId: string; key?: ModelKey; color: string; position: [number, number, number]; size: [number, number, number]; rotationY: number; transparent?: boolean };
+type Part = { unitId: string; cargoId?: string; key?: ModelKey; color: string; position: [number, number, number]; size: [number, number, number]; rotationY: number; transparent?: boolean };
 const noRaycast = () => {};
 const tuple = (v: THREE.Vector3): [number, number, number] => [v.x, v.y, v.z];
 
@@ -51,20 +54,20 @@ export function stagingUnitParts(unit: StagingUnit, slot: StagingYardSlot): Part
   const result: Part[] = [];
   const rotate = new THREE.Matrix4().makeRotationY(slot.rotationY);
   const origin = new THREE.Vector3(...slot.center);
-  const add = (key: ModelKey | undefined, position: [number, number, number], size: [number, number, number], color: string, transparent = false, rotationY = 0) => {
+  const add = (key: ModelKey | undefined, position: [number, number, number], size: [number, number, number], color: string, transparent = false, rotationY = 0, cargoId?: string) => {
     const point = new THREE.Vector3(...position).applyMatrix4(rotate).add(origin);
-    result.push({ unitId: unit.id, key, color, position: tuple(point), size, rotationY: slot.rotationY + rotationY, transparent });
+    result.push({ unitId: unit.id, cargoId, key, color, position: tuple(point), size, rotationY: slot.rotationY + rotationY, transparent });
   };
   const color = cargoColor(unit.cargoId ?? unit.cargoIds[0] ?? unit.id, unit.displayColor);
   if (unit.kind === 'box') {
-    add('carton', [0, unit.height / 2, 0], [unit.length, unit.height, unit.width], color);
+    add('carton', [0, unit.height / 2, 0], [unit.length, unit.height, unit.width], color, false, 0, unit.cargoId ?? unit.cargoIds[0] ?? unit.id);
     return result;
   }
   if (!unit.pallet || !unit.localPlacements) throw new Error(`Missing prepared pallet contents: ${unit.id}`);
   const deckHeight = unit.pallet.height;
   add(unit.palletSpec?.material === 'plastic' ? 'plastic-pallet' : 'wood-pallet', [0, deckHeight / 2, 0], [unit.length, deckHeight, unit.width], '#ffffff');
   const colors = new Map(unit.contents?.map(item => [item.cargoId, item.displayColor]));
-  for (const box of unit.localPlacements) add('carton', sceneCenter(box, unit), [box.length, box.height, box.width], cargoColor(box.cargoId, colors.get(box.cargoId) ?? (unit.cargoIds.length === 1 ? unit.displayColor : undefined)));
+  for (const box of unit.localPlacements) add('carton', sceneCenter(box, unit), [box.length, box.height, box.width], cargoColor(box.cargoId, colors.get(box.cargoId) ?? (unit.cargoIds.length === 1 ? unit.displayColor : undefined)), false, 0, box.cargoId);
   const top = unit.localPlacements.reduce((max, box) => Math.max(max, box.z + box.height), deckHeight);
   const loadHeight = top - deckHeight;
   if (loadHeight <= 0) return result;
@@ -95,7 +98,7 @@ function labelTexture(text: string): THREE.CanvasTexture | null {
 
 /** Owns the ground, per-yard materials, instance buffers and label textures.
  * Original Meshy geometry/textures remain cache-owned, like the vehicle viewer. */
-export function createStagingYardResources(units: readonly StagingUnit[], layout: StagingYardLayout, models: YardModels, options: { visibleZoneIds?: readonly string[]; labels?: Partial<StagingYardLabels>; labelsEnabled?: boolean } = {}) {
+export function createStagingYardResources(units: readonly StagingUnit[], layout: StagingYardLayout, models: YardModels, options: { visibleZoneIds?: readonly string[]; labels?: Partial<StagingYardLabels>; labelsEnabled?: boolean; cartonLabelMaterials?: Map<string, THREE.MeshBasicMaterial> } = {}) {
   const labels = { ...DEFAULT_LABELS, ...options.labels };
   const visibleZones = options.visibleZoneIds ? new Set(options.visibleZoneIds) : null;
   const visibleSlots = layout.slots.filter(slot => !visibleZones || visibleZones.has(slot.zoneId));
@@ -137,6 +140,7 @@ export function createStagingYardResources(units: readonly StagingUnit[], layout
   for (const side of [-1, 1]) addLine(settings.doorClearance, side * settings.aisleWidth / 2, ground.end, side * settings.aisleWidth / 2);
   addLine(settings.doorClearance, ground.minLateral, settings.doorClearance, ground.maxLateral);
   for (const slot of visibleSlots) {
+    if (slot.center[1] > layout.frame.groundY + 1e-6) continue;
     const [u, v] = slot.localCenter, l = slot.length / 2 + .06, w = slot.width / 2 + .06;
     addLine(u - l, v - w, u + l, v - w); addLine(u + l, v - w, u + l, v + w);
     addLine(u + l, v + w, u - l, v + w); addLine(u - l, v + w, u - l, v - w);
@@ -184,6 +188,24 @@ export function createStagingYardResources(units: readonly StagingUnit[], layout
       mesh.instanceMatrix.needsUpdate = true; mesh.computeBoundingSphere(); root.add(mesh); instances.push(mesh);
     }
   }
+  const cartonLabelGeometry = new THREE.PlaneGeometry(1, 1); ownedGeometries.push(cartonLabelGeometry);
+  const labelFaces = [
+    { position: [0, 0, .5005], rotation: 0 }, { position: [0, 0, -.5005], rotation: Math.PI },
+    { position: [.5005, 0, 0], rotation: Math.PI / 2 }, { position: [-.5005, 0, 0], rotation: -Math.PI / 2 },
+  ].map(face => new THREE.Matrix4().compose(new THREE.Vector3(...face.position), new THREE.Quaternion().setFromAxisAngle(up, face.rotation), new THREE.Vector3(.82, .62, 1)));
+  let cartonLabelFaces = 0;
+  for (const [cargoId, labelMaterial] of options.cartonLabelMaterials ?? []) {
+    const parts = preparedParts.filter(part => part.key === 'carton' && part.cargoId === cargoId);
+    if (!parts.length) continue;
+    const mesh = new THREE.InstancedMesh(cartonLabelGeometry, labelMaterial, parts.length * 4);
+    mesh.name = `Yard printed carton labels ${cargoId}`; mesh.raycast = noRaycast;
+    const local = new THREE.Matrix4();
+    parts.forEach((part, index) => {
+      matrix.compose(new THREE.Vector3(...part.position), new THREE.Quaternion().setFromAxisAngle(up, part.rotationY), new THREE.Vector3(...part.size));
+      labelFaces.forEach((face, faceIndex) => mesh.setMatrixAt(index * 4 + faceIndex, local.multiplyMatrices(matrix, face)));
+    });
+    mesh.instanceMatrix.needsUpdate = true; mesh.computeBoundingSphere(); root.add(mesh); instances.push(mesh); cartonLabelFaces += mesh.count;
+  }
   // Pick one rigid physical root per unit, as the existing viewer does for
   // cartons. Never raycast every original-model triangle or inner pallet box.
   const proxy = new THREE.InstancedMesh(boxGeometry, floorMaterial, visibleSlots.length);
@@ -204,7 +226,8 @@ export function createStagingYardResources(units: readonly StagingUnit[], layout
       const [u, v] = slot.localCenter, l = slot.length / 2 + .075, w = slot.width / 2 + .075;
       for (const [a, b, c, d] of [[-l, -w, l, -w], [l, -w, l, w], [l, w, -l, w], [-l, w, -l, -w]]) positions.push(...worldPoint(u + a, v + b, .019), ...worldPoint(u + c, v + d, .019));
       const marker = Math.min(.16, slot.length / 4, slot.width / 4);
-      for (const sign of [-1, 1]) positions.push(...worldPoint(u - marker, v - sign * marker, slot.height + .025), ...worldPoint(u + marker, v + sign * marker, slot.height + .025));
+      const top = slot.center[1] - layout.frame.groundY + slot.height + .025;
+      for (const sign of [-1, 1]) positions.push(...worldPoint(u - marker, v - sign * marker, top), ...worldPoint(u + marker, v + sign * marker, top));
     }
     if (!positions.length) continue;
     const geometry = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); ownedGeometries.push(geometry);
@@ -219,7 +242,7 @@ export function createStagingYardResources(units: readonly StagingUnit[], layout
   const clearSelectedLabel = () => { if (selectedLabel) root.remove(selectedLabel); selectedTexture?.dispose(); selectedLabelMaterial?.dispose(); selectedLabel = null; selectedTexture = null; selectedLabelMaterial = null; };
   let disposed = false;
   return {
-    root, renderedUnitIds: renderedUnits.map(unit => unit.id), instanceCount: [...batches.values()].reduce((sum, parts) => sum + parts.length, 0),
+    root, renderedUnitIds: renderedUnits.map(unit => unit.id), cartonLabelFaces, instanceCount: [...batches.values()].reduce((sum, parts) => sum + parts.length, 0),
     setSelected(id: string | null) {
       clearSelectedLabel(); const slot = visibleSlots.find(item => item.unitId === id), unit = id ? byId.get(id) : null;
       selection.visible = Boolean(slot && unit);
@@ -246,7 +269,7 @@ export default function ThreeStagingYard(props: ThreeStagingYardProps) {
   const { invalidate } = useThree();
   const callbacks = useRef(props); callbacks.current = props;
   const [loaded, setLoaded] = useState<{ units: readonly StagingUnit[]; layout: StagingYardLayout; options: unknown; resources: ReturnType<typeof createStagingYardResources> } | null>(null);
-  const optionsKey = JSON.stringify([props.visibleZoneIds, props.labels]);
+  const optionsKey = JSON.stringify([props.visibleZoneIds, props.labels, props.cartonLabelsEnabled]);
   const dragging = useRef<{ id: string; pointerId: number; x: number; y: number; active: boolean; point: [number, number, number]; release: () => void } | null>(null);
   const cancelDrag = () => {
     const drag = dragging.current; if (!drag) return; dragging.current = null;
@@ -257,11 +280,18 @@ export default function ThreeStagingYard(props: ThreeStagingYardProps) {
     let cancelled = false, dispose: (() => void) | undefined;
     const ids = props.visibleZoneIds ? new Set(props.layout.slots.filter(slot => props.visibleZoneIds!.includes(slot.zoneId)).map(slot => slot.unitId)) : null;
     const units = ids ? props.units.filter(unit => ids.has(unit.id)) : props.units;
-    Promise.all(requiredStagingModelKeys(units).map(async key => [key, await loadMeshyModel(key)] as const)).then(entries => {
-      if (cancelled) return;
-      const resources = createStagingYardResources(props.units, props.layout, Object.fromEntries(entries), { visibleZoneIds: props.visibleZoneIds, labels: props.labels });
-      dispose = resources.dispose; setLoaded({ units: props.units, layout: props.layout, options: optionsKey, resources }); invalidate();
-    }).catch(error => { if (!cancelled) callbacks.current.onError?.(error instanceof Error ? error.message : String(error)); });
+    const printed = props.cartonLabelsEnabled === false ? Promise.resolve(null) : acquireComparisonLabels(stagingCartonLabelPlan(units));
+    Promise.all([Promise.all(requiredStagingModelKeys(units).map(async key => [key, await loadMeshyModel(key)] as const)), printed]).then(([entries, acquired]) => {
+      if (cancelled) { acquired?.release(); return; }
+      try {
+        const resources = createStagingYardResources(props.units, props.layout, Object.fromEntries(entries), { visibleZoneIds: props.visibleZoneIds, labels: props.labels, cartonLabelMaterials: acquired?.materials });
+        dispose = () => { resources.dispose(); acquired?.release(); };
+        setLoaded({ units: props.units, layout: props.layout, options: optionsKey, resources }); invalidate();
+      } catch (error) { acquired?.release(); throw error; }
+    }).catch(error => {
+      void printed.then(acquired => acquired?.release(), () => {});
+      if (!cancelled) callbacks.current.onError?.(error instanceof Error ? error.message : String(error));
+    });
     return () => { cancelled = true; dispose?.(); cancelDrag(); };
   }, [props.units, props.layout, optionsKey, invalidate]);
   const resources = loaded?.units === props.units && loaded.layout === props.layout && loaded.options === optionsKey ? loaded.resources : null;

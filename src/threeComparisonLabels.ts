@@ -6,7 +6,7 @@ const cache = new Map<string, LabelEntry>();
 let fontsReady: Promise<unknown> | undefined;
 
 /** The same canvas dimensions, typography and content as Unity host labels.js. */
-export async function acquireComparisonLabels(plan: ThreeComparisonPlan) {
+export async function acquireComparisonLabels(plan: Pick<ThreeComparisonPlan, 'placements'>) {
   fontsReady ??= document.fonts?.load('600 28px Pretendard') ?? Promise.resolve();
   await fontsReady;
   const materials = new Map<string, MeshBasicMaterial>();

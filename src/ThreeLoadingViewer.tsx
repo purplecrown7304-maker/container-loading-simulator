@@ -175,7 +175,7 @@ export default function ThreeLoadingViewer({ container, result, cargo, preview =
     <div className="unity-toolbar"><div><b>{uiT(title)}</b><span className="studio-live-badge"><i/>THREE.JS</span></div><div className="unity-view-buttons">
       {[['free',uiT("입체")],['top',uiT("상단")],['door',uiT(plan.rearAccess === 'rear' ? '후면' : '문쪽')],['side',uiT("측면")]].map(([key,label]) => <button key={key} data-view-only="true" aria-pressed={sceneView === key} disabled={!ready} onClick={() => { setActiveView(key); setViewRequest(value => value + 1); if (staging) { setLegacyViewOverride({ view: key, request: staging.viewRequest + 1 }); staging.setView('vehicle'); } }}>{label}</button>)}
       <button data-view-only="true" disabled={!ready} aria-pressed={shell} onClick={() => setShell(!shell)}>{shell ? uiT("외벽 숨기기") : uiT("외벽 표시")}</button>
-      {!preview && !weightOn && <button data-view-only="true" disabled={!ready || !count} aria-pressed={labels} onClick={() => setLabels(!labels)}>{uiT("박스 정보")} {labels ? 'ON' : 'OFF'}</button>}
+      {(!preview || staging) && !weightOn && <button data-view-only="true" disabled={!ready || (!count && !staging?.inventory.yardUnits.length)} aria-pressed={labels} onClick={() => setLabels(!labels)}>{uiT("박스 정보")} {labels ? 'ON' : 'OFF'}</button>}
       {!preview && weightView === undefined && <button data-view-only="true" disabled={!ready || !count || frameActive} aria-pressed={weightOn} onClick={() => setWeight(!weight)}>{uiT("3D 무게분포")}</button>}
       {showCg && <button data-view-only="true" disabled={!ready || (!count && !plan.supports.length)} aria-pressed={cg} onClick={() => setCg(!cg)}>{uiT("무게중심")} {cg ? 'ON' : 'OFF'}</button>}
     </div></div>

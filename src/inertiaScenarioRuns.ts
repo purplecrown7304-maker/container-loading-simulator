@@ -1,5 +1,5 @@
 import type { InertiaAnimationResult, InertiaSecuringProfile } from './engine/inertiaSimulation';
-import type { PhysicsScenario, PhysicsSupport } from './engine/physicsValidation';
+import { securedPhysicsFromMotion, type PhysicsScenario, type PhysicsSupport, type PhysicsValidationResult } from './engine/physicsValidation';
 import type { ContainerSpec, Placement } from './engine/types';
 import { runPhysicsScenarioPooled } from './physicsWorkerPool';
 
@@ -28,6 +28,9 @@ type Entry = {
 
 const MAX_SETTLED_ENTRIES = 12;
 const entries = new Map<string, Entry>();
+// Only completed runs from this live session may supply final physics evidence.
+// Saved/cloned records and mutated inputs must run fresh worlds.
+let physicsEvidence = new WeakMap<InertiaAnimationResult, { key: string; physics: PhysicsValidationResult }>();
 
 export type InertiaRunInputs = {
   container: ContainerSpec;
@@ -44,6 +47,12 @@ export function inertiaTargetKey(container: ContainerSpec, placements: Placement
 
 function runKey(targetKey: string, inputs: InertiaRunInputs) {
   return `${targetKey}|${inputs.scenario}|${JSON.stringify(inputs.supports)}|${JSON.stringify(inputs.securing ?? null)}`;
+}
+
+export function readInertiaRunPhysics(inputs: InertiaRunInputs, result?: InertiaAnimationResult): PhysicsValidationResult | undefined {
+  const evidence = result && physicsEvidence.get(result);
+  return evidence?.key === runKey(inertiaTargetKey(inputs.container, inputs.placements), inputs)
+    ? structuredClone(evidence.physics) : undefined;
 }
 
 function evictSettled() {
@@ -96,6 +105,12 @@ export function createInertiaRunSession(): InertiaRunSession {
         value => { created.progress = value; created.listeners.forEach(listener => listener(value)); },
         controller.signal,
       ).then(result => {
+        if (!controller.signal.aborted && inputs.securing && result.finalMotion) {
+          try {
+            const physics = securedPhysicsFromMotion(inputs.container, inputs.placements, inputs.scenario, inputs.supports, inputs.securing, result);
+            physicsEvidence.set(result, { key, physics: structuredClone(physics) });
+          } catch { /* Incomplete/invalid snapshots require fresh final physics validation. */ }
+        }
         created.settled = true;
         created.progress = 1;
         evictSettled();
@@ -175,4 +190,5 @@ export async function waitForInertiaRun(
 export function clearInertiaScenarioRuns() {
   for (const entry of entries.values()) if (!entry.settled) entry.controller.abort();
   entries.clear();
+  physicsEvidence = new WeakMap();
 }

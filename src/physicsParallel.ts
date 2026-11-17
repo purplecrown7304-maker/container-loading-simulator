@@ -6,8 +6,9 @@ import {
   type PhysicsValidationSuite,
 } from './engine/physicsValidation';
 import type { ContainerSpec, Placement } from './engine/types';
-import type { InertiaSecuringProfile } from './engine/inertiaSimulation';
+import type { InertiaAnimationResult, InertiaSecuringProfile } from './engine/inertiaSimulation';
 import { runPhysicsScenarioPooled } from './physicsWorkerPool';
+import { readInertiaRunPhysics } from './inertiaScenarioRuns';
 
 /**
  * Same result as `runPhysicsValidationSuite`: the four scenarios are independent worlds, run
@@ -20,6 +21,7 @@ export async function runPhysicsValidationSuiteParallel(
   supports: PhysicsSupport[] = [],
   signal?: AbortSignal,
   securing?: InertiaSecuringProfile,
+  inertiaResults?: Partial<Record<PhysicsScenario, InertiaAnimationResult>>,
 ): Promise<PhysicsValidationSuite> {
   const scenarios = PHYSICS_SUITE_SCENARIOS;
   const progress = scenarios.map(() => 0);
@@ -32,15 +34,24 @@ export async function runPhysicsValidationSuiteParallel(
   const forward = () => controller.abort();
   signal?.addEventListener('abort', forward, { once: true });
   try {
+    signal?.throwIfAborted();
     report();
-    const results = await Promise.all(scenarios.map((scenario, index) => runPhysicsScenarioPooled(
+    const results = await Promise.all(scenarios.map(async (scenario, index) => {
+      const completed = securing && readInertiaRunPhysics({ container, placements, scenario, supports, securing }, inertiaResults?.[scenario]);
+      if (completed) { progress[index] = 1; report(); return completed; }
+      return runPhysicsScenarioPooled(
       { kind: 'physics', container, placements, scenario, supports, securing },
       value => { progress[index] = Math.max(progress[index], value); report(); },
       controller.signal,
-    ).catch(error => { controller.abort(); throw error; })));
+      ).catch(error => { controller.abort(); throw error; });
+    }));
+    signal?.throwIfAborted();
     progress.fill(1);
     report();
     return combinePhysicsValidationResults(placements, supports, results);
+  } catch (error) {
+    controller.abort();
+    throw error;
   } finally {
     signal?.removeEventListener('abort', forward);
   }

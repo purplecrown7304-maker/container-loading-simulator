@@ -5,10 +5,14 @@ import { vehicleLayout, type VehicleFootprint, type VehicleRigKind } from './thr
 export const DEFAULT_STAGING_YARD_SETTINGS = Object.freeze({
   aisleWidth: 1.8,
   doorClearance: 1.6,
-  cargoGap: .24,
-  zoneGap: .65,
+  cargoGap: .08,
+  zoneGap: .3,
   edgeMargin: .5,
   rowsPerZone: 4,
+  boxColumnsPerBank: 4,
+  palletColumnsPerBank: 2,
+  boxStackHeight: 2.4,
+  boxMaxLayers: 8,
   minimumGroundLength: 5,
   minimumBankWidth: 1.2,
 });
@@ -29,13 +33,14 @@ export type StagingLocalRect = { start: number; end: number; minLateral: number;
 export type StagingYardSlot = {
   unitId: string; zoneId: string; label: string; slotIndex: number; groupKey: string;
   center: [number, number, number]; rotationY: number;
-  /** Rearward and leftward center in the yard frame; Y is the outside ground. */
+  /** Rearward and leftward center in the yard frame; center Y is the unit base. */
   localCenter: [number, number];
   length: number; width: number; height: number;
 };
 export type StagingYardZone = {
   id: string; groupKey: string; kind: 'box' | 'pallet';
   unitLength: number; unitWidth: number; unitHeight: number;
+  rows: number; columns: number; layers: number;
   start: number; end: number; capacity: number; unitIds: string[];
   bounds: StagingBounds;
 };
@@ -89,7 +94,9 @@ function settingsFor(options?: Partial<StagingYardSettings>): StagingYardSetting
     if (!Number.isFinite(value) || value < 0) throw new Error(`Invalid staging yard display setting: ${key}`);
   }
   if (settings.aisleWidth <= 0 || settings.minimumBankWidth <= 0 || settings.minimumGroundLength <= 0
-    || !Number.isInteger(settings.rowsPerZone) || settings.rowsPerZone < 1 || settings.rowsPerZone > 64) throw new Error('Invalid staging yard display dimensions');
+    || settings.boxStackHeight <= 0
+    || [settings.rowsPerZone, settings.boxColumnsPerBank, settings.palletColumnsPerBank, settings.boxMaxLayers]
+      .some(value => !Number.isInteger(value) || value < 1 || value > 64)) throw new Error('Invalid staging yard display dimensions');
   return settings;
 }
 function checkedFrame(frame: StagingYardFrame): StagingYardFrame {
@@ -99,9 +106,32 @@ function checkedFrame(frame: StagingYardFrame): StagingYardFrame {
   return { rearCenter: [...frame.rearCenter], outward: [frame.outward[0] / magnitude, frame.outward[1] / magnitude], groundY: frame.groundY };
 }
 
+/** Choose a compact cuboid per bank, bounded independently of inventory size.
+ * Boxes form display stacks; prepared pallets remain intact on the ground.
+ * This is a visual inventory arrangement, not an accepted loading plan.
+ */
+function zoneShape(unit: StagingLayoutUnit, count: number, settings: StagingYardSettings) {
+  const maxColumns = unit.kind === 'box' ? settings.boxColumnsPerBank : settings.palletColumnsPerBank;
+  const maxLayers = unit.kind === 'box' ? Math.max(1, Math.min(settings.boxMaxLayers, Math.floor(settings.boxStackHeight / unit.height))) : 1;
+  const target = Math.min(Math.ceil(count / 2), settings.rowsPerZone * maxColumns * maxLayers);
+  let best = { rows: settings.rowsPerZone, columns: maxColumns, layers: maxLayers }, bestScore = Infinity, bestCapacity = Infinity;
+  for (let rows = 1; rows <= settings.rowsPerZone; rows++) for (let columns = 1; columns <= maxColumns; columns++) {
+    const layers = Math.ceil(target / (rows * columns));
+    if (layers > maxLayers) continue;
+    const length = rows * unit.length + (rows - 1) * settings.cargoGap;
+    const width = columns * unit.width + (columns - 1) * settings.cargoGap;
+    const score = unit.kind === 'box' ? Math.max(length, width, layers * unit.height) : Math.max(length, width);
+    const capacity = rows * columns * layers;
+    if (score < bestScore - 1e-9 || (Math.abs(score - bestScore) < 1e-9 && capacity < bestCapacity)) {
+      best = { rows, columns, layers }; bestScore = score; bestCapacity = capacity;
+    }
+  }
+  return best;
+}
+
 /** Stable display slots, independent of loading order, placements and validation.
- * Each SKU/size gets two banks of floor slots. Existing matching slots survive
- * additions, removal and input sorting; newly needed zones extend rearward.
+ * Each SKU/size gets two compact banks around an open aisle. Matching horizontal
+ * slots survive edits; boxes settle within their column when a lower unit leaves.
  */
 export function buildStagingYardLayout(units: readonly StagingLayoutUnit[], options: StagingYardLayoutOptions): StagingYardLayout {
   const settings = settingsFor(options.settings), frame = checkedFrame(options.frame ?? stagingYardFrame(options.container, options.vehicleRig));
@@ -131,13 +161,16 @@ export function buildStagingYardLayout(units: readonly StagingLayoutUnit[], opti
     let n = 0; for (const char of zone.id) n = n * 26 + char.charCodeAt(0) - 64; return n - 1;
   })) + 1;
   for (const [key, group] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
-    for (const unit of group.slice().sort((a, b) => a.id.localeCompare(b.id))) {
+    const pending = group.filter(unit => !assigned.has(unit.id)).sort((a, b) => a.id.localeCompare(b.id));
+    for (const [pendingIndex, unit] of pending.entries()) {
       if (assigned.has(unit.id)) continue;
       let zone = zones.find(item => item.groupKey === key && occupied.get(item.id)!.size < item.capacity);
       if (!zone) {
         const start = Math.max(settings.doorClearance + settings.edgeMargin, ...zones.map(item => item.end + settings.zoneGap));
+        const shape = zoneShape(unit, pending.length - pendingIndex, settings);
         zone = { id: zoneName(nextZone++), groupKey: key, kind: unit.kind, unitLength: unit.length, unitWidth: unit.width, unitHeight: unit.height,
-          start, end: start + settings.rowsPerZone * (unit.length + settings.cargoGap), capacity: settings.rowsPerZone * 2,
+          ...shape, start, end: start + shape.rows * unit.length + (shape.rows - 1) * settings.cargoGap,
+          capacity: shape.rows * shape.columns * shape.layers * 2,
           unitIds: [], bounds: { min: [0, 0, 0], max: [0, 0, 0] } };
         zones.push(zone); occupied.set(zone.id, new Map());
       }
@@ -149,21 +182,33 @@ export function buildStagingYardLayout(units: readonly StagingLayoutUnit[], opti
   const rotationY = -Math.atan2(frame.outward[1], frame.outward[0]);
   const slots: StagingYardSlot[] = [];
   for (const zone of zones) {
-    const bank = settings.aisleWidth / 2 + settings.cargoGap + zone.unitWidth;
-    zone.bounds = stagingRectBounds(frame, { start: zone.start, end: zone.end, minLateral: -bank, maxLateral: bank }, zone.unitHeight);
+    const floorCapacity = zone.rows * zone.columns * 2;
+    const settled = new Map<number, string>();
+    // Preserve each column's order without leaving floating boxes after loading.
     for (const [index, id] of [...occupied.get(zone.id)!].sort(([a], [b]) => a - b)) {
+      let base = index % floorCapacity;
+      while (settled.has(base)) base += floorCapacity;
+      settled.set(base, id);
+    }
+    const bank = settings.aisleWidth / 2 + zone.columns * (zone.unitWidth + settings.cargoGap);
+    const height = Math.max(1, ...[...settled.keys()].map(index => Math.floor(index / floorCapacity) + 1)) * zone.unitHeight;
+    zone.bounds = stagingRectBounds(frame, { start: zone.start, end: zone.end, minLateral: -bank, maxLateral: bank }, height);
+    for (const [index, id] of [...settled].sort(([a], [b]) => a - b)) {
       const unit = byId.get(id)!;
-      const u = zone.start + (Math.floor(index / 2) + .5) * (unit.length + settings.cargoGap);
-      const v = (index % 2 === 0 ? 1 : -1) * (settings.aisleWidth / 2 + settings.cargoGap + unit.width / 2);
+      const bankIndex = Math.floor((index % floorCapacity) / 2);
+      const u = zone.start + Math.floor(bankIndex / zone.columns) * (unit.length + settings.cargoGap) + unit.length / 2;
+      const v = (index % 2 === 0 ? 1 : -1) * (settings.aisleWidth / 2 + settings.cargoGap + unit.width / 2
+        + bankIndex % zone.columns * (unit.width + settings.cargoGap));
+      const elevation = Math.floor(index / floorCapacity) * unit.height;
       slots.push({ unitId: id, zoneId: zone.id, label: `${zone.id}-${String(index + 1).padStart(2, '0')}`, slotIndex: index,
-        groupKey: zone.groupKey, center: stagingYardWorldPoint(frame, u, v), rotationY, localCenter: [u, v], length: unit.length, width: unit.width, height: unit.height });
+        groupKey: zone.groupKey, center: stagingYardWorldPoint(frame, u, v, elevation), rotationY, localCenter: [u, v], length: unit.length, width: unit.width, height: unit.height });
       zone.unitIds.push(id);
     }
   }
-  const bankWidth = Math.max(settings.minimumBankWidth, ...valid.map(unit => unit.width));
-  const lateral = settings.aisleWidth / 2 + settings.cargoGap + bankWidth + settings.edgeMargin;
+  const bankWidth = Math.max(settings.minimumBankWidth, ...zones.map(zone => zone.columns * (zone.unitWidth + settings.cargoGap)));
+  const lateral = settings.aisleWidth / 2 + bankWidth + settings.edgeMargin;
   const ground = { start: 0, end: Math.max(settings.minimumGroundLength, ...zones.map(zone => zone.end + settings.edgeMargin)), minLateral: -lateral, maxLateral: lateral };
-  const bounds = stagingRectBounds(frame, ground, Math.max(.01, ...valid.map(unit => unit.height)));
+  const bounds = stagingRectBounds(frame, ground, Math.max(.01, ...zones.map(zone => zone.bounds.max[1] - frame.groundY)));
   return { frame, settings, slots, zones, ground, bounds, focusBounds: zones[0]?.bounds ?? bounds, rejected,
     aisle: { ...ground, start: settings.doorClearance, minLateral: -settings.aisleWidth / 2, maxLateral: settings.aisleWidth / 2 },
     doorClearance: { ...ground, end: settings.doorClearance } };

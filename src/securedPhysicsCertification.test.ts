@@ -13,7 +13,7 @@ it('runs the full suite with exact selected materials/supports and binds the evi
   const result = { ...stablePhysicsFixture(target), securingProfile: securingProfileForUsage(target.mode, cert.securing) };
   vi.mocked(runPhysicsValidationSuiteParallel).mockResolvedValue(result);
   const completed = await completeSecuredPhysicsValidation(target, cert);
-  expect(runPhysicsValidationSuiteParallel).toHaveBeenCalledWith(target.container, target.result.placements, expect.any(Function), buildInertiaSimulationSupports(target, cert.securing), expect.any(AbortSignal), result.securingProfile);
+  expect(runPhysicsValidationSuiteParallel).toHaveBeenCalledWith(target.container, target.result.placements, expect.any(Function), buildInertiaSimulationSupports(target, cert.securing), expect.any(AbortSignal), result.securingProfile, cert.results);
   expect(completed.physicsValidation).toBe(result);
   expect(completed.physicsValidationSignature).toBe(createSecuredPhysicsSignature(target, cert.securing));
   expect(cert.physicsValidation).toBeUndefined();

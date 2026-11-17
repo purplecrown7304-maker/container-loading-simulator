@@ -38,7 +38,7 @@ describe('staging inventory derives one conserved shipment', () => {
     const inventory = buildStagingInventory({ ...input, packaging: { inputSignature: stagingInputSignature(input), status: 'ready', pallets: [{ ...load, bandingPlan: { straps: 4, securingLevel: 3 } }] } });
     const unit = inventory.yardUnits[0];
     expect(unit.kind).toBe('pallet');
-    expect(unit.contents).toEqual([{ cargoId: 'B', name: '교체 필터', boxCount: 1, displayColor: '#efac12' }, { cargoId: 'BOX:A', name: '냉각 팬', boxCount: 1, displayColor: '#123456' }]);
+    expect(unit.contents).toEqual([{ cargoId: 'B', name: '교체 필터', boxCount: 1, displayColor: '#efac12', labelCode: 'B', unitsPerPackage: undefined }, { cargoId: 'BOX:A', name: '냉각 팬', boxCount: 1, displayColor: '#123456', labelCode: 'BOX:A', unitsPerPackage: undefined }]);
     expect(unit.contents!.reduce((sum, row) => sum + row.boxCount, 0)).toBe(unit.boxCount);
     expect(unit.packaging?.bandingStraps).toBe(4); conserved(inventory, 2); expect(JSON.stringify(input)).toBe(before);
   });
