@@ -2,10 +2,12 @@ import {
   Box3,
   BufferGeometry,
   Color,
+  DoubleSide,
   FrontSide,
   LinearSRGBColorSpace,
   Matrix4,
   Mesh,
+  MeshStandardMaterial,
   NoColorSpace,
   RepeatWrapping,
   ShaderMaterial,
@@ -14,6 +16,7 @@ import {
   Vector3,
   type ColorRepresentation,
 } from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 
 // These are the original Meshy sources, relocated without conversion or resampling.
@@ -76,6 +79,67 @@ export interface MeshyMaterialOptions {
   tint?: ColorRepresentation;
   /** World-space physical cargo volume discarded by container-shell's shader. */
   clipInterior?: Box3;
+}
+
+const studioDecode = `vec3 studioSRGBToLinear(vec3 c) { return mix(c / 12.92, pow((c + .055) / 1.055, vec3(2.4)), step(vec3(.04045), c)); }`;
+
+/** Preserve procedural display colors while producing linear offscreen beauty
+ * output and exactly one native/OutputPass transfer. */
+export function linearDisplayFragment(fragmentShader: string) {
+  return `${studioDecode}\n${fragmentShader}`.replace(/}\s*$/, `gl_FragColor.rgb = studioSRGBToLinear(gl_FragColor.rgb);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}`);
+}
+
+/** Production PBR path; original cache texture/geometry and legacy comparison
+ * shader stay untouched. NoColorSpace JPEG is decoded in this material only. */
+function createStudioPbrMaterial(texture: Texture | null, options: MeshyMaterialOptions & { roughness?: number; metalness?: number } = {}): MeshStandardMaterial {
+  const material = new MeshStandardMaterial({ map: texture, color: meshyTint(options.tint).convertSRGBToLinear(), roughness: options.roughness ?? .84, metalness: options.metalness ?? 0, side: FrontSide });
+  material.name = 'Cargo/Textured (studio PBR)';
+  const clip = { enabled: options.clipInterior ? 1 : 0, min: options.clipInterior?.min.clone() ?? new Vector3(), max: options.clipInterior?.max.clone() ?? new Vector3() };
+  material.userData.aoExclude = Boolean(clip.enabled);
+  material.userData.studioClipInterior = clip;
+  material.onBeforeCompile = shader => {
+    shader.uniforms.studioClipInterior = { value: clip.enabled }; shader.uniforms.studioInteriorMin = { value: clip.min }; shader.uniforms.studioInteriorMax = { value: clip.max };
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vStudioWorld;').replace('#include <project_vertex>', `#include <project_vertex>\nvec4 studioWorld = vec4(transformed, 1.);\n#ifdef USE_INSTANCING\nstudioWorld = instanceMatrix * studioWorld;\n#endif\nvStudioWorld = (modelMatrix * studioWorld).xyz;`);
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>\n${studioDecode}\nuniform float studioClipInterior; uniform vec3 studioInteriorMin; uniform vec3 studioInteriorMax; varying vec3 vStudioWorld;`)
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif(studioClipInterior > .5 && all(greaterThan(vStudioWorld, studioInteriorMin)) && all(lessThan(vStudioWorld, studioInteriorMax))) discard;');
+    if (texture?.colorSpace === NoColorSpace) shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `#ifdef USE_MAP\nvec4 sampledDiffuseColor = texture2D(map, vMapUv); sampledDiffuseColor.rgb = studioSRGBToLinear(sampledDiffuseColor.rgb); diffuseColor *= sampledDiffuseColor;\n#endif`);
+  };
+  material.customProgramCacheKey = () => `studio-pbr-v2:${texture?.colorSpace ?? 'no-map'}:${clip.enabled}`;
+  return material;
+}
+
+export function createLitMeshyMaterial(texture: Texture, options: MeshyMaterialOptions & { roughness?: number; metalness?: number } = {}): MeshStandardMaterial {
+  return createStudioPbrMaterial(texture, options);
+}
+
+/** The original carton JPEG is a fragmented baked OBJ atlas, not a tiling paper
+ * image. Rounded production cartons therefore use clean kraft PBR and SKU tint,
+ * plus the existing separate printed SKU labels. Never stretch that atlas over
+ * the rounded box's six planar UV faces. Legacy source rendering is untouched. */
+export function createStudioCartonMaterial(options: MeshyMaterialOptions = {}): MeshStandardMaterial {
+  const kraft = meshyTint('#c89d6c').multiply(meshyTint(options.tint));
+  const material = createStudioPbrMaterial(null, { ...options, tint: kraft, roughness: .92, metalness: 0 });
+  material.name = 'Kraft carton (studio PBR)'; material.userData.studioCartonSurface = 'kraft-no-atlas';
+  return material;
+}
+
+/** Shared visual film settings for prepared yard and vehicle pallet units. */
+export function createPalletFilmMaterial(): MeshStandardMaterial {
+  const material = new MeshStandardMaterial({ color: '#bcdce5', transparent: true, opacity: .16, roughness: .8, metalness: 0, side: DoubleSide, depthWrite: false });
+  material.name = 'Pallet stretch film'; material.userData.aoExclude = true;
+  return material;
+}
+
+let studioCarton: { geometry: RoundedBoxGeometry; references: number } | null = null;
+/** Low-segment, 0.5% edge radius. One shared physical unit box with unchanged
+ * [-.5,.5] bounds; source OBJ/UVs remain in the original cache for parity. */
+export function acquireStudioCartonGeometry() {
+  if (!studioCarton) {
+    const geometry = new RoundedBoxGeometry(1, 1, 1, 1, .005); geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+    geometry.userData.studioSharedCarton = true; studioCarton = { geometry, references: 0 };
+  }
+  const resource = studioCarton; resource.references++; let released = false;
+  return { geometry: resource.geometry, release() { if (released) return; released = true; resource.references--; if (!resource.references) { resource.geometry.dispose(); if (studioCarton === resource) studioCarton = null; } } };
 }
 
 /** Convert display RGB without Three's automatic sRGB-to-linear conversion. */

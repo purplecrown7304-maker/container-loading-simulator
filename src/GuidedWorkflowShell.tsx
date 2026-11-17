@@ -8,7 +8,7 @@ import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useRef, useState
 import { OPEN_PACKAGING_CONTENTS_EVENT, openPackagingContents, type PackagingInspection, type PackagingInspectionRequest } from './packagingContentsModel';
 import './packaging-contents.css';
 import { createPortal } from 'react-dom';
-import { ADMIN_ACCESS_EVENT } from './adminAccess';
+import { ADMIN_ACCESS_EVENT, isAdminSession } from './adminAccess';
 import {
   FINAL_PHYSICS_VALIDATION_ERROR_EVENT,
   NO_LOAD_RESULT_EVENT,
@@ -39,7 +39,8 @@ import {
 import { randomUniqueCargoColor } from './cargoColors';
 import { requiresBoxPackaging, type CompanyProductItem } from './companyProduct';
 import type { ProductPackagingAssignment } from './engine/productPackagingOptimizer';
-import { LOCAL_OPERATOR_EVENT } from './localOperator';
+import { LOCAL_OPERATOR_EVENT, readLocalOperator } from './localOperator';
+import { readSupabaseMember } from './memberAuth';
 import { PERSONAL_BOX_CATALOG_EVENT } from './personalBoxCatalog';
 import {
   PRODUCT_SELECTION_EVENT,
@@ -57,7 +58,7 @@ import EditableEquipmentCard from './EditableEquipmentCard';
 import WorkspaceModal from './WorkspaceModal';
 import { publishWorkflowPreview, WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
 import { writeShipmentInstructionSnapshot } from './shipmentInstruction';
-import { writeLoadingStrategyPreference } from './loadingStrategyPreference';
+import { readLoadingStrategyPreference, writeLoadingStrategyPreference } from './loadingStrategyPreference';
 import { resolvePalletType, usePalletTypeSelection } from './palletTypeSelection';
 import CargoStackRestrictionNotice from './CargoStackRestrictionNotice';
 import LoadingMethodStage from './LoadingMethodStage';
@@ -78,6 +79,7 @@ type PackagingBundle = {
   cargo: CargoItem[];
   ready: boolean;
 };
+const workflowOwnerKey = () => isAdminSession() ? 'admin' : 'operator:' + (readSupabaseMember()?.id ?? readLocalOperator()?.id ?? 'guest');
 
 const steps: Array<{ id: StepId; label: string }> = [
   { id: 1, label: '적재공간 선택' },
@@ -423,6 +425,7 @@ function JobSummary({ step, live, mode, finalReady, verification, selection, str
   return <details className="guided-job-summary" open={summaryOpen} onToggle={event => setSummaryOpen(event.currentTarget.open)}><summary className="studio-summary-toggle">{uiT("현재 작업 요약")}</summary>
     <div className="studio-summary-heading"><h2>{uiT("현재 작업")}</h2><span>Overview</span></div>
     <div className="studio-summary-equipment"><StudioIcon /><b>{equipmentDisplayText(equipment, 'shortName')}</b><span>{live.container.length.toFixed(2)} × {live.container.width.toFixed(2)} × {live.container.height.toFixed(2)} m</span></div>
+    <div data-staging-summary-slot />
     <dl>
       <div><dt>{uiT("적재공간")}</dt><dd>{equipmentDisplayText(equipment, 'shortName')}</dd></div>
       <div><dt>{uiT("선택 제품")}</dt><dd>{Object.keys(selection).length ? uiT("{0}종 / {1} EA", [Object.keys(selection).length, selectedUnits]) : '-'}</dd></div>
@@ -497,6 +500,7 @@ export default function GuidedWorkflowShell() {
   const methodPalletSelection = usePalletTypeSelection();
   const [hosts, setHosts] = useState<HostSet>({ left: null, center: null, right: null });
   const [live, setLive] = useState<LiveDetail>(() => readLive());
+  const workflowOwner = useRef(workflowOwnerKey());
   const [selection, setSelection] = useState<ProductSelectionMap>(initialSelection);
   const [packaging, setPackaging] = useState<PackagingBundle>({ products: [], assignments: [], cargo: [], ready: false });
   const [inspection, setInspection] = useState<PackagingInspection>();
@@ -513,7 +517,7 @@ export default function GuidedWorkflowShell() {
     window.addEventListener(OPEN_PACKAGING_CONTENTS_EVENT, open);
     return () => window.removeEventListener(OPEN_PACKAGING_CONTENTS_EVENT, open);
   }, [packaging]);
-  const [strategy, setStrategy] = useState<LoadingStrategy | null>(null);
+  const [strategy, setStrategy] = useState<LoadingStrategy | null>(readLoadingStrategyPreference);
   const [step, setStep] = useState<StepId>(1);
   const [furthest, setFurthest] = useState<StepId>(1);
   const [modalOpen, setModalOpen] = useState(false);
@@ -557,11 +561,18 @@ export default function GuidedWorkflowShell() {
   const packagingKey = JSON.stringify({ container: packagingContainer, cargo: packaging.cargo,
     interior: packaging.products.filter(requiresBoxPackaging).map(product => [product.id, product.length, product.width, product.height,
       product.cushioningM, product.productGapM, product.orientationPolicy, product.allowRotation, product.maxInternalLayers, product.fragile]) });
+  const previousPackagingKey = useRef(packagingKey);
   useEffect(() => {
+    if (previousPackagingKey.current === packagingKey) return;
+    previousPackagingKey.current = packagingKey;
     setInspection(undefined);
     setPackagingConfirmed(false);
-    setStrategy(null);
-    writeLoadingStrategyPreference(null);
+    // Initial packaging hydration is not an operator edit. Keep a reloaded or
+    // imported strategy until an already confirmed package actually changes.
+    if (packagingConfirmed) {
+      setStrategy(null);
+      writeLoadingStrategyPreference(null);
+    }
     setVerification({ status: 'unrun' });
     setNoLoadComplete(false);
     completedEmpty.current = null;
@@ -591,14 +602,11 @@ export default function GuidedWorkflowShell() {
 
   useEffect(() => () => {
     publishGuidedWorkflowState({ active: false, step: 1 });
-    publishGuidedLoadingUnit(null);
     publishWorkflowPreview(null);
   }, []);
 
-  useEffect(() => {
-    writeLoadingStrategyPreference(null);
-    return () => writeLoadingStrategyPreference(null);
-  }, []);
+  // A view remount/reload preserves the chosen method. New packaging explicitly
+  // clears it in applyPackaging; no previous transport PASS is restored here.
 
   useEffect(() => {
     let frame = 0;
@@ -646,6 +654,9 @@ export default function GuidedWorkflowShell() {
     };
     const refreshSelection = () => setSelection(readProductSelection());
     const refreshIdentity = () => {
+      const nextOwner = workflowOwnerKey();
+      if (workflowOwner.current === nextOwner) { refreshSelection(); refresh(); return; }
+      workflowOwner.current = nextOwner;
       completedEmpty.current = null;
       previewActivated.current = false;
       publishWorkflowPreview(null);

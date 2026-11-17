@@ -46,6 +46,13 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   await page.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   const viewer = page.locator('.viewer-card .three-comparison-viewer');
+  const chooseOrientation = async (name: string) => {
+    await expect(viewer).toHaveAttribute('data-three-camera-request', /.+/);
+    const previousRequest = await viewer.getAttribute('data-three-camera-request');
+    await viewer.getByRole('button', { name, exact: true }).click();
+    await expect(viewer).not.toHaveAttribute('data-three-camera-request', previousRequest!);
+    await expect(viewer).toHaveAttribute('data-three-camera-moving', 'false');
+  };
   await expect(viewer).toHaveAttribute('data-three-count', '3', { timeout: 60_000 });
   await expect(viewer).toHaveAttribute('data-three-applied', 'true', { timeout: 60_000 });
   await expect.poll(() => page.evaluate(() => Boolean((window as any).__containerLoadingPhysicsTarget && !(window as any).__containerLoadingFinalPhysicsRunning)), { timeout: 60_000 }).toBe(true);
@@ -60,6 +67,17 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   expect(JSON.parse(loadedTarget).container.length).toBeCloseTo(12.032, 3);
   const loadedRevision = await viewer.getAttribute('data-three-plan-revision');
   const loadedCg = await viewer.getAttribute('data-three-cg-position');
+  // The initial staging overview includes the rear yard. Toolbar presets are
+  // explicit vehicle-only views, so compare their round trip to the same preset.
+  const staging = viewer.locator('[data-three-staging-view]');
+  await expect(staging).toHaveAttribute('data-three-staging-view', 'all');
+  const overviewCamera = await viewer.getAttribute('data-three-camera-pose');
+  await page.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption('forest');
+  await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
+  await expect(staging).toHaveAttribute('data-three-staging-view', 'all');
+  await expect(viewer).toHaveAttribute('data-three-camera-pose', overviewCamera!);
+  await chooseOrientation('입체');
+  await expect(staging).toHaveAttribute('data-three-staging-view', 'free');
   const loadedCamera = await viewer.getAttribute('data-three-camera-pose');
   const loadedCanvas = await viewer.locator('canvas').elementHandle();
   expect(loadedCanvas).not.toBeNull();
@@ -68,11 +86,15 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
     { environment: 'forest', view: '측면', file: 'background-40ft-forest-side.png' },
     { environment: 'space', view: '입체', file: 'background-40ft-space.png' },
   ]) {
+    const priorCamera = await viewer.getAttribute('data-three-camera-pose');
+    const priorRequest = await viewer.getAttribute('data-three-camera-request');
     await page.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption(shot.environment);
-    await viewer.getByRole('button', { name: shot.view, exact: true }).click();
     await expect(viewer).toHaveAttribute('data-three-environment', shot.environment);
     await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(viewer).toHaveAttribute('data-three-camera-pose', priorCamera!);
+    await expect(viewer).toHaveAttribute('data-three-camera-request', priorRequest!);
+    await chooseOrientation(shot.view);
     await expect(viewer).toHaveAttribute('data-three-plan-revision', loadedRevision!);
     await expect(viewer).toHaveAttribute('data-three-cg-position', loadedCg!);
     expect(await page.evaluate(() => JSON.stringify((window as any).__containerLoadingPhysicsTarget))).toBe(loadedTarget);
@@ -80,13 +102,14 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
     await page.screenshot({ path: test.info().outputPath(shot.file), fullPage: true });
   }
   await page.getByRole('combobox', { name: '3D 배경', exact: true }).selectOption('warehouse');
-  await viewer.getByRole('button', { name: '입체', exact: true }).click();
+  await chooseOrientation('입체');
   await expect(viewer).toHaveAttribute('data-three-environment-applied', 'true');
   await expect(viewer).toHaveAttribute('data-three-camera-pose', loadedCamera!);
   await page.locator('.header-menu-button').click();
   await page.locator('section[aria-label="점검 메뉴"]').scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath('four-inspection-menu.png'), fullPage: true });
   await page.locator('.header-menu-button').click();
+  const inspectionCameraRequest = await viewer.getAttribute('data-three-camera-request');
   for (const name of ['경계·충돌 점검', '무게중심 점검', '총중량·바닥 하중 추정']) {
     await openCheck(name);
     await expect(checks.getByRole('heading', { name, exact: true })).toBeVisible();
@@ -98,6 +121,9 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
     expect(await checks.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
     await page.screenshot({ path: test.info().outputPath(`direct-check-${name}.png`), fullPage: true });
     await checks.getByRole('button', { name: '닫기', exact: true }).click();
+    await expect(viewer).toHaveAttribute('data-three-camera-pose', loadedCamera!);
+    await expect(viewer).toHaveAttribute('data-three-camera-request', inspectionCameraRequest!);
+    expect(await loadedCanvas!.evaluate(element => element === document.querySelector('.viewer-card canvas'))).toBe(true);
   }
   await page.evaluate(() => { (window as any).__mainInertiaCanvas = document.querySelector('.viewer-card canvas'); });
   await viewer.getByRole('slider', { name: 'Three.js 높이 단면', exact: true }).fill('25');
@@ -147,6 +173,8 @@ test('manual checks use the real loaded plan, cancel safely and invalidate edite
   await expect(viewer.locator('.viewer-bottom-info')).toBeVisible();
   await expect(viewer).toHaveAttribute('data-three-cut', '25');
   await expect(viewer).toHaveAttribute('data-three-step', '1');
+  await expect(viewer).toHaveAttribute('data-three-camera-pose', loadedCamera!);
+  await expect(viewer).toHaveAttribute('data-three-camera-request', inspectionCameraRequest!);
   expect(await page.evaluate(() => (window as any).__mainInertiaCanvas === document.querySelector('.viewer-card canvas'))).toBe(true);
   await viewer.getByRole('slider', { name: 'Three.js 높이 단면', exact: true }).fill('100');
   // A completed real simulation stays authoritative with the sole Three renderer.

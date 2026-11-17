@@ -47,7 +47,7 @@ export async function acquireComparisonLabels(plan: ThreeComparisonPlan) {
       texture.colorSpace = SRGBColorSpace;
       texture.anisotropy = 4;
       texture.minFilter = LinearMipmapLinearFilter; texture.magFilter = LinearFilter;
-      const material = new MeshBasicMaterial({ map: texture, side: DoubleSide, toneMapped: false });
+      const material = new MeshBasicMaterial({ map: texture, side: DoubleSide });
       entry = { texture, material, refs: 0 };
       cache.set(key, entry);
     }

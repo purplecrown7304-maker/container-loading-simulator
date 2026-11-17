@@ -1,0 +1,100 @@
+{
+  "environment": "Playwright Chromium, Windows; default ANGLE requested; actual device reported below; five-second orbit samples.",
+  "graphics": {
+    "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.7778.96 Safari/537.36",
+    "dpr": 1,
+    "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+    "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+  },
+  "samples": [
+    {
+      "quality": "performance",
+      "initialCamera": "5.52436,5.24666,6.13543,-0.21794,0.34847,0.08366,0.90779",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "cargo": 16,
+      "pallets": 2,
+      "renderPath": "direct",
+      "benchmark": {
+        "durationMs": 5014.199999999255,
+        "sampleCount": 163,
+        "meanFrameMs": 30.76196319017948,
+        "p95FrameMs": 35.70000000298023,
+        "fps": 32.50767819393407,
+        "renderCalls": 54,
+        "triangles": 24482
+      },
+      "msaaSamples": "0",
+      "beautyWidth": "1448",
+      "beautyHeight": "484",
+      "aoWidth": "0",
+      "aoHeight": "0"
+    },
+    {
+      "quality": "standard",
+      "initialCamera": "5.52436,5.24666,6.13543,-0.21794,0.34847,0.08366,0.90779",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "cargo": 16,
+      "pallets": 2,
+      "renderPath": "gtao",
+      "benchmark": {
+        "durationMs": 5004.599999997765,
+        "sampleCount": 70,
+        "meanFrameMs": 71.49428571425378,
+        "p95FrameMs": 80.90000000223517,
+        "fps": 13.987131838714635,
+        "renderCalls": 107,
+        "triangles": 47767
+      },
+      "msaaSamples": "0",
+      "beautyWidth": "1448",
+      "beautyHeight": "484",
+      "aoWidth": "724",
+      "aoHeight": "242"
+    },
+    {
+      "quality": "high",
+      "initialCamera": "5.52436,5.24666,6.13543,-0.21794,0.34847,0.08366,0.90779",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "cargo": 16,
+      "pallets": 2,
+      "renderPath": "gtao",
+      "benchmark": {
+        "durationMs": 5140.5,
+        "sampleCount": 18,
+        "meanFrameMs": 285.5833333333333,
+        "p95FrameMs": 341.0999999977648,
+        "fps": 3.501604902246863,
+        "renderCalls": 107,
+        "triangles": 47767
+      },
+      "msaaSamples": "4",
+      "beautyWidth": "1448",
+      "beautyHeight": "484",
+      "aoWidth": "1448",
+      "aoHeight": "484"
+    }
+  ],
+  "settledResources": [
+    {
+      "geometries": "12",
+      "textures": "8"
+    },
+    {
+      "geometries": "12",
+      "textures": "8"
+    },
+    {
+      "geometries": "12",
+      "textures": "8"
+    }
+  ]
+}

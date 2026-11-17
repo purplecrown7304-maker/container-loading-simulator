@@ -40,7 +40,14 @@ test('registered stacking updates without reload and bulk packaging advances bef
   await expect(page.getByText('자동 적재 최대 1단', { exact: false })).toHaveCount(6);
   // With 1mm between products and no wall cushion, capacities are
   // [84, 70, 70, 70, 70, 60]; rounding each SKU's demand up gives 1,691 cartons.
-  await expect(page.locator('.workflow-preview-status')).toContainText('1,691');
+  await expect(page.locator('.workflow-preview-status')).toHaveAttribute('data-preview-kind', 'packaging');
+  await expect(page.locator('.workflow-preview-status')).toContainText('준비 화물 1,691개');
+  await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-count', '0');
+  const yard = page.locator('[data-staging-yard-panel]');
+  const countRow = (label: string) => yard.locator('.staging-panel-counts > div').filter({ has: page.getByText(label, { exact: true }) }).locator('dd > span');
+  await expect(countRow('전체 준비량')).toHaveText(['0', '1,691']);
+  await expect(countRow('대기량')).toHaveText(['0', '1,691']);
+  await expect(countRow('현재 차량 배치량')).toHaveText(['0', '0']);
 
   await page.getByRole('button', { name: '설정 닫기', exact: true }).click();
   await page.getByRole('button', { name: /메뉴$/ }).click();

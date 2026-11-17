@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true
+  },
+  "include": ["src/motion/*.js", "src/motion/*.d.ts"],
+  "exclude": ["src/motion/*.test.js"]
+}

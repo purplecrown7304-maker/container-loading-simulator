@@ -11,13 +11,15 @@ import { publishGuidedWorkflowState } from './guidedWorkflowState';
 import { publishGuidedLoadingUnit } from './guidedLoadingUnitState';
 import { publishWorkflowPreview } from './workflowPreview';
 import { writeLoadingStrategyPreference } from './loadingStrategyPreference';
-import { readStoredState, writeStoredState } from './storage';
+import { readStoredState, STORAGE_RESET_EVENT, writeStoredState } from './storage';
 import { APP_ACTION_EVENT } from './uiEvents';
 import { cancelPendingCertification, requestExactCertification } from './autoCertification';
 import { readLoadingRuleset, setLoadingRuleset } from './loadingRulesPreference';
 import { createCustomEquipment, selectTransportEquipment } from './transportEquipment';
 import { OPEN_PACKAGING_CONTENTS_EVENT } from './packagingContentsModel';
 import { setUiLanguage } from './uiLanguage';
+import { stagingInputSignature } from './stagingInventory';
+import { readManualOverride, writeManualOverride } from './engine/manualOverride';
 
 const captured = vi.hoisted(() => ({ mounts: 0, unmounts: 0, props: null as LoadingViewerProps | null,
   runs: [] as Array<{ resolve: (value: PhysicsOptimizedLoading) => void; signal: AbortSignal; container: ContainerSpec }> }));
@@ -55,6 +57,7 @@ beforeEach(async () => {
   writeLoadingStrategyPreference('capacity'); writeStoredState({ container, cargo });
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   await import('./BoxLoadingViewer');
+  await import('./StagingWorkspace');
   await act(async () => { root.render(<><ReferenceWorkspaceBar /><App /></>); });
 });
 afterEach(async () => {
@@ -101,13 +104,14 @@ it('mounts the main canvas on entry and preserves it through every workspace sta
   expect(captured.mounts).toBe(1); expect(captured.unmounts).toBe(0);
 });
 
-it('shows immediate preview without publishing it as calculated cargo, then preserves a result during navigation', async () => {
+it('keeps unconfirmed product EA outside the vehicle, then preserves an accepted result during navigation', async () => {
   await act(async () => publishWorkflowPreview({ kind: 'products', cargo }));
-  expect(captured.props?.result.placements).toHaveLength(4);
+  expect(captured.props?.result.placements).toHaveLength(0);
   expect(captured.props?.preview).toBe(true);
   expect(host.querySelector<HTMLButtonElement>('.result-open-action')?.disabled).toBe(true);
-  expect(host.querySelector('.workflow-preview-status')?.textContent).toContain('최종 적재·안전 검증 전');
+  expect(host.querySelector('.workflow-preview-status')?.textContent).toContain('선택 제품 4 EA · 포장 계획 확정 후 대기장에 표시됩니다');
   expect(requestExactCertification).not.toHaveBeenCalled();
+  expect(host.querySelector('.staging-panel-unit-list button')).toBeNull();
   await run(); const value = optimized();
   await act(async () => captured.runs[0].resolve(value));
   const result = captured.props?.result;
@@ -128,9 +132,12 @@ it('main packaging canvas selection resolves the exact residual carton without r
   try {
     await act(async () => publishWorkflowPreview({ kind: 'packaging', cargo: [carton] }));
     const canvas = host.querySelector('canvas');
-    const index = captured.props!.result.placements.findIndex(p => p.cargoId === carton.id);
-    expect(index).toBeGreaterThanOrEqual(0);
-    await act(async () => captured.props!.onCargoSelect!(index));
+    expect(host.querySelector('.workflow-preview-status')?.textContent).toContain('준비 화물 1개');
+    expect(captured.props!.result.placements).toEqual([]);
+    const row = host.querySelector<HTMLButtonElement>('.staging-panel-unit-list button');
+    expect(row).not.toBeNull(); await act(async () => row!.click());
+    const details = [...host.querySelectorAll<HTMLButtonElement>('.staging-panel-selection button')].find(button => button.textContent === '포장 상세 보기');
+    expect(details).toBeDefined(); await act(async () => details!.click());
     expect(selected).toHaveBeenCalledOnce();
     expect((selected.mock.calls[0][0] as CustomEvent).detail).toEqual({ cargoId: carton.id });
     expect(host.querySelector('canvas')).toBe(canvas);
@@ -253,4 +260,44 @@ it('saves review provenance and switching strict invalidates the current review 
   expect(host.querySelector('.workflow-preview-status')).not.toBeNull();
   await act(async () => window.dispatchEvent(new CustomEvent(APP_ACTION_EVENT, { detail: { action: 'load-local' } })));
   expect(host.querySelector('.limit-review-result-banner')?.textContent).toContain('출고 승인 불가');
+});
+
+it.each(['scope', 'strategy'] as const)('leaves a saved staging plan outside the vehicle when its %s differs on reload', async mismatch => {
+  const actualContainer = captured.props!.container, savedResult = optimized().result;
+  await act(async () => root.unmount()); root = createRoot(host);
+  sessionStorage.clear();
+  if (mismatch === 'strategy') writeLoadingStrategyPreference('stability');
+  const input = { scopeKey: mismatch === 'scope' ? 'operator:someone-else|active' : 'operator:guest|active',
+    mode: 'boxes' as const, container: actualContainer, cargo, strategy: 'capacity' as const };
+  writeStoredState({ container: actualContainer, cargo, result: savedResult, staging: { version: 1,
+    scopeKey: input.scopeKey, inputSignature: stagingInputSignature(input), mode: 'boxes',
+    identity: { unitToStableId: {} }, selectedUnitId: null } });
+  await act(async () => { root.render(<><ReferenceWorkspaceBar /><App /></>); await new Promise(resolve => setTimeout(resolve, 10)); });
+  expect(captured.props?.preview).toBe(true); expect(captured.props?.result.placements).toHaveLength(0);
+  expect(requestExactCertification).not.toHaveBeenCalled();
+  expect(readStoredState()?.result?.placements).toEqual(savedResult.placements);
+  await act(async () => window.dispatchEvent(new CustomEvent(APP_ACTION_EVENT, { detail: { action: 'load-local' } })));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 8)); });
+  expect(captured.props?.preview).toBe(true); expect(captured.props?.result.placements).toHaveLength(0);
+});
+
+it('clears saved and legacy layouts before publishing reset, without restoring them from a pending save', async () => {
+  await run(); await act(async () => captured.runs[0].resolve(optimized()));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 8)); });
+  const previous = readStoredState()!, actualContainer = captured.props!.container;
+  expect(previous.result?.placements).toHaveLength(1);
+  writeManualOverride(actualContainer, previous.cargo, previous.result!);
+  const observed: unknown[] = [], listener = () => observed.push({ stored: readStoredState(), manual: readManualOverride(actualContainer, previous.cargo) });
+  window.addEventListener(STORAGE_RESET_EVENT, listener); const confirm = Object.getOwnPropertyDescriptor(window, 'confirm');
+  Object.defineProperty(window, 'confirm', { configurable: true, value: vi.fn(() => true) });
+  try {
+    await act(async () => window.dispatchEvent(new CustomEvent(APP_ACTION_EVENT, { detail: { action: 'reset-all' } })));
+    expect(observed).toEqual([{ stored: null, manual: null }]);
+    expect(captured.props?.preview).toBe(true); expect(captured.props?.result.placements).toEqual([]);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 8)); });
+    expect(readStoredState()).toBeNull(); expect(readManualOverride(actualContainer, previous.cargo)).toBeNull();
+  } finally {
+    if (confirm) Object.defineProperty(window, 'confirm', confirm); else Reflect.deleteProperty(window, 'confirm');
+    window.removeEventListener(STORAGE_RESET_EVENT, listener);
+  }
 });

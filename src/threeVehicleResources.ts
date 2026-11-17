@@ -50,7 +50,7 @@ export function createVehicleResources(kind: VehicleRigKind, footprint: VehicleF
         const geometry = placement.rails ? fitVehicleRails(axle ?? part.geometry, placement.rails, placement.scale) : part.geometry;
         axle?.dispose();
         if (placement.rails) owned.push(geometry);
-        const mesh = new THREE.Mesh(geometry, part.material); mesh.raycast = () => {}; group.add(mesh);
+        const mesh = new THREE.Mesh(geometry, part.material); mesh.castShadow = true; mesh.receiveShadow = true; mesh.raycast = () => {}; group.add(mesh);
       }
       root.add(group);
     }

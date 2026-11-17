@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { DoubleSide, Mesh, Texture } from 'three';
 import { createPackagingCartonScene } from './packagingCartonScene';
-import { createMeshyMaterial, parseMeshyGeometry, type MeshyModel } from './threeComparisonModels';
+import { createLitMeshyMaterial, createMeshyMaterial, parseMeshyGeometry, type MeshyModel } from './threeComparisonModels';
 
 describe('Meshy carton open cutaway', () => {
   it('fits actual box dimensions, preserves original assets and clears the physical interior', () => {
@@ -18,12 +18,13 @@ describe('Meshy carton open cutaway', () => {
     const b = createPackagingCartonScene(source, [.227, .122, .257], [.235, .130, .265], .265);
     expect(a.object.scale.toArray()).toEqual([.235 / .265, 1, .130 / .265]);
     const mesh = a.object.children[0] as Mesh;
-    expect(mesh.geometry).toBe(geometries[0]);
+    expect(mesh.geometry).not.toBe(geometries[0]); expect(mesh.geometry).toBe((b.object.children[0] as Mesh).geometry);
+    expect(mesh.geometry.boundingBox!.min.toArray()).toEqual([-.5, -.5, -.5]); expect(mesh.geometry.boundingBox!.max.toArray()).toEqual([.5, .5, .5]);
     expect(mesh.material).not.toBe(prototype); expect(mesh.material).not.toBe((b.object.children[0] as Mesh).material);
-    const material = mesh.material as ReturnType<typeof createMeshyMaterial>;
+    const material = mesh.material as ReturnType<typeof createLitMeshyMaterial>;
     expect(material.side).toBe(DoubleSide); expect(material.clippingPlanes).toHaveLength(3);
-    expect(material.uniforms.clipInterior.value).toBe(1);
-    expect(material.uniforms.cargoInteriorMax.value.toArray()).toEqual([.227 / .265 / 2, .257 / .265 / 2, .122 / .265 / 2]);
+    expect(material.userData.studioClipInterior.enabled).toBe(1);
+    expect(material.userData.studioClipInterior.max.toArray()).toEqual([.227 / .265 / 2, .257 / .265 / 2, .122 / .265 / 2]);
     expect(geometries.map(g => Array.from(g.getAttribute('position').array))).toEqual(before);
     a.dispose(); b.dispose();
     expect(geometryDispose).not.toHaveBeenCalled(); expect(textureDispose).not.toHaveBeenCalled();

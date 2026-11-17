@@ -67,6 +67,31 @@ function builderContainer(container: ContainerSpec, cargo: CargoItem[], pallet: 
   };
 }
 
+/** Shared shipment packaging stage. This envelope is never a vehicle loading
+ * result; only the later existing container planner may accept vehicle cargo. */
+export function buildPalletPackaging(
+  container: ContainerSpec,
+  cargo: CargoItem[],
+  pallet: PalletSpec = defaultPalletSpec,
+  strategy: LoadingStrategy = 'capacity',
+  options: { independentVehicleHeight?: boolean } = {},
+): OptimizedPalletPackingResult {
+  const buildSpec = { ...pallet, maxStackLevels: 1 };
+  const envelope = builderContainer(container, cargo, buildSpec);
+  let preparedCargo = cargo;
+  if (options.independentVehicleHeight) {
+    // The deck's own load/support/stack constraints stay intact. Unknown carton
+    // stacking is tightened to one tier, never invented to shrink the scene.
+    preparedCargo = cargo.map(item => ({ ...item, maxStackLayers: item.maxStackLayers ?? 1 }));
+    const cargoHeightBound = preparedCargo.reduce((sum, item) => sum
+      + item.height * Math.min(item.quantity, item.maxStackLayers ?? 1), 0);
+    envelope.height = Math.max(envelope.height, pallet.height + cargoHeightBound
+      + (pallet.useCornerGuards ? pallet.cornerGuardExtraHeightM : 0)
+      + (pallet.useWrapping ? pallet.wrappingExtraHeightM : 0) + 0.05);
+  }
+  return packOnPallets(envelope, preparedCargo, buildSpec, strategy);
+}
+
 function cargoCountsFromLoads(loads: PalletLoad[]) {
   const counts = new Map<string, number>();
   for (const load of loads) {
@@ -223,7 +248,7 @@ export function packMixedMode(
   const buildSpec = { ...pallet, maxStackLevels: 1 };
   const palletCargo = active.filter(item => item.mixedLoadingMethod !== 'direct');
   const explicitDirect = active.filter(item => item.mixedLoadingMethod === 'direct');
-  const built = packOnPallets(builderContainer(container, palletCargo, buildSpec), palletCargo, buildSpec, strategy);
+  const built = buildPalletPackaging(container, palletCargo, buildSpec, strategy);
   const cargoById = new Map(active.map((item) => [item.id, item]));
   const fillRows = built.pallets.map((load) => ({
     load,

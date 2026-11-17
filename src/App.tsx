@@ -11,16 +11,16 @@ import { hasLongitudinalCgError } from './engine/cgCompliantPlan';
 import { buildPlacementAddresses } from './engine/locationGrid';
 import { containerInputError, preflightCargoInput } from './engine/inputPreflight';
 import { pendingLoadingResult, publishLoadingResult, restoreLoadingResult, type LoadingStrategy } from './engine/loadingEngine';
-import { readManualOverride, writeManualOverride } from './engine/manualOverride';
+import { clearManualOverride, readManualOverride, writeManualOverride } from './engine/manualOverride';
 import { optimizeLoadingWithPhysics } from './engine/physicsOptimizer';
 import { runPhysicsValidationSuiteParallel } from './physicsParallel';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
-import { GUIDED_LOADING_UNIT_EVENT, readGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingUnitState';
+import { GUIDED_LOADING_UNIT_EVENT, publishGuidedLoadingUnit, readGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingUnitState';
 import { shouldRenderGuidedViewer, useGuidedWorkflowState } from './guidedWorkflowState';
 import { clearLatestInertiaCertification } from './inertiaCertification';
 import { LOADING_STRATEGY_PREFERENCE_EVENT, readLoadingStrategyPreference } from './loadingStrategyPreference';
-import { createWorkflowFloorPreview, readWorkflowPreview, useWorkflowPreview, WORKFLOW_INPUT_INVALIDATED_EVENT, WORKFLOW_PREVIEW_EVENT } from './workflowPreview';
+import { readWorkflowPreview, useWorkflowPreview, WORKFLOW_INPUT_INVALIDATED_EVENT, WORKFLOW_PREVIEW_EVENT } from './workflowPreview';
 import { createLatestInputRun } from './latestInputRun';
 import { resolvePalletType, usePalletTypeSelection } from './palletTypeSelection';
 import type { PalletViewerScene } from './PalletModePanel';
@@ -29,7 +29,7 @@ import PalletFooterSummary from './PalletFooterSummary';
 import { clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
 import { openLoadingReport } from './report';
 import { openResultsModal } from './resultsModalEvents';
-import { normalizeCargo, readStoredState, STORAGE_KEY, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
+import { normalizeCargo, readStoredState, STORAGE_KEY, STORAGE_RESET_EVENT, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
 import WorkspaceTools from './WorkspaceTools';
 import CgPlanChoice from './CgPlanChoice';
 import VoidFillSummary from './VoidFillSummary';
@@ -38,9 +38,11 @@ import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 import { openPackagingContents } from './packagingContentsModel';
 import { useTransportEquipment } from './transportEquipment';
 import { withRecommendedCeilingClearance } from './containerDefaults';
+import type { StagingApplication } from './stagingWorkspaceTypes';
 
 const BoxLoadingViewer = lazy(() => import('./BoxLoadingViewer'));
 const PalletModePanel = lazy(() => import('./PalletModePanel'));
+const StagingWorkspace = lazy(() => import('./StagingWorkspace'));
 
 const defaultContainer: ContainerSpec = {
   length: 12.03,
@@ -81,7 +83,8 @@ export default function App() {
   const [cargo, setCargo] = useState<CargoItem[]>(startingCargo);
   const [draft, setDraft] = useState<CargoDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [mode, setMode] = useState<LoadingMode>('boxes');
+  const [mode, setMode] = useState<LoadingMode>(() => readGuidedLoadingUnit()
+    ?? (stored?.staging && ['boxes', 'pallets', 'mixed'].includes(stored.staging.mode) ? stored.staging.mode : 'boxes'));
   const [navSection, setNavSection] = useState<NavSection>('dashboard');
   const [palletRunToken, setPalletRunToken] = useState(0);
   const [result, setResult] = useState<LoadingResult>(() => pendingLoadingResult(stored?.container ?? defaultContainer, startingCargo));
@@ -101,22 +104,31 @@ export default function App() {
   const [strategy, setStrategy] = useState(readLoadingStrategyPreference);
   const [palletScene, setPalletScene] = useState<PalletViewerScene | null>(null);
   const workflowPreview = useWorkflowPreview();
+  const [stagingUsesWorkflow, setStagingUsesWorkflow] = useState(() => !startingCargo.length);
   const palletType = resolvePalletType(usePalletTypeSelection());
-  const inputKey = JSON.stringify({ container, cargo, mode, strategy, preview: workflowPreview?.key, pallet: mode === 'boxes' ? null : palletType.id });
+  const inputKey = JSON.stringify({ container, cargo, mode, strategy, preview: workflowPreview?.cargo.length ? workflowPreview.key : null, pallet: mode === 'boxes' ? null : palletType.id });
   const currentInputKey = useRef(inputKey);
   currentInputKey.current = inputKey;
   const previousInputKey = useRef<string | null>(null);
-  const restoreInput = useRef<StoredState | null>(stored?.result ? stored : null);
-  const liveInputs = useRef({ container, cargo, result });
-  liveInputs.current = { container, cargo, result };
-  const floorPreview = useMemo(() => createWorkflowFloorPreview(container, workflowPreview?.cargo ?? cargo), [container, workflowPreview, cargo]);
+  // New saved plans include scope/mode/strategy provenance; their controller
+  // performs restoration only after all of those still match current inputs.
+  const restoreInput = useRef<StoredState | null>(stored?.result && !stored.staging ? stored : null);
+  const liveInputs = useRef({ container, cargo, result, mode });
+  liveInputs.current = { container, cargo, result, mode };
+  // Prepared cargo belongs outside the vehicle until a validated placement is applied.
+  const emptyVehicle = useMemo<LoadingResult>(() => ({ placements: [], remaining: [], validationIssues: [], operationalFindings: [], loadedWeightKg: 0, usedVolumeM3: 0 }), []);
   const guidedWorkflowState = useGuidedWorkflowState();
   const guidedLoadingUnit = useGuidedLoadingUnit();
 
 
   const currentPalletScene = mode !== 'boxes' && palletScene?.inputKey === inputKey ? palletScene : null;
   const isPreview = mode === 'boxes' ? result.placements.length === 0 && result.remaining.length === 0 : !currentPalletScene;
-  const displayResult = mode === 'boxes' && !isPreview ? result : currentPalletScene?.result ?? floorPreview.result;
+  const displayResult = mode === 'boxes' && !isPreview ? result : currentPalletScene?.result ?? emptyVehicle;
+  const stagingCargo = useMemo(() => isPreview && stagingUsesWorkflow && workflowPreview?.kind === 'products' ? []
+    : isPreview && stagingUsesWorkflow ? workflowPreview?.cargo ?? cargo : cargo, [isPreview, workflowPreview, cargo, stagingUsesWorkflow]);
+  const pendingProducts = isPreview && stagingUsesWorkflow && workflowPreview?.kind === 'products'
+    ? workflowPreview.cargo.reduce((sum, item) => sum + Math.max(0, item.quantity), 0) : 0;
+  const stagingInputsConfirmed = !pendingProducts && JSON.stringify(stagingCargo) === JSON.stringify(cargo);
 
   const totalVolume = container.length * container.width * container.height;
   const fillRate = totalVolume > 0 ? result.usedVolumeM3 / totalVolume * 100 : 0;
@@ -152,7 +164,25 @@ export default function App() {
     invalidatePhysics();
     setPalletRunToken(0);
     setMode(next);
+    publishGuidedLoadingUnit(next);
     announce('info', next === 'boxes' ? '박스 적재 모드로 전환했습니다.' : next === 'mixed' ? '박스 + 팔레트 혼합 적재 모드로 전환했습니다.' : '팔레트 적재 모드로 전환했습니다.');
+  };
+  const applyStagingPlan = (application: StagingApplication) => {
+    // The preview and application use the same command validator, with fresh inputs.
+    if (application.inputKey !== currentInputKey.current || isRunning) return false;
+    if (mode !== 'boxes' && (!application.palletSnapshot || !application.scene || !application.adoptPallet)) return false;
+    if (application.adoptPallet && !application.adoptPallet()) return false;
+    invalidatePhysics();
+    if (mode === 'boxes') {
+      writeManualOverride(container, cargo, application.result);
+      publishLoadingResult(container, cargo, application.result);
+      setResult(application.result);
+    } else {
+      if (!application.palletSnapshot || !application.scene) return false;
+      setPalletScene({ ...currentPalletScene, ...application.scene, container, cargo, inputKey,
+        title: mode === 'mixed' ? '박스 + 팔레트 혼합 적재' : '팔레트 적재' });
+    }
+    return true;
   };
   const scrollToViewer = () => {
     setNavSection('viewer');
@@ -210,7 +240,10 @@ export default function App() {
     };
     const onPreview = () => {
       // Synchronous cancellation closes the gap before React commits new inputs.
-      if (readWorkflowPreview()?.key !== workflowPreview?.key) invalidatePhysics();
+      if (readWorkflowPreview()?.key !== workflowPreview?.key) {
+        setStagingUsesWorkflow(true);
+        invalidatePhysics();
+      }
     };
     const onLoadingUnit = () => {
       const next = readGuidedLoadingUnit();
@@ -237,7 +270,8 @@ export default function App() {
       if (sameInput) {
         // Report optimizers can explicitly apply a new manual layout for the
         // same cargo; ordinary repeated storage notifications are not edits.
-        const manual = readManualOverride(state.container, normalized);
+        const stagedRestore = state.staging && (state.result || state.staging.palletSnapshot);
+        const manual = liveInputs.current.mode === 'boxes' && !stagedRestore ? readManualOverride(state.container, normalized) : null;
         if (manual && JSON.stringify(manual) !== JSON.stringify(liveInputs.current.result)) {
           invalidatePhysics();
           const restored = restoreLoadingResult(state.container, normalized, liveInputs.current.result);
@@ -250,6 +284,7 @@ export default function App() {
       }
       setContainer(state.container);
       setCargo(normalized);
+      setStagingUsesWorkflow(false);
       restoreInput.current = { container: state.container, cargo: normalized };
       invalidatePhysics();
       announce('success', '가져온 데이터가 현재 화면에 반영되었습니다.');
@@ -446,6 +481,13 @@ export default function App() {
     const state = readStoredState();
     if (!state) return announce('warning', '저장된 데이터가 없습니다.');
     const normalized = normalizeCargo(state.cargo);
+    if (state.staging) {
+      // Use the same provenance/current-rule checks as a named-plan restore.
+      writeStoredState({ ...state, cargo: normalized }, true);
+      invalidatePhysics();
+      announce('success', '저장된 데이터를 불러왔습니다.');
+      return;
+    }
     const sameInput = JSON.stringify({ container: state.container, cargo: normalized }) === JSON.stringify({ container, cargo });
     setContainer(state.container);
     setCargo(normalized);
@@ -456,10 +498,13 @@ export default function App() {
   };
   const resetAll = () => {
     if (!window.confirm(uiText('등록된 화물과 저장 데이터를 모두 초기화할까요?'))) return;
+    restoreInput.current = null;
+    clearManualOverride();
     setContainer(defaultContainer);
     setCargo([]);
     setResult(pendingLoadingResult(defaultContainer, []));
     localStorage.removeItem(STORAGE_KEY);
+    window.dispatchEvent(new Event(STORAGE_RESET_EVENT));
     invalidatePhysics();
     announce('success', '현재 작업의 화물 데이터를 모두 초기화했습니다.');
     resetDraft();
@@ -596,6 +641,10 @@ export default function App() {
               <div className="calculation-progress-copy"><b>{mode === 'boxes' ? uiText("물리 기반 최적 적재 계산 중") : uiText("팔레트 배치 계산 중")}</b><span>{optimizationMessage ? uiWorkflowText(optimizationMessage) : uiText("후보 적재안을 만들고 있습니다.")}</span><small>{mode === 'boxes' ? uiWorkflowText(progressLabel) : uiText("배치 완료 후 물리 안전 검증을 진행합니다")}</small></div>
             </div>}
             <Suspense fallback={<LoadingFallback />}>
+              <StagingWorkspace container={container} cargo={cargo} preparedCargo={stagingCargo}
+                pendingProducts={pendingProducts} inputsConfirmed={stagingInputsConfirmed}
+                mode={mode} inputKey={inputKey} result={mode === 'boxes' ? result : currentPalletScene?.result ?? emptyVehicle}
+                isPreview={isPreview} calculating={isRunning} onApply={applyStagingPlan}>
               <BoxLoadingViewer container={container} result={displayResult}
                 geometry={equipment.geometry} vehicle={equipment.category === 'truck'}
                 cargo={isPreview ? workflowPreview?.cargo ?? cargo : cargo} mode={mode} isPreview={isPreview}
@@ -605,12 +654,15 @@ export default function App() {
                   if (placement) openPackagingContents({ cargoId: placement.cargoId });
                 } : currentPalletScene?.onCargoSelect}
                 title={isPreview ? (workflowPreview?.kind === 'products' ? uiText("선택 제품 미리보기") : uiText("포장·화물 미리보기")) : uiWorkflowText(currentPalletScene?.title ?? '박스 적재 결과')} />
+              </StagingWorkspace>
             </Suspense>
             <Suspense fallback={null}>
               {mode !== 'boxes' && <PalletModePanel container={container} cargo={cargo} runToken={palletRunToken} mode={mode} inputKey={inputKey} onSceneChange={setPalletScene} onRunningChange={setIsRunning} />}
             </Suspense>
           </div>
-          {isPreview && <div className="workflow-preview-status" role="status" data-preview-kind={workflowPreview?.kind ?? 'cargo'}>{floorPreview.requested === 0 ? uiText("적재공간을 확인하고 제품을 선택하세요") : uiText("미리보기 · {0} / {1}개 표시 · 실제 크기의 바닥 배치이며 최종 적재·안전 검증 전입니다", [floorPreview.shown.toLocaleString(), floorPreview.requested.toLocaleString()])}</div>}
+          {isPreview && <div className="workflow-preview-status" role="status" data-preview-kind={workflowPreview?.kind ?? 'cargo'}>{pendingProducts
+            ? uiText("선택 제품 {0} EA · 포장 계획 확정 후 대기장에 표시됩니다", [pendingProducts.toLocaleString()])
+            : uiText("미리보기 · 준비 화물 {0}개는 차량 후방 대기장에 표시됩니다. 최종 적재·안전 검증 전입니다.", [preflightCargoInput(stagingCargo).cargo.reduce((sum, item) => sum + item.quantity, 0).toLocaleString()])}</div>}
           {mode === 'boxes' && !isPreview && <>
             {hasLongitudinalCgError(result) && <CgPlanChoice container={container} cargo={activeBoxCargo} fullResult={result} onChoose={chooseCgPlan} />}
             <VoidFillSummary result={result} compact />

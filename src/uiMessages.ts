@@ -2,6 +2,7 @@ import { uiMessagesWorkInstructions } from './uiMessagesWorkInstructions';
 import { uiMessagesPalletWorkGrid } from './uiMessagesPalletWorkGrid';
 import { uiMessagesCompany } from './uiMessagesCompany';
 import { uiMessagesAdminMembers } from './uiMessagesAdminMembers';
+import { uiMessagesStaging } from './uiMessagesStaging';
 import { uiMessagesPalletCatalog } from './uiMessagesPalletCatalog';
 import { uiMessagesEngine } from './uiMessagesEngine';
 import { uiMessagesViewer } from './uiMessagesViewer';
@@ -2703,6 +2704,7 @@ export const uiMessages: Readonly<Record<string, readonly [string, string]>> = {
   ...uiMessagesViewer,
   ...uiMessagesCompany,
   ...uiMessagesAdminMembers,
+  ...uiMessagesStaging,
   ...uiMessagesPalletCatalog,
   ...uiMessagesEngine,
   ...baseUiMessages,

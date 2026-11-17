@@ -5,7 +5,7 @@ import { boxSecuringRequirements } from './securingBudget';
 import { gapSecuringPlan } from './gapSecuring';
 import { usesHeavyInnerLoading, heavyInnerConflictFindings } from './heavyInnerPolicy';
 import { decorateLimitReview } from './limitReview';
-import { readSecuringMaterialSettings } from '../securingMaterialSettings';
+import { readSecuringMaterialSettings, type SecuringMaterialSettings } from '../securingMaterialSettings';
 import type { CargoItem, ContainerSpec, LoadingResult, OperationalRuleFinding, Placement, ValidationIssue } from './types';
 
 const EPS = 1e-6;
@@ -92,11 +92,11 @@ export function recomputeManualEditResult(
   source: LoadingResult,
   placements: Placement[],
   conflictStrategy: 'capacity' | 'unloading',
+  materials: SecuringMaterialSettings = readSecuringMaterialSettings(),
 ) {
   const preflight = preflightCargoInput(cargo);
   const approvedDirectBox = usesHeavyInnerLoading(container, preflight.cargo);
   const level = source.securingBudget?.level ?? 1;
-  const materials = readSecuringMaterialSettings();
   const countWeightKg = boxSecuringRequirements(placements.length, level, materials).weightKg;
   const voidFillPlan = approvedDirectBox ? gapSecuringPlan(container, placements, materials) : undefined;
   const requiredWeightKg = Math.max(countWeightKg, voidFillPlan?.weightKg ?? 0);
