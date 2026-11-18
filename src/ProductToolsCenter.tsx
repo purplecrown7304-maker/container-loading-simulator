@@ -12,7 +12,7 @@ import {
   type ProductPackagingAssignment,
 } from './engine/productPackagingOptimizer';
 import { getProductBoxCompatibility } from './productBoxCompatibility';
-import { downloadProductCatalog, downloadProductTemplate, mergeProductCatalog, parseProductWorkbook } from './productExcel';
+import { loadProductExcel, runExcelDownload } from './excelModules';
 import {
   ENTERPRISE_PACKAGING_PLANNER_EVENT,
   enterprisePackagingOptionsFromPlanner,
@@ -171,6 +171,7 @@ export default function ProductToolsCenter() {
     if (!file) return;
     setImporting(true);
     try {
+      const { parseProductWorkbook, mergeProductCatalog } = await loadProductExcel();
       const result = await parseProductWorkbook(file);
       const issues = () => result.issues.slice(0, 5).map(issue => uiText('{0}행{1}: {2}', [issue.row, issue.code ? ` (${issue.code})` : '', uiMessage(issue.message)])).join(' / ');
       if (!result.items.length) {
@@ -292,7 +293,7 @@ export default function ProductToolsCenter() {
 
       {view === 'products' ? <div className="product-tools-body">
         <input ref={inputRef} hidden type="file" accept=".xlsx,.xls" onChange={event => void importWorkbook(event.target.files?.[0])}/>
-        <div className="product-tools-actions"><button onClick={downloadProductTemplate}>{uiText("기초 엑셀 양식")}</button><button disabled={!products.length || importing} onClick={() => downloadProductCatalog(products)}>{uiText("등록 제품 엑셀 다운로드")}</button><button disabled={importing} onClick={() => inputRef.current?.click()}>{importing ? uiText("제품 엑셀 읽는 중…") : uiText("제품 엑셀 업로드")}</button><span>{uiText("등록 ")}{products.length}{uiText("종 · 보유 박스 ")}{boxes.length}{uiText("종")}</span></div>
+        <div className="product-tools-actions"><button onClick={() => runExcelDownload(loadProductExcel, excel => excel.downloadProductTemplate())}>{uiText("기초 엑셀 양식")}</button><button disabled={!products.length || importing} onClick={() => runExcelDownload(loadProductExcel, excel => excel.downloadProductCatalog(products))}>{uiText("등록 제품 엑셀 다운로드")}</button><button disabled={importing} onClick={() => inputRef.current?.click()}>{importing ? uiText("제품 엑셀 읽는 중…") : uiText("제품 엑셀 업로드")}</button><span>{uiText("등록 ")}{products.length}{uiText("종 · 보유 박스 ")}{boxes.length}{uiText("종")}</span></div>
         <p>{uiText("등록 제품 전체를 내려받아 수정 후 업로드하세요. 같은 제품코드는 수정, 새 코드는 추가되며 파일에 없는 제품은 유지됩니다.")}</p>
         <div className="product-master-form">
           <label>{uiText("제품코드")}<input value={draft.id} disabled={Boolean(editingId)} onChange={event => setDraft(value => ({ ...value, id: event.target.value }))}/></label>

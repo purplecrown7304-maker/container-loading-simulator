@@ -3,7 +3,8 @@ import { useUiMessage } from './useUiMessage';
 import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { downloadCargoTemplate, parseCargoWorkbook, type ImportIssue } from './excel';
+import type { ImportIssue } from './excel';
+import { loadCargoExcel, runExcelDownload } from './excelModules';
 import type { CargoItem, ContainerSpec } from './engine/types';
 import { readStoredState, writeStoredState, type StoredState } from './storage';
 import { EXCEL_IMPORT_EVENT, type ExcelImportDetail, type ExcelImportMode } from './uiEvents';
@@ -28,8 +29,7 @@ export default function ExcelImportActions() {
       const detail = (event as CustomEvent<ExcelImportDetail>).detail;
       if (!detail) return;
       if (detail.action === 'template') {
-        downloadCargoTemplate();
-        setMessage('엑셀 양식을 다운로드했습니다.');
+        runExcelDownload(loadCargoExcel, excel => { excel.downloadCargoTemplate(); setMessage('엑셀 양식을 다운로드했습니다.'); });
         return;
       }
       modeRef.current = detail.mode ?? 'replace';
@@ -50,7 +50,7 @@ export default function ExcelImportActions() {
     const mode = modeRef.current;
 
     try {
-      const result = await parseCargoWorkbook(file);
+      const result = await (await loadCargoExcel()).parseCargoWorkbook(file);
       const current = readStoredState();
       const currentCargo = current?.cargo ?? [];
       let nextCargo: CargoItem[] = result.items;
