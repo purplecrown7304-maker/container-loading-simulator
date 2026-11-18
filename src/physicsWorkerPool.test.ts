@@ -62,6 +62,14 @@ afterEach(() => {
 });
 
 describe('physics worker pool', () => {
+  it.each([
+    [2, undefined, 1], [4, undefined, 3], [5, undefined, 3], [6, undefined, 4], [24, undefined, 4],
+    [8, 8, 4], [8, 4, 3], [24, 2, 3],
+  ])('sizes the pool for %s cores and %s GB of reported memory as %s workers', (hardwareConcurrency, deviceMemory, expected) => {
+    vi.stubGlobal('navigator', { hardwareConcurrency, deviceMemory });
+    expect(physicsWorkerCount()).toBe(expected);
+  });
+
   it('gives the suite the exact result of the sequential run, with at most cores-1 workers', async () => {
     expect(physicsWorkerCount()).toBe(3);
     const placements = stackedPlacements();

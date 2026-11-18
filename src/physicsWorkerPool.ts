@@ -28,8 +28,13 @@ type Task = {
 };
 type Slot = { worker: WorkerLike | null; task: Task | null; idleTimer: ReturnType<typeof setTimeout> | null };
 
-// A 9,200-box world needs about 200 MB; three workers cover one securing level (three scenarios).
+// A 9,200-box world needs about 200 MB per worker. Three workers cover one securing level
+// (three scenarios). The validation suite has four scenarios, so with three workers its last
+// scenario waited for a second round; machines with cores and memory to spare get a fourth.
 const MAX_WORKERS = 3;
+const MAX_WORKERS_ROOMY = 4;
+const ROOMY_CORES = 6;
+const ROOMY_MEMORY_GB = 8;
 const IDLE_TERMINATE_MS = 60_000;
 
 let nextId = 1;
@@ -52,7 +57,10 @@ function currentFactory() {
 /** Number of parallel scenario workers: one core is left for the page. */
 export function physicsWorkerCount() {
   const cores = typeof navigator !== 'undefined' && Number.isFinite(navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : 2;
-  return Math.max(1, Math.min(MAX_WORKERS, Math.floor(cores) - 1));
+  // Chromium reports approximate device memory; other browsers leave it undefined.
+  const memoryGb = typeof navigator !== 'undefined' ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory : undefined;
+  const roomy = cores >= ROOMY_CORES && (memoryGb === undefined || memoryGb >= ROOMY_MEMORY_GB);
+  return Math.max(1, Math.min(roomy ? MAX_WORKERS_ROOMY : MAX_WORKERS, Math.floor(cores) - 1));
 }
 
 /** Test hook: inject a worker implementation (null = run on the current thread). */
