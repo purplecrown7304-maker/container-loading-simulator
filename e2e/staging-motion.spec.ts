@@ -167,10 +167,12 @@ test('a real manual box load animates accepted instances and naturally settles w
   await expect(panel(page).locator('.staging-panel-unit-id')).toHaveText(id);
   await expect(countRow(page, '현재 차량 배치량')).toHaveText(['0', '1']);
   await expect(countRow(page, '대기량')).toHaveText(['0', '1']);
+  // Natural settling and plan invariants were checked with the paused clock.
+  // Restore the browser's frame scheduling before capturing the idle canvas.
+  await page.clock.resume();
   await screenshot(page, info, 'staging-motion-box-final');
   await info.attach('box-motion-observations', { contentType: 'application/json', body: JSON.stringify({ active, final: await observations(page),
     clock: 'Test-only paused RAF with runFor; production timing is 300 ms preparation + 1500 ms vertical flight; no FPS estimate.' }, null, 2) });
-  await page.clock.resume();
 });
 
 test('a real wrapped whole pallet keeps all members and packaging when its movement is skipped', async ({ page }, info) => {
@@ -206,10 +208,10 @@ test('a real wrapped whole pallet keeps all members and packaging when its movem
   await expect(panel(page).locator('.staging-panel-packaging')).toHaveText(packaging, { useInnerText: true });
   await expect(countRow(page, '현재 차량 배치량')).toHaveText(['1', '0']);
   await expect(countRow(page, '대기량')).toHaveText([String(palletCount - 1), '0']);
+  await page.clock.resume();
   await screenshot(page, info, 'staging-motion-wrapped-pallet-final');
   await info.attach('pallet-motion-observations', { contentType: 'application/json', body: JSON.stringify({ active, final: await observations(page),
     clock: 'Test-only paused RAF for screenshots and the actual skip control; accepted packing remains live application data.' }, null, 2) });
-  await page.clock.resume();
 });
 
 test('real reduced-motion media immediately places a manually accepted box without a flight or duplicate quantity', async ({ page }) => {
