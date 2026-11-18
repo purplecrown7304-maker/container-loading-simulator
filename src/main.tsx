@@ -194,6 +194,11 @@ async function bootstrap() {
     renderMobileServiceNotice();
     return;
   }
+  // The 3D viewer and three.js are separate chunks requested only after the first render.
+  // Start them now so they download while saved data is restored. A failure here is
+  // reported by the viewer's own lazy boundary when it mounts.
+  void import('./BoxLoadingViewer').catch(() => undefined);
+  void import('./ThreeLoadingViewer').catch(() => undefined);
   try {
     // 모든 영구 데이터는 React가 시작되기 전에 Supabase에서 복원한다.
     // 이후 기존 localStorage API는 디스크가 아니라 메모리 shim을 가리킨다.

@@ -1,7 +1,7 @@
 import { uiText, useUiLanguage } from './uiLanguage';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { downloadEnterprisePackagingWorkbook } from './enterprisePackagingExcelExport';
+import { loadEnterprisePackagingExcel, runExcelDownload } from './excelModules';
 import {
   clearEnterprisePackagingManifest,
   enterprisePackagingManifestMatchesState,
@@ -53,7 +53,7 @@ export default function EnterprisePackagingOutputActions() {
   const download = () => {
     const rebuilt = buildPlan();
     if (!rebuilt) return window.alert(uiText("내보낼 기업 포장계획이 없습니다. 먼저 포장 최적화를 실행하세요."));
-    downloadEnterprisePackagingWorkbook(rebuilt.plan, rebuilt.stored.container, rebuilt.stored.products, rebuilt.stored.boxes);
+    runExcelDownload(loadEnterprisePackagingExcel, excel => excel.downloadEnterprisePackagingWorkbook(rebuilt.plan, rebuilt.stored.container, rebuilt.stored.products, rebuilt.stored.boxes));
   };
 
   const workOrder = () => {

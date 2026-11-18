@@ -43,7 +43,12 @@ async function exportCurrent(target: PhysicsTarget, cert: InertiaCertification) 
   currentWindow.__containerLoadingLatestResult = target;
   publishPhysicsTarget(target); currentWindow.__containerLoadingLatestCertification = cert;
   await act(async () => root.render(<ExcelExportActions />));
-  await act(async () => host.querySelector<HTMLButtonElement>('.excel-export-runtime')!.click());
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('.excel-export-runtime')!.click();
+    // The workbook builders (and SheetJS) load on first use; let that download finish.
+    await import('./excelExportWorkbooks');
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
 }
 function workbook() { return vi.mocked(XLSX.writeFile).mock.calls.at(-1)![0]; }
 function summary() { return XLSX.utils.sheet_to_json<unknown[]>(workbook().Sheets['요약'], { header: 1 }); }

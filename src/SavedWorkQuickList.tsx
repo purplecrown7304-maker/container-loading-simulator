@@ -110,7 +110,16 @@ export default function SavedWorkQuickList() {
   }, []);
 
   useEffect(() => {
-    const refresh = () => setWorks(readSavedWorks());
+    // Saved work has no change event, so it is polled. Parsing every saved plan each
+    // time grew with the amount of saved work; only a changed value is parsed now.
+    let lastRaw: string | null | undefined;
+    const refresh = () => {
+      let raw: string | null = null;
+      try { raw = localStorage.getItem(SAVED_WORK_KEY); } catch { /* readSavedWorks reports an unreadable store as empty. */ }
+      if (raw === lastRaw) return;
+      lastRaw = raw;
+      setWorks(readSavedWorks());
+    };
     refresh();
     window.addEventListener('storage', refresh);
     const timer = window.setInterval(refresh, 1200);

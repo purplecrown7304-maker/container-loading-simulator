@@ -1,5 +1,9 @@
 /** Excel and settings presentation copy. Saved identifiers and user values are never translated. */
 export const uiMessagesExports: Readonly<Record<string, readonly [string, string]>> = {
+  "Excel 기능을 불러오지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.": [
+    "The Excel feature could not be loaded. Check your connection and try again.",
+    "Không thể tải chức năng Excel. Hãy kiểm tra kết nối rồi thử lại."
+  ],
   "코드": [
     "Code",
     "Mã"

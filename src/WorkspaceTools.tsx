@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { cargoColor, randomUniqueCargoColor } from './cargoColors';
-import { downloadBoxCatalog, downloadBoxCatalogTemplate, parseBoxCatalogWorkbook } from './excel';
+import { loadCargoExcel, runExcelDownload } from './excelModules';
 import { readLocalOperator, type LocalOperator } from './localOperator';
 import { readPersonalBoxCatalog, removeExplicitPlannerRecommendation, restoreExplicitPlannerRecommendation, writePersonalBoxCatalog } from './personalBoxCatalog';
 import type { BoxCatalogItem } from './engine/productPackagingOptimizer';
@@ -186,7 +186,7 @@ export default function WorkspaceTools({ showNav = true }: Props) {
   const importCatalogWorkbook = async (file: File | undefined) => {
     if (!file || !requireLogin()) return;
     try {
-      const result = await parseBoxCatalogWorkbook(file);
+      const result = await (await loadCargoExcel()).parseBoxCatalogWorkbook(file);
       if (!result.items.length) {
         const firstIssue = result.issues[0]?.message;
         setMessage(() => uiText("추가 가능한 박스가 없습니다.{0}", [firstIssue ? ` ${excelIssueMessage(firstIssue)}` : '']));
@@ -372,8 +372,8 @@ export default function WorkspaceTools({ showNav = true }: Props) {
             <div className="box-selector-actions">
               <div>
                 {operator ? <button onClick={() => setRegisterOpen(value => !value)}>{uiText("신규 박스 등록")}</button> : <button disabled title={uiText("로그인 후 개인 박스 목록을 사용할 수 있습니다.")}>{uiText("로그인 후 개인 박스 등록")}</button>}
-                <button onClick={downloadBoxCatalogTemplate}>{uiText("기초 엑셀 다운로드")}</button>
-                <button onClick={() => downloadBoxCatalog(catalog)} disabled={!operator || catalog.length === 0}>{uiText("등록 목록 엑셀 다운로드")}</button>
+                <button onClick={() => runExcelDownload(loadCargoExcel, excel => excel.downloadBoxCatalogTemplate())}>{uiText("기초 엑셀 다운로드")}</button>
+                <button onClick={() => runExcelDownload(loadCargoExcel, excel => excel.downloadBoxCatalog(catalog))} disabled={!operator || catalog.length === 0}>{uiText("등록 목록 엑셀 다운로드")}</button>
                 <button onClick={() => catalogInputRef.current?.click()} disabled={!operator}>{uiText("수정한 엑셀 업로드")}</button>
                 <input ref={catalogInputRef} className="hidden-file-input" type="file" aria-label={uiText("박스 목록 엑셀 업로드")} accept=".xlsx,.xls" onChange={event => void importCatalogWorkbook(event.target.files?.[0])} />
                 {operator && catalogBackup && <button onClick={restoreCatalogBackup}>{uiText("직전 변경 되돌리기")}</button>}

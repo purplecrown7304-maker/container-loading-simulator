@@ -6,7 +6,7 @@ import {
   type EnterpriseOptimizationObjective,
   type EnterprisePackagingPortfolio,
 } from './engine/enterprisePackagingPortfolio';
-import { downloadEnterprisePackagingWorkbook } from './enterprisePackagingExcelExport';
+import { loadEnterprisePackagingExcel, runExcelDownload } from './excelModules';
 import { createEnterprisePackagingManifest, writeEnterprisePackagingManifest } from './enterprisePackagingManifest';
 import {
   enterprisePackagingOptionsFromPlanner,
@@ -90,7 +90,8 @@ export default function EnterprisePackagingStrategyExplorer() {
 
   const exportPlan = () => {
     if (!portfolio || !stored) return;
-    downloadEnterprisePackagingWorkbook(portfolio.recommended.plan, stored.container, stored.products, stored.boxes);
+    const plan = portfolio.recommended.plan;
+    runExcelDownload(loadEnterprisePackagingExcel, excel => excel.downloadEnterprisePackagingWorkbook(plan, stored.container, stored.products, stored.boxes));
   };
 
   return <section className="enterprise-strategy-explorer" aria-label={uiText("기업 포장 전략 자동 비교")}>

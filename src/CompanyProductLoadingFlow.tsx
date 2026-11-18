@@ -20,7 +20,7 @@ import {
   type EnterprisePackagingPlannerState,
 } from './enterprisePackagingPlannerStore';
 import { getProductBoxCompatibility } from './productBoxCompatibility';
-import { downloadProductTemplate, parseProductWorkbook } from './productExcel';
+import { loadProductExcel, runExcelDownload } from './excelModules';
 import { writeShipmentInstructionSnapshot } from './shipmentInstruction';
 import { writeStoredState } from './storage';
 import { useTransportEquipment } from './transportEquipment';
@@ -247,7 +247,7 @@ export default function CompanyProductLoadingFlow() {
   const importProductWorkbook = async (file: File | undefined) => {
     if (!file) return;
     try {
-      const result = await parseProductWorkbook(file);
+      const result = await (await loadProductExcel()).parseProductWorkbook(file);
       if (!result.items.length) {
         const firstIssue = result.issues[0]?.message;
         setMessage(() => uiText('등록 가능한 제품이 없습니다.{0}', [firstIssue ? ` ${uiMessage(firstIssue)}` : '']));
@@ -397,7 +397,7 @@ export default function CompanyProductLoadingFlow() {
         <div className="company-card-title"><div><h3>{uiText("1. 회사 제품 등록")}</h3><p>{uiText("한 번 등록한 제품은 다음 출하에서도 수량과 포장 방식만 바꿔 재사용합니다.")}</p></div><strong>{products.length}{uiText("종")}</strong></div>
         <input ref={productInputRef} type="file" accept=".xlsx,.xls" hidden onChange={(event) => void importProductWorkbook(event.target.files?.[0])} />
         <div className="company-excel-actions">
-          <button onClick={downloadProductTemplate}>{uiText("기초 엑셀 양식 다운로드")}</button>
+          <button onClick={() => runExcelDownload(loadProductExcel, excel => excel.downloadProductTemplate())}>{uiText("기초 엑셀 양식 다운로드")}</button>
           <button className="excel-primary" onClick={() => productInputRef.current?.click()}>{uiText("제품 엑셀 업로드")}</button>
           <span>{uiText("제품코드 · 제품명 · L/W/H · 중량 · 출하수량 · 박스적재필요 · 박스당 최대EA")}</span>
         </div>
