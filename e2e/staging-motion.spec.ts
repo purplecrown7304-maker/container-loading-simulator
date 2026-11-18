@@ -7,7 +7,9 @@ import { packOnPallets } from '../src/engine/palletOptimization';
 import { stagingInputSignature } from '../src/stagingInventory';
 import { expectThreeOnly } from './helpers/viewer';
 
-test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
+// Use full Chromium's new headless compositor for clock-controlled WebGL
+// captures; it is the same pinned browser version as the default headless shell.
+test.use({ channel: 'chromium', launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
 
 const container: ContainerSpec = { length: 12.032, width: 2.35, height: 2.7, maxPayloadKg: 28600,
   floorLoadLimitKgPerM2: 1500, floorLoadWarningMultiplier: 3, ceilingClearanceM: .05 };
