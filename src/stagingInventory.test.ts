@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { buildStagingInventory, identifyStagingPlan, prepareStagingPackaging, stagingInputSignature,
+import { buildStagingInventory, identifyStagingPlan, prepareStagingPackaging, stagingInputSignature, stagingLoadKey,
   type StagingInput, type StagingInventory, type StagingSelectedPlan } from './stagingInventory';
 import { defaultPalletSpec, packOnPallets, type PalletLoad } from './engine/palletOptimization';
 import { buildPalletPackaging } from './engine/mixedModePacking';
@@ -292,5 +292,46 @@ describe('full packaging uses existing packing and excludes vehicle capacity', (
     expect(JSON.stringify(input)).toBe(before); expect(JSON.stringify(packaging)).toBe(encoded);
     expect(inventory.vehicleUnits).toEqual([]); expect(inventory.summary.vehicle.weightKg).toBe(0);
     expect(JSON.parse(JSON.stringify(inventory)).summary.total).toEqual(inventory.summary.total);
+  });
+});
+
+describe('pallet content key: built once per pallet, same text as before', () => {
+  // The definition the key had before each row was serialised only once.
+  const referenceKey = (load: PalletLoad) => JSON.stringify([load.length, load.width, load.height, load.wrappingUsed, load.cornerGuardsUsed,
+    load.cargoPlacements.map(p => [p.cargoId, ...[p.x - load.x, p.y - load.y, p.z - load.z, p.length, p.width, p.height, p.weightKg].map(n => Number(n.toFixed(8)))])
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
+  const rows = [cargo({ id: 'A-10', length: .3, width: .2, height: .2, weightKg: 4, quantity: 140, maxStackLayers: 6, maxTopLoadKg: 200 }),
+    cargo({ id: 'a-9', length: .4, width: .3, height: .25, weightKg: 7, quantity: 60, maxStackLayers: 4, maxTopLoadKg: 200 }),
+    cargo({ id: 'B:2', length: .25, width: .25, height: .15, weightKg: 2, quantity: 90, maxStackLayers: 8, maxTopLoadKg: 200 })];
+  const input = source({ mode: 'pallets', palletSpec: defaultPalletSpec, cargo: rows,
+    container: { length: 12, width: 2.35, height: 2.6, maxPayloadKg: 20000 } });
+
+  it('equals the former key for packed, moved, repackaged and degenerate pallets', () => {
+    const packed = packOnPallets(input.container, rows, defaultPalletSpec, 'capacity');
+    expect(packed.pallets.length).toBeGreaterThan(1);
+    const first = packed.pallets[0];
+    const twin = buildPalletLoadFromDeckPlacements(9, [placement(), placement(), placement(.5)], defaultPalletSpec);
+    const loads: PalletLoad[] = [...packed.pallets, movePallet(first, 3.7, .4, 0), { ...first, wrappingUsed: !first.wrappingUsed },
+      { ...first, cargoPlacements: [...first.cargoPlacements].reverse() }, twin, { ...twin, cargoPlacements: [] }];
+    for (const load of loads) expect(stagingLoadKey(load)).toBe(referenceKey(load));
+    // Position and carton order do not enter the key; packaging does.
+    expect(stagingLoadKey(movePallet(first, 3.7, .4, 0))).toBe(stagingLoadKey(first));
+    expect(stagingLoadKey({ ...first, cargoPlacements: [...first.cargoPlacements].reverse() })).toBe(stagingLoadKey(first));
+    expect(stagingLoadKey({ ...first, wrappingUsed: !first.wrappingUsed })).not.toBe(stagingLoadKey(first));
+  });
+
+  it('lists loaded pallets in the former key order and matches them against the packaging plan', () => {
+    const packed = packOnPallets(input.container, rows, defaultPalletSpec, 'capacity');
+    const plan: StagingSelectedPlan = { inputSignature: stagingInputSignature(input), result: result(packed.placements, packed.remaining), pallets: packed.pallets };
+    const packaging = { inputSignature: plan.inputSignature, status: 'ready' as const, pallets: packed.pallets.map(load => movePallet(load, 0, 0, 0)) };
+    const inventory = buildStagingInventory({ ...input, selectedPlan: plan, packaging });
+    const expectedOrder = [...packed.pallets].sort((a, b) => referenceKey(a).localeCompare(referenceKey(b)) || a.palletIndex - b.palletIndex)
+      .map(load => load.palletIndex);
+    expect(inventory.vehicleUnits.filter(unit => unit.kind === 'pallet').map(unit => unit.sourcePalletIndex)).toEqual(expectedOrder);
+    // Every packaged pallet is already on the vehicle, so none is offered again in the yard.
+    expect(inventory.yardUnits.filter(unit => unit.kind === 'pallet')).toEqual([]);
+    expect(inventory.issues).toEqual([]);
+    conserved(inventory, rows.reduce((sum, row) => sum + row.quantity, 0));
+    expect(buildStagingInventory({ ...input, selectedPlan: plan, packaging })).toEqual(inventory);
   });
 });
