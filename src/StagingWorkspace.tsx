@@ -170,13 +170,20 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     const identity = () => setOwner(ownerKey());
     const preference = () => setStrategy(readLoadingStrategyPreference() ?? 'capacity');
     const load = (event: Event) => {
-      live.current.flights.cancel();
+      const now = live.current;
+      now.flights.cancel();
       // Input-only notifications also apply recovered manual plans. They must not
       // resurrect a different staging snapshot still held in localStorage.
       stored.current = (event as CustomEvent<StoredState>).detail ?? readStoredState();
+      // Final certification republishes the same inputs after a user may have
+      // selected a unit. Keep that stable view identity, while still cancelling
+      // stale drags/history. Real input changes and saved snapshots reset it.
+      const sameInputOnly = stored.current && !stored.current.staging
+        && stagingInputSignature({ ...now.base, container: stored.current.container, cargo: stored.current.cargo }) === now.signature;
       restored.current = null; drag.current = null;
       restorationInput.current.signature = live.current.signature;
-      setControl(value => ({ ...value, history: [], selected: null, inspected: null, preview: null, dragging: false })); setRestoreRevision(value => value + 1); };
+      setControl(value => ({ ...value, history: [], selected: sameInputOnly ? value.selected : null,
+        inspected: null, preview: null, dragging: false })); setRestoreRevision(value => value + 1); };
     const reset = () => {
       live.current.flights.cancel();
       stored.current = null; restored.current = live.current.epoch; restorationGeneration.current++;

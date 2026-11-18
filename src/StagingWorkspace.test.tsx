@@ -18,6 +18,7 @@ import { physicsTargetFromPalletSnapshot } from './certifiedExport';
 
 let panel: StagingYardPanelProps;
 vi.mock('./StagingYardPanel', () => ({ default: (props: StagingYardPanelProps) => { panel = props; return <div data-controller-panel />; } }));
+vi.mock('./LoadingViewer', () => ({ default: () => <canvas data-pallet-preview-test /> }));
 let bridge: StagingSceneBridge;
 function Probe() { bridge = useStagingScene()!; return <div data-staging-summary-slot />; }
 const container = { length: 4, width: 2, height: 2, maxPayloadKg: 1000, floorLoadLimitKgPerM2: 10000 };
@@ -157,6 +158,54 @@ describe('staging workspace controller', () => {
     expect(applications).toHaveLength(0); expect(props.result).toBe(recovered);
     expect(readStoredState()?.result?.placements).toEqual(recovered.placements);
     expect(oldSaved.result?.placements[0].x).not.toBe(recovered.placements[0].x);
+  });
+  it.each(['yard', 'vehicle'] as const)('retains the selected %s pallet through a same-input-only refresh, but clears selection for changed inputs', async location => {
+    recordPalletJobSpec('company-default', { ...defaultPalletSpec, length: 1, width: 1, height: .15, tareWeightKg: 5,
+      maxLoadKg: 500, maxStaticLoadKg: 1000, maxSupportedTopWeightKg: 1000, maxStackLevels: 1,
+      useWrapping: false, useCornerGuards: false });
+    const ack = (event: Event) => { (event as CustomEvent<StagingPalletPlanDetail>).detail.accepted = true; };
+    window.addEventListener(STAGING_PALLET_PLAN_EVENT, ack);
+    try {
+      await render({ mode: 'mixed', cargo: [{ ...cargo[0], mixedLoadingMethod: 'pallet' }] }); await settle(); await settle();
+      if (location === 'vehicle') { await loadFirst(); await settle(); if (bridge.flight) await act(async () => bridge.completeFlight?.(bridge.flight!.id)); }
+      const selected = (location === 'vehicle' ? bridge.inventory.vehicleUnits : bridge.inventory.yardUnits)[0];
+      expect(selected.kind).toBe('pallet'); await act(async () => bridge.inspectUnit?.(selected.id)); await settle();
+      expect(host.querySelector('.pallet-content-popover')).not.toBeNull(); expect(bridge.selectedUnitId).toBe(selected.id);
+      const certificate = { mode: 'pallets', status: 'failed', targetSignature: 'same-input-refresh-fixture' } as InertiaCertification;
+      await act(async () => {
+        (window as Window & { __containerLoadingLatestCertification?: InertiaCertification }).__containerLoadingLatestCertification = certificate;
+        window.dispatchEvent(new CustomEvent(INERTIA_CERTIFICATION_EVENT, { detail: certificate }));
+      }); await settle();
+      const count = applications.length, result = props.result, snapshot = readPalletSnapshot(), saved = localStorage.getItem(STORAGE_KEY);
+      const writes = vi.spyOn(Storage.prototype, 'setItem');
+      try {
+        await act(async () => window.dispatchEvent(new CustomEvent(STORAGE_UPDATED_EVENT, {
+          detail: { container: { ...props.container }, cargo: props.cargo.map(row => ({ ...row })) },
+        })));
+        await settle(); await settle();
+        expect(bridge.selectedUnitId).toBe(selected.id); expect(panel.selectedId).toBe(selected.id);
+        expect(host.querySelector('.pallet-content-popover')).toBeNull(); expect(panel.canUndo).toBe(false);
+        expect(applications).toHaveLength(count); expect(props.result).toBe(result); expect(readPalletSnapshot()).toBe(snapshot);
+        expect(writes).not.toHaveBeenCalled(); expect(localStorage.getItem(STORAGE_KEY)).toBe(saved); expect(readLatestInertiaCertification()).toBe(certificate);
+        await act(async () => window.dispatchEvent(new CustomEvent(STORAGE_UPDATED_EVENT, {
+          detail: { container: props.container, cargo: props.cargo.map(row => ({ ...row, quantity: row.quantity + 1 })) },
+        })));
+        await settle(); expect(bridge.selectedUnitId).toBeNull(); expect(panel.selectedId).toBeNull();
+        expect(applications).toHaveLength(count); expect(readLatestInertiaCertification()).toBe(certificate);
+      } finally { writes.mockRestore(); }
+    } finally { window.removeEventListener(STAGING_PALLET_PLAN_EVENT, ack); }
+  });
+  it('honors explicit saved selection metadata instead of retaining the current same-input selection', async () => {
+    await render(); await settle(); await loadFirst(); const saved = readStoredState()!, vehicleId = bridge.selectedUnitId;
+    const yardId = bridge.inventory.yardUnits[0].id;
+    await act(async () => bridge.selectUnit(yardId)); await settle(); expect(bridge.selectedUnitId).toBe(yardId);
+    const count = applications.length;
+    await act(async () => window.dispatchEvent(new CustomEvent(STORAGE_UPDATED_EVENT, { detail: {
+      ...saved, staging: { ...saved.staging!, selectedUnitId: vehicleId },
+    } })));
+    await settle(); await settle();
+    expect(applications).toHaveLength(count + 1); expect(bridge.selectedUnitId).toBe(vehicleId); expect(bridge.selectedUnitId).not.toBe(yardId);
+    expect(panel.canUndo).toBe(false); expect(bridge.inventory.summary.vehicle.boxes).toBe(1);
   });
   it('restores the explicitly notified staging payload before consulting older local storage', async () => {
     await render(); await settle(); await loadFirst(); const loaded = readStoredState()!;
