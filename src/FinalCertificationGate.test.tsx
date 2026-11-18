@@ -9,6 +9,7 @@ import { openResultsModal } from './resultsModalEvents';
 import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
 import { buildDirectResultReoptimizationCandidatesAsync, buildSecuringPayloadAdjustmentCandidateAsync } from './engine/finalResultOptimization';
 import { WORKFLOW_VERIFICATION_CANCELLED_EVENT } from './workflowVerificationState';
+import { STAGING_FLIGHT_MAX_VISIBLE_MS, readStagingFlightVisible, setStagingFlightVisible } from './stagingFlightVisibility';
 
 vi.mock('./engine/finalResultOptimization', async importOriginal => ({ ...await importOriginal<object>(), buildDirectResultReoptimizationCandidatesAsync: vi.fn(), buildSecuringPayloadAdjustmentCandidateAsync: vi.fn() }));
 vi.mock('./inertiaCertification', async importOriginal => ({ ...await importOriginal<object>(), runInertiaCertification: vi.fn() }));
@@ -60,6 +61,39 @@ it.each([true, false])('automatic=%s preserves the canvas while manual certifica
     expect(openResultsModal).toHaveBeenCalledTimes(automatic ? 0 : 1);
     expect(host.querySelector('[role="dialog"]')).toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); clearPhysicsTarget(); vi.unstubAllGlobals(); }
+});
+
+it('keeps an automatic check window off the yard-to-vehicle flight without delaying the check or hiding a manual one', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.clearAllMocks(); vi.useFakeTimers();
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  const target: PhysicsTarget = { mode: 'pallets', container: { length: 3, width: 2, height: 2, maxPayloadKg: 100 }, cargo: [], result: {
+    placements: [{ cargoId: 'A', x: 0, y: 0, z: 0, length: .3, width: .3, height: .3, weightKg: 1 }], remaining: [], loadedWeightKg: 1, usedVolumeM3: .027, validationIssues: [],
+  } };
+  vi.mocked(runInertiaCertification).mockImplementation(() => new Promise(() => {}));
+  const dialog = () => host.querySelector('[role="dialog"]');
+  try {
+    await act(async () => root.render(<FinalCertificationGate />));
+    await act(async () => { setStagingFlightVisible(true); publishPhysicsTarget(target); requestCertifiedResults({ ...target, automatic: true }); });
+    // The check has started; only its window waits for the motion.
+    expect(runInertiaCertification).toHaveBeenCalledOnce(); expect(dialog()).toBeNull();
+    await act(async () => setStagingFlightVisible(false));
+    expect(dialog()).not.toBeNull(); expect(runInertiaCertification).toHaveBeenCalledOnce();
+
+    // A viewer that never reports the end of its flight cannot hold the window back for good.
+    await act(async () => setStagingFlightVisible(true));
+    expect(dialog()).toBeNull();
+    await act(async () => vi.advanceTimersByTime(STAGING_FLIGHT_MAX_VISIBLE_MS - 1));
+    expect(dialog()).toBeNull();
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(readStagingFlightVisible()).toBe(false); expect(dialog()).not.toBeNull();
+
+    // An operator's own request is shown at once, flight or not.
+    await act(async () => { setStagingFlightVisible(true); requestCertifiedResults(target); });
+    expect(dialog()).not.toBeNull();
+  } finally {
+    setStagingFlightVisible(false); vi.useRealTimers();
+    await act(async () => root.unmount()); host.remove(); clearPhysicsTarget(); vi.unstubAllGlobals();
+  }
 });
 
 it('publishes explicit operator cancellation while keeping input invalidation separate', async () => {

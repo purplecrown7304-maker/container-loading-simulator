@@ -67,6 +67,9 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
   const [calculated, setCalculated] = useState<{ key: string; result: OptimizedPalletPackingResult | MixedModePackingResult } | null>(null);
   const result = (calculated?.key === inputKey ? calculated.result : EMPTY_RESULT) as OptimizedPalletPackingResult | MixedModePackingResult;
   const [specRunToken, setSpecRunToken] = useState(0);
+  // Counts calculations that delivered a result. It is set together with that result, so
+  // the commit that shows the result is also the one that reports the run as finished.
+  const [finishedRuns, setFinishedRuns] = useState(0);
   const consumedRun = useRef({ run: 0, spec: 0 });
   const cancelActiveRun = useRef<(() => void) | null>(null);
   const adoptedResult = useRef<{ result: OptimizedPalletPackingResult; certification: InertiaCertification } | null>(null);
@@ -103,10 +106,10 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       worker.onmessage = (event: MessageEvent<{result?:OptimizedPalletPackingResult | MixedModePackingResult;error?:string}>) => {
         worker.terminate();
         if(cancelled)return;
-        onRunningChange(false);
         recordOutcome(event.data.result, event.data.error);
-        if(event.data.result) setCalculated({key:inputKey,result:event.data.result});
-        else window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT,{detail:{mode:'pallets',error:event.data.error}}));
+        // With a result, "running" ends in the commit that publishes the scene (below).
+        if(event.data.result) { setCalculated({key:inputKey,result:event.data.result}); setFinishedRuns(count => count + 1); }
+        else { onRunningChange(false); window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT,{detail:{mode:'pallets',error:event.data.error}})); }
       };
       worker.onerror = () => { worker.terminate(); if(!cancelled){onRunningChange(false);window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT,{detail:{mode:'pallets',error:'A 규칙 계산 오류'}}));} };
       worker.postMessage({container,cargo:cargo.filter(item=>item.quantity>0),spec:sanitizeSpec(spec),mode,strategy:readLoadingStrategyPreference()??'capacity'});
@@ -118,7 +121,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
         recordOutcome(packed);
         // Yield before publication so queued edits can cancel the obsolete run.
         publishTimer = window.setTimeout(() => {
-          if (!cancelled) { setCalculated({ key: inputKey, result: packed }); onRunningChange(false); }
+          if (!cancelled) { setCalculated({ key: inputKey, result: packed }); setFinishedRuns(count => count + 1); }
         }, 0);
       } catch (error) {
         if (!cancelled) {
@@ -311,6 +314,14 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       onCargoSelect: index => setOpened(palletForPlacement(result, result.placements[index]) ?? null),
     });
   }, [container, cargo, scene, result, mode, inputKey, onSceneChange]);
+
+  // Declared after the scene effect on purpose. The staging yard starts its yard-to-vehicle
+  // flight only when "calculating" falls together with a newly accepted plan; a run that
+  // reported its end one commit before its scene looked like a cancelled calculation and
+  // the pallets simply appeared in the vehicle. Both now reach the owner in one update.
+  useEffect(() => {
+    if (finishedRuns > 0) onRunningChange(false);
+  }, [finishedRuns, onRunningChange]);
 
   if (result === EMPTY_RESULT) return null;
   return (

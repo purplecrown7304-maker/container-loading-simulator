@@ -30,6 +30,7 @@ import { STORAGE_UPDATED_EVENT, type StoredState } from './storage';
 import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
 import { isInertiaCertificationComplete, isPhysicsTargetVerified } from './inertiaWorkOrderPolicy';
 import { publishVerificationCancelled, publishVerificationFailure } from './workflowVerificationState';
+import { useStagingFlightVisible } from './stagingFlightVisibility';
 
 const SCENARIO_LABEL = {
   settle: '보강 정적 중력',
@@ -109,6 +110,7 @@ function applyDirectCandidate(candidate: EvaluatedDirectCandidate) {
 
 export default function FinalCertificationGate() {
   useUiLanguage();
+  const flightVisible = useStagingFlightVisible();
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [request, setRequest] = useState<CertificationRequestDetail | null>(null);
@@ -343,6 +345,10 @@ export default function FinalCertificationGate() {
   }, [cancel]);
 
   if (!open) return null;
+  // An automatic check starts while the load is still flying from the yard into the vehicle.
+  // The check is not delayed; only this window waits (at most one flight) so it does not
+  // cover the motion. A finished or failed check is never held back.
+  if (running && request?.automatic && flightVisible) return null;
   const currentUsage = usage ?? (target ? buildSecuringUsage(target, 1) : null);
   const scenarioLabel = progress ? uiT(SCENARIO_LABEL[progress.scenario]) : '-';
   const progressPercent = progress ? Math.round(progress.physicsProgress * 100) : 0;

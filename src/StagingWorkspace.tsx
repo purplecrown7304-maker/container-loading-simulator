@@ -32,6 +32,7 @@ import { vehicleRigForEquipment } from './threeVehicleLayout';
 import { openPackagingContents } from './packagingContentsModel';
 import { uiText } from './uiLanguage';
 import { useStagingFlights } from './useStagingFlights';
+import { setStagingFlightVisible } from './stagingFlightVisibility';
 
 type HistoryEntry = { previous: { result: LoadingResult; pallets: PalletLoad[] }; selection: string | null;
   identity: StagingIdentityHints; yardPallets: PalletLoad[]; snapshot?: PalletSnapshot };
@@ -147,6 +148,9 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     // remaining yard may repack asynchronously after acceptance; waiting for that
     // unrelated work would flash the final slot before jumping back to the dock.
     vehicleRig: vehicleRigForEquipment(equipment), calculating: props.calculating, confirmed, isPreview: props.isPreview });
+  // Lets an automatic check window wait for the motion instead of covering it.
+  const flightId = flights.sequence?.id ?? 0;
+  useEffect(() => { setStagingFlightVisible(flightId !== 0); return () => setStagingFlightVisible(false); }, [flightId]);
   const snapshotSource = useMemo(() => props.mode === 'boxes' ? undefined
     : rawPlan && snapshot ? rawPlan.pallets === snapshot.result.pallets ? snapshot : { ...snapshot, result: { ...snapshot.result, pallets: rawPlan.pallets ?? snapshot.result.pallets } }
       : emptyStagingPalletSnapshot(spec, props.mode), [props.mode, rawPlan, snapshot, spec]);
