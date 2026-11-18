@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { buildStagingFlights } from './stagingFlights';
+import { buildStagingFlights, STAGING_FLIGHT_PROFILE } from './stagingFlights';
 import type { StagingInventory, StagingUnit } from './stagingInventory';
 import { buildStagingYardLayout, type StagingYardLayout, type StagingYardSlot } from './stagingYardLayout';
 import type { PalletLoad } from './engine/palletOptimization';
@@ -34,7 +34,7 @@ describe('accepted staging flight membership', () => {
     const before = inventory([unit('box')]), old = layout([slot('box')]);
     const next = inventory([loaded('box')]);
     expect(buildStagingFlights(before, old, next, container)).toEqual([{ unitId: 'box', from: { position: [9, -.8, 2], rotationY: .4 + Math.PI / 2 },
-      to: { position: [-1.8, .6, -.44999999999999996], rotationY: 0 }, durationMs: 900, delayMs: 0 }]);
+      to: { position: [-1.8, .6, -.44999999999999996], rotationY: 0 }, durationMs: 1500, delayMs: 0 }]);
   });
   it('matches unchanged whole member sets across root and engine ID changes and member ordering', () => {
     const before = inventory([unit('old-pallet', ['stable-a', 'stable-b'], { kind: 'pallet' })]);
@@ -80,14 +80,15 @@ describe('accepted staging flight membership', () => {
     expected[0].from.position[0] = 123; expected[0].to.position[0] = 456;
     expect(JSON.stringify([old, slots, next, fallback, container])).toBe(snapshot);
   });
-  it('bounds all five thousand flights to 1500ms while keeping distinct deterministic delays', () => {
+  it('bounds five thousand prepared vertical flights to 2400ms with distinct deterministic delays', () => {
     const units = Array.from({ length: 5000 }, (_, index) => unit(String(index).padStart(4, '0')));
     const old = inventory(units), next = inventory(units.map(item => loaded(item.id)));
     const flights = buildStagingFlights(old, layout(units.map(item => slot(item.id))), next, container);
     expect(flights).toHaveLength(5000);
     expect(flights[0].delayMs).toBe(0); expect(flights[4999].delayMs).toBe(600);
     expect(new Set(flights.map(item => item.delayMs)).size).toBe(5000);
-    expect(flights.every(item => item.durationMs + item.delayMs <= 1500)).toBe(true);
+    expect(STAGING_FLIGHT_PROFILE.path).toBe('vertical'); expect(STAGING_FLIGHT_PROFILE.prepareDurationMs).toBe(300);
+    expect(flights.every(item => item.durationMs + item.delayMs + STAGING_FLIGHT_PROFILE.prepareDurationMs <= 2400)).toBe(true);
   });
 });
 

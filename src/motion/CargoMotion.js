@@ -22,14 +22,16 @@
  * @typedef {{start:()=>void,reject:(reason?:unknown)=>void}} PendingRequest
  * @typedef {{type:string,result:ReplanResult,resolve:(result:ReplanResult)=>void}} Sequence
  * @typedef {typeof DEFAULT_MOTION_OPTIONS & MotionOptions & Record<string,any>} MotionConfig
+ * @typedef {Exclude<keyof typeof DEFAULT_MOTION_OPTIONS,'path'>} NumericMotionOption
  */
 import { Box3, Euler, Quaternion, Vector3 } from 'three';
-import { FlightManager } from './flights.js';
+import { FlightManager, DEFAULT_FLIGHT_OPTIONS } from './flights.js';
 import { RigMoveManager } from './rigMoves.js';
 import { CameraTween } from './cameraTween.js';
 import { shortestAngleDelta } from './easing.js';
 
 export const DEFAULT_MOTION_OPTIONS = Object.freeze({
+  ...DEFAULT_FLIGHT_OPTIONS,
   unloadArc: 1.2, unloadDuration: .6, unloadStagger: .035,
   leaveDuration: 1.2, arriveDuration: 1.4, rigOverlap: .3,
   loadStagger: .07, loadDuration: .8, doorLift: .4,
@@ -78,9 +80,15 @@ export class CargoMotion {
     this.options = /** @type {MotionConfig} */ ({ ...options });
     for (const [key, fallback] of Object.entries(DEFAULT_MOTION_OPTIONS)) {
       const value = Reflect.get(options, key) ?? fallback;
+      if (key === 'path') {
+        if (!['arc', 'vertical'].includes(value)) throw new RangeError('Invalid motion path');
+        Reflect.set(this.options, key, value); continue;
+      }
       if (!Number.isFinite(value) || value < 0 || (key === 'cameraFrameMargin' && value <= 0)) throw new RangeError(`Invalid motion option: ${key}`);
       Reflect.set(this.options, key, value);
     }
+    if (this.options.ascentRatio <= 0 || this.options.descentRatio <= 0 || this.options.ascentRatio + this.options.descentRatio >= 1
+      || (options.cruiseY !== undefined && !Number.isFinite(options.cruiseY))) throw new RangeError('Invalid vertical motion phases or altitude');
     if (options.onInvalidate !== undefined && typeof options.onInvalidate !== 'function') throw new TypeError('onInvalidate must be a function');
     if (options.reducedMotion !== undefined && typeof options.reducedMotion !== 'boolean') throw new TypeError('reducedMotion must be boolean');
     this._customAdapter = options.adapter != null;
@@ -146,7 +154,7 @@ export class CargoMotion {
       added: plans.to.filter(unit => !before.has(unit.id)).length, removed: plans.from.filter(unit => !after.has(unit.id)).length };
     return this._request('switchTruck', result, plans, () => {
       this._dockSlots = dockSlots;
-      const start = this._now, duration = /** @param {keyof typeof DEFAULT_MOTION_OPTIONS} name */ name => this._reduced ? 0 : this.options[name];
+      const start = this._now, duration = /** @param {NumericMotionOption} name */ name => this._reduced ? 0 : this.options[name];
       const dock = this._dockMap(dockSlots, plans.from, plans.to);
       const oldIds = new Set(plans.from.map(unit => unit.id));
       for (const unit of plans.to) if (!oldIds.has(unit.id)) this._placeAtDock(unit, dock.get(unit.id));
@@ -158,7 +166,8 @@ export class CargoMotion {
         this._job(start + index * duration('unloadStagger'), () => this._fly(unit, dock.get(unit.id), 'unload',
           duration('unloadDuration'), this.options.unloadArc));
       }
-      const unloaded = start + (ordered.length ? (ordered.length - 1) * duration('unloadStagger') + duration('unloadDuration') : 0);
+      const unloaded = start + (ordered.length ? (ordered.length - 1) * duration('unloadStagger') + duration('unloadDuration')
+        + (duration('unloadDuration') > 0 ? duration('prepareDuration') : 0) : 0);
       const leaveEnd = unloaded + (fromRig ? duration('leaveDuration') : 0);
       const arriveAt = fromRig ? Math.max(unloaded, leaveEnd - duration('rigOverlap')) : unloaded;
       const parkedAt = arriveAt + duration('arriveDuration');
@@ -270,7 +279,7 @@ export class CargoMotion {
   }
 
   _assertLive() { if (this._disposed || this._disposing) throw new Error('CargoMotion is disposed'); }
-  /** @param {keyof typeof DEFAULT_MOTION_OPTIONS} name @returns {number} */
+  /** @param {NumericMotionOption} name @returns {number} */
   _time(name) { return this._reduced ? 0 : this.options[name]; }
   _invalidate() { if (this._disposed || this._disposing) return; try { this.options.onInvalidate?.(); } catch (error) { this.lastEventError = error; } }
   /** @param {string} name @param {any} payload */
@@ -478,7 +487,10 @@ export class CargoMotion {
       if (phase !== 'unload') this._emit('unitLanded', { id: unit.id, phase });
       return;
     }
-    this._flights.schedule({ id: unit.id, a, b: to ?? a, via, arc, t0: this._now, d: duration, onDone: () => {
+    this._flights.schedule({ id: unit.id, a, b: to ?? a, via, arc, t0: this._now, d: duration,
+      path: this.options.path, cruiseY: this.options.cruiseY, liftHeight: this.options.liftHeight,
+      ascentRatio: this.options.ascentRatio, descentRatio: this.options.descentRatio,
+      prepareDuration: duration > 0 ? this._time('prepareDuration') : 0, onDone: () => {
       if (!this._customAdapter && landParent?.isObject3D && !this._disposed) landParent.attach(unit.object3D);
       if (phase !== 'unload') this._emit('unitLanded', { id: unit.id, phase });
     } });

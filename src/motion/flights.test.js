@@ -37,6 +37,46 @@ describe('FlightManager', () => {
     manager.update(3); expect(poses.get('a')).toEqual(pose(5, 6.2));
     manager.update(4); expect(poses.get('a')).toEqual(pose(10, 5));
   });
+  it('holds the prepared source, takes off vertically, cruises horizontally and lands vertically at the exact pose', () => {
+    const { manager, poses, received } = fixture(), done = vi.fn();
+    const a = pose(2, 1, -4, -.3), b = pose(10, 2, 3, Math.PI * 2 + .3);
+    manager.schedule(flight({ a, b, path: 'vertical', cruiseY: 6, liftHeight: 1, prepareDuration: .3,
+      ascentRatio: .25, descentRatio: .25, via: { x: 999, y: 999, z: 999 }, arc: 99, onDone: done }));
+    manager.update(2); manager.update(2.2); expect(poses.get('a')).toEqual(a);
+    manager.update(2.55); const ascending = { ...poses.get('a') };
+    expect(ascending.x).toBe(a.x); expect(ascending.z).toBe(a.z); expect(ascending.ry).toBe(a.ry);
+    expect(ascending.y).toBeGreaterThan(a.y); expect(ascending.y).toBeLessThan(6);
+    manager.update(3.3); const cruising = { ...poses.get('a') };
+    expect(cruising.y).toBe(6); expect(cruising.x).toBeCloseTo(6, 12); expect(cruising.z).toBeCloseTo(-.5, 12);
+    expect(cruising.ry).toBeCloseTo(0, 12);
+    manager.update(4.05); const descending = poses.get('a');
+    expect(descending.x).toBe(b.x); expect(descending.z).toBe(b.z); expect(descending.ry).toBe(b.ry);
+    expect(descending.y).toBeGreaterThan(b.y); expect(descending.y).toBeLessThan(6);
+    expect(done).not.toHaveBeenCalled(); manager.update(4.3);
+    expect(poses.get('a')).toEqual(b); expect(done).toHaveBeenCalledTimes(1); expect(new Set(received).size).toBe(1);
+  });
+  it('raises cruise altitude above higher endpoints and keeps interrupted vertical flights continuous', () => {
+    const { manager, poses } = fixture(), oldDone = vi.fn(), nextDone = vi.fn();
+    manager.schedule(flight({ a: pose(1, 5, 2), b: pose(10, 8, 3), path: 'vertical', cruiseY: 4, liftHeight: 2, onDone: oldDone }));
+    manager.update(3); expect(poses.get('a').y).toBe(10); const current = { ...poses.get('a') };
+    manager.schedule(flight({ a: pose(-99), b: pose(20, 1, 6), t0: 3, path: 'vertical', prepareDuration: .3, onDone: nextDone }));
+    manager.update(3.2); expect(poses.get('a')).toEqual(current);
+    manager.update(3.5); expect(poses.get('a').x).toBe(current.x); expect(poses.get('a').z).toBe(current.z);
+    manager.skip(); expect(poses.get('a')).toEqual(pose(20, 1, 6)); expect(oldDone).not.toHaveBeenCalled(); expect(nextDone).toHaveBeenCalledTimes(1);
+  });
+  it('keeps zero-duration/reduced vertical requests immediate at their scheduled start', () => {
+    const { manager, poses } = fixture(), done = vi.fn();
+    manager.schedule(flight({ d: 0, prepareDuration: .3, path: 'vertical', onDone: done }));
+    manager.update(1); expect(done).not.toHaveBeenCalled(); manager.update(2);
+    expect(poses.get('a')).toEqual(pose(10, 0, 0, Math.PI / 2)); expect(done).toHaveBeenCalledTimes(1);
+  });
+  it('rejects invalid path settings before replacing a current request', () => {
+    const { manager } = fixture(); manager.schedule(flight());
+    for (const settings of [{ path: 'other' }, { prepareDuration: -1 }, { cruiseY: NaN }, { liftHeight: Infinity },
+      { ascentRatio: 0 }, { descentRatio: 1 }, { ascentRatio: .6, descentRatio: .4 }]) {
+      expect(() => manager.schedule(flight(settings))).toThrow(RangeError); expect(manager.size).toBe(1);
+    }
+  });
   it('preempts from the current adapter pose and suppresses the replaced callback', () => {
     const { manager, poses, onLanded } = fixture(), oldDone = vi.fn(), nextDone = vi.fn();
     manager.schedule(flight({ onDone: oldDone })); manager.update(3);

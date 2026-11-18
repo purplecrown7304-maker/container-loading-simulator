@@ -165,6 +165,45 @@ it('keeps existing selection callbacks, recorded doors and open rear references'
     expect(supportSelect).toHaveBeenCalledExactlyOnceWith(0);
   } finally {act(()=>selectTransportEquipment(original));}
 });
+it('opens existing pallet details directly on an inspect request while preserving ordinary left-click selection', async () => {
+  const cargoSelect = vi.fn(), supportSelect = vi.fn(), before = JSON.stringify(result);
+  await act(async () => root.render(<ThreeLoadingViewer container={container} result={result} supports={supports} onCargoSelect={cargoSelect} onSupportSelect={supportSelect} />));
+  const plan = captured.scene!.plan;
+  await act(async () => captured.scene!.onSelect(1));
+  expect(cargoSelect).not.toHaveBeenCalled(); expect(supportSelect).not.toHaveBeenCalled();
+  await act(async () => captured.scene!.onInspect!('cargo', 1));
+  expect(cargoSelect).toHaveBeenCalledExactlyOnceWith(1); expect(captured.scene!.selected).toBe(1);
+  await act(async () => captured.scene!.onInspect!('support', 0));
+  expect(supportSelect).toHaveBeenCalledExactlyOnceWith(0); expect(captured.scene!.selectedSupport).toBe(0);
+  expect(captured.scene!.selected).toBeNull(); expect(captured.scene!.plan).toBe(plan);
+  await act(async () => { captured.scene!.onInspect!('cargo', 99); captured.scene!.onInspect!('support', -1); });
+  expect(cargoSelect).toHaveBeenCalledTimes(1); expect(supportSelect).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(result)).toBe(before);
+});
+it('invokes a loose-cargo inspection callback only once and retains its existing left-click callback', async () => {
+  const cargoSelect = vi.fn();
+  await act(async () => root.render(<ThreeLoadingViewer container={container} result={result} onCargoSelect={cargoSelect} />));
+  await act(async () => captured.scene!.onInspect!('cargo', 1));
+  expect(cargoSelect).toHaveBeenCalledExactlyOnceWith(1);
+  await act(async () => captured.scene!.onSelect(0));
+  expect(cargoSelect).toHaveBeenCalledTimes(2); expect(cargoSelect).toHaveBeenLastCalledWith(0);
+});
+it('routes inspection through current stable staging units and synchronizes selection without duplicate legacy detail calls', async () => {
+  const cargoSelect = vi.fn(), supportSelect = vi.fn(), inspectVehicleUnit = vi.fn();
+  const bridge = { ...bridgeFor(), inspectVehicleUnit }, observe = vi.fn();
+  await act(async () => root.render(<StagingSceneContext.Provider value={bridge}><ThreeLoadingViewer container={container} result={result} supports={supports} syncSelection onCargoSelect={cargoSelect} onSupportSelect={supportSelect} /></StagingSceneContext.Provider>));
+  window.addEventListener(PLACEMENT_SELECT_EVENT, observe);
+  try {
+    await act(async () => captured.scene!.onInspect!('cargo', 0));
+    expect(bridge.selectVehicleUnit).toHaveBeenCalledExactlyOnceWith('cargo', 0);
+    expect(inspectVehicleUnit).toHaveBeenCalledExactlyOnceWith('cargo', 0);
+    expect(observe).toHaveBeenCalledTimes(1);
+    await act(async () => captured.scene!.onInspect!('support', 0));
+    expect(bridge.selectVehicleUnit).toHaveBeenLastCalledWith('support', 0);
+    expect(inspectVehicleUnit).toHaveBeenLastCalledWith('support', 0);
+    expect(cargoSelect).not.toHaveBeenCalled(); expect(supportSelect).not.toHaveBeenCalled();
+  } finally { window.removeEventListener(PLACEMENT_SELECT_EVENT, observe); }
+});
 it('keeps accepted replay values, then restores static distances and weight-view selection',async()=>{
   await render();await act(async()=>captured.scene!.onSelect(0));
   const plan=captured.scene!.plan;

@@ -23,6 +23,7 @@ import { useViewerQuality, VIEWER_QUALITY_PROFILES } from './viewerQuality';
 import ThreeSceneLighting from './ThreeSceneLighting';
 import { cameraFitAction, createCameraMotion, sampleCameraMotion, type CameraMotion, type CameraMotionPose } from './cameraMotion';
 import ThreeStagingFlights from './ThreeStagingFlights';
+import { createStagingPointerInteraction, type StagingPointerCallbacks } from './stagingPointerInteraction';
 
 export type ThreeComparisonSceneStats = {
   revision: number;
@@ -73,6 +74,7 @@ export type ThreeComparisonSceneProps = {
   frameRevision?: number;
   onSelect: (index: number | null) => void;
   onSupportSelect?: (index: number) => void;
+  onInspect?: (kind: 'cargo' | 'support', index: number) => void;
   onCellSelect?: (index: number | null) => void;
   onReady?: (stats: ThreeComparisonSceneStats) => void;
   onStats?: (stats: ThreeComparisonSceneStats) => void;
@@ -183,6 +185,44 @@ function SceneContents({ resources, options, bindings, frameState }: { resources
   const { plan, frameData, frameRevision, cut, shell, step, labels, weight, showCg, selected, selectedSupport } = options;
   const flying = Boolean(options.staging?.flight && !frameData && !weight);
   const [clearance, setClearance] = useState<CargoClearance | null>(null);
+  const selectionAt = (event: ThreeEvent<PointerEvent | MouseEvent>) => {
+    const data = event.object.userData;
+    if (data.kind === 'cargo') {
+      const index = event.instanceId === undefined ? undefined : data.batch?.visibleIndices[event.instanceId];
+      if (Number.isInteger(index) && plan.placements[index]) return { kind: 'cargo' as const, index: index as number };
+    } else if (data.kind === 'support' && Number.isInteger(data.index) && plan.supports[data.index]) {
+      return { kind: 'support' as const, index: data.index as number };
+    }
+    return null;
+  };
+  const pointerCallbacks = useRef<StagingPointerCallbacks>(null!);
+  pointerCallbacks.current = {
+    resolve: event => {
+      if (weight || frameData || flying) return null;
+      const selection = selectionAt(event);
+      if (!selection) return null;
+      const support = selection.kind === 'support' ? plan.supports[selection.index] : undefined;
+      const unit = options.staging?.inventory.vehicleUnits.find(candidate => selection.kind === 'support'
+        ? support && candidate.pallet && (['x', 'y', 'z', 'length', 'width', 'height'] as const)
+          .every(key => Math.abs(candidate.pallet![key] - support[key]) < 1e-6)
+        : candidate.sourcePlacementIndex === selection.index || candidate.sourcePlacementIndexes?.includes(selection.index));
+      if (options.staging && !unit) return null;
+      const source = unit?.pallet ?? unit?.placement
+        ?? (selection.kind === 'support' ? plan.supports[selection.index] : plan.placements[selection.index]);
+      return { ...selection, id: unit?.id ?? `${selection.kind}:${selection.index}`, planeY: source.z,
+        center: [source.x + source.length / 2 - plan.container.length / 2, source.z,
+          source.y + source.width / 2 - plan.container.width / 2] };
+    },
+    canDrag: () => Boolean(options.staging && options.staging.canManipulate !== false && !weight && !frameData && !flying),
+    onSelect: id => options.staging?.selectUnit(id),
+    onInspect: unit => { if (unit.kind !== undefined && unit.index !== undefined) options.onInspect?.(unit.kind, unit.index); },
+    onDragStart: options.staging?.onDragStart, onDragMove: options.staging?.onDragMove,
+    onDragEnd: options.staging?.onDragEnd, onDraggingChange: options.staging?.onDraggingChange,
+  };
+  const pointer = useMemo(() => createStagingPointerInteraction(() => pointerCallbacks.current), [resources]);
+  useLayoutEffect(() => { pointer.activate(); return () => pointer.dispose(); }, [pointer]);
+  useLayoutEffect(() => { if (weight || frameData || flying || options.staging?.canManipulate === false) pointer.cancel(); },
+    [pointer, weight, frameData, flying, options.staging?.canManipulate]);
   useLayoutEffect(() => {
     if (!frameData) {
       resources.applyFrame(); frameState.current = { acceptedFrameStep: null, rejectedFrame: false };
@@ -217,7 +257,7 @@ function SceneContents({ resources, options, bindings, frameState }: { resources
   };
   return <>{options.staging && <ThreeStagingFlights resources={resources} plan={plan} units={options.staging.inventory.vehicleUnits}
     sequence={options.staging.flight ?? null} suspended={Boolean(frameData || weight)} onComplete={options.staging.completeFlight ?? (() => {})} />}
-    <ThreeClearanceGuides plan={plan} clearance={options.clearanceVisible === false || flying ? null : clearance} axis={options.clearanceAxis ?? 'width'}/><primitive object={resources.root} dispose={null} onClick={handleClick} onPointerMove={selectCell}
+    <ThreeClearanceGuides plan={plan} clearance={options.clearanceVisible === false || flying ? null : clearance} axis={options.clearanceAxis ?? 'width'}/><primitive object={resources.root} dispose={null} {...pointer.handlers} onClick={handleClick} onPointerMove={(event: ThreeEvent<PointerEvent>) => { pointer.handlers.onPointerMove(event); selectCell(event); }}
     onPointerOut={(event: ThreeEvent<PointerEvent>) => { if (event.object.userData.kind === 'weightSurface') options.onCellSelect?.(null); }} /></>;
 }
 
@@ -329,7 +369,7 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
   const groundY = vehicleLayout(plan.vehicleRig ?? 'none', plan.container).groundY;
   const staging = options.staging;
   const selectedStaging = staging ? stagingVehicleSelection(plan, staging.inventory.vehicleUnits, staging.selectedUnitId) : null;
-  const previewUnit = staging?.preview ? staging.inventory.yardUnits.find(unit => unit.id === staging.preview!.unitId) : null;
+  const previewUnit = staging?.preview ? staging.inventory.units.find(unit => unit.id === staging.preview!.unitId) : null;
   return <div style={{ width: '100%', height: '100%', position: 'relative', minHeight: 180 }} data-three-scene-ready={Boolean(resources)}>
     <Canvas frameloop="demand" camera={{ fov: 40, near: .02, far: 500, position: [10, 7, 10] }} dpr={VIEWER_QUALITY_PROFILES[quality.quality].dpr} gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }} onPointerMissed={event => { if (event.type === 'click' && event.button === 0) options.onSelect(null); }} onContextMenu={event => event.preventDefault()} fallback={<WebGLFallback onError={options.onError} />}>
       <ThreeSceneLighting quality={quality.quality} groundY={groundY} />
@@ -337,7 +377,8 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
       {resources && <SceneContents resources={resources} options={options} bindings={bindings.current} frameState={frameState} />}
       {staging && <ThreeStagingYard key={yardAttempt} units={staging.inventory.yardUnits} layout={staging.layout} visibleZoneIds={staging.visibleZoneIds} selectedUnitId={staging.selectedUnitId} cartonLabelsEnabled={options.labels}
         labels={{ empty: uiText('대기 화물 없음'), aisle: uiText('이동 통로'), doorClearance: uiText('출입문 여유 공간'), boxes: uiText('낱박스'), pallets: uiText('파렛트'), pending: uiText('계산 전'), checking: uiText('검토 중'), unloaded: uiText('미적재'), error: uiText('입력·포장 확인') }}
-        onSelect={staging.selectUnit} onDragStart={staging.onDragStart} onDragMove={staging.onDragMove} onDragEnd={staging.onDragEnd} onDraggingChange={staging.onDraggingChange} onError={setYardError} />}
+        canDrag={staging.canManipulate !== false && !options.frameData && !options.weight && !staging.flight}
+        onInspect={staging.inspectUnit} onSelect={staging.selectUnit} onDragStart={staging.onDragStart} onDragMove={staging.onDragMove} onDragEnd={staging.onDragEnd} onDraggingChange={staging.onDraggingChange} onError={setYardError} />}
       {staging && <StagingVehicleOutline bounds={staging.flight?.flights.some(flight => flight.unitId === staging.selectedUnitId) ? null : selectedStaging?.bounds ?? null} />}
       {staging?.preview && previewUnit && <ThreeStagingPreview unit={previewUnit} candidate={staging.preview.candidate} container={plan.container} valid={staging.preview.valid} onError={setYardError} />}
       <SceneRuntime resources={resources} options={options} frameState={frameState} />

@@ -34,6 +34,34 @@ describe('CargoMotion production orchestration', () => {
     await expect(motion.replan({ fromPlan: current, toPlan: current })).resolves.toEqual({ moved: 0, added: 0, removed: 0 });
     expect(writes).toHaveLength(0); expect(done).toHaveBeenCalledTimes(1); expect(motion.isBusy).toBe(false); motion.dispose();
   });
+  it('opts into prepared vertical movement without changing the generic arc defaults', async () => {
+    expect(DEFAULT_MOTION_OPTIONS.path).toBe('arc'); expect(DEFAULT_MOTION_OPTIONS.prepareDuration).toBe(0);
+    const { motion, poses } = custom({ path: 'vertical', cruiseY: 6, liftHeight: 2, prepareDuration: .3, replanDuration: 1.5, dockSlots: { a: pose(0, -1, 2) } });
+    const pending = motion.replan({ fromPlan: plan(), toPlan: plan(unit('a', pose(10, 0, 8, .4))) });
+    for (let index = 0; index < 4; index++) motion.update(.05);
+    expect(poses.get('a')).toEqual(pose(0, -1, 2));
+    for (let index = 0; index < 6; index++) motion.update(.05);
+    expect(poses.get('a').x).toBe(0); expect(poses.get('a').z).toBe(2); expect(poses.get('a').y).toBeGreaterThan(-1);
+    for (let index = 0; index < 10; index++) motion.update(.05);
+    expect(poses.get('a').y).toBe(6); expect(poses.get('a').x).toBeGreaterThan(0); expect(poses.get('a').x).toBeLessThan(10);
+    for (let index = 0; index < 12; index++) motion.update(.05);
+    expect(poses.get('a').x).toBe(10); expect(poses.get('a').z).toBe(8); expect(poses.get('a').y).toBeGreaterThan(0);
+    motion.skip(); await pending; expect(poses.get('a')).toEqual(pose(10, 0, 8, .4)); motion.dispose();
+  });
+  it('includes preparation in the unload phase before letting the old truck depart', async () => {
+    const { motion } = custom({ path: 'vertical', prepareDuration: .3, unloadDuration: 1 });
+    const scene = new Scene(), old = rig(scene, -12), next = rig(scene); old.root.position.x = 0;
+    const pending = motion.switchTruck({ fromRig: old, toRig: next, fromPlan: plan(unit('a')), toPlan: plan(unit('a', pose(2))), dockSlots: [pose(8)] });
+    for (let index = 0; index < 21; index++) motion.update(.05);
+    expect(old.root.position.x).toBe(0); expect(old.root.visible).toBe(true);
+    for (let index = 0; index < 8; index++) motion.update(.05);
+    expect(old.root.position.x).toBeLessThan(0); motion.skip(); await pending; motion.dispose();
+  });
+  it('drops preparation and every flight phase for reduced motion', async () => {
+    const { motion, poses } = custom({ path: 'vertical', prepareDuration: .3, reducedMotion: true, dockSlots: { a: pose(8) } });
+    const pending = motion.replan({ fromPlan: plan(), toPlan: plan(unit('a', pose(1))) });
+    expect(motion.isBusy).toBe(false); expect(poses.get('a')).toEqual(pose(1)); await pending; motion.dispose();
+  });
   it('diffs IDs, keeps added cargo at explicit docks synchronously and never moves the replan rig', async () => {
     const scene = new Scene(), active = rig(scene), { motion, poses, writes } = custom({ rig: active,
       dockSlots: new Map([['b', pose(20)], ['c', pose(30)]]) });

@@ -98,18 +98,34 @@ export default function ThreeLoadingViewer({ container, result, cargo, preview =
     if (measurementOwner.current !== liveMeasurementContext.current) return;
     setMeasurement(value); setBenchmark(false);
   }, []);
-  const onSelect = useCallback((index: number | null) => {
+  const syncCargoSelection = useCallback((index: number | null) => {
     setSelected(index); setSelectedSupport(null);
     if (index === null) stagingRef.current?.selectUnit(null); else stagingRef.current?.selectVehicleUnit('cargo', index);
     if (syncSelection) { lastLegacySelection.current = index; ownSelectionEvent.current = true; try { selectPlacement(index); } finally { ownSelectionEvent.current = false; } }
+  }, [syncSelection]);
+  const onSelect = useCallback((index: number | null) => {
+    syncCargoSelection(index);
     if (index !== null && !plan.supports.length) onCargoSelect?.(index);
-  }, [syncSelection, onCargoSelect, plan.supports.length]);
+  }, [syncCargoSelection, onCargoSelect, plan.supports.length]);
   const onSelectSupport = useCallback((index: number) => {
     if (!plan.supports[index]) return;
     if (syncSelection) { lastLegacySelection.current = null; ownSelectionEvent.current = true; try { selectPlacement(null); } finally { ownSelectionEvent.current = false; } }
     setSelected(null); setSelectedSupport(index);
     stagingRef.current?.selectVehicleUnit('support', index);
   }, [plan.supports, syncSelection]);
+  const onInspect = useCallback((kind: 'cargo' | 'support', index: number) => {
+    if (kind === 'cargo') {
+      if (!plan.placements[index]) return;
+      syncCargoSelection(index);
+    } else {
+      if (!plan.supports[index]) return;
+      onSelectSupport(index);
+    }
+    const current = stagingRef.current;
+    if (current?.inspectVehicleUnit) current.inspectVehicleUnit(kind, index);
+    else if (kind === 'support') onSupportSelect?.(index);
+    else onCargoSelect?.(index);
+  }, [plan.placements, plan.supports, syncCargoSelection, onSelectSupport, onCargoSelect, onSupportSelect]);
   useEffect(() => {
     const clear = (event: KeyboardEvent) => { if (event.key === 'Escape') onSelect(null); };
     window.addEventListener('keydown', clear);
@@ -180,13 +196,13 @@ export default function ThreeLoadingViewer({ container, result, cargo, preview =
       {showCg && <button data-view-only="true" disabled={!ready || (!count && !plan.supports.length)} aria-pressed={cg} onClick={() => setCg(!cg)}>{uiT("무게중심")} {cg ? 'ON' : 'OFF'}</button>}
     </div></div>
     <div className="unity-stage three-comparison-stage">
-      <SceneErrorBoundary key={attempt} onError={onError}><ThreeComparisonScene onPipelineStatus={setPipelineStatus} vehicleAttempt={vehicleAttempt} onVehicleStatus={setVehicleStatus} environment={environment} environmentAttempt={environmentAttempt} onEnvironmentStatus={setEnvironmentStatus} plan={plan} cut={visibleCut} shell={shell} step={visibleStep} labels={labels} weight={weightOn} showCg={showCg && cg} view={sceneView} viewRequest={viewRequest} staging={staging} selected={selected} selectedSupport={selectedSupport} clearanceVisible={!staging || stagingClearanceOpen} clearanceAxis={clearanceAxis} frameData={frameData} onSelect={onSelect} onSupportSelect={onSelectSupport} onCellSelect={setCell} onReady={onReady} onStats={setStats} onError={onError} benchmark={benchmark} onBenchmark={onBenchmark} /></SceneErrorBoundary>
+      <SceneErrorBoundary key={attempt} onError={onError}><ThreeComparisonScene onPipelineStatus={setPipelineStatus} vehicleAttempt={vehicleAttempt} onVehicleStatus={setVehicleStatus} environment={environment} environmentAttempt={environmentAttempt} onEnvironmentStatus={setEnvironmentStatus} plan={plan} cut={visibleCut} shell={shell} step={visibleStep} labels={labels} weight={weightOn} showCg={showCg && cg} view={sceneView} viewRequest={viewRequest} staging={staging} selected={selected} selectedSupport={selectedSupport} clearanceVisible={!staging || stagingClearanceOpen} clearanceAxis={clearanceAxis} frameData={frameData} onSelect={onSelect} onSupportSelect={onSelectSupport} onInspect={onInspect} onCellSelect={setCell} onReady={onReady} onStats={setStats} onError={onError} benchmark={benchmark} onBenchmark={onBenchmark} /></SceneErrorBoundary>
       {ready && stats?.revision === plan.revision && stats.cgVisible && <div className="three-cg-legend"><i aria-hidden="true"/>{uiT("전체 적재 무게중심 · 상자 + 파렛트 자체중량")}</div>}
       {environmentStatus?.id === environment && environmentStatus.status === 'fallback' && <div className="three-environment-error" role="status">{uiT("배경 표시 실패 · 기본 배경 사용 중")} <button type="button" data-view-only="true" onClick={() => setEnvironmentAttempt(value => value + 1)}>{uiT("배경 다시 시도")}</button></div>}
       {vehicleStatus.status === 'fallback' && <div className="three-environment-error" role="status">{uiT("차량 모델 표시 실패 · 화물 보기는 계속 사용할 수 있습니다")} <button type="button" data-view-only="true" onClick={() => setVehicleAttempt(value => value + 1)}>{uiT("차량 다시 시도")}</button></div>}
       {!ready && !error && <div className="unity-loading" role="status"><b>{uiT("3D 모델 준비 중")}</b><span>{uiT("원본 화물 모델 · 차량 GLB · 텍스처 불러오는 중")}</span></div>}
       {error && <div className="unity-loading three-comparison-error" role="alert"><b>{uiT("3D 모델을 불러오지 못했습니다")}</b><span>{uiT(error)}</span><span>{uiT("연결과 브라우저의 3D 그래픽 지원을 확인한 뒤 다시 시도하세요")}</span><button onClick={() => { setError(''); setAttempt(value => value + 1); }}>{uiT("다시 시도")}</button></div>}
-      {ready && <div className="unity-hint">{uiT("드래그 회전 · 휠 확대 · 우클릭 이동")}{weightOn ? uiT(" · 격자 클릭: 하중 확인") : uiT(" · 화물 클릭: 정보 확인")}</div>}
+      {ready && <div className="unity-hint">{uiT(staging ? "빈 공간 드래그: 회전 · 휠: 확대 · 우드래그: 화면 이동 · 화물 좌드래그: 위치 이동 · 우클릭: 적재 정보" : "드래그 회전 · 휠 확대 · 우클릭 이동")}{weightOn ? uiT(" · 격자 클릭: 하중 확인") : uiT(" · 화물 클릭: 정보 확인")}</div>}
       {!staging && inspector}
       {weightOn && selectedCell && <div className="unity-inspector"><b>R{selectedCell.row + 1} · C{selectedCell.column + 1}</b><span>{selectedCell.loadKg.toFixed(1)} kg · {selectedCell.kgPerM2.toFixed(0)} kg/m²</span></div>}
       {weightOn && <details className="unity-weight-details"><summary>{uiT("무게분포 수치 · 박스 중량 기준")}</summary><WeightDistributionPanel analysis={analysis}/></details>}

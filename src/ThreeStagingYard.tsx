@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { cargoColor } from './cargoColors';
@@ -10,6 +10,7 @@ import type { StagingYardLayout, StagingYardSlot } from './stagingYardLayout';
 import type { Placement } from './engine/types';
 import { acquireComparisonLabels } from './threeComparisonLabels';
 import { stagingCartonLabelPlan } from './stagingCartonLabels';
+import { createStagingPointerInteraction, type StagingPointerCallbacks } from './stagingPointerInteraction';
 
 type YardModels = Partial<Record<ModelKey, MeshyModel>>;
 export type StagingYardDrag = { unitId: string; point: [number, number, number]; cancelled?: boolean };
@@ -24,6 +25,8 @@ export type ThreeStagingYardProps = {
   labels?: Partial<StagingYardLabels>;
   cartonLabelsEnabled?: boolean;
   onSelect?: (unitId: string) => void;
+  onInspect?: (unitId: string) => void;
+  canDrag?: boolean;
   onDragStart?: (drag: StagingYardDrag) => void;
   onDragMove?: (drag: StagingYardDrag) => void;
   onDragEnd?: (drag: StagingYardDrag) => void;
@@ -270,12 +273,22 @@ export default function ThreeStagingYard(props: ThreeStagingYardProps) {
   const callbacks = useRef(props); callbacks.current = props;
   const [loaded, setLoaded] = useState<{ units: readonly StagingUnit[]; layout: StagingYardLayout; options: unknown; resources: ReturnType<typeof createStagingYardResources> } | null>(null);
   const optionsKey = JSON.stringify([props.visibleZoneIds, props.labels, props.cartonLabelsEnabled]);
-  const dragging = useRef<{ id: string; pointerId: number; x: number; y: number; active: boolean; point: [number, number, number]; release: () => void } | null>(null);
-  const cancelDrag = () => {
-    const drag = dragging.current; if (!drag) return; dragging.current = null;
-    drag.release(); callbacks.current.onDraggingChange?.(false);
-    if (drag.active) callbacks.current.onDragEnd?.({ unitId: drag.id, point: drag.point, cancelled: true });
+  const pointerCallbacks = useRef<StagingPointerCallbacks>(null!);
+  pointerCallbacks.current = {
+    resolve: event => {
+      const data = event.object.userData;
+      const id = data.kind === 'stagingCargo' ? data.unitIds[event.instanceId ?? -1] as string | undefined : undefined;
+      const slot = id ? props.layout.slots.find(value => value.unitId === id) : null;
+      return id && slot ? { id, center: slot.center, planeY: props.dragPlaneY ?? 0 } : null;
+    },
+    canDrag: () => callbacks.current.canDrag !== false,
+    onSelect: props.onSelect, onInspect: unit => callbacks.current.onInspect?.(unit.id),
+    onDragStart: props.onDragStart, onDragMove: props.onDragMove, onDragEnd: props.onDragEnd,
+    onDraggingChange: props.onDraggingChange,
   };
+  const pointer = useMemo(() => createStagingPointerInteraction(() => pointerCallbacks.current), []);
+  useLayoutEffect(() => { pointer.activate(); return () => pointer.dispose(); }, [pointer]);
+  useLayoutEffect(() => { if (props.canDrag === false) pointer.cancel(); }, [props.canDrag, pointer]);
   useEffect(() => {
     let cancelled = false, dispose: (() => void) | undefined;
     const ids = props.visibleZoneIds ? new Set(props.layout.slots.filter(slot => props.visibleZoneIds!.includes(slot.zoneId)).map(slot => slot.unitId)) : null;
@@ -292,39 +305,18 @@ export default function ThreeStagingYard(props: ThreeStagingYardProps) {
       void printed.then(acquired => acquired?.release(), () => {});
       if (!cancelled) callbacks.current.onError?.(error instanceof Error ? error.message : String(error));
     });
-    return () => { cancelled = true; dispose?.(); cancelDrag(); };
+    return () => { cancelled = true; dispose?.(); pointer.cancel(); };
   }, [props.units, props.layout, optionsKey, invalidate]);
   const resources = loaded?.units === props.units && loaded.layout === props.layout && loaded.options === optionsKey ? loaded.resources : null;
   useLayoutEffect(() => { resources?.setSelected(props.selectedUnitId ?? null); invalidate(); }, [resources, props.selectedUnitId, invalidate]);
   const unitAt = (event: ThreeEvent<PointerEvent | MouseEvent>) => event.object.userData.kind === 'stagingCargo'
     ? event.object.userData.unitIds[event.instanceId ?? -1] as string | undefined : undefined;
-  const pointAt = (event: ThreeEvent<PointerEvent>): [number, number, number] => {
-    const hit = event.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -(callbacks.current.dragPlaneY ?? 0)), new THREE.Vector3());
-    return tuple(hit ?? event.point);
-  };
   if (!resources) return null;
-  return <primitive object={resources.root} dispose={null}
-    onClick={(event: ThreeEvent<MouseEvent>) => { const id = unitAt(event); if (id) { event.stopPropagation(); callbacks.current.onSelect?.(id); } }}
-    onPointerDown={(event: ThreeEvent<PointerEvent>) => {
-      const id = unitAt(event); if (!id || event.button !== 0 || !callbacks.current.onDragEnd) return;
-      const target = event.target as (EventTarget & { setPointerCapture(id: number): void; releasePointerCapture(id: number): void }) | null;
-      if (!target?.setPointerCapture) return;
-      event.stopPropagation(); target.setPointerCapture(event.pointerId);
-      dragging.current = { id, pointerId: event.pointerId, x: event.clientX, y: event.clientY, active: false, point: pointAt(event), release: () => { try { target.releasePointerCapture(event.pointerId); } catch { /* Capture may already have been cancelled by the browser. */ } } };
-      callbacks.current.onSelect?.(id); callbacks.current.onDraggingChange?.(true);
+  return <primitive object={resources.root} dispose={null} {...pointer.handlers}
+    onClick={(event: ThreeEvent<MouseEvent>) => {
+      if (event.button !== 0 || event.delta > 4) return;
+      const id = unitAt(event); if (id) { event.stopPropagation(); callbacks.current.onSelect?.(id); }
     }}
-    onPointerMove={(event: ThreeEvent<PointerEvent>) => {
-      const drag = dragging.current; if (!drag || event.pointerId !== drag.pointerId) return;
-      event.stopPropagation(); drag.point = pointAt(event);
-      if (!drag.active && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) >= 4) { drag.active = true; callbacks.current.onDragStart?.({ unitId: drag.id, point: drag.point }); }
-      if (drag.active) callbacks.current.onDragMove?.({ unitId: drag.id, point: drag.point });
-    }}
-    onPointerUp={(event: ThreeEvent<PointerEvent>) => {
-      const drag = dragging.current; if (!drag || event.pointerId !== drag.pointerId) return;
-      event.stopPropagation(); dragging.current = null; drag.release(); callbacks.current.onDraggingChange?.(false);
-      if (drag.active) callbacks.current.onDragEnd?.({ unitId: drag.id, point: pointAt(event), cancelled: false });
-    }}
-    onPointerCancel={cancelDrag} onLostPointerCapture={cancelDrag}
   />;
 }
 
@@ -355,7 +347,8 @@ export function createStagingPreviewResources(unit: StagingUnit, models: YardMod
   return { root,
     update(candidate: Placement, container: { length: number; width: number; height: number }, valid: boolean) {
       root.position.set(candidate.x + candidate.length / 2 - container.length / 2, candidate.z, candidate.y + candidate.width / 2 - container.width / 2);
-      root.rotation.y = unit.kind === 'box' && candidate.rotated ? Math.PI / 2 : 0;
+      root.rotation.y = unit.kind === 'box' && Math.abs(candidate.length - unit.length) > 1e-6
+        && Math.abs(candidate.length - unit.width) < 1e-6 && Math.abs(candidate.width - unit.length) < 1e-6 ? Math.PI / 2 : 0;
       material.color.set(valid ? '#16a34a' : '#dc2626'); edgeMaterial.color.set(valid ? '#15803d' : '#b91c1c');
       root.userData = { valid, unitId: unit.id, displayOnly: true };
     },

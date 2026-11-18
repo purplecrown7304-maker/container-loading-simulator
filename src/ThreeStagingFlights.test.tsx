@@ -1,13 +1,15 @@
 import { StrictMode, act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { Group, Matrix4, PerspectiveCamera, Scene, Vector3 } from 'three';
+import { Box3, BoxGeometry, Group, InstancedMesh, Matrix4, MeshBasicMaterial, Object3D, PerspectiveCamera, Scene, Texture, Vector3 } from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ThreeStagingFlights, { type ThreeStagingFlightsProps } from './ThreeStagingFlights';
 import { viewerPlan } from './viewerSceneProtocol';
 import { sceneBoxMatrix, type ThreeComparisonPlan } from './threeComparisonSceneState';
 import type { StagingUnit } from './stagingInventory';
 import type { StagingFlightSequence } from './stagingFlights';
-import type { DisplayFlightTransform } from './threeComparisonSceneResources';
+import { createComparisonSceneResources, type ComparisonModels, type DisplayFlightTransform } from './threeComparisonSceneResources';
+import { createMeshyMaterial, MESHY_MODEL_KEYS } from './threeComparisonModels';
+import { STAGING_FLIGHT_PROFILE } from './stagingFlights';
 
 const state = vi.hoisted(() => ({ elapsed: 0, frame: null as ((state: unknown, dt: number) => void) | null, priority: -1,
   scene: null as unknown as Scene, camera: null as unknown as PerspectiveCamera,
@@ -47,6 +49,7 @@ function resources(current: ThreeComparisonPlan) {
 }
 let root: Root, host: HTMLDivElement, mounted: boolean;
 let props: ThreeStagingFlightsProps;
+const cleanups: Array<() => void> = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); state.elapsed = 0; state.frame = null; state.renders = 0;
   state.scene = new Scene(); state.camera = new PerspectiveCamera();
@@ -59,6 +62,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   if (mounted) await act(async () => root.unmount());
+  cleanups.splice(0).reverse().forEach(cleanup => cleanup());
   host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
 async function render(value = props, strict = false) {
@@ -82,7 +86,7 @@ describe('accepted staging flight consumer', () => {
     const initial = scene.cargo[0].clone(), renders = state.renders;
     frame(500); expect(scene.cargo[0]).not.toEqual(initial); expect(scene.cargo[0]).not.toEqual(scene.baseline[0]);
     expect(position(scene.cargo[0])[1]).toBeGreaterThan(-.85); expect(state.renders).toBe(renders);
-    frame(1000); expect(scene.calls.at(-1)).toEqual([]); expect(scene.cargo).toEqual(scene.baseline);
+    frame(1300); expect(scene.calls.at(-1)).toEqual([]); expect(scene.cargo).toEqual(scene.baseline);
     expect(props.onComplete).toHaveBeenCalledExactlyOnceWith(1);
     const invalidations = state.invalidate.mock.calls.length; frame(1500); expect(state.invalidate).toHaveBeenCalledTimes(invalidations);
     expect(JSON.stringify({ plan: props.plan, units: props.units, sequence: props.sequence })).toBe(before);
@@ -95,7 +99,7 @@ describe('accepted staging flight consumer', () => {
     frame(100); expect(scene.cargo[1]).toEqual(first);
     frame(700); expect(scene.cargo[1]).not.toEqual(first);
     expect(scene.applyDisplayFlights.mock.calls[0][0][1].matrix).toBe(scene.applyDisplayFlights.mock.calls[2][0][1].matrix);
-    frame(1200); expect(scene.cargo).toEqual(scene.baseline); expect(props.onComplete).toHaveBeenCalledTimes(1);
+    frame(1500); expect(scene.cargo).toEqual(scene.baseline); expect(props.onComplete).toHaveBeenCalledTimes(1);
   });
 
   it.each(['suspended', 'reduced-motion', 'empty', 'missing-unit', 'stale-destination'])('settles %s immediately without starting a visual run', async kind => {
@@ -130,13 +134,13 @@ describe('accepted staging flight consumer', () => {
   });
 
   it('restores only the retired resource, rebinds reordered plan IDs and keeps the current timeline', async () => {
-    const originalUnits = props.units, first = resources(props.plan); await render({ ...props, resources: first.props }); frame(300);
+    const originalUnits = props.units, first = resources(props.plan); await render({ ...props, resources: first.props }); frame(800);
     const reordered = { ...props.plan, revision: 2, placements: [...props.plan.placements].reverse() }, second = resources(reordered);
     await render({ ...props, plan: reordered, resources: second.props, units: originalUnits });
     expect(first.cargo).toEqual(first.baseline); expect(first.calls.at(-1)).toEqual([]);
     expect(second.calls.at(-1)![0].cargoIndices).toEqual([1]); expect(second.cargo[0]).toEqual(second.baseline[0]);
     expect(position(second.cargo[1])[0]).not.toBe(8); expect(props.onComplete).not.toHaveBeenCalled();
-    frame(1000); expect(second.cargo).toEqual(second.baseline); expect(props.onComplete).toHaveBeenCalledExactlyOnceWith(1);
+    frame(1300); expect(second.cargo).toEqual(second.baseline); expect(props.onComplete).toHaveBeenCalledExactlyOnceWith(1);
   });
 
   it('uses only the supplied frame delta and submits the descriptor array once per active frame', async () => {
@@ -146,7 +150,8 @@ describe('accepted staging flight consumer', () => {
     const before = scene.calls.length;
     act(() => state.frame!({}, .025));
     expect(scene.calls).toHaveLength(before + 1);
-    expect(scene.cargo[0]).not.toEqual(initial);
+    expect(scene.cargo[0]).toEqual(initial);
+    frame(400); expect(scene.cargo[0]).not.toEqual(initial);
     expect(scene.cargo[0]).not.toEqual(scene.baseline[0]);
     expect(state.renders).toBe(renders);
     expect(clock).not.toHaveBeenCalled();
@@ -185,6 +190,61 @@ describe('accepted staging flight consumer', () => {
     const flight = { ...sequence(actual).flights[0], unitId: unit.id, to: { position: [pallet.x + .55 - 3, 0, pallet.y + .55 - 1.2] as [number, number, number], rotationY: 0 } };
     const scene = resources(actual); await render({ ...props, plan: actual, resources: scene.props, units: [unit], sequence: { ...props.sequence!, flights: [flight] } });
     expect(scene.calls[0][0]).toMatchObject({ cargoIndices: [0, 1], supportIndex: 1 });
-    frame(1000); expect(props.onComplete).toHaveBeenCalledExactlyOnceWith(1); expect(scene.cargo).toEqual(scene.baseline);
+    frame(1300); expect(props.onComplete).toHaveBeenCalledExactlyOnceWith(1); expect(scene.cargo).toEqual(scene.baseline);
+  });
+  it.each([true, false])('prepares and flies the actual whole pallet with source packaging=%s through all vertical phases', async packaged => {
+    const placements = props.plan.placements.map((box, index) => ({ ...box, x: 1.1, y: .6, z: .15 + index * .3 }));
+    const pallet = { palletIndex: 8, x: 1, y: .5, z: 0, length: 1.2, width: 1, height: .15,
+      cargoPlacements: placements, stackLevel: 1, stackColumn: 8, cargoWeightKg: 2, packagingWeightKg: 0, packagingExtraHeightM: 0,
+      cornerGuardsUsed: packaged, wrappingUsed: packaged, totalWeightKg: 27, centerOfGravity: { x: 1.4, y: .8, z: .3 } };
+    const support = { id: 'PALLET-8', x: pallet.x, y: pallet.y, z: 0, length: 1.2, width: 1, height: .15, weightKg: 25,
+      visualPackaging: { wrapping: packaged, cornerGuards: packaged, bandingStraps: packaged ? 4 : 0 } };
+    const actual = viewerPlan(container, { placements, remaining: [], validationIssues: [], usedVolumeM3: .12, loadedWeightKg: 27 },
+      1, [], { geometry: 'platform', supports: [support] });
+    expect(actual.decorations).toHaveLength(packaged ? 17 : 0);
+    const whole: StagingUnit = { ...props.units[0], id: 'actual-whole-pallet', kind: 'pallet', pallet,
+      length: 1.2, width: 1, height: .75, boxUnits: props.units.flatMap(item => item.boxUnits),
+      sourcePlacementIndexes: [0, 1], sourcePalletIndex: 8,
+      packaging: { wrapping: packaged, cornerGuards: packaged, bandingStraps: packaged ? 4 : 0 } };
+    const flight = { ...sequence(actual).flights[0], unitId: whole.id, durationMs: STAGING_FLIGHT_PROFILE.durationMs,
+      from: { position: [8, -1, 0] as [number, number, number], rotationY: .3 },
+      to: { position: [pallet.x + pallet.length / 2 - container.length / 2, 0,
+        pallet.y + pallet.width / 2 - container.width / 2] as [number, number, number], rotationY: 0 } };
+    const geometry = new BoxGeometry(), texture = new Texture(), material = createMeshyMaterial(texture), label = new MeshBasicMaterial();
+    const models = Object.fromEntries(MESHY_MODEL_KEYS.map(key => [key, { key, parts: [{ geometry, texture, material }],
+      bounds: new Box3(new Vector3(-.5, -.5, -.5), new Vector3(.5, .5, .5)), triangleCount: 12 }])) as ComparisonModels;
+    const real = createComparisonSceneResources(actual, models, new Map([['A', label], ['B', label]]));
+    cleanups.push(() => { real.dispose(); geometry.dispose(); texture.dispose(); material.dispose(); label.dispose(); });
+    real.updateVisibility({ cut: 100, step: 999, shell: true, labels: true, weight: false, showCg: true, selected: null });
+    const deck = real.root.getObjectByName('Support_0')!, baselineDeck = deck.matrix.clone();
+    const packaging: Array<{ object: Object3D; matrix: Matrix4 }> = [];
+    deck.traverse(object => { if (object !== deck) packaging.push({ object, matrix: object.matrixWorld.clone() }); });
+    const children = [...deck.children], counts = { cargo: real.visibleCargo, models: real.modelCount, labels: real.visibleLabelFaces };
+    const cargoMatrix = (index: number) => {
+      let cargo: InstancedMesh | undefined;
+      real.root.traverse(object => { if (object.userData.kind === 'cargo' && object.userData.batch.indices.includes(index)) cargo = object as InstancedMesh; });
+      const matrix = new Matrix4(); cargo!.getMatrixAt(cargo!.userData.batch.visibleIndices.indexOf(index), matrix); return matrix;
+    };
+    const baselineCargo = placements.map((_, index) => cargoMatrix(index));
+    const before = JSON.stringify({ actual, whole, flight }), complete = vi.fn();
+    const closeMatrix = (a: Matrix4, b: Matrix4) => a.elements.forEach((value, index) => expect(value).toBeCloseTo(b.elements[index], 5));
+    const rigid = () => {
+      const delta = deck.matrix.clone().multiply(baselineDeck.clone().invert());
+      baselineCargo.forEach((matrix, index) => closeMatrix(cargoMatrix(index), delta.clone().multiply(matrix)));
+      packaging.forEach(({ object, matrix }) => closeMatrix(object.matrixWorld, delta.clone().multiply(matrix)));
+      expect(deck.children).toEqual(children); expect({ cargo: real.visibleCargo, models: real.modelCount, labels: real.visibleLabelFaces }).toEqual(counts);
+      expect(JSON.stringify({ actual, whole, flight })).toBe(before);
+    };
+    await render({ ...props, resources: real, plan: actual, units: [whole], onComplete: complete, sequence: { ...props.sequence!, flights: [flight] } });
+    const prepared = deck.matrix.clone(); rigid(); frame(250); expect(deck.matrix).toEqual(prepared); rigid();
+    frame(500); let floor = position(deck.matrix); expect(floor[0]).toBeCloseTo(8, 12); expect(floor[2]).toBeCloseTo(0, 12);
+    expect(floor[1]).toBeGreaterThan(-1 + pallet.height / 2); rigid();
+    frame(1000); floor = position(deck.matrix); expect(floor[1]).toBeCloseTo(container.height + .4 + pallet.height / 2, 12);
+    expect(floor[0]).toBeLessThan(8); expect(floor[0]).toBeGreaterThan(flight.to.position[0]); rigid();
+    frame(1600); floor = position(deck.matrix); expect(floor[0]).toBeCloseTo(flight.to.position[0], 12); expect(floor[2]).toBeCloseTo(flight.to.position[2], 12);
+    expect(floor[1]).toBeGreaterThan(pallet.height / 2); rigid();
+    frame(1850); expect(deck.matrix).toEqual(baselineDeck); baselineCargo.forEach((matrix, index) => expect(cargoMatrix(index)).toEqual(matrix));
+    packaging.forEach(({ object, matrix }) => closeMatrix(object.matrixWorld, matrix)); expect(complete).toHaveBeenCalledExactlyOnceWith(1);
+    expect(JSON.stringify({ actual, whole, flight })).toBe(before);
   });
 });

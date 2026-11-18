@@ -6,6 +6,7 @@ import type { StagingCounts, StagingInventory, StagingUnit } from './stagingInve
 import { buildStagingYardLayout } from './stagingYardLayout';
 import { STORAGE_KEY } from './storage';
 import { INERTIA_CERTIFICATION_EVENT } from './inertiaCertification';
+import type { PalletLoad } from './engine/palletOptimization';
 
 const container = { length: 6, width: 2.4, height: 2.6, maxPayloadKg: 1000 };
 function unit(id: string, placed = false): StagingUnit {
@@ -17,8 +18,9 @@ function unit(id: string, placed = false): StagingUnit {
       y: .5, z: 0, length: .5, width: .4, height: .3, weightKg: 10 } } : {}) };
 }
 function inventory(units: StagingUnit[], inputSignature = 'same-input'): StagingInventory {
-  const counts = (rows: StagingUnit[]): StagingCounts => ({ pallets: 0, looseBoxes: rows.length,
-    boxes: rows.length, weightKg: rows.reduce((sum, row) => sum + row.weightKg, 0) });
+  const counts = (rows: StagingUnit[]): StagingCounts => ({ pallets: rows.filter(row => row.kind === 'pallet').length,
+    looseBoxes: rows.filter(row => row.kind === 'box').length, boxes: rows.reduce((sum, row) => sum + row.boxCount, 0),
+    weightKg: rows.reduce((sum, row) => sum + row.weightKg, 0) });
   const yardUnits = units.filter(row => row.location === 'yard'), vehicleUnits = units.filter(row => row.location === 'vehicle');
   return { inputSignature, units, yardUnits, vehicleUnits, otherVehicleUnits: [],
     summary: { total: counts(units), yard: counts(yardUnits), vehicle: counts(vehicleUnits),
@@ -28,6 +30,19 @@ function inventory(units: StagingUnit[], inputSignature = 'same-input'): Staging
 function origin(rows: StagingUnit[], planKey = '', signature = 'same-input'): StagingFlightOrigin {
   return { inventory: inventory(rows, signature),
     layout: buildStagingYardLayout(rows.filter(row => row.location === 'yard'), { container, vehicleRig: 'none' }), planKey };
+}
+function packedUnit(id: string, placed = false): StagingUnit {
+  const members = [unit(id + '-a'), unit(id + '-b')], x = placed ? 1 : 0, y = placed ? .5 : 0;
+  const pallet: PalletLoad = { palletIndex: id === 'p' ? 1 : 2, x, y, z: 0, length: 1.2, width: 1, height: .15,
+    cargoPlacements: members.map((member, index) => ({ cargoId: 'SKU', unitId: member.boxUnits[0].id,
+      x: x + index * .5, y, z: .15, length: .5, width: .4, height: .3, weightKg: 10 })),
+    stackColumn: id === 'p' ? 1 : 2, stackLevel: 1, cargoWeightKg: 20, packagingWeightKg: 1,
+    packagingExtraHeightM: .01, totalWeightKg: 46, wrappingUsed: true, cornerGuardsUsed: true,
+    bandingPlan: { straps: 4, securingLevel: 3, wrapping: true, cornerGuards: true },
+    centerOfGravity: { x: x + .6, y: y + .5, z: .3 } };
+  return { ...unit(id, placed), kind: 'pallet', cargoId: undefined, length: 1.2, width: 1, height: .46,
+    weightKg: 46, boxCount: 2, placement: undefined, pallet, boxUnits: members.flatMap(member => member.boxUnits),
+    packaging: { wrapping: true, cornerGuards: true, bandingStraps: 4, source: 'transport-reinforcement' } };
 }
 type Options = Parameters<typeof useStagingFlights>[0];
 let options: Options, latest: ReturnType<typeof useStagingFlights>, root: Root, host: HTMLDivElement;
@@ -85,6 +100,33 @@ describe('display-only staging flight lifecycle', () => {
     expect(latest.sequence?.flights.map(flight => flight.unitId)).toEqual(['b']);
     expect(latest.sequence?.flights[0].from.position).toEqual(source.layout.slots.find(slot => slot.unitId === 'b')!.center);
     expect(next.inventory.summary.total.boxes).toBe(3); expect(next.inventory.summary.vehicle.boxes).toBe(2);
+  });
+  it.each(['manual', 'automatic'] as const)('starts an accepted %s whole-pallet load before unrelated remainder packaging finishes', async method => {
+    const source = origin([packedUnit('p'), packedUnit('q')]); source.inventory.packagingStatus = 'ready';
+    const pendingRemainder = ['q-a', 'q-b'].map(id => ({ ...unit(id), requiresPackaging: true }));
+    const accepted = origin([packedUnit('p', true), ...pendingRemainder], 'accepted-p');
+    accepted.inventory.packagingStatus = 'pending';
+    const ready = origin([packedUnit('p', true), packedUnit('q')], 'accepted-p'); ready.inventory.packagingStatus = 'ready';
+    const before = JSON.stringify({ source, accepted, ready });
+    await render({ ...source, isPreview: method === 'automatic' });
+    if (method === 'manual') await act(async () => latest.queueLoad(source));
+    else await render({ calculating: true });
+    // confirmed means the requested input/unit was already validated. The async
+    // remainder worker is busy here; its pending inventory must not gate flight.
+    await render({ ...accepted, calculating: false, confirmed: true, isPreview: false });
+    const flight = latest.sequence;
+    expect(flight?.planKey).toBe('accepted-p'); expect(flight?.flights.map(item => item.unitId)).toEqual(['p']);
+    expect(flight!.flights[0].from.position).toEqual(source.layout.slots.find(slot => slot.unitId === 'p')!.center);
+    expect(flight!.flights[0].from.position).not.toEqual(flight!.flights[0].to.position);
+    expect(source.inventory.yardUnits[0].pallet!.cargoPlacements.map(box => box.unitId)).toEqual(accepted.inventory.vehicleUnits[0].boxUnits.map(box => box.id));
+    expect(accepted.inventory.vehicleUnits[0].packaging).toEqual(source.inventory.yardUnits[0].packaging);
+    expect(accepted.inventory.vehicleUnits[0].pallet!.bandingPlan).toEqual(source.inventory.yardUnits[0].pallet!.bandingPlan);
+    expect(accepted.inventory.summary).toMatchObject({ total: { boxes: 4 }, vehicle: { boxes: 2 }, yard: { boxes: 2 } });
+    // The later unrelated packaging result neither starts a delayed dock jump
+    // nor replaces the already-started sequence/source packaging.
+    await render(ready); expect(latest.sequence).toBe(flight);
+    await act(async () => latest.complete(flight!.id)); await render({ ...ready }); expect(latest.sequence).toBeNull();
+    expect(JSON.stringify({ source, accepted, ready })).toBe(before);
   });
 
   it('does not autoplay a mounted, restored or unrelated refreshed plan without a loading request', async () => {

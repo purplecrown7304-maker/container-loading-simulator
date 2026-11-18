@@ -18,6 +18,7 @@ import { physicsTargetFromPalletSnapshot } from './certifiedExport';
 
 let panel: StagingYardPanelProps;
 vi.mock('./StagingYardPanel', () => ({ default: (props: StagingYardPanelProps) => { panel = props; return <div data-controller-panel />; } }));
+vi.mock('./LoadingViewer', () => ({ default: () => <canvas data-pallet-preview-test /> }));
 let bridge: StagingSceneBridge;
 function Probe() { bridge = useStagingScene()!; return <div data-staging-summary-slot />; }
 const container = { length: 4, width: 2, height: 2, maxPayloadKg: 1000, floorLoadLimitKgPerM2: 10000 };
@@ -158,6 +159,54 @@ describe('staging workspace controller', () => {
     expect(readStoredState()?.result?.placements).toEqual(recovered.placements);
     expect(oldSaved.result?.placements[0].x).not.toBe(recovered.placements[0].x);
   });
+  it.each(['yard', 'vehicle'] as const)('retains the selected %s pallet through a same-input-only refresh, but clears selection for changed inputs', async location => {
+    recordPalletJobSpec('company-default', { ...defaultPalletSpec, length: 1, width: 1, height: .15, tareWeightKg: 5,
+      maxLoadKg: 500, maxStaticLoadKg: 1000, maxSupportedTopWeightKg: 1000, maxStackLevels: 1,
+      useWrapping: false, useCornerGuards: false });
+    const ack = (event: Event) => { (event as CustomEvent<StagingPalletPlanDetail>).detail.accepted = true; };
+    window.addEventListener(STAGING_PALLET_PLAN_EVENT, ack);
+    try {
+      await render({ mode: 'mixed', cargo: [{ ...cargo[0], mixedLoadingMethod: 'pallet' }] }); await settle(); await settle();
+      if (location === 'vehicle') { await loadFirst(); await settle(); if (bridge.flight) await act(async () => bridge.completeFlight?.(bridge.flight!.id)); }
+      const selected = (location === 'vehicle' ? bridge.inventory.vehicleUnits : bridge.inventory.yardUnits)[0];
+      expect(selected.kind).toBe('pallet'); await act(async () => bridge.inspectUnit?.(selected.id)); await settle();
+      expect(host.querySelector('.pallet-content-popover')).not.toBeNull(); expect(bridge.selectedUnitId).toBe(selected.id);
+      const certificate = { mode: 'pallets', status: 'failed', targetSignature: 'same-input-refresh-fixture' } as InertiaCertification;
+      await act(async () => {
+        (window as Window & { __containerLoadingLatestCertification?: InertiaCertification }).__containerLoadingLatestCertification = certificate;
+        window.dispatchEvent(new CustomEvent(INERTIA_CERTIFICATION_EVENT, { detail: certificate }));
+      }); await settle();
+      const count = applications.length, result = props.result, snapshot = readPalletSnapshot(), saved = localStorage.getItem(STORAGE_KEY);
+      const writes = vi.spyOn(Storage.prototype, 'setItem');
+      try {
+        await act(async () => window.dispatchEvent(new CustomEvent(STORAGE_UPDATED_EVENT, {
+          detail: { container: { ...props.container }, cargo: props.cargo.map(row => ({ ...row })) },
+        })));
+        await settle(); await settle();
+        expect(bridge.selectedUnitId).toBe(selected.id); expect(panel.selectedId).toBe(selected.id);
+        expect(host.querySelector('.pallet-content-popover')).toBeNull(); expect(panel.canUndo).toBe(false);
+        expect(applications).toHaveLength(count); expect(props.result).toBe(result); expect(readPalletSnapshot()).toBe(snapshot);
+        expect(writes).not.toHaveBeenCalled(); expect(localStorage.getItem(STORAGE_KEY)).toBe(saved); expect(readLatestInertiaCertification()).toBe(certificate);
+        await act(async () => window.dispatchEvent(new CustomEvent(STORAGE_UPDATED_EVENT, {
+          detail: { container: props.container, cargo: props.cargo.map(row => ({ ...row, quantity: row.quantity + 1 })) },
+        })));
+        await settle(); expect(bridge.selectedUnitId).toBeNull(); expect(panel.selectedId).toBeNull();
+        expect(applications).toHaveLength(count); expect(readLatestInertiaCertification()).toBe(certificate);
+      } finally { writes.mockRestore(); }
+    } finally { window.removeEventListener(STAGING_PALLET_PLAN_EVENT, ack); }
+  });
+  it('honors explicit saved selection metadata instead of retaining the current same-input selection', async () => {
+    await render(); await settle(); await loadFirst(); const saved = readStoredState()!, vehicleId = bridge.selectedUnitId;
+    const yardId = bridge.inventory.yardUnits[0].id;
+    await act(async () => bridge.selectUnit(yardId)); await settle(); expect(bridge.selectedUnitId).toBe(yardId);
+    const count = applications.length;
+    await act(async () => window.dispatchEvent(new CustomEvent(STORAGE_UPDATED_EVENT, { detail: {
+      ...saved, staging: { ...saved.staging!, selectedUnitId: vehicleId },
+    } })));
+    await settle(); await settle();
+    expect(applications).toHaveLength(count + 1); expect(bridge.selectedUnitId).toBe(vehicleId); expect(bridge.selectedUnitId).not.toBe(yardId);
+    expect(panel.canUndo).toBe(false); expect(bridge.inventory.summary.vehicle.boxes).toBe(1);
+  });
   it('restores the explicitly notified staging payload before consulting older local storage', async () => {
     await render(); await settle(); await loadFirst(); const loaded = readStoredState()!;
     await act(async () => panel.onWithdraw()); await settle();
@@ -219,5 +268,84 @@ describe('staging workspace controller', () => {
       await act(async () => recordPalletJobSpec('company-default', { ...spec, useWrapping: true })); await settle();
       expect(bridge.selectedUnitId).toBeNull(); expect(panel.canUndo).toBe(false); expect(bridge.inventory.summary.vehicle.pallets).toBe(0);
     } finally { window.removeEventListener(STAGING_PALLET_PLAN_EVENT, ack); }
+  });
+  it('relocates a whole vehicle pallet atomically, preserves invalid-drop evidence and undoes once without reviving certification', async () => {
+    const spec = { ...defaultPalletSpec, length: 1, width: 1, height: .15, tareWeightKg: 5,
+      maxLoadKg: 500, maxStaticLoadKg: 1000, maxSupportedTopWeightKg: 1000, maxStackLevels: 1,
+      useWrapping: true, useCornerGuards: true, minimizePackaging: false };
+    recordPalletJobSpec('company-default', spec);
+    const ack = (event: Event) => { (event as CustomEvent<StagingPalletPlanDetail>).detail.accepted = true; };
+    window.addEventListener(STAGING_PALLET_PLAN_EVENT, ack);
+    try {
+      await render({ mode: 'mixed', cargo: [{ ...cargo[0], maxStackLayers: 3, maxTopLoadKg: 1000, mixedLoadingMethod: 'pallet' }] });
+      await settle(); await settle(); await loadFirst(); await settle();
+      expect(bridge.inventory.vehicleUnits).toHaveLength(1); expect(bridge.inventory.vehicleUnits[0].boxCount).toBe(3);
+      if (bridge.flight) await act(async () => bridge.completeFlight?.(bridge.flight!.id));
+      const target = physicsTargetFromPalletSnapshot(container, props.cargo, readPalletSnapshot()!);
+      const certificate: InertiaCertification = { mode: 'pallets', status: 'failed', targetSignature: createPhysicsTargetSignature(target),
+        testedAt: new Date(0).toISOString(), securing: buildSecuringUsage(target, 3), testedScenarios: 0, passedScenarios: 0,
+        failedScenarios: [], maxHorizontalShiftM: 0, maxTiltDeg: 0, results: {}, payloadWithinLimit: true };
+      await act(async () => {
+        (window as Window & { __containerLoadingLatestCertification?: InertiaCertification }).__containerLoadingLatestCertification = certificate;
+        window.dispatchEvent(new CustomEvent(INERTIA_CERTIFICATION_EVENT, { detail: certificate }));
+      }); await settle();
+      const unit = bridge.inventory.vehicleUnits[0], id = unit.id, original = unit.pallet!, beforeSnapshot = readPalletSnapshot();
+      const beforeResult = props.result, saved = localStorage.getItem(STORAGE_KEY), applicationCount = applications.length;
+      const members = unit.boxUnits.map(box => box.id), packaging = unit.packaging;
+      expect(packaging?.bandingStraps).toBe(4);
+      await act(async () => bridge.onDragStart({ unitId: id, point: [20, 0, 0] })); expect(bridge.preview?.valid).toBe(false);
+      await act(async () => bridge.onDragEnd({ unitId: id, point: [20, 0, 0] })); await settle();
+      expect(applications).toHaveLength(applicationCount); expect(props.result).toBe(beforeResult); expect(readPalletSnapshot()).toBe(beforeSnapshot);
+      expect(localStorage.getItem(STORAGE_KEY)).toBe(saved); expect(readLatestInertiaCertification()).toBe(certificate);
+      const point: [number, number, number] = [original.x + original.length / 2 - container.length / 2 + .1,
+        original.z, original.y + original.width / 2 - container.width / 2];
+      await act(async () => bridge.onDragStart({ unitId: id, point })); expect(bridge.preview?.valid).toBe(true);
+      expect(applications).toHaveLength(applicationCount);
+      await act(async () => bridge.onDragEnd({ unitId: id, point })); await settle(); await settle();
+      expect(applications).toHaveLength(applicationCount + 1); expect(bridge.flight).toBeNull(); expect(bridge.preview).toBeNull(); expect(bridge.dragging).toBe(false);
+      const moved = bridge.inventory.vehicleUnits[0];
+      expect(moved.id).toBe(id); expect(moved.boxUnits.map(box => box.id)).toEqual(members); expect(moved.packaging).toEqual(packaging);
+      expect(moved.pallet!.x).toBeCloseTo(original.x + .1); expect(moved.pallet!.palletIndex).toBe(original.palletIndex);
+      expect(bridge.inventory.summary.total.boxes).toBe(3); expect(bridge.inventory.summary.vehicle.boxes).toBe(3); expect(bridge.inventory.summary.yard.boxes).toBe(0);
+      expect(props.result.placements.map(p => p.unitId)).toEqual(beforeResult.placements.map(p => p.unitId));
+      expect(readStoredState()?.staging?.palletSnapshot?.result.pallets[0].x).toBeCloseTo(original.x + .1);
+      expect(readLatestInertiaCertification()).toBeUndefined(); expect(panel.message).toContain('위치를 이동했습니다');
+      await act(async () => panel.onUndo()); await settle(); await settle();
+      expect(applications).toHaveLength(applicationCount + 2); expect(bridge.inventory.vehicleUnits[0].pallet!.x).toBeCloseTo(original.x);
+      expect(bridge.inventory.vehicleUnits[0].boxUnits.map(box => box.id)).toEqual(members);
+      expect(bridge.inventory.vehicleUnits[0].packaging).toEqual(packaging); expect(readLatestInertiaCertification()).toBeUndefined();
+    } finally { window.removeEventListener(STAGING_PALLET_PLAN_EVENT, ack); }
+  });
+  it('rechecks a vehicle move against parent freshness, calculation state and changed inputs before applying', async () => {
+    await render(); await settle(); await loadFirst();
+    const unit = bridge.inventory.vehicleUnits[0], placed = unit.placement!, id = unit.id;
+    const point: [number, number, number] = [placed.x + placed.length / 2 - container.length / 2 + .1,
+      placed.z, placed.y + placed.width / 2 - container.width / 2];
+    const result = props.result, saved = localStorage.getItem(STORAGE_KEY), count = applications.length;
+    accept = false;
+    await act(async () => bridge.onDragStart({ unitId: id, point })); expect(bridge.preview?.valid).toBe(true);
+    await act(async () => bridge.onDragEnd({ unitId: id, point })); await settle();
+    expect(applications).toHaveLength(count + 1); expect(props.result).toBe(result); expect(localStorage.getItem(STORAGE_KEY)).toBe(saved);
+    accept = true;
+    await act(async () => bridge.onDragStart({ unitId: id, point })); await render({ calculating: true });
+    await act(async () => bridge.onDragEnd({ unitId: id, point })); expect(applications).toHaveLength(count + 1); expect(props.result).toBe(result);
+    await render({ calculating: false });
+    await act(async () => bridge.onDragStart({ unitId: id, point }));
+    await render({ inputKey: 'changed-after-vehicle-preview', cargo: [{ ...cargo[0], quantity: 4 }] });
+    await act(async () => bridge.onDragEnd({ unitId: id, point }));
+    expect(applications).toHaveLength(count + 1); expect(bridge.preview).toBeNull(); expect(bridge.dragging).toBe(false);
+  });
+  it('cancels a vehicle drop if a different accepted plan replaced its pointer-down baseline', async () => {
+    await render(); await settle(); await loadFirst();
+    const unit = bridge.inventory.vehicleUnits[0], id = unit.id, placed = unit.placement!, count = applications.length;
+    const point: [number, number, number] = [placed.x + placed.length / 2 - container.length / 2 + .1,
+      placed.z, placed.y + placed.width / 2 - container.width / 2];
+    await act(async () => bridge.onDragStart({ unitId: id, point })); expect(bridge.preview?.valid).toBe(true);
+    const replacement = { ...props.result, placements: props.result.placements.map(p => ({ ...p, x: p.x + .05 })) };
+    await render({ result: replacement }); await settle();
+    const saved = localStorage.getItem(STORAGE_KEY);
+    await act(async () => bridge.onDragEnd({ unitId: id, point })); await settle();
+    expect(applications).toHaveLength(count); expect(props.result).toBe(replacement); expect(localStorage.getItem(STORAGE_KEY)).toBe(saved);
+    expect(bridge.preview).toBeNull(); expect(bridge.dragging).toBe(false);
   });
 });

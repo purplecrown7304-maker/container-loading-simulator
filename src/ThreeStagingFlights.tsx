@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Matrix4, Vector3 } from 'three';
 import { CargoMotion } from './motion/CargoMotion.js';
-import { type StagingFlight, type StagingFlightSequence } from './stagingFlights';
+import { STAGING_FLIGHT_PROFILE, type StagingFlight, type StagingFlightSequence } from './stagingFlights';
 import { stagingVehicleSelection, type ThreeComparisonPlan } from './threeComparisonSceneState';
 import type { StagingUnit } from './stagingInventory';
 import type { createComparisonSceneResources, DisplayFlightTransform } from './threeComparisonSceneResources';
@@ -90,7 +90,8 @@ export default function ThreeStagingFlights({ resources, plan, units, sequence, 
     invalidate();
   };
   const display = (run: ActiveFlight) => {
-    for (const binding of run.bindings) {
+    for (let index = 0; index < run.bindings.length; index++) {
+      const binding = run.bindings[index];
       const pose = binding.pose!;
       binding.display.matrix.makeRotationY(pose.ry).setPosition(pose.x, pose.y, pose.z).multiply(binding.inverseDestination);
     }
@@ -137,7 +138,15 @@ export default function ThreeStagingFlights({ resources, plan, units, sequence, 
         },
       };
       try {
+        let cruiseY = plan.container.height + STAGING_FLIGHT_PROFILE.cruiseClearanceM;
+        for (const { flight } of bindings) cruiseY = Math.max(cruiseY,
+          flight.from.position[1] + STAGING_FLIGHT_PROFILE.liftHeight, flight.to.position[1] + STAGING_FLIGHT_PROFILE.liftHeight);
         const motion = new CargoMotion({ scene, camera, controls, options: { adapter, dockSlots,
+          path: STAGING_FLIGHT_PROFILE.path,
+          prepareDuration: STAGING_FLIGHT_PROFILE.prepareDurationMs / 1000,
+          liftHeight: STAGING_FLIGHT_PROFILE.liftHeight,
+          ascentRatio: STAGING_FLIGHT_PROFILE.ascentRatio, descentRatio: STAGING_FLIGHT_PROFILE.descentRatio,
+          cruiseY,
           rig: { root: resources.root, wheels: [], wheelRadius: 1, doorPoint: new Vector3(plan.container.length / 2, 0, 0), parkX: 0, offX: 0 },
           loadDuration: bindings[0].flight.durationMs / 1000,
           loadStagger: bindings.length > 1 ? (bindings[1].flight.delayMs - bindings[0].flight.delayMs) / 1000 : 0,

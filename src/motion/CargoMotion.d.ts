@@ -29,6 +29,13 @@ export type CargoMotionOptions = {
   leaveDuration?: number; arriveDuration?: number; rigOverlap?: number;
   loadStagger?: number; loadDuration?: number; doorLift?: number;
   replanStagger?: number; replanDuration?: number; replanArc?: number;
+  /** Legacy arc/Bézier remains the default; vertical holds X/Z during takeoff and landing. */
+  path?: 'arc' | 'vertical';
+  /** Minimum world cruise Y, additionally raised above endpoints by liftHeight. */
+  cruiseY?: number; liftHeight?: number;
+  ascentRatio?: number; descentRatio?: number;
+  /** Source-pose hold before flight seconds; ignored for zero-duration/reduced motion. */
+  prepareDuration?: number;
   cameraDuration?: number; cameraFrameMargin?: number;
 };
 export type UnitLandedEvent = { id: MotionId; phase: 'load' | 'replan' | 'added' | 'removed' };
@@ -36,7 +43,8 @@ export type SequenceDoneEvent = { type: 'switchTruck' | 'replan'; result: Replan
 export const DEFAULT_MOTION_OPTIONS: Readonly<Required<Pick<CargoMotionOptions,
   'unloadArc' | 'unloadDuration' | 'unloadStagger' | 'leaveDuration' | 'arriveDuration' |
   'rigOverlap' | 'loadStagger' | 'loadDuration' | 'doorLift' | 'replanStagger' |
-  'replanDuration' | 'replanArc' | 'cameraDuration' | 'cameraFrameMargin'>>>;
+  'replanDuration' | 'replanArc' | 'cameraDuration' | 'cameraFrameMargin' |
+  'path' | 'liftHeight' | 'ascentRatio' | 'descentRatio' | 'prepareDuration'>>>;
 
 /** Externally clocked; creates no renderer, scene, DOM, packing, or RAF loop. */
 export class CargoMotion {

@@ -9,11 +9,18 @@
  * @typedef {{getPose:(id:CargoId,outPose:Pose)=>boolean,
  *   setPose:(id:CargoId,pose:Pose)=>boolean}} FlightAdapter
  * @typedef {{id:CargoId,a:Pose,b:Pose,via?:Point3,arc?:number,t0:number,d:number,
+ *   path?:'arc'|'vertical',cruiseY?:number,liftHeight?:number,ascentRatio?:number,descentRatio?:number,prepareDuration?:number,
  *   onDone?:(id:CargoId)=>void}} FlightRequest
  * @typedef {Omit<FlightRequest,'via'> & {via:Point3|null,arc:number,pose:Pose,
+ *   path:'arc'|'vertical',cruiseY:number,ascentRatio:number,descentRatio:number,prepareDuration:number,takeoffAt:number,endTime:number,
  *   deltaRy:number,arcScale:number,serial:number}} ActiveFlight
  */
 import { clamp01, easeInOutCubic, shortestAngleDelta } from './easing.js';
+
+/** Shared presentation defaults; the legacy arc/Bézier path remains unchanged. */
+export const DEFAULT_FLIGHT_OPTIONS = Object.freeze({
+  path: /** @type {'arc'|'vertical'} */ ('arc'), liftHeight: 2, ascentRatio: .28, descentRatio: .28, prepareDuration: 0,
+});
 
 /** @param {Point3} point */
 const finitePoint = point => point && Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z);
@@ -55,15 +62,33 @@ export class FlightManager {
     }
     if (!Number.isFinite(request.t0) || !Number.isFinite(request.d) || request.d < 0
       || (request.arc !== undefined && !Number.isFinite(request.arc))) throw new RangeError('Flight timing and arc must be finite, with d >= 0');
+    const path = request.path ?? DEFAULT_FLIGHT_OPTIONS.path;
+    const liftHeight = request.liftHeight ?? DEFAULT_FLIGHT_OPTIONS.liftHeight;
+    const ascentRatio = request.ascentRatio ?? DEFAULT_FLIGHT_OPTIONS.ascentRatio;
+    const descentRatio = request.descentRatio ?? DEFAULT_FLIGHT_OPTIONS.descentRatio;
+    const prepareDuration = request.prepareDuration ?? DEFAULT_FLIGHT_OPTIONS.prepareDuration;
+    if (!['arc', 'vertical'].includes(path) || !Number.isFinite(liftHeight) || liftHeight < 0
+      || !Number.isFinite(prepareDuration) || prepareDuration < 0
+      || !Number.isFinite(ascentRatio) || ascentRatio <= 0 || !Number.isFinite(descentRatio) || descentRatio <= 0
+      || ascentRatio + descentRatio >= 1 || (request.cruiseY !== undefined && !Number.isFinite(request.cruiseY))) {
+      throw new RangeError('Invalid flight path, preparation or phase ratios');
+    }
     if (request.onDone !== undefined && typeof request.onDone !== 'function') throw new TypeError('onDone must be a function');
     const current = { x: 0, y: 0, z: 0, ry: 0 };
     if (this.adapter.getPose(request.id, current) === false) throw new RangeError(`Flight cargo is not registered: ${String(request.id)}`);
     if (!finitePose(current)) throw new RangeError('Current cargo pose must be finite');
     const interrupted = this._flights.has(request.id);
     const a = copyPose(interrupted ? current : request.a), b = copyPose(request.b);
+    // cruiseY is an optional minimum world altitude; keep relative lift above a
+    // higher endpoint, including the current pose of an interrupted flight.
+    const cruiseY = Math.max(request.cruiseY ?? -Infinity, Math.max(a.y, b.y) + liftHeight);
+    if (!Number.isFinite(cruiseY) || !Number.isFinite(request.t0 + prepareDuration + request.d)) throw new RangeError('Flight path exceeds finite coordinates/timing');
     const flight = {
       id: request.id, a, b, via: request.via ? { x: request.via.x, y: request.via.y, z: request.via.z } : null,
       arc: request.arc ?? 0, t0: request.t0, d: request.d, onDone: request.onDone,
+      path, cruiseY, ascentRatio, descentRatio, prepareDuration: request.d === 0 ? 0 : prepareDuration,
+      takeoffAt: request.t0 + (request.d === 0 ? 0 : prepareDuration),
+      endTime: request.t0 + (request.d === 0 ? 0 : prepareDuration) + request.d,
       pose: copyPose(a), deltaRy: shortestAngleDelta(a.ry, b.ry),
       arcScale: .6 + Math.min(1.4, Math.hypot(b.x - a.x, b.z - a.z) * .1), serial: ++this._serial,
     };
@@ -96,14 +121,27 @@ export class FlightManager {
       if (!flight || flight.serial > boundary || this._flights.get(flight.id) !== flight) continue;
       // Scheduling owns no pose writes before the explicit start time.
       if (nowSeconds < flight.t0) continue;
-      const progress = flight.d === 0 ? 1 : clamp01((nowSeconds - flight.t0) / flight.d), r = easeInOutCubic(progress);
+      const progress = flight.d === 0 || nowSeconds >= flight.endTime ? 1 : clamp01((nowSeconds - flight.takeoffAt) / flight.d);
       const pose = flight.pose, a = flight.a, b = flight.b;
       if (progress === 1) {
         pose.x = b.x; pose.y = b.y; pose.z = b.z; pose.ry = b.ry;
       } else if (progress === 0) {
         pose.x = a.x; pose.y = a.y; pose.z = a.z; pose.ry = a.ry;
+      } else if (flight.path === 'vertical') {
+        const cruiseEnd = 1 - flight.descentRatio;
+        if (progress < flight.ascentRatio) {
+          const phase = easeInOutCubic(progress / flight.ascentRatio);
+          pose.x = a.x; pose.z = a.z; pose.y = (1 - phase) * a.y + phase * flight.cruiseY; pose.ry = a.ry;
+        } else if (progress <= cruiseEnd) {
+          const phase = easeInOutCubic((progress - flight.ascentRatio) / (cruiseEnd - flight.ascentRatio));
+          pose.x = (1 - phase) * a.x + phase * b.x; pose.z = (1 - phase) * a.z + phase * b.z;
+          pose.y = flight.cruiseY; pose.ry = a.ry + flight.deltaRy * phase;
+        } else {
+          const phase = easeInOutCubic((progress - cruiseEnd) / flight.descentRatio);
+          pose.x = b.x; pose.z = b.z; pose.y = (1 - phase) * flight.cruiseY + phase * b.y; pose.ry = b.ry;
+        }
       } else {
-        const q = 1 - r, via = flight.via;
+        const r = easeInOutCubic(progress), q = 1 - r, via = flight.via;
         if (via) {
           pose.x = q * q * a.x + 2 * q * r * via.x + r * r * b.x;
           pose.y = q * q * a.y + 2 * q * r * via.y + r * r * b.y;

@@ -42,14 +42,17 @@ jobs:
 
   browser_shards:
     needs: predeploy
-    name: Desktop Chromium (${{ matrix.shard }}/2)
+    name: Desktop Chromium (${{ matrix.shard }}/16)
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
-    # Playwright 1.60 supports Ubuntu 24.04, while ubuntu-latest now resolves to
-    # 26.04 and fails during browser/dependency installation before tests run.
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    # Keep browser binaries and native libraries matched to Playwright 1.60.
+    # Pin the official Noble image; avoid per-run APT installation and drift.
     runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.60.0-noble@sha256:9bd26ad900bb5e0f4dee75839e957a89ae89c2b7ab1e76050e559790e946b948
+      options: --ipc=host
     timeout-minutes: 55
     steps:
       - name: Checkout
@@ -61,8 +64,10 @@ jobs:
           package-manager-cache: false
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-fund --no-audit
-      - name: Install Chromium for E2E
-        run: npx playwright install --with-deps chromium
+      - name: Record preinstalled browser environment
+        run: |
+          npx playwright --version
+          node --input-type=module -e "import { chromium } from '@playwright/test'; import { existsSync } from 'node:fs'; const executable = chromium.executablePath(); console.log(executable); if (!existsSync(executable)) throw new Error('Pinned Chromium binary is missing');"
       - name: Browser smoke tests
         # The 141-case suite reached case 134 without assertion failures at the
         # 35 min aggregate deadline (run 44076784577). Keep every test and its
@@ -70,7 +75,9 @@ jobs:
         timeout-minutes: 45
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/results.json
-        run: npm run test:e2e -- --project=chromium-desktop --shard=${{ matrix.shard }}/2 --max-failures=3 --reporter=line,json
+        # Stop a failed shard promptly; a successful run must still execute every
+        # case, and the aggregators below require all shards to succeed.
+        run: npm run test:e2e -- --project=chromium-desktop --shard=${{ matrix.shard }}/16 --max-failures=1 --reporter=line,json
       - name: Upload browser diagnostics
         if: always()
         uses: actions/upload-artifact@v6

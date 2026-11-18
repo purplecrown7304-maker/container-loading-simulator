@@ -21,6 +21,11 @@ export type StagingSceneBridge = {
   completeFlight?: (id: number) => void;
   selectUnit: (id: string | null) => void;
   selectVehicleUnit: (kind: 'cargo' | 'support', index: number) => void;
+  /** Read-only whole-pallet contents/miniature, independent of placement selection. */
+  inspectUnit?: (id: string) => void;
+  inspectVehicleUnit?: (kind: 'cargo' | 'support', index: number) => void;
+  /** False while input, packaging, calculation or playback prevents manual edits. */
+  canManipulate?: boolean;
   setView: (view: StagingCameraView) => void;
   onDragStart: (drag: StagingYardDrag) => void;
   onDragMove: (drag: StagingYardDrag) => void;

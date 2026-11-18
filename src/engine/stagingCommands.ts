@@ -180,19 +180,25 @@ function palletReasons(context: StagingCommandContext, pallets: PalletLoad[]) {
 
 /** No command writes stores, publishes events or changes the original input/plan. */
 export function assessStagingAddition(context: StagingCommandContext, unit: StagingUnit, target: StagingPosition, rotate = false): StagingCommandAssessment {
+  return assessAddition(context, unit, target, rotate, context);
+}
+
+/** Relocation evaluates the final plan against its original accepted baseline,
+ * never against the temporary state with the moving unit removed. */
+function assessAddition(context: StagingCommandContext, unit: StagingUnit, target: StagingPosition, rotate: boolean, baseline: StagingCommandContext): StagingCommandAssessment {
   const reasons = inputReasons(context, unit);
   if (unit.location !== 'yard') reasons.push('대기장에 있는 화물만 상차할 수 있습니다.');
   if (![target.x, target.y, target.z].every(value => Number.isFinite(value) && value >= 0)) reasons.push('적재 위치는 차량 내부의 유한한 좌표여야 합니다.');
-  if (reasons.length) return outcome(context, unit, reasons);
+  if (reasons.length) return outcome(baseline, unit, reasons);
   const position = { x: snapManualCoordinate(target.x, .001), y: snapManualCoordinate(target.y, .001), z: snapManualCoordinate(target.z, .001) };
   const occupiedIds = new Set([...context.result.placements.map(p => p.unitId), ...(context.assignedElsewhere ?? []).map(p => p.id)]);
-  if (unit.boxUnits.some(box => occupiedIds.has(box.id))) return outcome(context, unit, ['선택한 화물 개체가 이미 차량에 배치되어 있습니다.']);
+  if (unit.boxUnits.some(box => occupiedIds.has(box.id))) return outcome(baseline, unit, ['선택한 화물 개체가 이미 차량에 배치되어 있습니다.']);
   let pallets = context.pallets ?? [];
   let added: Placement[];
   let candidate: Placement;
   if (unit.kind === 'pallet') {
-    if (!unit.pallet || !context.palletSpec || unit.pallet.cargoPlacements.length !== unit.boxUnits.length || unit.pallet.cargoPlacements.some((p, i) => p.cargoId !== unit.boxUnits[i].cargoId)) return outcome(context, unit, ['완성된 파렛트 구성 정보를 찾을 수 없습니다.']);
-    if (rotate) return outcome(context, unit, ['포장된 파렛트는 전체 구성과 방향을 유지해 이동합니다.']);
+    if (!unit.pallet || !context.palletSpec || unit.pallet.cargoPlacements.length !== unit.boxUnits.length || unit.pallet.cargoPlacements.some((p, i) => p.cargoId !== unit.boxUnits[i].cargoId)) return outcome(baseline, unit, ['완성된 파렛트 구성 정보를 찾을 수 없습니다.']);
+    if (rotate) return outcome(baseline, unit, ['포장된 파렛트는 전체 구성과 방향을 유지해 이동합니다.']);
     const source = unit.pallet;
     const dx = position.x - source.x, dy = position.y - source.y, dz = position.z - source.z;
     const index = pallets.some(p => p.palletIndex === source.palletIndex) ? Math.max(0, ...pallets.map(p => p.palletIndex)) + 1 : source.palletIndex;
@@ -211,10 +217,11 @@ export function assessStagingAddition(context: StagingCommandContext, unit: Stag
     pallets = [...pallets, moved]; added = moved.cargoPlacements;
     reasons.push(...palletReasons(context, pallets));
   } else {
-    if (unit.boxUnits.length !== 1) return outcome(context, unit, ['낱박스 개체 정보가 유효하지 않습니다.']);
+    if (unit.boxUnits.length !== 1) return outcome(baseline, unit, ['낱박스 개체 정보가 유효하지 않습니다.']);
     const review = resolveLimitReview(context.container, context.cargo);
     const item = review.cargo.find(p => p.id === unit.boxUnits[0].cargoId)!;
-    candidate = { cargoId: item.id, unitId: unit.boxUnits[0].id, ...position, length: rotate ? item.width : item.length, width: rotate ? item.length : item.width, height: item.height, weightKg: item.weightKg, rotated: rotate, orientation: rotate ? 'WLH' : 'LWH' };
+    candidate = baseline !== context && unit.placement ? { ...unit.placement, ...position }
+      : { cargoId: item.id, unitId: unit.boxUnits[0].id, ...position, length: rotate ? item.width : item.length, width: rotate ? item.length : item.width, height: item.height, weightKg: item.weightKg, rotated: rotate, orientation: rotate ? 'WLH' : 'LWH' };
     if (!isInsideContainer(context.container, candidate)) reasons.push('컨테이너 벽·바닥·천장 경계를 벗어납니다.');
     if (context.result.placements.some(p => overlaps(candidate, p)) || pallets.some(p => overlaps(candidate, envelope(p)))) reasons.push('다른 화물과 충돌합니다.');
     const supports = palletSupportBodies({ pallets } as import('./palletPacking').PalletPackingResult).map(p => ({ ...p, cargoId: `PALLET-${p.id}` }));
@@ -222,15 +229,23 @@ export function assessStagingAddition(context: StagingCommandContext, unit: Stag
     if (isARules(context.container) && !pallets.length ? !aCandidateAllowed(context.container, context.cargo, context.result.placements, candidate) : !canPlaceByStackingRules(item, candidate, context.result.placements, new Map(review.cargo.map(p => [p.id, p])))) reasons.push('최대 적층단·회전 또는 상부 허용중량 조건을 만족하지 않습니다.');
     added = [candidate];
   }
-  const placements = [...context.result.placements, ...added];
+  let placements = [...context.result.placements, ...added];
+  if (baseline !== context) {
+    const moved = new Map(added.map(p => [p.unitId, p]));
+    placements = baseline.result.placements.map(p => moved.get(p.unitId) ?? p);
+    const byIndex = new Map(pallets.map(load => [load.palletIndex, load]));
+    pallets = (baseline.pallets ?? []).map(load => byIndex.get(load.palletIndex) ?? load);
+  }
   reasons.push(...quantityReasons(context, placements));
-  if (reasons.length) return outcome(context, unit, reasons, candidate);
+  if (reasons.length) return outcome(baseline, unit, reasons, candidate);
   const result = evidence(context, placements, pallets);
-  reasons.push(...regressionReasons(context, result, pallets));
-  return outcome(context, unit, reasons, candidate, result, pallets);
+  reasons.push(...regressionReasons(baseline, result, pallets));
+  return outcome(baseline, unit, reasons, candidate, result, pallets);
 }
 
-export function assessStagingWithdrawal(context: StagingCommandContext, unit: StagingUnit): StagingCommandAssessment {
+/** Membership and physical support locks are shared; no intermediate plan is
+ * published or judged for CG/payload during a whole-unit relocation. */
+function withdrawalSelection(context: StagingCommandContext, unit: StagingUnit) {
   const reasons = inputReasons(context, unit);
   if (unit.location !== 'vehicle') reasons.push('현재 차량에 배치된 화물만 회수할 수 있습니다.');
   const ids = new Set(unit.boxUnits.map(p => p.id));
@@ -249,11 +264,45 @@ export function assessStagingWithdrawal(context: StagingCommandContext, unit: St
       pallets = pallets.filter(p => p !== load);
     }
   } else if (indexes.some(index => supportsOtherPlacement(index, context.result.placements))) reasons.push('위 화물을 지지하는 하부 박스는 먼저 회수할 수 없습니다.');
-  if (reasons.length) return outcome(context, unit, reasons);
   const placements = context.result.placements.filter((_, index) => !selected.has(index));
+  return { reasons, placements, pallets, indexes };
+}
+
+export function assessStagingWithdrawal(context: StagingCommandContext, unit: StagingUnit): StagingCommandAssessment {
+  const { reasons, placements, pallets } = withdrawalSelection(context, unit);
+  if (reasons.length) return outcome(context, unit, reasons);
   const result = evidence(context, placements, pallets, true);
   reasons.push(...quantityReasons(context, placements), ...palletReasonsIfPresent(context, pallets), ...regressionReasons(context, result, pallets));
   return outcome(context, unit, reasons, undefined, result, pallets);
+}
+
+/** Atomic in-vehicle movement. Temporary removal supplies collision/support
+ * candidates only; every safety verdict and undo baseline uses the final plan. */
+export function assessStagingRelocation(context: StagingCommandContext, unit: StagingUnit, target: StagingPosition): StagingCommandAssessment {
+  const selection = withdrawalSelection(context, unit), reasons = selection.reasons;
+  if (new Set((context.pallets ?? []).map(load => load.palletIndex)).size !== (context.pallets?.length ?? 0)) reasons.push('현재 파렛트 식별 번호가 중복되어 있습니다.');
+  let sourceUnit = unit;
+  if (unit.kind === 'pallet') {
+    const ids = new Set(unit.boxUnits.map(box => box.id));
+    const load = context.pallets?.find(candidate => candidate.cargoPlacements.length === ids.size && candidate.cargoPlacements.every(p => p.unitId && ids.has(p.unitId)));
+    const expected = unit.pallet;
+    if (!load || !expected || load.palletIndex !== expected.palletIndex
+      || !['x', 'y', 'z', 'length', 'width', 'height', 'totalWeightKg', 'cargoWeightKg', 'packagingWeightKg', 'packagingExtraHeightM'].every(key => same(load[key as 'x'], expected[key as 'x']))
+      || load.wrappingUsed !== expected.wrappingUsed || load.cornerGuardsUsed !== expected.cornerGuardsUsed
+      || load.cargoPlacements.some(p => !expected.cargoPlacements.some(q => q.unitId === p.unitId && q.cargoId === p.cargoId
+        && ['x', 'y', 'z', 'length', 'width', 'height', 'weightKg'].every(key => same(p[key as 'x'], q[key as 'x']))))
+      || load.cargoPlacements.some(p => !unit.boxUnits.some(box => box.id === p.unitId && box.cargoId === p.cargoId))) {
+      reasons.push('선택한 파렛트 정보와 현재 차량의 전체 구성이 일치하지 않습니다.');
+    } else sourceUnit = { ...unit, pallet: load,
+      boxUnits: load.cargoPlacements.map(p => unit.boxUnits.find(box => box.id === p.unitId)!) };
+  } else if (selection.indexes.length === 1) {
+    const current = context.result.placements[selection.indexes[0]];
+    if (unit.boxUnits[0]?.cargoId !== current.cargoId || (unit.placement && !['x', 'y', 'z', 'length', 'width', 'height', 'weightKg'].every(key => same(unit.placement![key as 'x'], current[key as 'x'])))) reasons.push('선택한 화물 정보와 현재 차량의 배치가 일치하지 않습니다.');
+    sourceUnit = { ...unit, placement: current };
+  }
+  if (reasons.length) return outcome(context, unit, reasons);
+  const temporary = { ...context, result: { ...context.result, placements: selection.placements }, pallets: selection.pallets };
+  return assessAddition(temporary, { ...sourceUnit, location: 'yard' }, target, sourceUnit.kind === 'box' && sourceUnit.placement?.rotated === true, context);
 }
 
 /** Undo/restoration reuses current inputs and materials. No historical PASS enters this command. */

@@ -4,13 +4,15 @@ import type { StagingApplication, StagingWorkspaceProps } from './stagingWorkspa
 import { StagingSceneContext, type StagingCameraView, type StagingSceneBridge } from './stagingSceneContext';
 import { buildStagingInventory, identifyStagingPlan, stagingInputSignature, type StagingIdentityHints,
   type StagingSelectedPlan, type StagingUnit } from './stagingInventory';
-import { assessStagingAddition, assessStagingRestore, assessStagingWithdrawal, findStagingLoadingPosition,
+import { assessStagingAddition, assessStagingRelocation, assessStagingRestore, assessStagingWithdrawal, findStagingLoadingPosition,
   rebuildStagingPalletResult, type StagingCommandAssessment, type StagingCommandContext } from './engine/stagingCommands';
 import type { LoadingResult, Placement } from './engine/types';
 import type { MixedModePackingResult } from './engine/mixedModePacking';
 import type { OptimizedPalletPackingResult, PalletLoad, PalletSpec } from './engine/palletOptimization';
 import { buildStagingYardLayout, type StagingYardLayout } from './stagingYardLayout';
 import StagingYardPanel from './StagingYardPanel';
+import PalletContents from './PalletContents';
+import { palletModelKey } from './palletModel';
 import type { StagingYardDrag } from './ThreeStagingYard';
 import { useStagingPackaging } from './useStagingPackaging';
 import { usePalletSnapshot, type PalletSnapshot } from './palletSnapshotStore';
@@ -33,11 +35,11 @@ import { useStagingFlights } from './useStagingFlights';
 
 type HistoryEntry = { previous: { result: LoadingResult; pallets: PalletLoad[] }; selection: string | null;
   identity: StagingIdentityHints; yardPallets: PalletLoad[]; snapshot?: PalletSnapshot };
-type Control = { epoch: string; selected: string | null; identity: StagingIdentityHints; yardPallets: PalletLoad[];
+type Control = { epoch: string; selected: string | null; inspected: string | null; identity: StagingIdentityHints; yardPallets: PalletLoad[];
   history: HistoryEntry[]; message: string; dragging: boolean; preview: StagingSceneBridge['preview'];
   view: StagingCameraView; viewRequest: number; page: number; arrange: number };
 const ownerKey = () => isAdminSession() ? 'admin' : 'operator:' + (readSupabaseMember()?.id ?? readLocalOperator()?.id ?? 'guest');
-const freshControl = (epoch: string): Control => ({ epoch, selected: null, identity: { unitToStableId: {} }, yardPallets: [],
+const freshControl = (epoch: string): Control => ({ epoch, selected: null, inspected: null, identity: { unitToStableId: {} }, yardPallets: [],
   history: [], message: '', dragging: false, preview: null, view: 'all', viewRequest: 0, page: 0, arrange: 0 });
 const planKey = (plan?: StagingSelectedPlan) => plan ? JSON.stringify([plan.result.placements, (plan.pallets ?? []).map(load =>
   [load.palletIndex, load.cargoPlacements.map(p => p.unitId)])]) : '';
@@ -100,7 +102,7 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
   const restorationGeneration = useRef(0);
   const manualPlan = useRef<string>('');
   const observedPlan = useRef<string>('');
-  const drag = useRef<{ epoch: string; unitId: string } | null>(null);
+  const drag = useRef<{ epoch: string; unitId: string; planKey: string } | null>(null);
   const confirmed = props.inputsConfirmed !== false && !(props.pendingProducts && props.pendingProducts > 0);
   const snapshotKeys = useRef(new WeakMap<object, string>()), resultKeys = useRef(new WeakMap<object, string>());
   if (snapshot && !snapshotKeys.current.has(snapshot)) snapshotKeys.current.set(snapshot, epoch);
@@ -141,6 +143,9 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     securingLevel: Math.max(1, ...(normalizedPlan.pallets ?? []).map(load => load.bandingPlan?.securingLevel ?? 1)) as 1 | 2 | 3,
     strategy, materials: readSecuringMaterialSettings() }), [props.container, sourceCargo, normalizedPlan, spec, props.mode, strategy]);
   const flights = useStagingFlights({ epoch, inventory, layout, planKey: currentPlanKey, container: props.container,
+    // The source captured by queueLoad is already packaged and validated. The
+    // remaining yard may repack asynchronously after acceptance; waiting for that
+    // unrelated work would flash the final slot before jumping back to the dock.
     vehicleRig: vehicleRigForEquipment(equipment), calculating: props.calculating, confirmed, isPreview: props.isPreview });
   const snapshotSource = useMemo(() => props.mode === 'boxes' ? undefined
     : rawPlan && snapshot ? rawPlan.pallets === snapshot.result.pallets ? snapshot : { ...snapshot, result: { ...snapshot.result, pallets: rawPlan.pallets ?? snapshot.result.pallets } }
@@ -165,13 +170,20 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     const identity = () => setOwner(ownerKey());
     const preference = () => setStrategy(readLoadingStrategyPreference() ?? 'capacity');
     const load = (event: Event) => {
-      live.current.flights.cancel();
+      const now = live.current;
+      now.flights.cancel();
       // Input-only notifications also apply recovered manual plans. They must not
       // resurrect a different staging snapshot still held in localStorage.
       stored.current = (event as CustomEvent<StoredState>).detail ?? readStoredState();
+      // Final certification republishes the same inputs after a user may have
+      // selected a unit. Keep that stable view identity, while still cancelling
+      // stale drags/history. Real input changes and saved snapshots reset it.
+      const sameInputOnly = stored.current && !stored.current.staging
+        && stagingInputSignature({ ...now.base, container: stored.current.container, cargo: stored.current.cargo }) === now.signature;
       restored.current = null; drag.current = null;
       restorationInput.current.signature = live.current.signature;
-      setControl(value => ({ ...value, history: [], selected: null, preview: null, dragging: false })); setRestoreRevision(value => value + 1); };
+      setControl(value => ({ ...value, history: [], selected: sameInputOnly ? value.selected : null,
+        inspected: null, preview: null, dragging: false })); setRestoreRevision(value => value + 1); };
     const reset = () => {
       live.current.flights.cancel();
       stored.current = null; restored.current = live.current.epoch; restorationGeneration.current++;
@@ -227,11 +239,11 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     else now.flights.cancel();
     manualPlan.current = planKey({ inputSignature: now.signature, result: checked.result, pallets: checked.pallets });
     update(value => ({ ...value, identity: options.identity, selected: options.selected, yardPallets: options.yardPallets,
-      history: options.history, message: options.message, dragging: false, preview: null }));
+      history: options.history, message: options.message, inspected: null, dragging: false, preview: null }));
     save(options, checked.result, application.palletSnapshot);
     return true;
   }, [applicationFor, save, update]);
-  const commit = useCallback((checked: StagingCommandAssessment, withdrawal = false) => {
+  const commit = useCallback((checked: StagingCommandAssessment, withdrawal = false, relocation = false) => {
     const now = live.current;
     const unit = now.selected;
     if (!unit) return false;
@@ -247,8 +259,8 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
       identity: now.inventory.identity, yardPallets: now.inventory.yardUnits.filter(candidate => candidate.kind === 'pallet').map(identifiedLoad),
       snapshot: now.snapshotSource };
     return apply(checked, { yardPallets, selected: unit.id, identity, history: [...now.current.history, history],
-      animateLoad: !withdrawal,
-      message: withdrawal ? '선택 화물을 대기장으로 회수했습니다. 운송 검증을 다시 실행하세요.' : '선택 화물을 차량에 배치했습니다. 운송 검증을 다시 실행하세요.' });
+      animateLoad: !withdrawal && !relocation,
+      message: relocation ? '선택 화물 위치를 이동했습니다. 운송 검증을 다시 실행하세요.' : withdrawal ? '선택 화물을 대기장으로 회수했습니다. 운송 검증을 다시 실행하세요.' : '선택 화물을 차량에 배치했습니다. 운송 검증을 다시 실행하세요.' });
   }, [apply]);
   const loadSelected = useCallback(() => {
     const now = live.current;
@@ -267,41 +279,56 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
       history: now.current.history.slice(0, -1), source: previous.snapshot, message: '이전 화물 위치와 포장 구성을 복원했습니다. 운송 검증을 다시 실행하세요.' });
   }, [apply]);
   const selectUnit = useCallback((id: string | null) => update(value => ({ ...value,
-    selected: id && live.current.inventory.units.some(unit => unit.id === id) ? id : null, preview: null })), [update]);
-  const selectVehicleUnit = useCallback((kind: 'cargo' | 'support', index: number) => {
+    selected: id && live.current.inventory.units.some(unit => unit.id === id) ? id : null, inspected: null, preview: null })), [update]);
+  const vehicleUnitAt = (kind: 'cargo' | 'support', index: number) => {
     const now = live.current;
     const palletIndex = kind === 'support' ? now.context.pallets?.[index]?.palletIndex : undefined;
     const unit = now.inventory.vehicleUnits.find(candidate => kind === 'support' ? candidate.sourcePalletIndex === palletIndex
       : candidate.sourcePlacementIndex === index || candidate.sourcePlacementIndexes?.includes(index));
-    selectUnit(unit?.id ?? null);
+    return unit;
+  };
+  const selectVehicleUnit = useCallback((kind: 'cargo' | 'support', index: number) => {
+    selectUnit(vehicleUnitAt(kind, index)?.id ?? null);
   }, [selectUnit]);
+  const inspectUnit = useCallback((id: string) => {
+    const unit = live.current.inventory.units.find(candidate => candidate.id === id);
+    if (!unit) return;
+    update(value => ({ ...value, selected: id, inspected: unit.kind === 'pallet' && unit.pallet ? id : null, preview: null }));
+  }, [update]);
+  const inspectVehicleUnit = useCallback((kind: 'cargo' | 'support', index: number) => {
+    const unit = vehicleUnitAt(kind, index); if (unit) inspectUnit(unit.id);
+  }, [inspectUnit]);
   const setView = useCallback((view: StagingCameraView) => update(value => ({ ...value, view, page: view === 'all' ? 0 : value.page, viewRequest: value.viewRequest + 1 })), [update]);
   const previewDrag = useCallback((event: StagingYardDrag) => {
     const now = live.current;
-    if (drag.current?.epoch !== now.epoch || now.props.calculating || !now.confirmed) return;
-    const unit = now.inventory.yardUnits.find(candidate => candidate.id === event.unitId);
-    if (!unit || unit.requiresPackaging || unit.verdict === 'error') return;
+    if (drag.current?.epoch !== now.epoch || drag.current.planKey !== now.currentPlanKey || now.props.calculating || !now.confirmed) return;
+    const unit = now.inventory.units.find(candidate => candidate.id === event.unitId && candidate.location !== 'other-vehicle');
+    if (!unit || unit.requiresPackaging || (unit.location === 'yard' && unit.verdict === 'error')) return;
     const position = stagingDragPosition(unit, event.point, now.props.container);
-    const checked = assessStagingAddition(stagingCommandContextForUnit(now.context, unit), unit, position);
+    const checked = unit.location === 'vehicle'
+      ? assessStagingRelocation(stagingCommandContextForUnit(now.context, unit), unit, position)
+      : assessStagingAddition(stagingCommandContextForUnit(now.context, unit), unit, position);
     const candidate: Placement = checked.candidate ?? { cargoId: unit.cargoId ?? unit.id, ...position,
       length: unit.length, width: unit.width, height: unit.height, weightKg: unit.weightKg };
     update(value => ({ ...value, selected: unit.id, dragging: true,
       preview: { unitId: unit.id, candidate, valid: checked.valid, reasons: checked.reasons } }));
   }, [update]);
   const onDragStart = useCallback((event: StagingYardDrag) => {
-    drag.current = { epoch: live.current.epoch, unitId: event.unitId }; previewDrag(event);
+    drag.current = { epoch: live.current.epoch, unitId: event.unitId, planKey: live.current.currentPlanKey }; previewDrag(event);
   }, [previewDrag]);
   const onDragEnd = useCallback((event: StagingYardDrag) => {
     const now = live.current, started = drag.current; drag.current = null;
-    if (event.cancelled || started?.epoch !== now.epoch || started.unitId !== event.unitId
+    if (event.cancelled || started?.epoch !== now.epoch || started.unitId !== event.unitId || started.planKey !== now.currentPlanKey
       || now.props.calculating || !now.confirmed) { update(value => ({ ...value, dragging: false, preview: null })); return; }
-    const unit = now.inventory.yardUnits.find(candidate => candidate.id === event.unitId);
-    if (!unit || unit.requiresPackaging) return;
+    const unit = now.inventory.units.find(candidate => candidate.id === event.unitId && candidate.location !== 'other-vehicle');
+    if (!unit || unit.requiresPackaging) { update(value => ({ ...value, dragging: false, preview: null })); return; }
     // Reassess now; the preview is never itself permission to mutate the plan.
-    const checked = assessStagingAddition(stagingCommandContextForUnit(now.context, unit), unit,
-      stagingDragPosition(unit, event.point, now.props.container));
+    const target = stagingDragPosition(unit, event.point, now.props.container);
+    const checked = unit.location === 'vehicle'
+      ? assessStagingRelocation(stagingCommandContextForUnit(now.context, unit), unit, target)
+      : assessStagingAddition(stagingCommandContextForUnit(now.context, unit), unit, target);
     if (now.current.selected !== unit.id) live.current = { ...now, selected: unit, current: { ...now.current, selected: unit.id } };
-    commit(checked);
+    commit(checked, false, unit.location === 'vehicle');
   }, [commit, update]);
 
   const restoreAction = useRef<() => void>(() => {});
@@ -342,7 +369,7 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     restorationGeneration.current++;
     manualPlan.current = planKey({ ...plan, result: checked.result, pallets: checked.pallets });
     restored.current = now.epoch;
-    update(value => ({ ...value, identity: matching.identity, selected: matching.selectedUnitId,
+    update(value => ({ ...value, identity: matching.identity, selected: matching.selectedUnitId, inspected: null,
       yardPallets: matching.yardPallets ?? [], history: [], message: '저장된 화물 위치와 포장 계획을 복원했습니다. 운송 검증을 다시 실행하세요.' }));
   };
   useEffect(() => {
@@ -379,7 +406,10 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
   const bridge: StagingSceneBridge = { inventory, layout, visibleZoneIds, selectedUnitId: current.selected, view: current.view,
     viewRequest: current.viewRequest, dragging: current.dragging, preview: current.preview,
     flight: flights.sequence, completeFlight: flights.complete,
-    selectUnit, selectVehicleUnit, setView, onDragStart, onDragMove: previewDrag, onDragEnd,
+    selectUnit, selectVehicleUnit, inspectUnit, inspectVehicleUnit,
+    canManipulate: confirmed && !props.calculating && !packaging.busy && !flights.sequence && !inventory.referenceResult
+      && (inventory.packagingStatus === 'ready' || inventory.packagingStatus === 'not-required'),
+    setView, onDragStart, onDragMove: previewDrag, onDragEnd,
     onDraggingChange: dragging => update(value => ({ ...value, dragging, ...(!dragging ? { preview: null } : {}) })) };
   const message = [props.pendingProducts ? uiText('포장 미확정 제품 {0} EA · 포장 확정 후 실제 박스 수량이 표시됩니다.', [props.pendingProducts]) : '',
     packaging.error, current.message].filter(Boolean).join(' ');
@@ -395,7 +425,12 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
       view: 'yard', viewRequest: value.viewRequest + 1 }))}
     onArrange={() => update(value => ({ ...value, arrange: value.arrange + 1, viewRequest: value.viewRequest + 1 }))}
     onPackagingDetails={() => { const id = selected?.cargoId ?? selected?.cargoIds[0]; if (id) openPackagingContents({ cargoId: id }); }} />;
+  const inspected = inventory.units.find(unit => unit.id === current.inspected);
   return <StagingSceneContext.Provider value={bridge}>{props.children}
+    {inspected?.pallet && !current.dragging && !flights.sequence && !props.calculating && <div className="staging-pallet-details">
+      <PalletContents pallet={inspected.pallet} cargo={sourceCargo} modelKey={palletModelKey(inspected.palletSpec ?? spec)}
+        onClose={() => update(value => ({ ...value, inspected: null }))} />
+    </div>}
     {portal ? createPortal(panel, portal) : <aside className="staging-workspace-fallback" style={{ position: 'absolute', right: 12, bottom: 12,
       zIndex: 12, width: 'min(320px, calc(100% - 24px))', maxHeight: 'calc(100% - 24px)', overflow: 'auto' }}>{panel}</aside>}
   </StagingSceneContext.Provider>;
