@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { CargoItem, ContainerSpec } from '../src/engine/types';
-import { PerspectiveCamera, Vector3 } from 'three';
+import { PerspectiveCamera, Plane, Raycaster, Vector2, Vector3 } from 'three';
 import { buildStagingYardLayout } from '../src/stagingYardLayout';
 
 test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
@@ -124,17 +124,25 @@ test('5000 loose boxes form compact stacks while paging four of 20 staging zones
   await expect(panel(page).getByText(firstId!, { exact: true })).toBeVisible();
   const layout = buildStagingYardLayout(Array.from({ length: 5000 }, (_, index) => ({ id: String(index), kind: 'box' as const,
     cargoId: 'YARD-SCALE', length: .5, width: .4, height: .3 })), { container, vehicleRig: 'articulated' });
-  async function screen(point: [number, number, number]) {
-    const rect = (await canvas.boundingBox())!, pose = (await viewer.getAttribute('data-three-camera-pose'))!.split(',').map(Number);
-    const camera = new PerspectiveCamera(40, rect.width / rect.height, .02, 500);
-    camera.position.fromArray(pose); camera.quaternion.fromArray(pose.slice(3)); camera.updateMatrixWorld(true);
+  const rect = (await canvas.boundingBox())!, pose = (await viewer.getAttribute('data-three-camera-pose'))!.split(',').map(Number);
+  const camera = new PerspectiveCamera(40, rect.width / rect.height, .02, 500);
+  camera.position.fromArray(pose); camera.quaternion.fromArray(pose.slice(3)); camera.updateMatrixWorld(true);
+  function screen(point: [number, number, number]) {
     const p = new Vector3(...point).project(camera);
     return { x: rect.x + (p.x + 1) * rect.width / 2, y: rect.y + (1 - p.y) * rect.height / 2 };
   }
   // Drag an exposed top carton instead of aiming through the new stack.
   const top = layout.slots.filter(slot => slot.zoneId === 'A').sort((a, b) => b.center[1] - a.center[1])[0];
   const [sx, sy, sz] = top.center;
-  const source = await screen([sx, sy + .2, sz]), destination = await screen([0, 0, 0]);
+  const source = screen([sx, sy + .2, sz]);
+  const ray = new Raycaster();
+  ray.setFromCamera(new Vector2((source.x - rect.x) / rect.width * 2 - 1,
+    1 - (source.y - rect.y) / rect.height * 2), camera);
+  const grip = ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), 0), new Vector3());
+  expect(grip).not.toBeNull();
+  // Native dragging retains the actual off-centre grip. Compensate on the
+  // vehicle's interaction plane so the box's floor centre reaches world zero.
+  const destination = screen([grip!.x - sx, 0, grip!.z - sz]);
   await page.mouse.move(source.x, source.y); await page.mouse.down();
   await page.mouse.move(destination.x, destination.y, { steps: 12 });
   await expect(panel(page).locator('.staging-panel-preview.valid')).toBeVisible();
@@ -143,6 +151,10 @@ test('5000 loose boxes form compact stacks while paging four of 20 staging zones
   await expect(countRow(page, '현재 차량 배치량')).toHaveText(['0', '1']);
   await expect(countRow(page, '대기량')).toHaveText(['0', '4,999']);
   await expect(countRow(page, '전체 준비량')).toHaveText(['0', '5,000']);
+  const placed = await page.evaluate(() => (window as any).__containerLoadingLatestResult.result.placements[0]);
+  expect(placed.x).toBeCloseTo(container.length / 2 - cargo[0].length / 2, 3);
+  expect(placed.y).toBeCloseTo(container.width / 2 - cargo[0].width / 2, 3);
+  expect(placed.z).toBe(0);
   await expect(viewer).toHaveAttribute('data-three-camera-pose', firstPage.cameraPose!);
   await expect(panel(page).locator('.staging-panel-unit-id')).toHaveText(draggedId);
   await panel(page).getByRole('button', { name: '되돌리기', exact: true }).click();
