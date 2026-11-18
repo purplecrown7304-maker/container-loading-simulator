@@ -152,6 +152,45 @@ it('cancels a pending automatic worker so its late result cannot overwrite an ac
   expect(packOnPallets).not.toHaveBeenCalled();
 });
 
+it('reports the end of a worker run only together with its scene, and at once when the run fails', async () => {
+  const workers: Array<{ onmessage?: (event: MessageEvent) => void; onerror?: () => void }> = [];
+  class PendingWorker {
+    onmessage?: (event: MessageEvent) => void;
+    onerror?: () => void;
+    terminate = vi.fn();
+    postMessage = vi.fn();
+    constructor() { workers.push(this); }
+  }
+  vi.stubGlobal('Worker', PendingWorker);
+  const packed = { pallets: [], placements: [], remaining: [{ cargoId: 'A', quantity: 1, reason: '대기' }], palletCount: 0,
+    loadedCargoWeightKg: 0, totalPackagingWeightKg: 0, avoidedPackagingWeightKg: 0, packagedPalletCount: 0,
+    totalPalletizedWeightKg: 0, consolidatedPallets: 0, lateralImbalanceKg: 0, stackedPallets: 0, maxUsedStackLevel: 0,
+    optimization: { selectedStackTarget: 0, candidateCount: 0, floorPositions: 0, redistributedForLowUtilization: false, consolidationPasses: 0 } };
+  await render(0, 'A'); await render(1, 'A');
+  expect(workers).toHaveLength(1); expect(onRunningChange).not.toHaveBeenCalled();
+  // The staging yard starts its yard-to-vehicle flight only when "running" falls in the same
+  // update as the new plan. The owner must therefore hear about the scene first.
+  workers[0].onmessage?.({ data: { result: packed } } as MessageEvent);
+  expect(onRunningChange).not.toHaveBeenCalled();
+  await act(async () => {});
+  const scene = onSceneChange.mock.calls.map(([value]) => value?.inputKey).lastIndexOf('A');
+  expect(scene).toBeGreaterThanOrEqual(0);
+  expect(onRunningChange).toHaveBeenCalledTimes(1); expect(onRunningChange).toHaveBeenLastCalledWith(false);
+  expect(onSceneChange.mock.invocationCallOrder[scene]).toBeLessThan(onRunningChange.mock.invocationCallOrder[0]);
+  expect(readPalletSnapshot()?.result).toBe(packed);
+
+  // A run without a result publishes no scene, so it must not wait for one.
+  await render(2, 'A');
+  expect(workers).toHaveLength(2);
+  const scenesBefore = onSceneChange.mock.calls.length;
+  await act(async () => workers[1].onmessage?.({ data: { error: '계산 실패' } } as MessageEvent));
+  expect(onRunningChange).toHaveBeenCalledTimes(2); expect(onRunningChange).toHaveBeenLastCalledWith(false);
+  expect(onSceneChange.mock.calls.length).toBe(scenesBefore);
+  await render(3, 'A');
+  await act(async () => workers[2].onerror?.());
+  expect(onRunningChange).toHaveBeenCalledTimes(3);
+});
+
 function actualTierFixture(stacked: boolean, selectedStackTarget: number, cartonTiers = 7): OptimizedPalletPackingResult {
   const spec = palletJobSpec(resolvePalletType());
   const pallets = [0, 1].map(index => {

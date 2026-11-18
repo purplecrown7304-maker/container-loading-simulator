@@ -655,6 +655,62 @@ function checkHeavyOnLight(bodies: Body[], supporters: SupportLink[][]) {
 
 export type OperationalValidationOptions = { approvedDirectBox?: boolean };
 
+/**
+ * Reuse of a finished validation for byte-identical input.
+ *
+ * One loading result is validated again by every panel that shows it, and again each
+ * time a certification event re-renders them. With thousands of cartons each pass
+ * costs tens of milliseconds on the main thread, and the passes add up to a visible
+ * freeze. The key below is the complete serialized input — container, cargo,
+ * every placement and support, the option and the matched equipment record — so a hit
+ * can only return what the same call would compute again. Nothing is keyed on object
+ * identity: an edited array simply serializes to a different key.
+ *
+ * Not used for small loads (already cheap), for A-rules (their own validator and
+ * configuration) or when a value is not finite (JSON cannot tell NaN from null).
+ */
+const VALIDATION_REUSE_MIN_PLACEMENTS = 256;
+const VALIDATION_REUSE_ENTRIES = 4;
+const recentValidations: Array<{ key: string; findings: OperationalRuleFinding[] }> = [];
+let validationReuseEnabled = true;
+
+/** Test hook: false makes every call compute its findings (the reference behaviour). */
+export function setOperationalValidationReuseForTests(enabled: boolean) {
+  validationReuseEnabled = enabled;
+  recentValidations.length = 0;
+}
+
+function copyFindings(findings: OperationalRuleFinding[]) {
+  return findings.map(item => ({ ...item, placementIndexes: [...item.placementIndexes] }));
+}
+
+function finiteBody(item: { x: number; y: number; z: number; length: number; width: number; height: number; weightKg: number }) {
+  return Number.isFinite(item.x) && Number.isFinite(item.y) && Number.isFinite(item.z)
+    && Number.isFinite(item.length) && Number.isFinite(item.width) && Number.isFinite(item.height) && Number.isFinite(item.weightKg);
+}
+
+function validationReuseKey(
+  container: ContainerSpec,
+  cargo: CargoItem[],
+  placements: Placement[],
+  supports: OperationalSupport[],
+  options: OperationalValidationOptions,
+) {
+  if (!validationReuseEnabled || placements.length < VALIDATION_REUSE_MIN_PLACEMENTS) return null;
+  if (!placements.every(finiteBody) || !supports.every(finiteBody)) return null;
+  try {
+    // Container, cargo and equipment are a few small records: every number in them is
+    // checked while they are written. The long placement and support lists hold only the
+    // numbers tested above, so they are written without a per-value callback.
+    let finite = true;
+    const settings = JSON.stringify([container, cargo, options.approvedDirectBox === true, equipmentFor(container) ?? null],
+      (_key, value: unknown) => { if (typeof value === 'number' && !Number.isFinite(value)) finite = false; return value; });
+    return finite ? settings + '\n' + JSON.stringify([placements, supports]) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function validateOperationalLoading(
   container: ContainerSpec,
   cargo: CargoItem[],
@@ -664,6 +720,30 @@ export function validateOperationalLoading(
 ): OperationalRuleFinding[] {
   if (isARules(container)) return validateAPlan(container, cargo, placements, supports);
   if (!placements.length && !supports.length) return [];
+  const reuseKey = validationReuseKey(container, cargo, placements, supports, options);
+  if (reuseKey !== null) {
+    const index = recentValidations.findIndex(entry => entry.key === reuseKey);
+    if (index >= 0) {
+      const [entry] = recentValidations.splice(index, 1);
+      recentValidations.unshift(entry);
+      return copyFindings(entry.findings);
+    }
+  }
+  const findings = computeOperationalFindings(container, cargo, placements, supports, options);
+  if (reuseKey !== null) {
+    recentValidations.unshift({ key: reuseKey, findings: copyFindings(findings) });
+    if (recentValidations.length > VALIDATION_REUSE_ENTRIES) recentValidations.length = VALIDATION_REUSE_ENTRIES;
+  }
+  return findings;
+}
+
+function computeOperationalFindings(
+  container: ContainerSpec,
+  cargo: CargoItem[],
+  placements: Placement[],
+  supports: OperationalSupport[],
+  options: OperationalValidationOptions,
+): OperationalRuleFinding[] {
   const normalizedCargo = cargoWithUnloadingPolicy(container,cargo);
   const bodies = buildBodies(normalizedCargo, placements, supports);
   const supporters = supportersOf(bodies);

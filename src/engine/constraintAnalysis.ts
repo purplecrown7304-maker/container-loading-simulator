@@ -1,5 +1,6 @@
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './types';
 import type { FloorLoadAnalysis } from './floorLoad';
+import { candidateIndexes, footprintGridFor } from './footprintGrid';
 
 export type ConstraintStatus = 'pass' | 'warn' | 'fail';
 
@@ -28,28 +29,40 @@ export function analyzeConstraints(
   const maxTop = Math.max(0, ...result.placements.map(p => p.z + p.height));
   const invalidGeometry = result.validationIssues.length > 0;
 
+  // Both checks below only count cartons whose footprint overlaps the carton under
+  // test. The footprint grid returns exactly those candidates (a superset, in ascending
+  // index order), so the counts and the floating-point sums are the same as when every
+  // carton was compared with every other one; cartons elsewhere are simply not visited.
+  const placements = result.placements;
+  const grid = footprintGridFor(placements);
+  const overlapping = (p: Placement) => candidateIndexes(grid, placements.length, p.x, p.y, p.x + p.length, p.y + p.width);
+
   let stackViolation = 0;
-  for (let i = 0; i < result.placements.length; i += 1) {
-    const p = result.placements[i];
+  for (let i = 0; i < placements.length; i += 1) {
+    const p = placements[i];
     const spec = cargoMap.get(p.cargoId);
     if (!spec?.maxStackLayers) continue;
-    const belowSame = result.placements.filter((q, j) =>
-      j !== i && q.cargoId === p.cargoId && q.z + q.height <= p.z + EPS && overlapArea(p, q) > Math.min(p.length * p.width, q.length * q.width) * 0.5,
-    ).length;
+    let belowSame = 0;
+    for (const j of overlapping(p)) {
+      const q = placements[j];
+      if (j !== i && q.cargoId === p.cargoId && q.z + q.height <= p.z + EPS && overlapArea(p, q) > Math.min(p.length * p.width, q.length * q.width) * 0.5) belowSame += 1;
+    }
     if (belowSame + 1 > spec.maxStackLayers) stackViolation += 1;
   }
 
   let topLoadViolation = 0;
-  for (const base of result.placements) {
+  for (const base of placements) {
     const spec = cargoMap.get(base.cargoId);
     if (spec?.maxTopLoadKg === undefined) continue;
-    const supportedWeight = result.placements.reduce((sum, upper) => {
-      if (upper.z + EPS < base.z + base.height) return sum;
+    let supportedWeight = 0;
+    for (const j of overlapping(base)) {
+      const upper = placements[j];
+      if (upper.z + EPS < base.z + base.height) continue;
       const area = overlapArea(base, upper);
-      if (area <= EPS) return sum;
+      if (area <= EPS) continue;
       const ratio = area / Math.max(EPS, upper.length * upper.width);
-      return sum + upper.weightKg * Math.min(1, ratio);
-    }, 0);
+      supportedWeight += upper.weightKg * Math.min(1, ratio);
+    }
     if (supportedWeight > spec.maxTopLoadKg + EPS) topLoadViolation += 1;
   }
 

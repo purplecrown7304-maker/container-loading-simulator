@@ -125,12 +125,19 @@ function placementKey(p: Placement) {
 function localPlacement(p: Placement, load: PalletLoad) {
   return { ...p, x: p.x - load.x, y: p.y - load.y, z: p.z - load.z };
 }
-function loadKey(load: PalletLoad) {
-  return JSON.stringify([load.length, load.width, load.height, load.wrappingUsed, load.cornerGuardsUsed,
-    load.cargoPlacements.map(p => {
-      const local = localPlacement(p, load);
-      return [local.cargoId, ...[local.x, local.y, local.z, local.length, local.width, local.height, local.weightKg].map(n => Number(n.toFixed(8)))];
-    }).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
+/**
+ * Content key of a built pallet: its size, packaging and its cartons in a canonical order.
+ * Each carton row is serialised once and the rows are ordered by that text. Rows with the
+ * same text are identical, so the key is the one the former comparator (which serialised
+ * both rows again on every comparison) produced.
+ */
+export function stagingLoadKey(load: PalletLoad) {
+  const rows = load.cargoPlacements.map(p => {
+    const local = localPlacement(p, load);
+    const row = [local.cargoId, ...[local.x, local.y, local.z, local.length, local.width, local.height, local.weightKg].map(n => Number(n.toFixed(8)))];
+    return { row, text: JSON.stringify(row) };
+  }).sort((a, b) => a.text.localeCompare(b.text));
+  return JSON.stringify([load.length, load.width, load.height, load.wrappingUsed, load.cornerGuardsUsed, rows.map(entry => entry.row)]);
 }
 function placementValid(p: Placement) {
   return [p.x, p.y, p.z].every(Number.isFinite)
@@ -159,7 +166,8 @@ function approvedPlans(input: StagingInventoryInput, signature: string, valid: C
         issues.push(vehicleId + ': 현재 화물과 맞지 않는 배치'); return false;
       }
       counts.set(p.cargoId, (counts.get(p.cargoId) ?? 0) + 1);
-      resultKeys.set(placementKey(p), (resultKeys.get(placementKey(p)) ?? 0) + 1);
+      const resultKey = placementKey(p);
+      resultKeys.set(resultKey, (resultKeys.get(resultKey) ?? 0) + 1);
       if (p.unitId) {
         if (p.unitId.startsWith('staging-box:')) {
           const ordinal = Number(p.unitId.slice(p.unitId.lastIndexOf(':') + 1));
@@ -284,12 +292,23 @@ export function buildStagingInventory(input: StagingInventoryInput): StagingInve
   const byCargo = new Map<string, string[]>();
   for (const row of [...preflight.cargo].sort((a, b) => a.id.localeCompare(b.id))) {
     const ids: string[] = [];
+    // Same text as stableBoxId(scope, cargo, ordinal); the encoded prefix is built once per row.
+    const prefix = stableBoxId(input.scopeKey, row.id, 0).slice(0, -1);
     for (let ordinal = 0; ordinal < row.quantity; ordinal++) {
-      const id = stableBoxId(input.scopeKey, row.id, ordinal);
+      const id = prefix + ordinal;
       available.set(id, { id, stableId: id, cargoId: row.id }); ids.push(id);
     }
     byCargo.set(row.id, ids);
   }
+  // A pallet's content key is asked for by the sort below on every comparison and again
+  // when placed and waiting pallets are matched. No load changes during this call, so
+  // each key is built once per load object.
+  const loadKeys = new Map<PalletLoad, string>();
+  const loadKey = (load: PalletLoad) => {
+    let key = loadKeys.get(load);
+    if (key === undefined) { key = stagingLoadKey(load); loadKeys.set(load, key); }
+    return key;
+  };
   const nextByCargo = new Map<string, number>();
   function take(p: Pick<Placement, 'cargoId' | 'unitId'>, vehicleId = 'yard'): StagingBoxIdentity | undefined {
     const alias = p.unitId ? JSON.stringify([vehicleId, p.unitId]) : undefined;
@@ -346,7 +365,10 @@ export function buildStagingInventory(input: StagingInventoryInput): StagingInve
   for (const { plan, current, vehicleId } of plans) {
     const location = current ? 'vehicle' : 'other-vehicle';
     const indexes = new Map<string, number[]>();
-    plan.result.placements.forEach((p, index) => indexes.set(placementKey(p), [...(indexes.get(placementKey(p)) ?? []), index]));
+    plan.result.placements.forEach((p, index) => {
+      const key = placementKey(p), known = indexes.get(key);
+      if (known) known.push(index); else indexes.set(key, [index]);
+    });
     const insidePallet = new Set<number>();
     for (const load of [...(plan.pallets ?? [])].sort((a, b) => loadKey(a).localeCompare(loadKey(b)) || a.palletIndex - b.palletIndex)) {
       const boxes = load.cargoPlacements.map(p => take(p, vehicleId)!);

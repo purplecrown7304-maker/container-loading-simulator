@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { operationalErrors, validateOperationalLoading } from './operationalValidator';
+import { afterEach, describe, expect, it } from 'vitest';
+import { operationalErrors, setOperationalValidationReuseForTests, validateOperationalLoading } from './operationalValidator';
 import type { CargoItem, ContainerSpec, Placement } from './types';
 
 const box = (patch: Partial<Placement> = {}): Placement => ({
@@ -134,5 +134,85 @@ describe('load-sim operational validator adapter', () => {
       message:expect.stringContaining('LATE-DECK'),
     }));
     expect(operationalErrors(findings).some(f=>f.code.startsWith('AFTER_STOP_'))).toBe(false);
+  });
+});
+
+describe('reuse of a finished validation for identical input', () => {
+  afterEach(() => setOperationalValidationReuseForTests(true));
+  const wide: ContainerSpec = { length: 12, width: 2.4, height: 2.6, maxPayloadKg: 28000 };
+  const small: CargoItem = { ...item, length: .5, width: .5, height: .3, weightKg: 10, quantity: 400 };
+  // 22 × 4 × 3 = 264 cartons: above the reuse threshold, stacked three high from the inner wall.
+  const grid = () => Array.from({ length: 264 }, (_, i): Placement => ({
+    cargoId: 'A', x: Math.floor(i / 12) * .5, y: (Math.floor(i / 3) % 4) * .5 + .2, z: (i % 3) * .3,
+    length: .5, width: .5, height: .3, weightKg: 10,
+  }));
+  const reference = (...args: Parameters<typeof validateOperationalLoading>) => {
+    setOperationalValidationReuseForTests(false);
+    const findings = validateOperationalLoading(...args);
+    setOperationalValidationReuseForTests(true);
+    return findings;
+  };
+
+  it('returns the same findings as a fresh computation, as independent copies', () => {
+    const placements = grid();
+    const expected = reference(wide, [small], placements);
+    const first = validateOperationalLoading(wide, [small], placements);
+    const second = validateOperationalLoading(wide, [small], grid());
+    expect(first).toEqual(expected);
+    expect(second).toEqual(expected);
+    expect(second).not.toBe(first);
+    // A caller that edits its findings must not change what the next caller receives.
+    first.forEach(finding => { finding.severity = 'error'; finding.placementIndexes.push(-1); });
+    first.length = 0;
+    expect(validateOperationalLoading(wide, [small], placements)).toEqual(expected);
+  });
+
+  it('never returns an earlier verdict after any input changed, including an in-place edit', () => {
+    const placements = grid();
+    expect(operationalErrors(validateOperationalLoading(wide, [small], placements)).map(f => f.code)).not.toContain('OVERLAP');
+    // The same array object, edited in place: one carton now sits inside its neighbour.
+    placements[5].x = placements[17].x + .1; placements[5].y = placements[17].y; placements[5].z = placements[17].z;
+    const edited = validateOperationalLoading(wide, [small], placements);
+    expect(edited).toEqual(reference(wide, [small], placements));
+    expect(operationalErrors(edited).map(f => f.code)).toContain('OVERLAP');
+
+    const base = grid();
+    validateOperationalLoading(wide, [small], base);
+    const light = { ...wide, maxPayloadKg: 1000 };
+    expect(operationalErrors(validateOperationalLoading(light, [small], base)).map(f => f.code)).toContain('PAYLOAD_EXCEEDED');
+    const strict = [{ ...small, maxStackLayers: 2 }];
+    expect(validateOperationalLoading(wide, strict, base)).toEqual(reference(wide, strict, base));
+    expect(validateOperationalLoading(wide, [small], base, [], { approvedDirectBox: true }))
+      .toEqual(reference(wide, [small], base, [], { approvedDirectBox: true }));
+    const deck = [{ id: 'DECK', x: 0, y: .2, z: 0, length: 1, width: 1, height: .01, weightKg: 5 }];
+    expect(validateOperationalLoading(wide, [small], base, deck)).toEqual(reference(wide, [small], base, deck));
+  });
+
+  it('computes directly when a value is not finite', () => {
+    const placements = grid();
+    placements[0].weightKg = Number.NaN;
+    expect(validateOperationalLoading(wide, [small], placements)).toEqual(reference(wide, [small], placements));
+  });
+
+  it('does not mix up a non-finite setting with an empty one (JSON writes both as null)', () => {
+    const base = grid();
+    // Each pair serializes to the same text. The references are computed first (the helper
+    // empties the reuse store), then the pairs run back to back with reuse switched on.
+    const containers: ContainerSpec[] = [{ ...wide, floorLoadLimitKgPerM2: Number.NaN }, { ...wide, floorLoadLimitKgPerM2: null as unknown as number }];
+    const rows: CargoItem[] = [
+      { ...small, maxTopLoadKg: Number.POSITIVE_INFINITY }, { ...small, maxTopLoadKg: null as unknown as number },
+      { ...small, maxStackLayers: Number.NaN }, { ...small, maxStackLayers: null as unknown as number },
+    ];
+    const unlimited: ContainerSpec = { ...wide, maxPayloadKg: Number.POSITIVE_INFINITY };
+    const expectedContainers = containers.map(spec => reference(spec, [small], base));
+    const expectedRows = rows.map(row => reference(wide, [row], base));
+    const expectedUnlimited = reference(unlimited, [small], base);
+    containers.forEach((spec, index) => expect(validateOperationalLoading(spec, [small], base)).toEqual(expectedContainers[index]));
+    rows.forEach((row, index) => expect(validateOperationalLoading(wide, [row], base)).toEqual(expectedRows[index]));
+    // An unlimited payload validates; a missing payload figure fails inside the computation.
+    // The second call must reach that computation instead of receiving the first verdict.
+    expect(validateOperationalLoading(unlimited, [small], base)).toEqual(expectedUnlimited);
+    const missing = { ...wide, maxPayloadKg: null as unknown as number };
+    expect(() => validateOperationalLoading(missing, [small], base)).toThrow(TypeError);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeConstraints } from './constraintAnalysis';
 import type { FloorLoadAnalysis } from './floorLoad';
+import { FOOTPRINT_GRID_MIN_ITEMS, setFootprintGridsEnabledForTests } from './footprintGrid';
 import type { CargoItem, ContainerSpec, LoadingResult } from './types';
 
 const cargo: CargoItem[] = [{
@@ -47,6 +48,30 @@ describe('report-driven constraint analysis', () => {
     expect(doorSpace?.status).toBe('warn');
     const tight: LoadingResult = { ...result, placements: Array.from({ length: 9 }, (_, index) => ({ ...result.placements[0], x: index })) };
     expect(analyzeConstraints(container, cargo, tight, floor(100, 50)).find((check) => check.id === 'doorSpace')?.detail).toBe('길이 활용 90.0% · 문쪽 공백 1000 mm');
+  });
+
+  it('counts stack and top-load findings exactly as the all-pairs comparison does', () => {
+    // 6 × 4 footprint columns, five tiers, with every third column shifted by a third of a
+    // carton so that upper cartons bridge two lower ones and partial overlaps are summed.
+    const container: ContainerSpec = { length: 12, width: 2.4, height: 2.6, maxPayloadKg: 28000 };
+    const placements: LoadingResult['placements'] = [];
+    for (let ix = 0; ix < 6; ix += 1) for (let iy = 0; iy < 4; iy += 1) for (let iz = 0; iz < 5; iz += 1) {
+      const shift = iz % 2 === 1 && ix % 3 === 0 ? .2 : 0;
+      placements.push({ cargoId: iz < 3 ? 'LOW' : 'HIGH', x: ix * .6 + shift, y: iy * .5, z: iz * .4, length: .6, width: .5, height: .4, weightKg: 10 + iz * 3 + ix });
+    }
+    const mixed: CargoItem[] = [
+      { id: 'LOW', name: 'LOW', length: .6, width: .5, height: .4, weightKg: 10, quantity: 72, maxStackLayers: 2, maxTopLoadKg: 30 },
+      { id: 'HIGH', name: 'HIGH', length: .6, width: .5, height: .4, weightKg: 16, quantity: 48, maxStackLayers: 1, maxTopLoadKg: 12 },
+    ];
+    const plan: LoadingResult = { ...result, placements, loadedWeightKg: placements.reduce((sum, p) => sum + p.weightKg, 0) };
+    expect(placements.length).toBeGreaterThanOrEqual(FOOTPRINT_GRID_MIN_ITEMS);
+    const fast = analyzeConstraints(container, mixed, plan, floor(100, 50));
+    setFootprintGridsEnabledForTests(false);
+    const reference = analyzeConstraints(container, mixed, plan, floor(100, 50));
+    setFootprintGridsEnabledForTests(true);
+    expect(fast).toEqual(reference);
+    expect(fast.find((check) => check.id === 'stack')?.status).toBe('fail');
+    expect(fast.find((check) => check.id === 'topLoad')?.status).toBe('warn');
   });
 
   it('uses container-specific floor-load warning settings', () => {
