@@ -42,9 +42,12 @@ it('matches the baseline 3D geometry and color golden fingerprints', () => {
     return createHash('sha256').update(JSON.stringify(geometry)).digest('hex');
   });
   // Filled from the unchanged ee4cbfa renderer, independently compared before capture.
+  // 2026-11-18: box type colours are shown as pastels (cargoColors). Only the three
+  // views that draw coloured cartons changed; the renderer and geometry did not, as the
+  // three unchanged fingerprints of the uncoloured views confirm.
   expect(fingerprints).toEqual(BASELINE_3D_FINGERPRINTS);
 });
-const BASELINE_3D_FINGERPRINTS: string[] = ["7c3565310fcf2b0904172facd858676945c00fe579a4593236f18b1d20616070", "66a3e07959075034a4b09e131cf21090e6dcc675fc4bb5695d488e15508ff4f7", "ba19612cae0b7e40ddb35ddf39d6db58dc03fe8d173a99a6ba75bcf60eff1a06", "6d24ae26fbff674f7e6957c5c4b23966b05a8a328d146fd1e810a338548da5d0", "1ced939354a2519e665930398a739188311e6cb61bdc2d502eedfdfc4d68e2ca", "d201da965c952533059c8cec7895584d2ea74e9fff3824c4d2a9989bedfa79f9"];
+const BASELINE_3D_FINGERPRINTS: string[] = ["7c2fbb35923ae3134991b467d44e28da78f80f2ffa068e6a49714778f528c257", "66a3e07959075034a4b09e131cf21090e6dcc675fc4bb5695d488e15508ff4f7", "ba19612cae0b7e40ddb35ddf39d6db58dc03fe8d173a99a6ba75bcf60eff1a06", "6d24ae26fbff674f7e6957c5c4b23966b05a8a328d146fd1e810a338548da5d0", "348972957141afed8218b7a5612ce6484a509aba18faa216599af73df48f8118", "c0e26283389860d938742ef1827175bcc18e5471a1193c8d41485b53e4b93d39"];
 
 it.runIf(Boolean(process.env.WORK_3D_PREVIEW_DIR))('exports the exact original 3D renderer for the revised preview', () => {
   const dir=process.env.WORK_3D_PREVIEW_DIR!;mkdirSync(dir,{recursive:true});setUiLanguage('ko');

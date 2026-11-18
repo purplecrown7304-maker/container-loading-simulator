@@ -234,7 +234,7 @@ describe('Three comparison scene resources', () => {
     expect(Math.abs(position.z - (-.2))).toBeLessThan(.001);
     const carton = scene.root.getObjectByName('Cartons ' + plan.placements[0].color) as THREE.InstancedMesh;
     expect((carton.material as THREE.MeshStandardMaterial).map).toBeNull();
-    expect((carton.material as THREE.MeshStandardMaterial).userData.studioCartonSurface).toBe('kraft-no-atlas');
+    expect((carton.material as THREE.MeshStandardMaterial).userData.studioCartonSurface).toBe('flat-pastel-outline');
     const physical = new THREE.Matrix4(); carton.getMatrixAt(0, physical);
     const cartonBounds = carton.geometry.boundingBox!.clone().applyMatrix4(physical);
     expect(cartonBounds.min.y).toBeCloseTo(plan.placements[0].z);

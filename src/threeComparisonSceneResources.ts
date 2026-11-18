@@ -145,7 +145,8 @@ export function createComparisonSceneResources(plan: ThreeComparisonPlan, models
     const indices = byColor.get(key) ?? []; indices.push(index); byColor.set(key, indices);
   });
   for (const [color, indices] of byColor) {
-    const tint = plan.placements[indices[0]].invalid ? new THREE.Color(1, .24, .24) : new THREE.Color(1, 1, 1).lerp(meshyTint(color), .30);
+    // The box type colour is already a pastel (cargoColors); draw it as it is.
+    const tint = plan.placements[indices[0]].invalid ? new THREE.Color(1, .24, .24) : meshyTint(color);
     const { model, materials: mapped } = modelMaterials('carton', tint);
     const batch: CargoBatch = { indices, meshes: [], visibleIndices: [] };
     model.parts.forEach((part, index) => {

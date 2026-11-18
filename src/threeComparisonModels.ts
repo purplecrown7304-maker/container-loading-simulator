@@ -1,5 +1,6 @@
 import {
   Box3,
+  BoxGeometry,
   BufferGeometry,
   Color,
   DoubleSide,
@@ -16,7 +17,6 @@ import {
   Vector3,
   type ColorRepresentation,
 } from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 
 // These are the original Meshy sources, relocated without conversion or resampling.
@@ -91,7 +91,7 @@ export function linearDisplayFragment(fragmentShader: string) {
 
 /** Production PBR path; original cache texture/geometry and legacy comparison
  * shader stay untouched. NoColorSpace JPEG is decoded in this material only. */
-function createStudioPbrMaterial(texture: Texture | null, options: MeshyMaterialOptions & { roughness?: number; metalness?: number } = {}): MeshStandardMaterial {
+function createStudioPbrMaterial(texture: Texture | null, options: MeshyMaterialOptions & { roughness?: number; metalness?: number; faceOutline?: boolean } = {}): MeshStandardMaterial {
   const material = new MeshStandardMaterial({ map: texture, color: meshyTint(options.tint).convertSRGBToLinear(), roughness: options.roughness ?? .84, metalness: options.metalness ?? 0, side: FrontSide });
   material.name = 'Cargo/Textured (studio PBR)';
   const clip = { enabled: options.clipInterior ? 1 : 0, min: options.clipInterior?.min.clone() ?? new Vector3(), max: options.clipInterior?.max.clone() ?? new Vector3() };
@@ -103,8 +103,16 @@ function createStudioPbrMaterial(texture: Texture | null, options: MeshyMaterial
     shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>\n${studioDecode}\nuniform float studioClipInterior; uniform vec3 studioInteriorMin; uniform vec3 studioInteriorMax; varying vec3 vStudioWorld;`)
       .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif(studioClipInterior > .5 && all(greaterThan(vStudioWorld, studioInteriorMin)) && all(lessThan(vStudioWorld, studioInteriorMax))) discard;');
     if (texture?.colorSpace === NoColorSpace) shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `#ifdef USE_MAP\nvec4 sampledDiffuseColor = texture2D(map, vMapUv); sampledDiffuseColor.rgb = studioSRGBToLinear(sampledDiffuseColor.rgb); diffuseColor *= sampledDiffuseColor;\n#endif`);
+    if (options.faceOutline) {
+      // A flat-coloured box needs a visible border to stay readable inside a wall of
+      // identical boxes. Darken about one screen pixel along every face edge instead of
+      // adding edge geometry: the width follows the screen, not the carton size.
+      shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vStudioFaceUv;').replace('#include <project_vertex>', '#include <project_vertex>\nvStudioFaceUv = uv;');
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec2 vStudioFaceUv;')
+        .replace('#include <color_fragment>', `#include <color_fragment>\nvec2 studioEdgeWidth = fwidth(vStudioFaceUv) * 1.35;\nvec2 studioEdge = smoothstep(vec2(0.), studioEdgeWidth, vStudioFaceUv) * smoothstep(vec2(0.), studioEdgeWidth, 1. - vStudioFaceUv);\ndiffuseColor.rgb *= mix(.58, 1., studioEdge.x * studioEdge.y);`);
+    }
   };
-  material.customProgramCacheKey = () => `studio-pbr-v2:${texture?.colorSpace ?? 'no-map'}:${clip.enabled}`;
+  material.customProgramCacheKey = () => `studio-pbr-v3:${texture?.colorSpace ?? 'no-map'}:${clip.enabled}:${options.faceOutline ? 'outline' : 'plain'}`;
   return material;
 }
 
@@ -112,14 +120,16 @@ export function createLitMeshyMaterial(texture: Texture, options: MeshyMaterialO
   return createStudioPbrMaterial(texture, options);
 }
 
-/** The original carton JPEG is a fragmented baked OBJ atlas, not a tiling paper
- * image. Rounded production cartons therefore use clean kraft PBR and SKU tint,
- * plus the existing separate printed SKU labels. Never stretch that atlas over
- * the rounded box's six planar UV faces. Legacy source rendering is untouched. */
+/** Default carton colour when no box type colour is given (e.g. the packaging preview). */
+export const DEFAULT_CARTON_COLOR = '#ecd9b6';
+
+/** Owner decision 2026-11-18: cartons are drawn simply. One flat pastel colour per
+ * box type (the tint is used as given, no kraft paper base), a thin darker border on
+ * every face, and the separate printed labels on the side faces. The original carton
+ * JPEG is a fragmented baked OBJ atlas and is never stretched over the box faces. */
 export function createStudioCartonMaterial(options: MeshyMaterialOptions = {}): MeshStandardMaterial {
-  const kraft = meshyTint('#c89d6c').multiply(meshyTint(options.tint));
-  const material = createStudioPbrMaterial(null, { ...options, tint: kraft, roughness: .92, metalness: 0 });
-  material.name = 'Kraft carton (studio PBR)'; material.userData.studioCartonSurface = 'kraft-no-atlas';
+  const material = createStudioPbrMaterial(null, { ...options, tint: meshyTint(options.tint ?? DEFAULT_CARTON_COLOR), roughness: 1, metalness: 0, faceOutline: true });
+  material.name = 'Flat pastel carton'; material.userData.studioCartonSurface = 'flat-pastel-outline';
   return material;
 }
 
@@ -130,12 +140,12 @@ export function createPalletFilmMaterial(): MeshStandardMaterial {
   return material;
 }
 
-let studioCarton: { geometry: RoundedBoxGeometry; references: number } | null = null;
-/** Low-segment, 0.5% edge radius. One shared physical unit box with unchanged
- * [-.5,.5] bounds; source OBJ/UVs remain in the original cache for parity. */
+let studioCarton: { geometry: BoxGeometry; references: number } | null = null;
+/** One shared plain unit box (12 triangles) with [-.5,.5] bounds and 0..1 face UVs
+ * for the border. Source OBJ/UVs remain in the original cache for parity. */
 export function acquireStudioCartonGeometry() {
   if (!studioCarton) {
-    const geometry = new RoundedBoxGeometry(1, 1, 1, 1, .005); geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+    const geometry = new BoxGeometry(1, 1, 1); geometry.computeBoundingBox(); geometry.computeBoundingSphere();
     geometry.userData.studioSharedCarton = true; studioCarton = { geometry, references: 0 };
   }
   const resource = studioCarton; resource.references++; let released = false;

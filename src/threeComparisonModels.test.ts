@@ -42,11 +42,11 @@ afterEach(() => {
 });
 
 describe('original Unity Meshy asset parity', () => {
-  it('shares a bounded low-segment production edge geometry and releases it only after its last owner', () => {
+  it('shares one plain 12-triangle carton box with face UVs and releases it only after its last owner', () => {
     const first = acquireStudioCartonGeometry(), second = acquireStudioCartonGeometry();
     expect(first.geometry).toBe(second.geometry);
     expect(first.geometry.boundingBox!.min.toArray()).toEqual([-.5, -.5, -.5]); expect(first.geometry.boundingBox!.max.toArray()).toEqual([.5, .5, .5]);
-    expect(first.geometry.getAttribute('position').count / 3).toBe(108);
+    expect(first.geometry.index!.count / 3).toBe(12); expect(first.geometry.getAttribute('uv').count).toBe(24);
     const dispose = vi.spyOn(first.geometry, 'dispose'); first.release(); first.release(); expect(dispose).not.toHaveBeenCalled(); second.release(); expect(dispose).toHaveBeenCalledOnce();
   });
   it('adds a standard lit material with one map decode and retained world clipping without mutating its source texture', () => {
@@ -62,16 +62,20 @@ describe('original Unity Meshy asset parity', () => {
     expect(texture.colorSpace).toBe(originalSpace);
     const textureDispose = vi.spyOn(texture, 'dispose'); material.dispose(); expect(textureDispose).not.toHaveBeenCalled(); texture.dispose();
   });
-  it('uses clean kraft PBR for rounded cartons without sampling the incompatible baked OBJ atlas', () => {
+  it('draws cartons as one flat box-type colour with a face border, without sampling the incompatible baked OBJ atlas', () => {
     const clip = new Box3(new Vector3(-.4, -.4, -.4), new Vector3(.4, .4, .4));
-    const blue = createStudioCartonMaterial({ tint: '#498bff', clipInterior: clip });
-    const red = createStudioCartonMaterial({ tint: '#f37161' });
-    expect(blue.map).toBeNull(); expect(red.map).toBeNull(); expect(blue.roughness).toBe(.92); expect(blue.metalness).toBe(0);
-    expect(blue.color).not.toEqual(red.color); expect(blue.toneMapped).toBe(true); expect(blue.userData.studioCartonSurface).toBe('kraft-no-atlas');
+    const blue = createStudioCartonMaterial({ tint: '#a9c8f5', clipInterior: clip });
+    const red = createStudioCartonMaterial({ tint: '#f5b4a9' });
+    expect(blue.map).toBeNull(); expect(red.map).toBeNull(); expect(blue.roughness).toBe(1); expect(blue.metalness).toBe(0);
+    expect(blue.color).not.toEqual(red.color); expect(blue.toneMapped).toBe(true); expect(blue.userData.studioCartonSurface).toBe('flat-pastel-outline');
+    // The box type colour is used as given: no kraft paper base is multiplied in.
+    expect(blue.color.r).toBeCloseTo(new Color().setRGB(0xa9 / 255, 0xc8 / 255, 0xf5 / 255).convertSRGBToLinear().r);
     expect(blue.userData.studioClipInterior.enabled).toBe(1); expect(blue.userData.aoExclude).toBe(true);
-    const shader = { uniforms: {}, vertexShader: '#include <common>\n#include <project_vertex>', fragmentShader: '#include <common>\n#include <clipping_planes_fragment>\n#include <map_fragment>' } as Parameters<typeof blue.onBeforeCompile>[0];
+    const shader = { uniforms: {}, vertexShader: '#include <common>\n#include <project_vertex>', fragmentShader: '#include <common>\n#include <clipping_planes_fragment>\n#include <map_fragment>\n#include <color_fragment>' } as Parameters<typeof blue.onBeforeCompile>[0];
     blue.onBeforeCompile(shader, {} as Parameters<typeof blue.onBeforeCompile>[1]);
     expect(shader.fragmentShader).not.toContain('texture2D(map'); expect(shader.fragmentShader).toContain('discard;');
+    expect(shader.vertexShader).toContain('vStudioFaceUv = uv;'); expect(shader.fragmentShader).toContain('fwidth(vStudioFaceUv)');
+    expect(blue.customProgramCacheKey()).toContain('outline');
     blue.dispose(); red.dispose();
   });
   it('decodes procedural display color before the single native output/tone-mapping stage', () => {
