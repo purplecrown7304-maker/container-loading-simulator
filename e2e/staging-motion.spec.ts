@@ -114,7 +114,8 @@ async function pauseInFlight(page: Page) {
   await expect(viewer(page)).toHaveAttribute('data-three-flight-active', 'true');
   await expect(viewer(page)).toHaveAttribute('data-three-flight-count', '1');
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
-  await page.clock.runFor(240);
+  // 300 ms preparation, then 420 ms vertical ascent. Capture the cruise phase.
+  await page.clock.runFor(800);
   await expect(viewer(page)).toHaveAttribute('data-three-flight-active', 'true');
   await expect(viewer(page)).toHaveAttribute('data-three-flight-count', '1');
   await expect(viewer(page)).toHaveAttribute('data-three-applied', 'true');
@@ -160,7 +161,7 @@ test('a real manual box load animates accepted instances and naturally settles w
   expect(before.boxCount).toBe(1); expect(before.memberIds).toHaveLength(1);
   expect(before.memberIds.every((value: unknown) => typeof value === 'string' && value.length > 0)).toBe(true);
   await screenshot(page, info, 'staging-motion-box-in-flight');
-  await page.clock.runFor(1500);
+  await page.clock.runFor(2000);
   await settled(page, camera, active);
   expect(await accepted(page)).toEqual(before);
   await expect(panel(page).locator('.staging-panel-unit-id')).toHaveText(id);
@@ -168,7 +169,7 @@ test('a real manual box load animates accepted instances and naturally settles w
   await expect(countRow(page, '대기량')).toHaveText(['0', '1']);
   await screenshot(page, info, 'staging-motion-box-final');
   await info.attach('box-motion-observations', { contentType: 'application/json', body: JSON.stringify({ active, final: await observations(page),
-    clock: 'Test-only paused RAF with runFor; production duration remains 900 ms; no FPS estimate.' }, null, 2) });
+    clock: 'Test-only paused RAF with runFor; production timing is 300 ms preparation + 1500 ms vertical flight; no FPS estimate.' }, null, 2) });
   await page.clock.resume();
 });
 

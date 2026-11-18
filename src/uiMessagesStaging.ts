@@ -1,5 +1,7 @@
 /** View labels only; source IDs, quantities and engine reasons are preserved. */
 export const uiMessagesStaging: Readonly<Record<string, readonly [string, string]>> = {
+  '빈 공간 드래그: 회전 · 휠: 확대 · 우드래그: 화면 이동 · 화물 좌드래그: 위치 이동 · 우클릭: 적재 정보': ['Drag empty space: orbit · wheel: zoom · right-drag: pan · left-drag cargo: move · right-click: contents', 'Kéo vùng trống: xoay · con lăn: phóng to · kéo phải: dịch màn hình · kéo trái hàng: di chuyển · nhấp phải: thông tin'],
+  '선택 화물 위치를 이동했습니다. 운송 검증을 다시 실행하세요.': ['Selected cargo moved. Run transport verification again.', 'Đã di chuyển hàng đã chọn. Hãy kiểm chứng vận chuyển lại.'],
   '기본 포장과 실제 운송 보강 계획을 함께 표시합니다.': ['Shows base packaging and the recorded transport securing plan.', 'Hiển thị bao gói cơ bản cùng phương án gia cố vận chuyển đã ghi nhận.'],
   '화물 이동 연출': ['Animate cargo movements', 'Hiệu ứng di chuyển hàng'],
   '동작 줄이기 설정에 따라 즉시 배치합니다.': ['Reduced motion is enabled; cargo is placed immediately.', 'Đã bật giảm chuyển động; hàng được xếp ngay.'],

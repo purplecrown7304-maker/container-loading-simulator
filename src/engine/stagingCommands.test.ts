@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { assessStagingAddition, assessStagingRestore, assessStagingWithdrawal, findStagingLoadingPosition, rebuildStagingPalletResult, type StagingCommandContext } from './stagingCommands';
+import { assessStagingAddition, assessStagingRelocation, assessStagingRestore, assessStagingWithdrawal, findStagingLoadingPosition, rebuildStagingPalletResult, type StagingCommandContext } from './stagingCommands';
 import type { StagingUnit } from '../stagingInventory';
 import { defaultSecuringMaterialSettings } from '../securingMaterialSettings';
 import { defaultPalletSpec, type PalletLoad, type PalletSpec } from './palletPacking';
@@ -31,6 +31,31 @@ function loadedPallet(context: StagingCommandContext, unit: StagingUnit, z = 0) 
   const checked = assessStagingAddition(context, unit, { x: 1.5, y: .5, z });
   expect(checked.reasons).toEqual([]); expect(checked.valid).toBe(true);
   return { ...context, result: checked.result, pallets: checked.pallets };
+}
+function vehiclePallet(current: StagingCommandContext, index = 0): StagingUnit {
+  const load = current.pallets![index];
+  return { ...pallet(load.cargoPlacements[0].unitId!), id: 'vehicle-pallet:' + load.palletIndex, location: 'vehicle', verdict: 'placed',
+    pallet: load, palletSpec: current.palletSpec, length: load.length, width: load.width,
+    height: Math.max(load.height, ...load.cargoPlacements.map(p => p.z + p.height - load.z)) + load.packagingExtraHeightM,
+    weightKg: load.totalWeightKg, boxCount: load.cargoPlacements.length,
+    boxUnits: load.cargoPlacements.map(p => ({ id: p.unitId!, cargoId: p.cargoId, stableId: 'stable:' + p.unitId })) };
+}
+function relocationFixture() {
+  const currentSpec = { ...spec, useWrapping: true, useCornerGuards: true, wrappingWeightKg: 1.5,
+    wrappingExtraHeightM: .01, cornerGuardWeightKg: .2, cornerGuardExtraHeightM: .02 };
+  const base = { ...palletContext(), container: { ...context().container, length: 6 }, palletSpec: currentSpec, securingLevel: 3 as const };
+  const whole = pallet('A:0', true);
+  whole.pallet = { ...whole.pallet!, cargoPlacements: [whole.pallet!.cargoPlacements[0], { ...whole.pallet!.cargoPlacements[0], unitId: 'A:1', z: .65 }],
+    cargoWeightKg: 40, totalWeightKg: 46.7, packagingWeightKg: 1.7, packagingExtraHeightM: .03,
+    cornerGuardsUsed: true, bandingPlan: { straps: 4, securingLevel: 3, wrapping: true, cornerGuards: true }, isMixedTail: true };
+  whole.boxUnits.push({ id: 'A:1', cargoId: 'A', stableId: 'stable:A:1' });
+  const shifted = (source: PalletLoad, x: number, index: number): PalletLoad => ({ ...source, x, y: .5, palletIndex: index, stackColumn: index,
+    cargoPlacements: source.cargoPlacements.map(p => ({ ...p, x: p.x + x, y: p.y + .5 })),
+    centerOfGravity: { ...source.centerOfGravity, x: source.centerOfGravity.x + x, y: source.centerOfGravity.y + .5 } });
+  const pallets = [shifted(whole.pallet, 1.5, 1), shifted(pallet('A:2').pallet!, 4.5, 2)];
+  const result = { ...empty(), placements: pallets.flatMap(load => load.cargoPlacements) };
+  const checked = assessStagingRestore({ ...base, result, pallets }, { result, pallets }); expect(checked.reasons).toEqual([]);
+  return { ...base, result: checked.result, pallets: checked.pallets };
 }
 
 describe('staging transfer commands', () => {
@@ -219,5 +244,153 @@ describe('staging transfer commands', () => {
     const mixed = { ...context([], [{ ...item, mixedLoadingMethod: 'pallet' as const }]), mode: 'mixed' as const, palletSpec: spec };
     expect(assessStagingRestore(mixed, previous).valid).toBe(false);
     expect(assessStagingRestore({ ...mixed, cargo: [item] }, previous).valid).toBe(true);
+  });
+});
+
+describe('atomic in-vehicle staging relocation', () => {
+  it('preserves the complete pallet, member order/IDs, local offsets, CG and actual packaging in one final plan', () => {
+    const current = relocationFixture(), unit = vehiclePallet(current), before = JSON.stringify({ current, unit });
+    const source = current.pallets[0], other = current.pallets[1];
+    const checked = assessStagingRelocation(current, unit, { x: 1.8, y: .5, z: 0 });
+    expect(checked.reasons).toEqual([]); expect(checked.valid).toBe(true); expect(checked.changed).toBe(true); expect(checked.invalidateVerification).toBe(true);
+    expect(checked.unitId).toBe(unit.id); expect(checked.previous.result).toBe(current.result); expect(checked.previous.pallets).toBe(current.pallets);
+    expect(checked.pallets.map(p => p.palletIndex)).toEqual(current.pallets.map(p => p.palletIndex)); expect(checked.pallets[1]).toBe(other);
+    expect(checked.result.placements.map(p => p.unitId)).toEqual(current.result.placements.map(p => p.unitId));
+    const moved = checked.pallets[0];
+    expect(moved).toMatchObject({ x: 1.8, y: .5, z: 0, wrappingUsed: true, cornerGuardsUsed: true, isMixedTail: true,
+      packagingWeightKg: 1.7, packagingExtraHeightM: .03, totalWeightKg: 46.7 });
+    expect(moved.bandingPlan).toBe(source.bandingPlan);
+    moved.cargoPlacements.forEach((p, index) => {
+      expect(p.unitId).toBe(source.cargoPlacements[index].unitId);
+      for (const axis of ['x', 'y', 'z'] as const) expect(p[axis] - moved[axis]).toBeCloseTo(source.cargoPlacements[index][axis] - source[axis]);
+      expect(checked.result.placements[index]).toBe(p);
+    });
+    expect(moved.centerOfGravity.x - source.centerOfGravity.x).toBeCloseTo(.3);
+    expect(moved.centerOfGravity.y).toBe(source.centerOfGravity.y); expect(moved.centerOfGravity.z).toBe(source.centerOfGravity.z);
+    expect(checked.result.placements).toHaveLength(3); expect(checked.result.remaining).toEqual(current.result.remaining);
+    expect(checked.result.loadedWeightKg).toBeCloseTo(current.result.loadedWeightKg); expect(checked.result.securingBudget?.level).toBe(3);
+    expect(JSON.stringify({ current, unit })).toBe(before);
+  });
+  it('validates the final balanced plan rather than rejecting an invalid intermediate withdrawal CG', () => {
+    const heavyItem = { ...item, quantity: 2, weightKg: 400 };
+    const makeLoad = (id: string, x: number, index: number): PalletLoad => ({ ...pallet(id).pallet!, x, y: .5, palletIndex: index, stackColumn: index,
+      cargoPlacements: [{ ...placement(id, x, .15), weightKg: 400 }], cargoWeightKg: 400, totalWeightKg: 405,
+      centerOfGravity: { x: x + .5, y: 1, z: .35 } });
+    const loads = [makeLoad('A:0', .5, 1), makeLoad('A:1', 2.5, 2)];
+    let current: StagingCommandContext = { ...palletContext(), cargo: [heavyItem], container: { ...context().container, maxPayloadKg: 900 },
+      pallets: loads, result: { ...empty(), placements: loads.flatMap(load => load.cargoPlacements) } };
+    const restored = assessStagingRestore(current, { result: current.result, pallets: loads }); expect(restored.reasons).toEqual([]);
+    current = { ...current, result: restored.result };
+    const unit = vehiclePallet(current);
+    expect(assessStagingWithdrawal(current, unit).reasons.join()).toContain('CG_LONGITUDINAL');
+    const checked = assessStagingRelocation(current, unit, { x: .6, y: .5, z: 0 });
+    expect(checked.reasons).toEqual([]); expect(checked.valid).toBe(true); expect(checked.result.placements).toHaveLength(2);
+    expect(checked.result.operationalFindings?.some(f => f.severity === 'error')).toBe(false);
+  });
+  it('locks a lower pallet with dependent loads and keeps the entire original outcome on rejection', () => {
+    const first = pallet('A:0'), current = loadedPallet(palletContext(), first);
+    const added = assessStagingAddition(current, pallet('A:1'), { x: 1.5, y: .5, z: .65 }); expect(added.reasons).toEqual([]);
+    const stacked = { ...current, result: added.result, pallets: added.pallets };
+    const checked = assessStagingRelocation(stacked, vehiclePallet(stacked), { x: 0, y: .5, z: 0 });
+    expect(checked.valid).toBe(false); expect(checked.reasons.join()).toContain('하부 파렛트');
+    expect(checked.result).toBe(stacked.result); expect(checked.pallets).toBe(stacked.pallets); expect(checked.invalidateVerification).toBe(false);
+  });
+  it('rejects final collision, outside/nonfinite positions, unsupported height and packaging ceiling overflow', () => {
+    const current = relocationFixture(), unit = vehiclePallet(current), before = JSON.stringify(current);
+    for (const target of [{ x: 4.5, y: .5, z: 0 }, { x: -1, y: .5, z: 0 }, { x: NaN, y: .5, z: 0 }, { x: Infinity, y: .5, z: 0 },
+      { x: 2.5, y: .5, z: .2 }, { x: 2.5, y: .5, z: 1.5 }]) {
+      const checked = assessStagingRelocation(current, unit, target);
+      expect(checked.valid).toBe(false); expect(checked.result).toBe(current.result); expect(checked.pallets).toBe(current.pallets);
+      expect(checked.previous.result).toBe(current.result); expect(checked.changed).toBe(false); expect(checked.invalidateVerification).toBe(false);
+    }
+    expect(JSON.stringify(current)).toBe(before);
+  });
+  it('rejects partial membership, stale coordinates/current packaging, duplicate indices and other-vehicle requests', () => {
+    const current = relocationFixture(), selected = vehiclePallet(current), target = { x: 1.8, y: .5, z: 0 };
+    for (const unit of [{ ...selected, boxUnits: selected.boxUnits.slice(0, 1) },
+      { ...selected, pallet: { ...selected.pallet!, x: selected.pallet!.x + .1 } },
+      { ...selected, location: 'other-vehicle' as const }, { ...selected, location: 'yard' as const }]) {
+      const checked = assessStagingRelocation(current, unit, target); expect(checked.valid).toBe(false); expect(checked.result).toBe(current.result);
+    }
+    expect(assessStagingRelocation({ ...current, palletSpec: { ...current.palletSpec!, useWrapping: false } }, selected, target).valid).toBe(false);
+    const duplicate = { ...current, pallets: [current.pallets[0], { ...current.pallets[1], palletIndex: current.pallets[0].palletIndex }] };
+    expect(assessStagingRelocation(duplicate, selected, target).valid).toBe(false);
+    const insideBox = { ...box('A:0', 'vehicle'), placement: current.result.placements[0] };
+    expect(assessStagingRelocation(current, insideBox, target).reasons.join()).toContain('내부 박스');
+  });
+  it('retains a loose box’s existing rotation and index while rejecting stale identity and support removal', () => {
+    const row = { ...item, quantity: 1, length: 1, width: .5 }, current = context([], [row]);
+    const added = assessStagingAddition(current, box('A:0'), { x: 1.5, y: .5, z: 0 }, true); expect(added.reasons).toEqual([]);
+    const loaded = { ...current, result: added.result }, selected = { ...box('A:0', 'vehicle'), placement: added.result.placements[0] };
+    const checked = assessStagingRelocation(loaded, selected, { x: .5, y: .5, z: 0 });
+    expect(checked.reasons).toEqual([]); expect(checked.result.placements[0]).toMatchObject({ unitId: 'A:0', length: .5, width: 1, rotated: true, orientation: 'WLH' });
+    const stale = { ...selected, placement: { ...selected.placement, x: 20 } };
+    expect(assessStagingRelocation(loaded, stale, { x: .5, y: .5, z: 0 }).valid).toBe(false);
+    const stacked = context([placement('A:0'), placement('A:1', 1.5, .5)]);
+    expect(assessStagingRelocation(stacked, box('A:0', 'vehicle'), { x: 0, y: .5, z: 0 }).valid).toBe(false);
+  });
+  it('preserves an allowed three-axis A-rules orientation instead of rebuilding it as an LWH box', () => {
+    const row = { ...item, quantity: 1, length: 1, width: .5, height: .25, allowedOrientations: ['HWL' as const] };
+    const placed: Placement = { cargoId: 'A', unitId: 'A:0', x: 1.875, y: .75, z: 0, length: .25, width: .5, height: 1,
+      weightKg: 20, orientation: 'HWL', rotated: true };
+    const current = context([placed], [row]);
+    current.container.rules = { version: 'a-v1', equipmentId: 'test', kind: 'container', access: ['rear'], source: 'test' };
+    const selected = { ...box('A:0', 'vehicle'), placement: placed };
+    const checked = assessStagingRelocation(current, selected, { x: 1.975, y: .75, z: 0 });
+    expect(checked.reasons).toEqual([]); expect(checked.result.placements[0]).toEqual({ ...placed, x: 1.975 });
+    expect(current.result.placements[0]).toBe(placed); expect(placed.x).toBe(1.875);
+  });
+  it('keeps strict unloading and pallet top-load blockers in the final assessment', () => {
+    const first = { ...item, id: 'FIRST', quantity: 1, unloadPriority: 1 }, later = { ...item, id: 'LATER', quantity: 1, unloadPriority: 2 };
+    const make = (id: string, x: number, index: number): PalletLoad => ({ ...pallet(id + ':0').pallet!, x, y: .5, palletIndex: index, stackColumn: index,
+      cargoPlacements: [{ ...placement(id + ':0', x, .15), cargoId: id }], centerOfGravity: { x: x + .5, y: 1, z: .35 } });
+    const pallets = [make('FIRST', 3, 1), make('LATER', 1, 2)];
+    const current: StagingCommandContext = { ...palletContext(), cargo: [first, later], container: { ...context().container, unloadingPolicy: 'strict' },
+      pallets, result: { ...empty(), placements: pallets.flatMap(load => load.cargoPlacements) } };
+    const checked = assessStagingRelocation(current, vehiclePallet(current), { x: 0, y: .5, z: 0 });
+    expect(checked.valid).toBe(false); expect(checked.reasons.join()).toMatch(/UNLOAD|하역/);
+    const lowerLoad = { ...pallet('A:0').pallet!, x: .5, y: .5, cargoPlacements: [placement('A:0', .5, .15)], centerOfGravity: { x: 1, y: 1, z: .35 } };
+    const otherLoad = { ...pallet('A:1').pallet!, x: 2.5, y: .5, palletIndex: 2, stackColumn: 2,
+      cargoPlacements: [placement('A:1', 2.5, .15)], centerOfGravity: { x: 3, y: 1, z: .35 } };
+    const loaded = { ...palletContext(), pallets: [lowerLoad, otherLoad], result: { ...empty(), placements: [...lowerLoad.cargoPlacements, ...otherLoad.cargoPlacements] }, cargo: [{ ...item, maxTopLoadKg: 0 }] };
+    const upper = assessStagingRelocation(loaded, vehiclePallet(loaded, 1), { x: .5, y: .5, z: .65 });
+    expect(upper.valid).toBe(false); expect(upper.reasons.join()).toMatch(/上|상부|하중/);
+  });
+  it('recomputes actual securing mass rather than trusting saved totals', () => {
+    const current = relocationFixture(), selected = vehiclePallet(current);
+    const altered = { ...current, result: { ...current.result, loadedWeightKg: 1, usedVolumeM3: 999,
+      securingBudget: { level: 3 as const, reservedWeightKg: 0, requiredWeightKg: 0, totalTransportWeightKg: 1 } } };
+    const checked = assessStagingRelocation(altered, selected, { x: 1.8, y: .5, z: 0 });
+    expect(checked.reasons).toEqual([]); expect(checked.result.loadedWeightKg).toBeCloseTo(71.7);
+    expect(checked.result.usedVolumeM3).toBeCloseTo(1.5); expect(checked.result.securingBudget!.totalTransportWeightKg).toBeGreaterThan(71.7);
+  });
+  it('rejects a newly excessive floor load even when the moved box has full geometric support', () => {
+    const heavy = { ...item, quantity: 2, weightKg: 100, maxTopLoadKg: 200 };
+    const current = context([{ ...placement('A:0', 0), y: 0, weightKg: 100 }, { ...placement('A:1', 2), y: 0, weightKg: 100 }], [heavy]);
+    current.container.floorLoadLimitKgPerM2 = 150;
+    const selected = { ...box('A:1', 'vehicle'), placement: current.result.placements[1] };
+    const checked = assessStagingRelocation(current, selected, { x: 0, y: 0, z: .5 });
+    expect(checked.valid).toBe(false); expect(checked.reasons.join()).toContain('FLOOR_LOAD_LIMIT'); expect(checked.result).toBe(current.result);
+  });
+  it('rejects a newly excessive payload caused by actual final securing and void-fill requirements', () => {
+    const row = { ...item, id: 'VOID', quantity: 1, length: .6, width: 2.35, height: .8, weightKg: 95, maxStackLayers: 1, maxTopLoadKg: 0, allowRotation: false };
+    const placed = { cargoId: row.id, unitId: 'VOID:0', x: 3.4, y: 0, z: 0, length: .6, width: 2.35, height: .8, weightKg: 95 };
+    const current = { ...context([placed], [row]), container: { length: 4, width: 2.35, height: 2, maxPayloadKg: 100 } };
+    const selected = { ...box('VOID:0', 'vehicle', 'VOID'), placement: placed };
+    const checked = assessStagingRelocation(current, selected, { x: 0, y: 0, z: 0 });
+    expect(checked.valid).toBe(false); expect(checked.reasons.join()).toContain('새 안전 차단 오류'); expect(checked.result).toBe(current.result);
+  });
+  it('preserves current non-worsening payload errors instead of manufacturing a PASS', () => {
+    const source = relocationFixture(), current = { ...source, container: { ...source.container, maxPayloadKg: 50 } };
+    const checked = assessStagingRelocation(current, vehiclePallet(current), { x: 1.8, y: .5, z: 0 });
+    expect(checked.reasons).toEqual([]); expect(checked.valid).toBe(true); expect(checked.invalidateVerification).toBe(true);
+    expect(checked.result.validationIssues.some(issue => issue.type === 'PAYLOAD')).toBe(true);
+    expect(checked.result.securingBudget!.totalTransportWeightKg).toBeGreaterThan(50);
+  });
+  it('never writes stores or publishes results/certification during a relocation assessment', () => {
+    const current = relocationFixture(), selected = vehiclePallet(current);
+    const dispatch = vi.spyOn(window, 'dispatchEvent'), writes = vi.spyOn(Storage.prototype, 'setItem');
+    assessStagingRelocation(current, selected, { x: 1.8, y: .5, z: 0 });
+    expect(dispatch).not.toHaveBeenCalled(); expect(writes).not.toHaveBeenCalled(); dispatch.mockRestore(); writes.mockRestore();
   });
 });

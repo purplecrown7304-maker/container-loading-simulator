@@ -99,3 +99,6 @@
 .staging-flight-controls input { width: auto; margin: 0; accent-color: var(--studio-accent, #2563eb); }
 .staging-flight-controls > div { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--studio-line, #e3e6eb); border-radius: 8px; background: var(--studio-sunken, #f8f9fb); }
 .staging-flight-controls small { color: var(--studio-faint, #67717e); line-height: 1.5; }
+.staging-pallet-details { position: fixed; top: 72px; right: 16px; z-index: 180; width: min(430px, calc(100vw - 32px)); height: calc(100dvh - 152px); pointer-events: none; }
+.staging-pallet-details > .pallet-content-popover { position: relative; inset: auto; width: 100%; max-height: 100%; pointer-events: auto; }
+@media (max-height: 650px) { .staging-pallet-details { top: 64px; height: calc(100dvh - 128px); } }

@@ -182,6 +182,30 @@ describe('staging cargo rendering resource ownership and packaging parity', () =
     const dispose = vi.spyOn(fixture.geometry, 'dispose'); preview.dispose(); expect(dispose).not.toHaveBeenCalled();
     fixture.geometry.dispose(); fixture.texture.dispose(); fixture.material.dispose();
   });
+  it('previews an already rotated vehicle box at its accepted dimensions and rotates a swapped footprint only once', () => {
+    const placement = { cargoId: 'SKU-A', unitId: 'accepted:box', x: 1, y: .2, z: .1,
+      length: .4, width: .8, height: .3, weightKg: 4, rotated: true, orientation: 'WLH' as const };
+    const source = unit('accepted', { location: 'vehicle', verdict: 'placed', length: .4, width: .8, height: .3, placement });
+    const before = JSON.stringify(source), fixture = fixtureModels(), preview = createStagingPreviewResources(source, fixture.models);
+    try {
+      const carton = preview.root.getObjectByName('Preview carton') as THREE.InstancedMesh;
+      const size = () => { preview.root.updateMatrixWorld(true); return new THREE.Box3().setFromObject(carton).getSize(new THREE.Vector3()); };
+      const candidate = { ...placement, x: 2, y: .4 };
+      preview.update(candidate, container, true);
+      expect(candidate.rotated).toBe(true); expect(preview.root.rotation.y).toBe(0);
+      let actual = size(); expect(actual.x).toBeCloseTo(.4); expect(actual.y).toBeCloseTo(.3); expect(actual.z).toBeCloseTo(.8);
+      expect(preview.root.position.x).toBeCloseTo(candidate.x + candidate.length / 2 - container.length / 2);
+      const swapped = { ...candidate, length: .8, width: .4 };
+      preview.update(swapped, container, true); preview.update(swapped, container, true);
+      expect(preview.root.rotation.y).toBe(Math.PI / 2);
+      actual = size(); expect(actual.x).toBeCloseTo(.8); expect(actual.y).toBeCloseTo(.3); expect(actual.z).toBeCloseTo(.4);
+      preview.update({ ...swapped, rotated: false }, container, true);
+      expect(preview.root.rotation.y).toBe(Math.PI / 2);
+      preview.update(candidate, container, true); expect(preview.root.rotation.y).toBe(0);
+      actual = size(); expect(actual.x).toBeCloseTo(.4); expect(actual.z).toBeCloseTo(.8);
+      expect(JSON.stringify(source)).toBe(before);
+    } finally { preview.dispose(); fixture.geometry.dispose(); fixture.texture.dispose(); fixture.material.dispose(); }
+  });
   it('renders every box as an instance with the real physical size and stable root hit mapping', () => {
     const units = Array.from({ length: 20 }, (_, i) => unit(`box-${i}`));
     const layout = buildStagingYardLayout(units, options), fixture = fixtureModels();

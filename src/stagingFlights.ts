@@ -1,6 +1,15 @@
 import type { ContainerSpec } from './engine/types';
 import type { StagingInventory, StagingUnit } from './stagingInventory';
 import type { StagingYardLayout, StagingYardSlot } from './stagingYardLayout';
+import { DEFAULT_MOTION_OPTIONS } from './motion/CargoMotion.js';
+
+/** App-only display timing; generic CargoMotion keeps its existing arc defaults. */
+export const STAGING_FLIGHT_PROFILE = Object.freeze({
+  path: 'vertical' as const, durationMs: 1500, prepareDurationMs: 300, maxStaggerMs: 600,
+  liftHeight: DEFAULT_MOTION_OPTIONS.liftHeight,
+  ascentRatio: DEFAULT_MOTION_OPTIONS.ascentRatio, descentRatio: DEFAULT_MOTION_OPTIONS.descentRatio,
+  cruiseClearanceM: .4,
+});
 
 /** Floor-footprint center in the existing Y-up viewer world. */
 export type StagingFlightPose = { position: [number, number, number]; rotationY: number };
@@ -18,8 +27,8 @@ export type StagingFlightSequence = {
   flights: StagingFlight[];
 };
 
-const DURATION_MS = 900;
-const MAX_STAGGER_MS = 600;
+const DURATION_MS = STAGING_FLIGHT_PROFILE.durationMs;
+const MAX_STAGGER_MS = STAGING_FLIGHT_PROFILE.maxStaggerMs;
 const lexical = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 const validPose = (pose: StagingFlightPose) => pose.position.length === 3
   && pose.position.every(Number.isFinite) && Number.isFinite(pose.rotationY);

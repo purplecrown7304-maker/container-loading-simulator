@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { CargoItem, ContainerSpec } from '../src/engine/types';
-import { PerspectiveCamera, Vector3 } from 'three';
+import { PerspectiveCamera, Plane, Raycaster, Vector2, Vector3 } from 'three';
 import { buildStagingYardLayout } from '../src/stagingYardLayout';
 import { palletSpecForType, PALLET_CATALOG } from '../src/engine/palletCatalog';
 import { packMixedMode } from '../src/engine/mixedModePacking';
@@ -219,28 +219,41 @@ test('real canvas drag rejects an outside drop and revalidates a vehicle drop', 
   const viewer = page.locator('.viewer-host .three-comparison-viewer');
   const canvas = viewer.locator('canvas');
   const layout = buildStagingYardLayout([{ id: 'box', kind: 'box', cargoId: 'YARD-BOX', length: .5, width: .4, height: .3 }], { container, vehicleRig: 'articulated' });
-  async function screen(point: [number, number, number]) {
+  async function projection() {
     const rect = (await canvas.boundingBox())!;
     const pose = (await viewer.getAttribute('data-three-camera-pose'))!.split(',').map(Number);
     const camera = new PerspectiveCamera(40, rect.width / rect.height, .02, 500);
     camera.position.fromArray(pose); camera.quaternion.fromArray(pose.slice(3)); camera.updateMatrixWorld(true);
+    return { rect, camera };
+  }
+  async function screen(point: [number, number, number]) {
+    const { rect, camera } = await projection();
     const p = new Vector3(...point).project(camera);
     return { x: rect.x + (p.x + 1) * rect.width / 2, y: rect.y + (1 - p.y) * rect.height / 2 };
   }
   async function beginDrag() {
     const [x, y, z] = layout.slots[0].center;
-    const source = await screen([x, y + .2, z]);
+    const { rect, camera } = await projection();
+    const projected = new Vector3(x, y + .2, z).project(camera);
+    const source = { x: rect.x + (projected.x + 1) * rect.width / 2, y: rect.y + (1 - projected.y) * rect.height / 2 };
+    const ray = new Raycaster(); ray.setFromCamera(new Vector2(projected.x, projected.y), camera);
+    const hit = ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), 0), new Vector3());
+    expect(hit).not.toBeNull();
+    // The yard lies below the vehicle deck. Preserve the actual grip relative
+    // to the interaction plane instead of assuming the pointer is its centre.
+    const offset = { x: x - hit!.x, z: z - hit!.z };
     await page.mouse.move(source.x, source.y); await page.mouse.down();
+    return offset;
   }
-  await beginDrag();
-  const invalid = await screen([container.length / 2 + 1, 0, 0]);
+  const invalidGrip = await beginDrag();
+  const invalid = await screen([container.length / 2 + 1 - invalidGrip.x, 0, -invalidGrip.z]);
   await page.mouse.move(invalid.x, invalid.y, { steps: 12 });
   await expect(panel(page).locator('.staging-panel-preview.invalid')).toBeVisible();
   await page.mouse.up();
   await expect(countRow(page, '현재 차량 배치량')).toHaveText(['0', '0']);
   await expect(countRow(page, '대기량')).toHaveText(['0', '1']);
-  await beginDrag();
-  const valid = await screen([0, 0, 0]);
+  const validGrip = await beginDrag();
+  const valid = await screen([-validGrip.x, 0, -validGrip.z]);
   await page.mouse.move(valid.x, valid.y, { steps: 12 });
   await expect(panel(page).locator('.staging-panel-preview.valid')).toBeVisible();
   await page.mouse.up();
