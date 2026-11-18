@@ -19,6 +19,21 @@ const ACCEL = { forward: 0.8, rearward: 0.5, sideways: 0.5 };
 /** LOADING_RULES R-7 default. `ContainerSpec.halfWeightWarningRatio` overrides it. */
 export const DEFAULT_HALF_WEIGHT_WARNING_RATIO = 0.6;
 
+/**
+ * Allowed longitudinal CG deviation from the container centre, in metres.
+ * The proportional form (LOADING_RULES 1) scales with `maxPayload / loadedWeight`
+ * and equals the fixed 5% at full payload.
+ */
+export function longitudinalCgLimitM(
+  container: Pick<ContainerSpec, 'length' | 'maxPayloadKg'>,
+  cargoWeightKg: number,
+  proportional: boolean,
+) {
+  return proportional && cargoWeightKg > EPS
+    ? Math.min(container.length / 2, container.length * CG_LONG_TOLERANCE * Math.max(1, container.maxPayloadKg / cargoWeightKg))
+    : container.length * CG_LONG_TOLERANCE;
+}
+
 export type OperationalSupport = {
   id: string;
   x: number;
@@ -362,11 +377,9 @@ function checkWeightAndCog(container: ContainerSpec, bodies: Body[], proportiona
   cg.x /= weight; cg.y /= weight; cg.z /= weight;
 
   const longDev = Math.abs(cg.x - container.length / 2);
-  // The 2026-10-06 proportional rule is isolated to legacy direct boxes. Pallet/MIXED
-  // retain their historical fixed ±5% contract.
-  const longLimit = proportionalLongitudinal
-    ? Math.min(container.length / 2, container.length * CG_LONG_TOLERANCE * Math.max(1, container.maxPayloadKg / weight))
-    : container.length * CG_LONG_TOLERANCE;
+  // The 2026-10-06 proportional rule covers legacy direct boxes and, since the owner's
+  // 2026-11-18 "keep the load from moving first" decision, palletized loads as well.
+  const longLimit = longitudinalCgLimitM(container, weight, proportionalLongitudinal);
   if (longDev > longLimit + EPS) {
     out.push(finding(
       'CG_LONGITUDINAL',
@@ -657,6 +670,13 @@ export function validateOperationalLoading(
   // Callers opt in only from the approved legacy direct-box packing path. This keeps
   // pallet, MIXED and deferred manual-edit behavior byte-for-byte on the old rule.
   const approvedDirectBox = options.approvedDirectBox === true;
+  // Owner decision 2026-11-18: pallets are loaded tight from the inner wall so that
+  // nothing can move; their longitudinal balance is judged like the direct-box
+  // sequence, in proportion to how much of the payload is actually used. A MIXED plan
+  // (loose cartons on the floor beside pallets) keeps its own whole-plan CG correction
+  // and the fixed ±5% contract.
+  const palletOnly = supports.length > 0 && !placements.some(placement => placement.z <= HEIGHT_TOLERANCE_M);
+  const proportionalLongitudinal = approvedDirectBox || palletOnly;
   return [
     ...checkBounds(container, bodies),
     ...checkOverlap(bodies),
@@ -665,13 +685,13 @@ export function validateOperationalLoading(
     ...checkStacking(bodies, supporters),
     ...checkUnloadOrder(bodies).map(issue => container.unloadingPolicy === 'soft'
       ? { ...issue, severity: 'warning' as const, message: `${issue.message} 완화 모드: 현장 재취급이 필요합니다.` } : issue),
-    ...checkWeightAndCog(container, bodies, approvedDirectBox),
+    ...checkWeightAndCog(container, bodies, proportionalLongitudinal),
     ...checkSecuring(container, bodies, supporters, approvedDirectBox),
     ...checkAfterStops(bodies, supporters).map(issue => container.unloadingPolicy === 'soft'
       ? { ...issue, severity: 'warning' as const, message: `${issue.message} 완화 모드: 해당 하역 단계에서 재지지·재취급 확인이 필요합니다.` }
       : issue),
     // Later additions stay last so the earlier finding order is unchanged.
-    ...checkHalfWeight(container, bodies, approvedDirectBox),
+    ...checkHalfWeight(container, bodies, proportionalLongitudinal),
     ...checkSegregation(container, bodies),
     ...checkHeavyOnLight(bodies, supporters),
     ...checkFloorLoad(container, bodies),

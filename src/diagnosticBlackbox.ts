@@ -396,7 +396,33 @@ function validationChecks(container: ContainerSpec, cargo: CargoItem[], result: 
       expected: expectedSignature,
       actual: inertia?.targetSignature ?? null,
     },
+    ...inertiaVerdictChecks(inertia?.targetSignature === expectedSignature ? inertia : undefined),
   ];
+}
+
+const INERTIA_SCENARIO_LABEL: Record<string, string> = { acceleration: '출발 가속', braking: '급제동', cornering: '횡가속' };
+
+/**
+ * A matching signature only proves which layout was tested. The verdict of that test
+ * must reach the overall severity as well: a failed certification is never "OK".
+ */
+function inertiaVerdictChecks(certification: ReturnType<typeof readLatestInertiaCertification>): DiagnosticCheck[] {
+  if (!certification) return [];
+  const failed = certification.failedScenarios.map(scenario => INERTIA_SCENARIO_LABEL[scenario] ?? scenario);
+  const motion = `최대 이동 ${(certification.maxHorizontalShiftM * 1000).toFixed(0)} mm · 최대 기울기 ${certification.maxTiltDeg.toFixed(1)}°`;
+  const detail = certification.status === 'passed'
+    ? `관성검증 통과 (${certification.securing.levelLabel}) · ${motion}`
+    : certification.status === 'review'
+      ? `수치 검토(WHAT-IF) 시나리오 결과입니다. 출하 승인이나 안전 PASS가 아닙니다. · ${motion}`
+      : `관성검증 실패 (${certification.securing.levelLabel}${failed.length ? ` · 실패: ${failed.join(', ')}` : ''}${certification.payloadWithinLimit ? '' : ' · 고정재 포함 중량 초과'}) · ${motion}. 현재 배치는 출하할 수 없습니다.`;
+  return [{
+    id: 'inertia-verdict',
+    label: '관성 검증 판정',
+    severity: certification.status === 'passed' ? 'OK' : certification.status === 'review' ? 'WARNING' : 'CRITICAL',
+    detail,
+    expected: 'passed',
+    actual: certification.status,
+  }];
 }
 
 function matchingPhysicsTarget(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult) {

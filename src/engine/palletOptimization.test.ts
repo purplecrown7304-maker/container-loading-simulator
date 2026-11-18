@@ -60,7 +60,9 @@ describe('report-driven pallet optimization', () => {
       maxSupportedTopWeightKg: 1000,
     });
 
-    expect(result.optimization.candidateCount).toBe(2);
+    // Two stack targets plus the tip-safe height profile, added because the two-level
+    // pallet column of this cargo would overturn in the transport certification.
+    expect(result.optimization.candidateCount).toBe(3);
     expect(result.optimization.selectedStackTarget).toBe(1);
     expect(result.maxUsedStackLevel).toBe(1);
     expect(result.optimization.floorPositions).toBe(result.palletCount);
@@ -69,7 +71,7 @@ describe('report-driven pallet optimization', () => {
     expect(result.remaining.reduce((sum, item) => sum + item.quantity, 0)).toBe(0);
   });
 
-  it('only stability redistributes low-utilization pallet columns across the container length', () => {
+  it('only stability re-lays low-utilization pallet columns, tight from the inner wall instead of across the length', () => {
     const result = packOnPallets(container, cargo, {
       ...defaultPalletSpec,
       length: 1.1,
@@ -80,7 +82,11 @@ describe('report-driven pallet optimization', () => {
     }, 'stability');
 
     expect(result.optimization.redistributedForLowUtilization).toBe(true);
-    expect(Math.max(...result.pallets.map((pallet) => pallet.x))).toBeGreaterThan(container.length * 0.7);
+    // Owner decision 2026-11-18: rows touch each other and the first row is on the
+    // inner wall; the columns are no longer spread to the door end to even out weight.
+    const rows = [...new Set(result.pallets.map((pallet) => Math.round(pallet.x * 1e6) / 1e6))].sort((a, b) => a - b);
+    rows.forEach((x, index) => expect(x).toBeCloseTo(index * 1.1, 6));
+    expect(Math.max(...result.pallets.map((pallet) => pallet.x + pallet.length))).toBeLessThan(container.length * 0.7);
   });
 
   it('keeps low-utilization floor lanes centered as a group', () => {

@@ -75,7 +75,9 @@ describe('legacy MIXED whole-plan CG correction', () => {
     const input = structuredClone(cargo);
     const result = packMixedMode(big, cargo, pallet);
     expect(result.placements).toHaveLength(36);
-    expect(result.palletCount).toBe(2);
+    // The 16 palletized cartons fill two complete mixed-orientation tiers of eight on
+    // one base (LOADING_RULES 7A); the former 12 + 4 split needed a second pallet.
+    expect(result.palletCount).toBe(1);
     expect(result.mixed.palletBoxCount).toBe(16);
     expect(result.mixed.directBoxCount).toBe(20);
     expect(errors(big, cargo, result)).toEqual([]);
@@ -83,15 +85,16 @@ describe('legacy MIXED whole-plan CG correction', () => {
     expect(cargo).toEqual(input);
   });
 
-  it('corrects longitudinal CG but retains a lateral failure when strict-stop load bounds pin the full width', () => {
+  it('corrects the strict-stop plan without errors once its palletized cartons share one base', () => {
     const cargo = [box('S1', { quantity: 10, unloadPriority: 1, mixedLoadingMethod: 'direct' }), box('S2', { quantity: 15, unloadPriority: 2, mixedLoadingMethod: 'pallet' })];
     const result = packMixedMode(big, cargo, pallet, 'unloading');
     expect(result.placements).toHaveLength(25);
-    expect(result.palletCount).toBe(2);
+    // Fifteen palletized cartons: one full tier of eight and seven above, on one base.
+    expect(result.palletCount).toBe(1);
     expect(result.mixed.directBoxCount).toBe(10);
-    const findings = errors(big, cargo, result);
-    expect(findings.map(f => f.code)).toEqual(['CG_LATERAL']);
-    expect(findings[0].value).toBeGreaterThan(findings[0].limit!);
+    // Two bases side by side pinned the full width and left a lateral CG error. One base
+    // can be centred; uncorrectable CG errors stay visible in the payload-limited case below.
+    expect(errors(big, cargo, result)).toEqual([]);
     expect(packMixedMode(big, cargo, pallet, 'unloading')).toEqual(result);
   });
 

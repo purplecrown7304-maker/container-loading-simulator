@@ -67,7 +67,11 @@ export function analyzeConstraints(
   const doorBlockedHigh = result.placements.some(p => p.x + p.length > doorBandStart && p.z + p.height > container.height * 0.92);
   const farthestCargoEnd = Math.max(0, ...result.placements.map(p => p.x + p.length));
   const doorGapM = Math.max(0, container.length - farthestCargoEnd);
-  const doorSpaceUtilization = container.length > EPS ? Math.min(100, farthestCargoEnd / container.length * 100) : 0;
+  // Length actually occupied by cargo. An empty stretch in front of the first row is
+  // not "used" length, so a load parked mid-container no longer reads as well filled.
+  const nearestCargoStart = result.placements.length ? Math.max(0, Math.min(...result.placements.map(p => p.x))) : 0;
+  const occupiedLengthM = Math.max(0, farthestCargoEnd - nearestCargoStart);
+  const doorSpaceUtilization = container.length > EPS ? Math.min(100, occupiedLengthM / container.length * 100) : 0;
   const doorSpaceWarn = result.placements.length > 0 && doorSpaceUtilization < 80;
 
   return [

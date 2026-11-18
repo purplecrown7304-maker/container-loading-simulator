@@ -7,6 +7,7 @@ import type { StagingUnit } from './stagingInventory';
 import type { MeshyModel, ModelKey } from './threeComparisonModels';
 import { acquireComparisonLabels } from './threeComparisonLabels';
 import { stagingCartonLabelPlan } from './stagingCartonLabels';
+import { cargoColor } from './cargoColors';
 
 const container = { length: 12.03, width: 2.35, height: 2.7 };
 const options = { container, vehicleRig: 'articulated' as const };
@@ -215,7 +216,7 @@ describe('staging cargo rendering resource ownership and packaging parity', () =
     const cartons = resources.root.children.filter(item => item.name === 'Yard carton') as THREE.InstancedMesh[];
     expect(cartons).toHaveLength(1); expect(cartons[0].count).toBe(20);
     expect((cartons[0].material as THREE.MeshStandardMaterial).map).toBeNull();
-    expect((cartons[0].material as THREE.MeshStandardMaterial).userData.studioCartonSurface).toBe('kraft-no-atlas');
+    expect((cartons[0].material as THREE.MeshStandardMaterial).userData.studioCartonSurface).toBe('flat-pastel-outline');
     expect(new Set(cartons[0].userData.unitIds)).toEqual(new Set(units.map(item => item.id)));
     const slot = layout.slots.slice().sort((a, b) => b.center[1] - a.center[1])[0]; resources.root.updateMatrixWorld(true);
     const hits = new THREE.Raycaster(new THREE.Vector3(slot.center[0], slot.center[1] + slot.height + 2, slot.center[2]), new THREE.Vector3(0, -1, 0)).intersectObject(resources.root, true);
@@ -246,11 +247,12 @@ describe('staging cargo rendering resource ownership and packaging parity', () =
     expect(packaged.every(part => part.unitId === source.id)).toBe(true);
     expect(JSON.stringify(source)).toBe(before);
   });
-  it('preserves each mixed pallet SKU custom color instead of substituting its default hash color', () => {
+  it('preserves each mixed pallet SKU custom color (as its pastel) instead of substituting its default hash color', () => {
     const source = palletUnit(), local = source.localPlacements!;
     const mixed = { ...source, cargoIds: ['SKU-A', 'SKU-B'], contents: [{ cargoId: 'SKU-A', name: 'A', boxCount: 1, displayColor: '#123456' }, { cargoId: 'SKU-B', name: 'B', boxCount: 1, displayColor: '#efac12' }], localPlacements: [local[0], { ...local[1], cargoId: 'SKU-B' }] };
     const layout = buildStagingYardLayout([mixed], options);
-    expect(stagingUnitParts(mixed, layout.slots[0]).filter(part => part.key === 'carton').map(part => part.color)).toEqual(['#123456', '#efac12']);
+    expect(stagingUnitParts(mixed, layout.slots[0]).filter(part => part.key === 'carton').map(part => part.color)).toEqual([cargoColor('SKU-A', '#123456'), cargoColor('SKU-B', '#efac12')]);
+    expect(cargoColor('SKU-A', '#123456')).not.toBe(cargoColor('SKU-A')); expect(cargoColor('SKU-A', '#123456')).not.toBe(cargoColor('SKU-B', '#efac12'));
   });
   it('keeps full layout inventory while explicitly displaying a selected zone and selecting the pallet root', () => {
     const pallet = palletUnit({ verdict: 'unloaded', reasons: [{ reason: 'Actual engine reason' }] });

@@ -34,13 +34,16 @@ export default function RuntimeDiagnosticRecorder() {
       });
     };
     const onAction = (event: Event) => {
-      const detail = (event as CustomEvent<AppActionDetail>).detail;
+      const detail = (event as CustomEvent<AppActionDetail & { confirmedPackagingReplay?: boolean; equipmentConsistencyReplay?: boolean }>).detail;
       const action = detail?.action ?? 'unknown';
-      if (action === 'run-loading') {
+      // A guard re-dispatches the same click after syncing stored input. That replay is
+      // not a second run: keep the first start time and label it in the trace.
+      const replay = detail?.confirmedPackagingReplay ? 'confirmed-packaging' : detail?.equipmentConsistencyReplay ? 'equipment-consistency' : undefined;
+      if (action === 'run-loading' && (!replay || loadingStartedAt == null)) {
         loadingStartedAt = performance.now();
         performance.mark('container-loading:auto-loading:start');
       }
-      recordDiagnosticTrace('app-action', { action });
+      recordDiagnosticTrace('app-action', replay ? { action, replay } : { action });
     };
     const onLoading = (event: Event) => {
       const detail = (event as CustomEvent<LoadingDetail>).detail;

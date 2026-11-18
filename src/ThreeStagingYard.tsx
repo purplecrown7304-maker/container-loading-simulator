@@ -177,7 +177,7 @@ export function createStagingYardResources(units: readonly StagingUnit[], layout
     const first = parts[0], source = first.key ? models[first.key]! : null;
     const sourceParts = first.key === 'carton' && source && cartonGeometry ? [{ ...source.parts[0], geometry: cartonGeometry.geometry }] : source?.parts ?? [{ geometry: boxGeometry, texture: null }];
     for (const part of sourceParts) {
-      const tint = first.key === 'carton' ? new THREE.Color(1, 1, 1).lerp(meshyTint(first.color), .30) : meshyTint(first.color);
+      const tint = meshyTint(first.color);
       const mat = first.key === 'carton' ? createStudioCartonMaterial({ tint }) : part.texture ? createLitMeshyMaterial(part.texture, { tint, roughness: first.key === 'plastic-pallet' ? .5 : .84 }) : material(first.color, first.transparent);
       if (part.texture) materials.push(mat);
       const mesh = new THREE.InstancedMesh(part.geometry, mat, parts.length); mesh.name = `Yard ${first.key ?? (first.transparent ? 'wrapping' : 'banding')}`;

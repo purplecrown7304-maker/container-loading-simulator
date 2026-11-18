@@ -3,6 +3,7 @@ import { buildBlackboxSnapshots, buildConsistencyReport, buildStackAnalysis } fr
 import { clearPalletSnapshot, publishPalletSnapshot, type PalletSnapshot } from './palletSnapshotStore';
 import { clearPhysicsTarget, publishPhysicsTarget } from './physicsTarget';
 import { physicsTargetFromPalletSnapshot } from './certifiedExport';
+import { buildSecuringUsage, createPhysicsTargetSignature, type InertiaCertification } from './inertiaCertification';
 import { writeLoadingStrategyPreference } from './loadingStrategyPreference';
 import { defaultPalletSpec } from './engine/palletPacking';
 import { validateOperationalLoading } from './engine/operationalValidator';
@@ -316,5 +317,46 @@ describe('diagnostic pallet replay inputs', () => {
     publishPhysicsTarget({ mode: 'boxes', container: diagnosticContainer, cargo: [diagnosticItem], result: differentResult });
     expect(buildBlackboxSnapshots(diagnosticContainer, [diagnosticItem], differentResult).loadingInput)
       .toMatchObject({ palletPlanningStatus: 'not-applicable', palletPlanning: null });
+  });
+});
+
+describe('diagnostic inertia verdict', () => {
+  type VerdictWindow = Window & { __containerLoadingLatestCertification?: InertiaCertification };
+  afterEach(() => { (window as VerdictWindow).__containerLoadingLatestCertification = undefined; });
+  const publish = (status: InertiaCertification['status'], failedScenarios: InertiaCertification['failedScenarios'], signature?: string) => {
+    const target = physicsTargetFromPalletSnapshot(diagnosticContainer, [diagnosticItem], singlePalletSnapshot());
+    publishPhysicsTarget(target);
+    (window as VerdictWindow).__containerLoadingLatestCertification = {
+      status, mode: 'pallets', targetSignature: signature ?? createPhysicsTargetSignature(target), testedAt: '2026-11-18T10:10:55.970Z',
+      securing: buildSecuringUsage(target, 3), testedScenarios: 3, passedScenarios: 3 - failedScenarios.length, failedScenarios,
+      maxHorizontalShiftM: failedScenarios.length ? .2864 : .001, maxTiltDeg: failedScenarios.length ? 6.84 : .02,
+      results: {}, payloadWithinLimit: true,
+    };
+    return buildConsistencyReport(diagnosticContainer, [diagnosticItem], target.result);
+  };
+
+  it('makes a failed certification of the current layout CRITICAL even though its signature matches', () => {
+    const report = publish('failed', ['braking']);
+    expect(report.checks.find(check => check.id === 'inertia-signature')?.severity).toBe('OK');
+    const verdict = report.checks.find(check => check.id === 'inertia-verdict')!;
+    expect(verdict.severity).toBe('CRITICAL');
+    expect(verdict.actual).toBe('failed');
+    expect(verdict.detail).toContain('급제동');
+    expect(verdict.detail).toContain('286 mm');
+    expect(report.severity).toBe('CRITICAL');
+    expect(report.counts.critical).toBeGreaterThanOrEqual(1);
+  });
+
+  it('reports a passed certification as OK and a WHAT-IF review as a warning, never as PASS', () => {
+    const passed = publish('passed', []);
+    expect(passed.checks.find(check => check.id === 'inertia-verdict')).toMatchObject({ severity: 'OK', actual: 'passed' });
+    const review = publish('review', []);
+    expect(review.checks.find(check => check.id === 'inertia-verdict')).toMatchObject({ severity: 'WARNING', actual: 'review' });
+  });
+
+  it('does not judge another layout: a stale certification stays a signature warning only', () => {
+    const report = publish('failed', ['braking'], 'another-layout');
+    expect(report.checks.find(check => check.id === 'inertia-signature')?.severity).toBe('WARNING');
+    expect(report.checks.find(check => check.id === 'inertia-verdict')).toBeUndefined();
   });
 });

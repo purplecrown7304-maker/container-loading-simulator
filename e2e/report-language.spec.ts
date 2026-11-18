@@ -254,10 +254,12 @@ for (const language of ['en', 'vi'] as const) {
     await expect(page.locator('.work script')).toHaveCount(0);
     await expect(page.locator('.technical')).toContainText(text.disclaimer);
     await expect(page.locator('.watermark')).toHaveText(text.review);
-    // This legacy fixture also has genuine support/CG failures: translation must
-    // retain the danger verdict and the measured values, not hide diagnostics.
+    // This legacy fixture also has genuine support/lateral-CG failures: translation must
+    // retain the danger verdict and the measured values, not hide diagnostics. Its light
+    // pallet near the inner wall is inside the proportional longitudinal CG verdict
+    // (LOADING_RULES 7A), so no longitudinal finding is listed any more.
     await expect(page.locator('.report-status')).toHaveClass(/danger/);
-    for (const value of ['41.3%', '80%', '1700', '220', '850', '110']) {
+    for (const value of ['41.3%', '80%', '850', '110']) {
       await expect(page.locator('.recommendations')).toContainText(value);
     }
     await expectNoFixedHangul(page, [cargoName]);

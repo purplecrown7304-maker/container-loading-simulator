@@ -244,7 +244,9 @@ describe.each(['en', 'vi'] as const)('%s generated browser-report fixture', lang
     expect(workerSignoffs[0].parentElement?.querySelector('h2')?.textContent).toBe(copy[language].final);
     expect(doc.querySelector('.watermark')?.textContent).toBe(copy[language].review);
     expect(doc.querySelector('.report-status')?.classList.contains('danger')).toBe(true);
-    for (const value of ['41.3%', '80%', '1700', '220', '850', '110']) {
+    // The light fixture pallet near the inner wall is inside the proportional longitudinal
+    // CG verdict (LOADING_RULES 7A), so only the support and lateral findings are listed.
+    for (const value of ['41.3%', '80%', '850', '110']) {
       expect(doc.querySelector('.recommendations')?.textContent).toContain(value);
     }
     expectNoFixedHangul(doc, [cargoName]);

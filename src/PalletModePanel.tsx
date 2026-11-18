@@ -18,6 +18,7 @@ import { clearPalletSnapshot, publishPalletSnapshot, readPalletSnapshot } from '
 import { FINAL_PHYSICS_VALIDATION_ERROR_EVENT } from './autoCertification';
 import { palletAdvisoryFindings } from './engine/palletPlanValidation';
 import { assessStagingRestore, rebuildStagingPalletResult } from './engine/stagingCommands';
+import { recordDiagnosticTrace } from './runtimeDiagnostics';
 import { readSecuringMaterialSettings } from './securingMaterialSettings';
 import { STAGING_PALLET_PLAN_EVENT, STAGING_PALLET_READY_EVENT, sameStagingPalletSpec, stagingPalletSceneData, type StagingPalletPlanDetail } from './stagingPalletBridge';
 
@@ -84,6 +85,17 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
     adoptedResult.current = null;
     let cancelled = false;
     let publishTimer: number | undefined;
+    // The pallet path publishes no loading-result event, so the diagnostic trace would
+    // otherwise show no outcome (and a wrong duration) for a pallet calculation.
+    const startedAt = performance.now();
+    const recordOutcome = (packed?: OptimizedPalletPackingResult | MixedModePackingResult, error?: string) => recordDiagnosticTrace('pallet-loading-result', {
+      mode,
+      placements: packed?.placements.length ?? 0,
+      pallets: packed?.palletCount ?? 0,
+      remainingUnits: packed?.remaining.reduce((sum, row) => sum + row.quantity, 0) ?? 0,
+      durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+      ...(error ? { error } : {}),
+    });
     if (typeof Worker !== 'undefined') {
       const worker = new Worker(new URL('./engine/palletRules.worker.ts', import.meta.url), {type:'module'});
       const cancel = () => { cancelled = true; worker.terminate(); };
@@ -92,6 +104,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
         worker.terminate();
         if(cancelled)return;
         onRunningChange(false);
+        recordOutcome(event.data.result, event.data.error);
         if(event.data.result) setCalculated({key:inputKey,result:event.data.result});
         else window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT,{detail:{mode:'pallets',error:event.data.error}}));
       };
@@ -102,6 +115,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
     const timer = window.setTimeout(() => {
       try {
         const packed = packForMode(container, cargo.filter(item => item.quantity > 0), sanitizeSpec(spec), mode);
+        recordOutcome(packed);
         // Yield before publication so queued edits can cancel the obsolete run.
         publishTimer = window.setTimeout(() => {
           if (!cancelled) { setCalculated({ key: inputKey, result: packed }); onRunningChange(false); }

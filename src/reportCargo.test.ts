@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { cargoColor } from './cargoColors';
 import { reportCargoCatalog } from './reportCargo';
 import { buildShipmentInstructionSection } from './shipmentInstruction';
 import * as shipment from './shipmentInstruction';
@@ -12,7 +13,9 @@ it('uses product identity and the assigned family color for partial cartons', ()
   const partial = { ...normal, id: 'PKG-PRODUCT-PARTIAL', displayColor: '#ee0000' };
   const catalog = reportCargoCatalog([normal, partial]);
   expect(catalog.get(normal.id)?.code).toBe('PRODUCT');
-  expect(catalog.get(partial.id)).toMatchObject({ code: 'PRODUCT', color: '#2255aa', partial: true });
+  // The partial carton takes its family's colour (shown as that hue's pastel), not its own.
+  expect(catalog.get(partial.id)).toMatchObject({ code: 'PRODUCT', color: cargoColor(normal.id, '#2255aa'), partial: true });
+  expect(catalog.get(partial.id)?.color).not.toBe(cargoColor(partial.id, '#ee0000'));
 });
 
 it('identifies a sole partial carton from the matching shipment even without a partial suffix', () => {

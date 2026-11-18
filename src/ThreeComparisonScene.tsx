@@ -19,6 +19,7 @@ import ThreeStagingYard, { ThreeStagingPreview } from './ThreeStagingYard';
 import type { StagingSceneBridge } from './stagingSceneContext';
 import type { StagingBounds } from './stagingYardLayout';
 import ThreeRenderPipeline, { type RenderPipelineStatus } from './ThreeRenderPipeline';
+import ThreeViewerSnapshot from './ThreeViewerSnapshot';
 import { useViewerQuality, VIEWER_QUALITY_PROFILES } from './viewerQuality';
 import ThreeSceneLighting from './ThreeSceneLighting';
 import { cameraFitAction, createCameraMotion, sampleCameraMotion, type CameraMotion, type CameraMotionPose } from './cameraMotion';
@@ -435,6 +436,7 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
       {staging?.preview && previewUnit && <ThreeStagingPreview unit={previewUnit} candidate={staging.preview.candidate} container={plan.container} valid={staging.preview.valid} onError={setYardError} />}
       <SceneRuntime resources={resources} options={options} frameState={frameState} onPresented={onPresented} />
       <ThreeRenderPipeline quality={quality.quality} ambientOcclusion={quality.ambientOcclusion} onStatus={options.onPipelineStatus} onError={setPipelineError} />
+      <ThreeViewerSnapshot />
     </Canvas>
     {pipelineError && <div className="three-environment-error" role="status">{uiText('접촉 음영을 사용할 수 없어 기본 렌더링으로 표시합니다.')}</div>}
     {yardError && <div className="three-environment-error" role="status">{uiText('대기장 표시 실패')} · {yardError} <button type="button" data-view-only="true" onClick={() => { setYardError(''); setYardAttempt(value => value + 1); }}>{uiText('대기장 다시 시도')}</button></div>}

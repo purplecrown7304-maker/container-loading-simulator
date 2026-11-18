@@ -1,5 +1,6 @@
 import type { PalletPackingResult } from './palletPacking';
 import { aConfig, isARules } from './loadingRuleset';
+import { longitudinalCgLimitM } from './operationalValidator';
 import type { OptimizedPalletPackingResult, PalletLoad } from './palletOptimization';
 import type { ContainerSpec } from './types';
 
@@ -107,10 +108,25 @@ function centerPalletGroupOnContainer(pallets: PalletLoad[], container: Containe
   const minY = Math.min(...pallets.map((pallet) => pallet.y));
   const maxY = Math.max(...pallets.map((pallet) => pallet.y + pallet.width));
 
-  const desiredDx = container.length / 2 - cogX;
   const desiredDy = container.width / 2 - cogY;
-  const dx = clamp(desiredDx, -minX, container.length - maxX - (isARules(container)?aConfig(container).margins.l/1000:0));
   const dy = clamp(desiredDy, -minY, container.width - maxY - (isARules(container)?aConfig(container).margins.w/1000:0));
+  if (isARules(container)) {
+    const dx = clamp(container.length / 2 - cogX, -minX, container.length - maxX - aConfig(container).margins.l / 1000);
+    return pallets.map((pallet) => translateLoad(pallet, dx, dy));
+  }
+
+  // Owner decision 2026-11-18: keeping pallets from moving outranks balance. The group
+  // stays against the inner wall with its rows touching. It moves toward the door only
+  // as far as the longitudinal CG verdict requires, so a light shipment is not parked
+  // in the middle of the vehicle with free space on both ends.
+  const cargo = pallets.flatMap((pallet) => pallet.cargoPlacements);
+  const cargoWeightKg = cargo.reduce((sum, placement) => sum + Math.max(0, placement.weightKg), 0);
+  const cargoCogX = cargoWeightKg > EPS
+    ? cargo.reduce((sum, placement) => sum + (placement.x + placement.length / 2) * Math.max(0, placement.weightKg), 0) / cargoWeightKg
+    : cogX;
+  const allowedDeviation = longitudinalCgLimitM(container, cargoWeightKg, true);
+  const requiredDx = container.length / 2 - allowedDeviation - cargoCogX;
+  const dx = clamp(Math.max(-minX, requiredDx), -minX, container.length - maxX);
 
   return pallets.map((pallet) => translateLoad(pallet, dx, dy));
 }
@@ -130,8 +146,11 @@ function recalcLateralImbalance(pallets: PalletLoad[], container: ContainerSpec)
 
 /**
  * 1) Centers each cargo footprint on its own pallet.
- * 2) Centers the complete palletized load against the container's fixed
- *    geometric X/Y center, never the currently occupied pallet footprint.
+ * 2) Centers the complete palletized load across the container width (Y), and keeps
+ *    it against the inner wall along the length (X). It leaves the wall only as far
+ *    as the proportional longitudinal CG verdict requires (owner decision 2026-11-18:
+ *    a load that cannot move comes before an even weight distribution).
+ *    A-rules keep their own X/Y centering inside the configured margins.
  * 3) Recomputes lateral imbalance against container.width / 2.
  *
  * The complete pallet group is translated rigidly and clamped by container
