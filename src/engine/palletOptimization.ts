@@ -5,6 +5,7 @@ import { validateOperationalLoading } from './operationalValidator';
 import { palletSupportBodies } from './palletPlanValidation';
 import { flattenPalletLayers } from './palletLayerRepacking';
 import { palletLoadsWithinFloorLoadLimit } from './palletFloorLoad';
+import { palletTipViolations, tipSafeCargoHeightM } from './palletTransportStability';
 import {
   absorbSparsePallets,
   unsupportedReviewPalletResult,
@@ -684,10 +685,50 @@ export function packOnPallets(
     const finalConsolidated = consolidateFinalSparsePallets(topLayered, container, normalizedCargo, pallet, buildStrategy);
     candidates.push({ result: finalConsolidated.result, target: pallet.maxStackLevels, passes: absorbed.passes + finalConsolidated.passes });
   }
+  // Transport tipping (LOADING_RULES 7A). A banded unit load that overturns under the
+  // certification's own acceleration cannot pass, whatever its pallet count, so it is
+  // compared before pallet count. Loaded quantity still comes first: cargo is never
+  // left behind for this preference. A-rules keep their independent tipping finding.
+  const tipCounts = new WeakMap<PalletPackingResult, number>();
+  const tipErrors = (result: PalletPackingResult) => {
+    if (isARules(originalContainer)) return 0;
+    let count = tipCounts.get(result);
+    if (count === undefined) {
+      count = palletTipViolations(centerPalletPlan(result, originalContainer).pallets, pallet).length;
+      tipCounts.set(result, count);
+    }
+    return count;
+  };
+  if (!isARules(originalContainer)) {
+    // When a built unit would tip, add the tallest uniform profile that stays inside
+    // the limit, so the comparison below has a certifiable plan with the fewest bases.
+    const tipping = candidates.flatMap(candidate => palletTipViolations(centerPalletPlan(candidate.result, originalContainer).pallets, pallet));
+    const density = tipping.reduce((max, load) => {
+      const height = loadCargoHeight(load);
+      return height > EPS ? Math.max(max, load.cargoWeightKg / height) : max;
+    }, 0);
+    if (density > EPS) {
+      const height = tipSafeCargoHeightM(pallet, density);
+      const lowCargo = normalizedCargo.map(item => ({ ...item, maxStackLayers: Math.min(item.maxStackLayers ?? Infinity, Math.max(1, Math.floor((height + EPS) / item.height))) }));
+      const packed = packOnPalletsBase(container, lowCargo, pallet, buildStrategy);
+      const absorbed = absorbIntoSpareTopLayers(packed, container, lowCargo, pallet, buildStrategy);
+      const topLayered = applyTopLayerFillPolicy(absorbed.result, lowCargo, pallet, container, buildStrategy);
+      const finalConsolidated = consolidateFinalSparsePallets(topLayered, container, lowCargo, pallet, buildStrategy);
+      candidates.push({ result: finalConsolidated.result, target: pallet.maxStackLevels, passes: absorbed.passes + finalConsolidated.passes });
+    }
+  }
   const errors=new WeakMap<PalletPackingResult,number>();
+  // Candidate results are not mutated while they are compared, so each verdict is
+  // computed once per candidate instead of once per pairwise comparison.
+  const blockedCounts = new WeakMap<PalletPackingResult, number>();
+  const blocked = (result: PalletPackingResult) => {
+    let count = blockedCounts.get(result);
+    if (count === undefined) { count = unloadingObstructions(normalizedCargo, result.placements); blockedCounts.set(result, count); }
+    return count;
+  };
   const hardErrors=(result:PalletPackingResult)=>{
-    if(!isARules(originalContainer))return palletLoadsWithinFloorLoadLimit(originalContainer,result.pallets,pallet) ? 0 : 1;
     const cached=errors.get(result);if(cached!==undefined)return cached;
+    if(!isARules(originalContainer)){const n=palletLoadsWithinFloorLoadLimit(originalContainer,result.pallets,pallet) ? 0 : 1;errors.set(result,n);return n;}
     const p=centerPalletPlan(result,originalContainer);
     const n=validateAPlan(originalContainer,normalizedCargo,p.placements,p.pallets.map(s=>({id:String(s.palletIndex),x:s.x,y:s.y,z:s.z,length:s.length,width:s.width,height:s.height,weightKg:s.totalWeightKg-s.cargoWeightKg,unitCenterOfGravity:s.centerOfGravity,unitHeightM:Math.max(s.height,...s.cargoPlacements.map(b=>b.z+b.height-s.z))+s.packagingExtraHeightM}))).filter(f=>f.severity==='error').length;
     errors.set(result,n);return n;
@@ -696,9 +737,11 @@ export function packOnPallets(
     const errorDiff=hardErrors(a)-hardErrors(b);if(errorDiff)return errorDiff<0;
     if (a.placements.length !== b.placements.length) return a.placements.length > b.placements.length;
     if (buildStrategy === 'unloading') {
-      const blockedA = unloadingObstructions(normalizedCargo, a.placements), blockedB = unloadingObstructions(normalizedCargo, b.placements);
+      const blockedA = blocked(a), blockedB = blocked(b);
       if (blockedA !== blockedB) return blockedA < blockedB;
     }
+    const tipDiff = tipErrors(a) - tipErrors(b);
+    if (tipDiff) return tipDiff < 0;
     // Pallet loading follows field practice for every strategy: consolidate the
     // shipment first. Center of gravity is the last preference (대표 지시 2026-09-29).
     if (a.palletCount !== b.palletCount) return a.palletCount < b.palletCount;

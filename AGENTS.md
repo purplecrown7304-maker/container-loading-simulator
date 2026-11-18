@@ -81,6 +81,28 @@ sections 2A, 3, 3A, 4 and 5 of this file:
   verdict rule above.
 - A-rules, pallet and MIXED planners are unchanged by this consolidation.
 
+## 2D. Owner-approved pallet rule: a load that cannot move comes first (2026-11-18)
+
+Owner instruction: "무게 중심보다는 적재물이나 파렛트가 움직이지 않게 잘 적재되는 것이
+우선이다." For legacy **pallet** loading this overrides conflicting sentences in sections
+4 and 9 and the "centre alignment" wording of C-13. Full text:
+`docs/engine/LOADING_RULES.md` section 7A.
+
+- Pallets are loaded tight: the group stays against the inner wall (X=0) with its rows
+  touching; lanes touch and are centred across the width. Do not translate the group to
+  the container centre or spread it over the length to even out weight.
+- Longitudinal CG for pallets uses the proportional verdict of section 2C. Move the
+  group toward the door only when, and only as far as, that verdict requires.
+- A banded pallet unit that overturns under the certification's own acceleration cannot
+  pass. Compare this static tipping limit after loaded quantity (and strict unloading)
+  and **before** pallet count. Never leave cargo behind for it. Section 9's "centre of
+  gravity is the last preference" still holds for balance; it does not permit a unit
+  load that tips.
+- Pallet count may be reduced with denser mixed-orientation tier patterns only while
+  every rebuilt unit stays inside the tipping limit and every hard limit holds.
+- The inertia certification, its thresholds and all hard limits are unchanged, and the
+  static check never replaces the certification result. A-rules keep their own path.
+
 ## 3. DIRECT BOX baseline algorithm
 The legacy fixed sequence of `CBM/weight sort -> full vertical stacks -> x shelf progression -> door-side tail mixing` is retired.
 

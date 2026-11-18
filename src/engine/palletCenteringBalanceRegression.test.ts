@@ -67,14 +67,16 @@ function result(pallet: PalletLoad): OptimizedPalletPackingResult {
 }
 
 describe('pallet centering balance regression', () => {
-  it('uses the container center rather than the occupied pallet footprint center', () => {
+  it('uses the container centerline across the width and keeps the group on the inner wall', () => {
     const centered = centerPalletCargo(result(load()), container);
     const pallet = centered.pallets[0];
 
-    expect(pallet.centerOfGravity.x).toBeCloseTo(container.length / 2, 6);
+    // Width: the fixed container centre, not the occupied pallet footprint centre.
     expect(pallet.centerOfGravity.y).toBeCloseTo(container.width / 2, 6);
-    expect(pallet.x).toBeGreaterThan(0);
     expect(pallet.y).toBeGreaterThan(0);
     expect(centered.lateralImbalanceKg).toBe(0);
+    // Length (owner decision 2026-11-18): tight against the inner wall, not centred.
+    expect(pallet.x).toBeCloseTo(0, 6);
+    expect(pallet.centerOfGravity.x).toBeLessThan(container.length / 2);
   });
 });

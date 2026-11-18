@@ -58,10 +58,14 @@ export function assessWeightBalance(container: ContainerSpec, result: LoadingRes
   const innerHeavyRatio = totalWeight > 0 ? innerHalfWeight / totalWeight : 0;
   const maxLongitudinalHalfRatio = Math.max(innerHeavyRatio, 1 - innerHeavyRatio);
 
-  const balanceScore = clampScore(100 - longitudinalDeviationPct * 0.9 - lateralDeviationPct * 1.25);
+  // Owner decisions 2026-10-08 and 2026-11-18: a light load sequenced tight from the inner
+  // wall is not a balance defect. Longitudinal penalties scale with the share of the
+  // payload in use, like the proportional CG verdict; at full payload they are unchanged.
+  const payloadShare = container.maxPayloadKg > 0 ? Math.min(1, totalWeight / container.maxPayloadKg) : 1;
+  const balanceScore = clampScore(100 - longitudinalDeviationPct * 0.9 * payloadShare - lateralDeviationPct * 1.25);
   const verticalPenalty = Math.max(0, verticalCenterPct - 35) * 1.35;
   const lowerBonus = Math.max(0, lowerHeavyRatio - 0.5) * 35;
-  const longitudinalConcentrationPenalty = Math.max(0, maxLongitudinalHalfRatio - 0.6) * 110;
+  const longitudinalConcentrationPenalty = Math.max(0, maxLongitudinalHalfRatio - 0.6) * 110 * payloadShare;
   const lateralPenalty = Math.max(0, lateralDeviationPct - 10) * 0.4;
   const stabilityScore = clampScore(88 - verticalPenalty + lowerBonus - longitudinalConcentrationPenalty - lateralPenalty);
   const validationPenalty = result.validationIssues.length * 25;

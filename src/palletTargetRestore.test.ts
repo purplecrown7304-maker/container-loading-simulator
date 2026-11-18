@@ -148,7 +148,10 @@ describe('pallet target restoration', () => {
     publishPhysicsTarget(unchecked);
     const restored = restorePalletPhysicsTarget(container,cargo)!;
     expect(createPhysicsTargetSignature(restored)).toBe(certification.targetSignature);
-    expect(restored.result.operationalFindings?.some(f=>f.code==='CG_LONGITUDINAL' && f.severity==='error')).toBe(true);
+    // A light pallet against the inner wall is inside the proportional longitudinal verdict
+    // (LOADING_RULES 7A); the corner position still fails the unchanged lateral ±5%.
+    expect(restored.result.operationalFindings?.some(f=>f.code==='CG_LONGITUDINAL')).toBe(false);
+    expect(restored.result.operationalFindings?.some(f=>f.code==='CG_LATERAL' && f.severity==='error')).toBe(true);
     expect(isPhysicsTargetVerified(restored,certification)).toBe(false);
     expect(readPhysicsTarget()).toEqual(restored);
   });

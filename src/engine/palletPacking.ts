@@ -11,6 +11,8 @@ export type PalletSpec = {
   minTopLayerFillRatio?: number;
   /** 바닥 단 점유율 경고 기준(0 초과 1 이하). 미입력 시 0.9. 경고 전용이며 파렛트 구성을 바꾸지 않는다. */
   minBottomLayerCoverageRatio?: number;
+  /** Share of the static tipping threshold a unit load may use under transport acceleration (0 초과 1 이하). 미입력 시 1. */
+  maxTipUtilizationRatio?: number;
   /** Visual material metadata only; it does not change packing constraints. */
   material?: 'wood' | 'plastic';
   length: number;
@@ -227,45 +229,64 @@ function slotFor(
     const supporters = load.cargoPlacements
       .filter(placement => Math.abs(placement.z + placement.height - z) <= EPS)
       .sort((a, b) => a.x - b.x || a.y - b.y || a.length - b.length || a.width - b.width);
-    function* gridCandidates(surface: { x: number; y: number; length: number; width: number }, option: typeof options[number]): Generator<Placement> {
+    // Every candidate of this surface occupies the same vertical slab, so only the
+    // cartons crossing that slab can collide. Filtering them once keeps the search
+    // linear in the tier size instead of the whole pallet for each candidate.
+    const slabTop = z + item.height;
+    if (slabTop > container.height + EPS) continue;
+    const blockers = load.cargoPlacements.filter(p => z < p.z + p.height - EPS && slabTop > p.z + EPS);
+    const seen = new Set<string>();
+    // First grid cell of `surface` that passes every check, in row/column order.
+    // Cells are visited lazily and plain numbers are tested before a placement is
+    // allocated: one tiny carton must not allocate every cell on the deck.
+    const firstFit = (surface: { x: number; y: number; length: number; width: number }, option: typeof options[number]): Placement | null => {
       const colsX = fitCount(surface.length, option.length);
       const colsY = fitCount(surface.width, option.width);
       const offsetX = Math.max(0, (surface.length - colsX * option.length) / 2);
       const offsetY = Math.max(0, (surface.width - colsY * option.width) / 2);
       for (let row = 0; row < colsX; row += 1) {
         for (let col = 0; col < colsY; col += 1) {
-          yield { cargoId: item.id, x: surface.x + offsetX + row * option.length,
-            y: surface.y + offsetY + col * option.width, z, length: option.length,
+          const x = surface.x + offsetX + row * option.length;
+          const y = surface.y + offsetY + col * option.width;
+          // Cheap geometric rejections run before the duplicate key is formatted:
+          // identical geometry is rejected identically, so the result is unchanged.
+          if (x < load.x - EPS || y < load.y - EPS
+            || x + option.length > load.x + pallet.length + EPS
+            || y + option.width > load.y + pallet.width + EPS) continue;
+          let collides = false;
+          for (const p of blockers) {
+            if (x < p.x + p.length - EPS && x + option.length > p.x + EPS && y < p.y + p.width - EPS && y + option.width > p.y + EPS) { collides = true; break; }
+          }
+          if (collides) continue;
+          const key = [x, y, option.length, option.width].map(value => value.toFixed(9)).join(':');
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const candidate: Placement = { cargoId: item.id, x, y, z, length: option.length,
             width: option.width, height: item.height, weightKg: item.weightKg, rotated: option.rotated };
+          if (!hasAdequateSupport(candidate, load.cargoPlacements, baseSurface)) continue;
+          if (!canPlaceByStackingRules(item, candidate, load.cargoPlacements, cargoMap)) continue;
+          if (floorBodies && !withinFloorLoadLimit(container, candidate, floorBodies)) {
+            floorBlockedIds?.add(item.id);
+            continue;
+          }
+          return candidate;
         }
       }
-    }
+      return null;
+    };
     // At an elevated surface, first align cartons within real supporters. A single
     // pallet-centred grid can unnecessarily bridge adjacent larger cartons, spreading
     // cumulative compression through several support chains and stranding a legal
     // next tier. Keep the original grid too for boxes that need several supporters.
-    function* candidates(): Generator<Placement> {
-      for (const option of options) for (const supporter of supporters) yield* gridCandidates(supporter, option);
-      for (const option of options) yield* gridCandidates(baseSurface, option);
-    }
-    // Generate lazily: one tiny carton must not allocate every cell on the deck.
-    const seen = new Set<string>();
-    for (const candidate of candidates()) {
-      const key = [candidate.x, candidate.y, candidate.length, candidate.width].map(value => value.toFixed(9)).join(':');
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (candidate.x < load.x - EPS || candidate.y < load.y - EPS
-        || candidate.x + candidate.length > load.x + pallet.length + EPS
-        || candidate.y + candidate.width > load.y + pallet.width + EPS) continue;
-      const collides = load.cargoPlacements.some((p) => candidate.x < p.x + p.length - EPS && candidate.x + candidate.length > p.x + EPS && candidate.y < p.y + p.width - EPS && candidate.y + candidate.width > p.y + EPS && candidate.z < p.z + p.height - EPS && candidate.z + candidate.height > p.z + EPS);
-      if (collides || candidate.z + candidate.height > container.height + EPS) continue;
-      if (!hasAdequateSupport(candidate, load.cargoPlacements, baseSurface)) continue;
-      if (!canPlaceByStackingRules(item, candidate, load.cargoPlacements, cargoMap)) continue;
-      if (floorBodies && !withinFloorLoadLimit(container, candidate, floorBodies)) {
-        floorBlockedIds?.add(item.id);
-        continue;
+    for (const option of options) {
+      for (const supporter of supporters) {
+        const placement = firstFit(supporter, option);
+        if (placement) return placement;
       }
-      return candidate;
+    }
+    for (const option of options) {
+      const placement = firstFit(baseSurface, option);
+      if (placement) return placement;
     }
   }
   return null;
@@ -275,10 +296,20 @@ function slotFor(
  * an append may create a new support surface, even for a previously failed SKU. */
 function createSlotSearch(pallet: PalletSpec, container: ContainerSpec, cargoMap: Map<string, CargoItem>) {
   const unavailable = new WeakMap<PalletLoad, Set<string>>();
+  // slotFor only reads the work copy's carton list and weight. Both change solely
+  // by appending, so the carton count identifies the state a slot was found for.
+  // A sparse-pallet pass asks every target for every carton but changes one target
+  // per carton; the other answers stay valid until that target receives a carton.
+  const found = new WeakMap<PalletLoad, Map<string, { count: number; placement: Placement | null }>>();
   return (original: PalletLoad, work: PalletLoad, item: CargoItem) => {
     const untouched = work.cargoPlacements.length === original.cargoPlacements.length;
     if (untouched && unavailable.get(original)?.has(item.id)) return null;
+    let byItem = found.get(work);
+    const known = byItem?.get(item.id);
+    if (known && known.count === work.cargoPlacements.length) return known.placement;
     const placement = slotFor(work, item, pallet, container, cargoMap);
+    if (!byItem) { byItem = new Map(); found.set(work, byItem); }
+    byItem.set(item.id, { count: work.cargoPlacements.length, placement });
     if (!placement && untouched) {
       const failed = unavailable.get(original) ?? new Set<string>();
       failed.add(item.id);
@@ -851,6 +882,38 @@ export function absorbSparsePallets(
   let removed = 0;
   let changed = true;
   const findSlot = createSlotSearch(pallet, container, cargoMap);
+  type AbsorbTarget = { original: PalletLoad; work: PalletLoad };
+  // The verdict for one carton on one target depends only on that target's own work
+  // copy: the pallets below a column top are never targets and stay untouched while a
+  // source is being moved. Each carton changes a single target, so the other targets'
+  // verdicts (slot, column support and floor load) are reused until they receive one.
+  const verdicts = new WeakMap<PalletLoad, Map<string, { count: number; placement: Placement | null }>>();
+  const acceptedSlot = (target: AbsorbTarget, item: CargoItem): Placement | null => {
+    let byItem = verdicts.get(target.work);
+    const known = byItem?.get(item.id);
+    if (known && known.count === target.work.cargoPlacements.length) return known.placement;
+    const placement = evaluateSlot(target, item);
+    if (!byItem) { byItem = new Map(); verdicts.set(target.work, byItem); }
+    byItem.set(item.id, { count: target.work.cargoPlacements.length, placement });
+    return placement;
+  };
+  const evaluateSlot = (target: AbsorbTarget, item: CargoItem): Placement | null => {
+    if (strategy === 'unloading' && stopOf(target.work, cargoMap) !== (item.unloadPriority ?? 0)) return null;
+    const placement = findSlot(target.original, target.work, item);
+    if (!placement) return null;
+    if (placement.z + placement.height - target.work.z - target.work.height > maxCargoHeight + EPS) return null;
+    // Pallets below the target must carry the extra carton. Packaging is counted at
+    // its maximum because the minimum-packaging recount happens after the move.
+    const below = columnBelow(target.original, pallets);
+    const upperWeight = target.work.cargoWeightKg + item.weightKg + pallet.tareWeightKg + maxPackagingWeight;
+    for (let i = 0; i < below.length; i += 1) {
+      const stackedAbove = below.slice(i + 1).reduce((sum, load) => sum + load.totalWeightKg, 0) + upperWeight;
+      if (!canSupportUpper(below[i], stackedAbove, cargoMap, pallet)) return null;
+    }
+    if (below.length && !palletLoadsWithinFloorLoadLimit(container, [...below, { ...target.work,
+      cargoPlacements: [...target.work.cargoPlacements, placement] }], pallet, true)) return null;
+    return placement;
+  };
   while (changed && pallets.length > 1) {
     changed = false;
     const sources = pallets
@@ -869,20 +932,8 @@ export function absorbSparsePallets(
         if (!item) { success = false; break; }
         let best: { target: typeof targets[number]; placement: Placement; index: number } | null = null;
         targets.forEach((target, index) => {
-          if (strategy === 'unloading' && stopOf(target.work, cargoMap) !== (item.unloadPriority ?? 0)) return;
-          const placement = findSlot(target.original, target.work, item);
+          const placement = acceptedSlot(target, item);
           if (!placement) return;
-          if (placement.z + placement.height - target.work.z - target.work.height > maxCargoHeight + EPS) return;
-          // Pallets below the target must carry the extra carton. Packaging is counted at
-          // its maximum because the minimum-packaging recount happens after the move.
-          const below = columnBelow(target.original, pallets);
-          const upperWeight = target.work.cargoWeightKg + item.weightKg + pallet.tareWeightKg + maxPackagingWeight;
-          for (let i = 0; i < below.length; i += 1) {
-            const stackedAbove = below.slice(i + 1).reduce((sum, load) => sum + load.totalWeightKg, 0) + upperWeight;
-            if (!canSupportUpper(below[i], stackedAbove, cargoMap, pallet)) return;
-          }
-          if (below.length && !palletLoadsWithinFloorLoadLimit(container, [...below, { ...target.work,
-            cargoPlacements: [...target.work.cargoPlacements, placement] }], pallet, true)) return;
           if (!best || placement.z < best.placement.z - EPS || (Math.abs(placement.z - best.placement.z) <= EPS && index < best.index)) {
             best = { target, placement, index };
           }

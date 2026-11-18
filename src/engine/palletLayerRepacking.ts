@@ -4,6 +4,7 @@ import { validateOperationalLoading } from './operationalValidator';
 import { centerPalletPlan } from './palletCentering';
 import { buildPalletLoadFromDeckPlacements, palletTopLayerFill, type PalletLoad, type PalletPackingResult, type PalletSpec } from './palletPacking';
 import { palletSupportBodies } from './palletPlanValidation';
+import { palletTipViolations } from './palletTransportStability';
 import { canPlaceByStackingRules } from './stacking';
 import { hasAdequateSupport } from './support';
 import type { CargoItem, ContainerSpec, Placement } from './types';
@@ -92,11 +93,13 @@ function rebuild(input: PalletPackingResult, pallets: PalletLoad[], spec: Pallet
 }
 
 /**
- * Lower an already selected homogeneous shipment on its existing pallet bases.
- * This never changes demand, pallet count, declared limits or transport criteria.
- * A mixed-orientation strip can use deck space lost by separately centred grids.
- * Initial pallet minimisation stays independent: this postpass cannot create a
- * smaller but taller full-height shipment before safety certification.
+ * Rebuild an already selected homogeneous shipment on its existing pallet bases.
+ * This never changes demand, declared limits or transport criteria.
+ * A mixed-orientation strip can use deck space lost by separately centred grids,
+ * which lowers the load and can free whole bases (the first bases are kept).
+ * Fewer bases are accepted only while every unit load stays inside the transport
+ * tipping limit (LOADING_RULES 7A), so this postpass cannot create a smaller but
+ * taller shipment that the safety certification would reject.
  */
 export function flattenPalletLayers(input: PalletPackingResult, container: ContainerSpec, cargo: CargoItem[], spec: PalletSpec): PalletPackingResult {
   if (isARules(container) || container.limitReview || input.limitReview || !input.pallets.length || !input.placements.length) return input;
@@ -130,12 +133,30 @@ export function flattenPalletLayers(input: PalletPackingResult, container: Conta
   // existing bases. Heavy units enter every pallet first and remain below lighter ones.
   const ordered = templates.map((placement, index) => ({ placement, index })).sort((a, b) => b.placement.weightKg - a.placement.weightKg
     || a.placement.cargoId.localeCompare(b.placement.cargoId) || a.index - b.index);
-  const assigned: Placement[][] = input.pallets.map(() => []);
-  ordered.forEach(({ placement }, index) => assigned[index % assigned.length].push(placement));
   const oldHeight = Math.max(...input.pallets.map(cargoHeight));
-  const maxCount = Math.max(...assigned.map(units => units.length));
-  for (const pattern of layerPatterns(first, spec)) {
-    if (Math.ceil(maxCount / pattern.count) * first.height >= oldHeight - EPS) continue;
+  const inputTipViolations = palletTipViolations(centerPalletPlan(input, container).pallets, spec).length;
+  const patterns = layerPatterns(first, spec);
+  const maxCargoHeight = usableHeight(container) - spec.height;
+  // Fewest bases first. A denser tier pattern may carry the same cartons on fewer
+  // pallets, but only when every rebuilt unit stays inside the transport tipping
+  // limit: a smaller, taller shipment that cannot pass certification is never built.
+  // With the original base count the pass only lowers the load, as before.
+  for (let baseCount = 1; baseCount <= input.pallets.length; baseCount += 1) {
+    const fewerBases = baseCount < input.pallets.length;
+    const maxCount = Math.ceil(ordered.length / baseCount);
+    for (const pattern of patterns) {
+      const height = Math.ceil(maxCount / pattern.count) * first.height;
+      if (fewerBases ? height > maxCargoHeight + EPS : height >= oldHeight - EPS) continue;
+      const candidate = rebuildOnBases(baseCount, pattern);
+      if (candidate) return candidate;
+    }
+  }
+  return input;
+
+  function rebuildOnBases(baseCount: number, pattern: LayerPattern): PalletPackingResult | null {
+    const fewerBases = baseCount < input.pallets.length;
+    const assigned: Placement[][] = Array.from({ length: baseCount }, () => []);
+    ordered.forEach(({ placement }, index) => assigned[index % assigned.length].push(placement));
     const pallets: PalletLoad[] = [];
     for (const [index, units] of assigned.entries()) {
       const local: Placement[] = [], columns = new Map<number, Placement[]>();
@@ -161,15 +182,16 @@ export function flattenPalletLayers(input: PalletPackingResult, container: Conta
         || (!load.isMixedTail && palletTopLayerFill(load) + EPS < (spec.minTopLayerFillRatio ?? .5))) break;
       pallets.push(load);
     }
-    if (pallets.length !== input.pallets.length) continue;
+    if (pallets.length !== baseCount) return null;
     const candidate = rebuild(input, pallets, spec, container);
-    if (candidate.totalPalletizedWeightKg > container.maxPayloadKg + EPS) continue;
+    if (candidate.totalPalletizedWeightKg > container.maxPayloadKg + EPS) return null;
     // Normal final centering translates the whole group. Validate that exact plan
     // while retaining the original base coordinates in the returned postpass.
     const centered = centerPalletPlan(candidate, container);
+    const tipViolations = palletTipViolations(centered.pallets, spec).length;
+    if (fewerBases ? tipViolations > 0 : tipViolations > inputTipViolations) return null;
     if (validatePlacements(container, centered.placements).length
-      || validateOperationalLoading(container, cargo, centered.placements, palletSupportBodies(centered)).some(finding => finding.severity === 'error')) continue;
+      || validateOperationalLoading(container, cargo, centered.placements, palletSupportBodies(centered)).some(finding => finding.severity === 'error')) return null;
     return candidate;
   }
-  return input;
 }
