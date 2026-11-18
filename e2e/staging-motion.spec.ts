@@ -7,7 +7,13 @@ import { packOnPallets } from '../src/engine/palletOptimization';
 import { stagingInputSignature } from '../src/stagingInventory';
 import { expectThreeOnly } from './helpers/viewer';
 
-test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
+test.use({ launchOptions: {
+  // Playwright 1.60's PLAYWRIGHT_LEGACY_SCREENSHOT escape hatch removes this
+  // exact forced feature. Use the same capture path only for these clock-driven
+  // SwiftShader scenes; retain every other browser default and all real pixels.
+  ignoreDefaultArgs: ['--enable-features=CDPScreenshotNewSurface'],
+  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+} });
 
 const container: ContainerSpec = { length: 12.032, width: 2.35, height: 2.7, maxPayloadKg: 28600,
   floorLoadLimitKgPerM2: 1500, floorLoadWarningMultiplier: 3, ceilingClearanceM: .05 };
@@ -125,7 +131,7 @@ async function pauseInFlight(page: Page) {
 }
 
 async function screenshot(page: Page, info: TestInfo, name: string) {
-  const bytes = await page.screenshot({ path: info.outputPath(`${name}.png`) });
+  const bytes = await page.screenshot({ path: info.outputPath(`${name}.png`), timeout: 20000 });
   await info.attach(name, { body: bytes, contentType: 'image/png' });
   if (process.env.QA_OUTPUT_DIR) {
     const directory = resolve(process.env.QA_OUTPUT_DIR); await mkdir(directory, { recursive: true });
