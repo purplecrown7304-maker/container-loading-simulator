@@ -87,6 +87,15 @@ async function selectFirst(page: Page, pallet = false) {
   return id!;
 }
 
+async function frameWorkspace(page: Page) {
+  const previous = await viewer(page).getAttribute('data-three-camera-request');
+  await panel(page).getByRole('button', { name: '전체 보기', exact: true }).click();
+  if (previous) await expect(viewer(page)).not.toHaveAttribute('data-three-camera-request', previous);
+  else await expect(viewer(page)).toHaveAttribute('data-three-camera-request', /.+/);
+  await expect(viewer(page)).toHaveAttribute('data-three-camera-moving', 'false');
+  return viewer(page).getAttribute('data-three-camera-pose');
+}
+
 async function accepted(page: Page, pallets = false) {
   return page.evaluate(pallets => {
     const browser = window as any;
@@ -94,6 +103,9 @@ async function accepted(page: Page, pallets = false) {
     const pallet = browser.__containerLoadingPalletSnapshot;
     const current = pallets ? pallet?.result : loading;
     return { serialized: JSON.stringify({ loading, pallet }), boxCount: current?.placements?.length ?? 0,
+      placements: current?.placements ?? [],
+      loadedWeightKg: current?.loadedWeightKg,
+      palletLoads: pallet?.result?.pallets ?? [],
       memberIds: (current?.placements ?? []).map((placement: any) => placement.unitId).sort(),
       packages: (pallet?.result?.pallets ?? []).map((load: any) => ({ wrapping: load.wrappingUsed,
         cornerGuards: load.cornerGuardsUsed, memberIds: load.cargoPlacements.map((placement: any) => placement.unitId).sort() })) };
@@ -116,7 +128,8 @@ async function pauseInFlight(page: Page) {
   await expect(viewer(page)).toHaveAttribute('data-three-flight-active', 'true');
   await expect(viewer(page)).toHaveAttribute('data-three-flight-count', '1');
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
-  // 300 ms preparation, then 420 ms vertical ascent. Capture the cruise phase.
+  // Inspect the real in-flight instances with deterministic frame progression.
+  // Native screenshot readback is verified in a separate, unmocked clock context.
   await page.clock.runFor(800);
   await expect(viewer(page)).toHaveAttribute('data-three-flight-active', 'true');
   await expect(viewer(page)).toHaveAttribute('data-three-flight-count', '1');
@@ -127,24 +140,56 @@ async function pauseInFlight(page: Page) {
 }
 
 async function screenshot(page: Page, info: TestInfo, name: string) {
-  // Chromium needs a committed surface while capture is pending. Feed real RAF
-  // frames instead of waiting with the test clock frozen. Advance at most 512 ms;
-  // each in-flight caller verifies afterwards that the real flight is still active.
-  let completed = false, frames = 0;
-  const capture = page.screenshot({ path: info.outputPath(`${name}.png`), timeout: 20000 });
-  void capture.then(() => { completed = true; }, () => { completed = true; });
-  while (!completed && frames < 32) {
-    await page.clock.runFor(16);
-    frames++;
-  }
-  // Await the original promise: a capture error still fails the test.
-  const bytes = await capture;
+  const started = performance.now();
+  const bytes = await page.screenshot({ path: info.outputPath(`${name}.png`), timeout: 20000 });
+  const captureElapsedMs = performance.now() - started;
   await info.attach(name, { body: bytes, contentType: 'image/png' });
   await info.attach(`${name}-capture-clock`, { contentType: 'application/json',
-    body: JSON.stringify({ advancedMs: frames * 16, maxAdvancedMs: 512 }) });
+    body: JSON.stringify({ clockInstalled: false, captureElapsedMs,
+      timingScope: 'Native screenshot readback wall time, not frame time or FPS.' }) });
   if (process.env.QA_OUTPUT_DIR) {
     const directory = resolve(process.env.QA_OUTPUT_DIR); await mkdir(directory, { recursive: true });
     await writeFile(join(directory, `${info.project.name}-${name}.png`), bytes);
+  }
+}
+
+/** Capture the same application and accepted load with the browser's real clock.
+ * A screenshot promise may finish after landing, so it must not gate the skip
+ * interaction or the deterministic in-flight assertions in the functional pass.
+ * Close that page first: only one real WebGL workspace runs at any time. */
+async function liveScreenshots(page: Page, info: TestInfo, cargo: CargoItem[],
+  reference: Awaited<ReturnType<typeof accepted>>, camera: string | null, wrapped = false) {
+  const functionalContext = page.context(), browser = functionalContext.browser();
+  if (!browser) throw new Error('The visual pass requires the same managed browser');
+  const baseURL = new URL(page.url()).origin;
+  await functionalContext.close();
+  const context = await browser.newContext({ baseURL, viewport: { width: 1920, height: 1080 },
+    deviceScaleFactor: 1, reducedMotion: 'no-preference' });
+  try {
+    const live = await context.newPage();
+    await boot(live, cargo, wrapped);
+    if (wrapped) await expect(panel(live).getByText('포장 계획 계산 중', { exact: true })).toBeHidden({ timeout: 60000 });
+    await selectFirst(live, wrapped);
+    expect(await frameWorkspace(live)).toBe(camera);
+    await panel(live).getByRole('button', { name: '선택 화물 적재', exact: true }).click();
+    await expect(viewer(live)).toHaveAttribute('data-three-flight-active', 'true');
+    await expect(viewer(live)).toHaveAttribute('data-three-flight-count', '1');
+    const name = wrapped ? 'staging-motion-wrapped-pallet' : 'staging-motion-box';
+    // This records a native live loading frame; readback can outlast the flight.
+    await screenshot(live, info, `${name}-live-load`);
+    await expect(viewer(live)).toHaveAttribute('data-three-flight-active', 'false', { timeout: 30000 });
+    await expect(viewer(live)).toHaveAttribute('data-three-flight-count', '0');
+    const current = await accepted(live, wrapped);
+    expect({ boxCount: current.boxCount, placements: current.placements, loadedWeightKg: current.loadedWeightKg,
+      palletLoads: current.palletLoads, memberIds: current.memberIds, packages: current.packages }).toEqual({
+      boxCount: reference.boxCount, placements: reference.placements, loadedWeightKg: reference.loadedWeightKg,
+      palletLoads: reference.palletLoads, memberIds: reference.memberIds, packages: reference.packages });
+    await expect(viewer(live)).toHaveAttribute('data-three-camera-pose', camera!);
+    await expect(live.locator('.guided-status-row[data-verification-status="passed"]')).toHaveCount(0);
+    await screenshot(live, info, `${name}-final`);
+    expect(await accepted(live, wrapped)).toEqual(current);
+  } finally {
+    await context.close();
   }
 }
 
@@ -163,7 +208,7 @@ test('a real manual box load animates accepted instances and naturally settles w
   test.setTimeout(120000); await page.setViewportSize({ width: 1920, height: 1080 });
   await page.clock.install();
   await boot(page, [box()]);
-  const id = await selectFirst(page), camera = await viewer(page).getAttribute('data-three-camera-pose');
+  const id = await selectFirst(page), camera = await frameWorkspace(page);
   await panel(page).getByRole('button', { name: '선택 화물 적재', exact: true }).click();
   await pauseInFlight(page);
   await expect(countRow(page, '전체 준비량')).toHaveText(['0', '2']);
@@ -175,19 +220,16 @@ test('a real manual box load animates accepted instances and naturally settles w
   const before = await accepted(page), active = await observations(page);
   expect(before.boxCount).toBe(1); expect(before.memberIds).toHaveLength(1);
   expect(before.memberIds.every((value: unknown) => typeof value === 'string' && value.length > 0)).toBe(true);
-  await screenshot(page, info, 'staging-motion-box-in-flight');
-  await expect(viewer(page)).toHaveAttribute('data-three-flight-active', 'true');
-  await expect(viewer(page)).toHaveAttribute('data-three-flight-count', '1');
   await page.clock.runFor(2000);
   await settled(page, camera, active);
   expect(await accepted(page)).toEqual(before);
   await expect(panel(page).locator('.staging-panel-unit-id')).toHaveText(id);
   await expect(countRow(page, '현재 차량 배치량')).toHaveText(['0', '1']);
   await expect(countRow(page, '대기량')).toHaveText(['0', '1']);
-  await screenshot(page, info, 'staging-motion-box-final');
   await info.attach('box-motion-observations', { contentType: 'application/json', body: JSON.stringify({ active, final: await observations(page),
-    clock: 'Test-only paused RAF with runFor; production timing is 300 ms preparation + 1500 ms vertical flight; no FPS estimate.' }, null, 2) });
+    clock: 'Deterministic functional pass with runFor; native visual pass uses a fresh unmocked context. Production timing stays 300 ms preparation + 1500 ms vertical flight; no FPS estimate.' }, null, 2) });
   await page.clock.resume();
+  await liveScreenshots(page, info, [box()], before, camera);
 });
 
 test('a real wrapped whole pallet keeps all members and packaging when its movement is skipped', async ({ page }, info) => {
@@ -198,7 +240,7 @@ test('a real wrapped whole pallet keeps all members and packaging when its movem
   await expect(countRow(page, '전체 준비량').first()).toHaveText(/^[1-9][\d,]*$/);
   const totals = await countRow(page, '전체 준비량').allTextContents(), palletCount = Number(totals[0].replaceAll(',', ''));
   expect(palletCount).toBeGreaterThan(0); expect(totals[1]).toBe('0');
-  const id = await selectFirst(page, true), camera = await viewer(page).getAttribute('data-three-camera-pose');
+  const id = await selectFirst(page, true), camera = await frameWorkspace(page);
   const packaging = await panel(page).locator('.staging-panel-packaging').innerText();
   expect(packaging).toContain('랩핑 사용'); expect(packaging).toContain('각대 사용');
   const memberCount = Number(await panel(page).locator('.staging-panel-selection dl > div').filter({ has: page.getByText('박스 수량', { exact: true }) }).locator('dd').innerText());
@@ -214,9 +256,6 @@ test('a real wrapped whole pallet keeps all members and packaging when its movem
   expect(before.boxCount).toBe(memberCount); expect(before.memberIds).toHaveLength(memberCount);
   expect(before.packages).toEqual([{ wrapping: true, cornerGuards: true, memberIds: before.memberIds }]);
   expect(new Set(before.memberIds).size).toBe(memberCount);
-  await screenshot(page, info, 'staging-motion-wrapped-pallet-in-flight');
-  await expect(viewer(page)).toHaveAttribute('data-three-flight-active', 'true');
-  await expect(viewer(page)).toHaveAttribute('data-three-flight-count', '1');
   await panel(page).getByRole('button', { name: '연출 건너뛰기', exact: true }).click();
   await page.clock.runFor(64);
   await settled(page, camera, active);
@@ -225,10 +264,11 @@ test('a real wrapped whole pallet keeps all members and packaging when its movem
   await expect(panel(page).locator('.staging-panel-packaging')).toHaveText(packaging, { useInnerText: true });
   await expect(countRow(page, '현재 차량 배치량')).toHaveText(['1', '0']);
   await expect(countRow(page, '대기량')).toHaveText([String(palletCount - 1), '0']);
-  await screenshot(page, info, 'staging-motion-wrapped-pallet-final');
   await info.attach('pallet-motion-observations', { contentType: 'application/json', body: JSON.stringify({ active, final: await observations(page),
-    clock: 'Test-only paused RAF for screenshots and the actual skip control; accepted packing remains live application data.' }, null, 2) });
+    clock: 'Deterministic functional pass for the actual skip control; native visual pass uses a fresh unmocked context with matching accepted cargo and camera.' }, null, 2) });
   await page.clock.resume();
+  await liveScreenshots(page, info, [box({ id: 'MOTION-PALLET', name: '이동 연출 포장 박스', quantity: 9,
+    width: .5, maxStackLayers: 3, maxTopLoadKg: 100 })], before, camera, true);
 });
 
 test('real reduced-motion media immediately places a manually accepted box without a flight or duplicate quantity', async ({ page }) => {
