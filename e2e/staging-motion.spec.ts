@@ -7,13 +7,7 @@ import { packOnPallets } from '../src/engine/palletOptimization';
 import { stagingInputSignature } from '../src/stagingInventory';
 import { expectThreeOnly } from './helpers/viewer';
 
-test.use({ launchOptions: {
-  // Playwright 1.60's PLAYWRIGHT_LEGACY_SCREENSHOT escape hatch removes this
-  // exact forced feature. Use the same capture path only for these clock-driven
-  // SwiftShader scenes; retain every other browser default and all real pixels.
-  ignoreDefaultArgs: ['--enable-features=CDPScreenshotNewSurface'],
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-} });
+test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
 
 const container: ContainerSpec = { length: 12.032, width: 2.35, height: 2.7, maxPayloadKg: 28600,
   floorLoadLimitKgPerM2: 1500, floorLoadWarningMultiplier: 3, ceilingClearanceM: .05 };
@@ -131,8 +125,21 @@ async function pauseInFlight(page: Page) {
 }
 
 async function screenshot(page: Page, info: TestInfo, name: string) {
-  const bytes = await page.screenshot({ path: info.outputPath(`${name}.png`), timeout: 20000 });
+  // Chromium needs a committed surface while capture is pending. Feed real RAF
+  // frames instead of waiting with the test clock frozen. Advance at most 512 ms;
+  // each in-flight caller verifies afterwards that the real flight is still active.
+  let completed = false, frames = 0;
+  const capture = page.screenshot({ path: info.outputPath(`${name}.png`), timeout: 20000 });
+  void capture.then(() => { completed = true; }, () => { completed = true; });
+  while (!completed && frames < 32) {
+    await page.clock.runFor(16);
+    frames++;
+  }
+  // Await the original promise: a capture error still fails the test.
+  const bytes = await capture;
   await info.attach(name, { body: bytes, contentType: 'image/png' });
+  await info.attach(`${name}-capture-clock`, { contentType: 'application/json',
+    body: JSON.stringify({ advancedMs: frames * 16, maxAdvancedMs: 512 }) });
   if (process.env.QA_OUTPUT_DIR) {
     const directory = resolve(process.env.QA_OUTPUT_DIR); await mkdir(directory, { recursive: true });
     await writeFile(join(directory, `${info.project.name}-${name}.png`), bytes);
@@ -167,18 +174,18 @@ test('a real manual box load animates accepted instances and naturally settles w
   expect(before.boxCount).toBe(1); expect(before.memberIds).toHaveLength(1);
   expect(before.memberIds.every((value: unknown) => typeof value === 'string' && value.length > 0)).toBe(true);
   await screenshot(page, info, 'staging-motion-box-in-flight');
+  await expect(viewer(page)).toHaveAttribute('data-three-flight-active', 'true');
+  await expect(viewer(page)).toHaveAttribute('data-three-flight-count', '1');
   await page.clock.runFor(2000);
   await settled(page, camera, active);
   expect(await accepted(page)).toEqual(before);
   await expect(panel(page).locator('.staging-panel-unit-id')).toHaveText(id);
   await expect(countRow(page, '현재 차량 배치량')).toHaveText(['0', '1']);
   await expect(countRow(page, '대기량')).toHaveText(['0', '1']);
-  // Natural settling and plan invariants were checked with the paused clock.
-  // Restore the browser's frame scheduling before capturing the idle canvas.
-  await page.clock.resume();
   await screenshot(page, info, 'staging-motion-box-final');
   await info.attach('box-motion-observations', { contentType: 'application/json', body: JSON.stringify({ active, final: await observations(page),
     clock: 'Test-only paused RAF with runFor; production timing is 300 ms preparation + 1500 ms vertical flight; no FPS estimate.' }, null, 2) });
+  await page.clock.resume();
 });
 
 test('a real wrapped whole pallet keeps all members and packaging when its movement is skipped', async ({ page }, info) => {
@@ -206,6 +213,8 @@ test('a real wrapped whole pallet keeps all members and packaging when its movem
   expect(before.packages).toEqual([{ wrapping: true, cornerGuards: true, memberIds: before.memberIds }]);
   expect(new Set(before.memberIds).size).toBe(memberCount);
   await screenshot(page, info, 'staging-motion-wrapped-pallet-in-flight');
+  await expect(viewer(page)).toHaveAttribute('data-three-flight-active', 'true');
+  await expect(viewer(page)).toHaveAttribute('data-three-flight-count', '1');
   await panel(page).getByRole('button', { name: '연출 건너뛰기', exact: true }).click();
   await page.clock.runFor(64);
   await settled(page, camera, active);
@@ -214,10 +223,10 @@ test('a real wrapped whole pallet keeps all members and packaging when its movem
   await expect(panel(page).locator('.staging-panel-packaging')).toHaveText(packaging, { useInnerText: true });
   await expect(countRow(page, '현재 차량 배치량')).toHaveText(['1', '0']);
   await expect(countRow(page, '대기량')).toHaveText([String(palletCount - 1), '0']);
-  await page.clock.resume();
   await screenshot(page, info, 'staging-motion-wrapped-pallet-final');
   await info.attach('pallet-motion-observations', { contentType: 'application/json', body: JSON.stringify({ active, final: await observations(page),
     clock: 'Test-only paused RAF for screenshots and the actual skip control; accepted packing remains live application data.' }, null, 2) });
+  await page.clock.resume();
 });
 
 test('real reduced-motion media immediately places a manually accepted box without a flight or duplicate quantity', async ({ page }) => {
