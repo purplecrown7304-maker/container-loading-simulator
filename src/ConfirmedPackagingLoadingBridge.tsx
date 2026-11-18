@@ -94,11 +94,13 @@ export default function ConfirmedPackagingLoadingBridge() {
       }
 
       // React state 반영이 끝난 뒤 동일 확정 화물로 자동 적재를 재실행한다.
+      // 다른 가드의 재실행 표시는 유지해, 한 번의 클릭이 가드마다 한 번만 재실행되게 한다.
+      const replayDetail: ReplayActionDetail = { ...custom.detail, action: 'run-loading', confirmedPackagingReplay: true };
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           if (cancelled) return;
           window.dispatchEvent(new CustomEvent<ReplayActionDetail>(APP_ACTION_EVENT, {
-            detail: { action: 'run-loading', confirmedPackagingReplay: true },
+            detail: replayDetail,
           }));
         });
       });

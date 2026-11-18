@@ -36,6 +36,19 @@ describe('report-driven constraint analysis', () => {
     expect(doorSpace?.detail).toContain('문쪽 공백');
   });
 
+  it('counts only the length cargo occupies, not an empty stretch in front of it', () => {
+    const container: ContainerSpec = { length: 10, width: 2, height: 2.5, maxPayloadKg: 10000 };
+    const parked: LoadingResult = { ...result, placements: [
+      { ...result.placements[0], x: 4 }, { ...result.placements[0], x: 5 },
+    ] };
+    const doorSpace = analyzeConstraints(container, cargo, parked, floor(100, 50)).find((check) => check.id === 'doorSpace');
+    // 2 m of 10 m is occupied (4..6 m): 20%, not the 60% the far end alone suggested.
+    expect(doorSpace?.detail).toBe('길이 활용 20.0% · 문쪽 공백 4000 mm');
+    expect(doorSpace?.status).toBe('warn');
+    const tight: LoadingResult = { ...result, placements: Array.from({ length: 9 }, (_, index) => ({ ...result.placements[0], x: index })) };
+    expect(analyzeConstraints(container, cargo, tight, floor(100, 50)).find((check) => check.id === 'doorSpace')?.detail).toBe('길이 활용 90.0% · 문쪽 공백 1000 mm');
+  });
+
   it('uses container-specific floor-load warning settings', () => {
     const strict: ContainerSpec = {
       length: 10, width: 2, height: 2.5, maxPayloadKg: 10000,

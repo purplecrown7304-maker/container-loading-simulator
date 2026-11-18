@@ -81,13 +81,13 @@ export default function EquipmentLoadingConsistencyGuard() {
       const corrected = stateWithSelectedEquipment(stored);
       writeStoredState(corrected, true);
       recordSync('run-loading');
+      // Keep the other guards' replay marks, so one click is replayed once per guard at most.
+      const replayDetail: GuardActionDetail = { ...custom.detail, action: 'run-loading', equipmentConsistencyReplay: true };
 
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           if (cancelled) return;
-          window.dispatchEvent(new CustomEvent<GuardActionDetail>(APP_ACTION_EVENT, {
-            detail: { action: 'run-loading', equipmentConsistencyReplay: true },
-          }));
+          window.dispatchEvent(new CustomEvent<GuardActionDetail>(APP_ACTION_EVENT, { detail: replayDetail }));
         });
       });
     };

@@ -5,6 +5,7 @@ import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engin
 import type { PalletWorkSnapshot } from './palletWorkerReportV2';
 import { readPhysicsTarget } from './physicsTarget';
 import { readTransportEquipment } from './transportEquipment';
+import { captureViewerSnapshot } from './viewerSnapshot';
 import { VOID_FILL_DISCLAIMER, voidFillRows } from './voidFillPresentation';
 
 const APP_VERSION = '2.7.0-diagnostics';
@@ -163,6 +164,17 @@ async function captureCanvasPng(selector: string) {
     await nextFrame();
     await nextFrame();
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+    if (!blob || blob.size < 100) return undefined;
+    return new Uint8Array(await blob.arrayBuffer());
+  } catch {
+    return undefined;
+  }
+}
+
+/** Live 3D viewer picture, rendered and copied in one task (see viewerSnapshot.ts). */
+async function captureViewerPng() {
+  try {
+    const blob = await captureViewerSnapshot();
     if (!blob || blob.size < 100) return undefined;
     return new Uint8Array(await blob.arrayBuffer());
   } catch {
@@ -343,7 +355,8 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
 
   const packagingPreview = await captureCanvasPng('.product-packaging-canvas canvas');
   if (packagingPreview) entries.push({ name: 'preview-packaging.png', data: packagingPreview, modifiedAt: generatedAt });
-  const loadingPreview = await captureCanvasPng('.reference-3d canvas, .viewer-host canvas, .pallet-viewer canvas, canvas');
+  const loadingPreview = await captureViewerPng()
+    ?? await captureCanvasPng('.reference-3d canvas, .viewer-host canvas, .pallet-viewer canvas, canvas');
   if (loadingPreview) entries.push({ name: 'preview-loading.png', data: loadingPreview, modifiedAt: generatedAt });
   const topPreview = await captureCanvasPng('.minimap canvas, .pallet-minimap canvas');
   if (topPreview) entries.push({ name: 'preview-top.png', data: topPreview, modifiedAt: generatedAt });
@@ -359,7 +372,7 @@ export async function exportLoadingDiagnosticsV2(): Promise<{ ok: boolean; messa
     '',
     '핵심 파일',
     '- manifest.json: 버전/커밋/manifest를 제외한 모든 ZIP 파일 SHA-256',
-    '- consistency-report.json: 적재공간↔엔진, 포장↔자동적재, 수량, 중량, 적층지지, 물리검증 signature 교차검사',
+    '- consistency-report.json: 적재공간↔엔진, 포장↔자동적재, 수량, 중량, 적층지지, 물리검증 signature 교차검사 및 관성검증 판정',
     '- equipment.json: 선택 적재공간과 실제 엔진 ContainerSpec',
     '- products.json: 회원/관리자 데이터 영역과 선택 제품',
     '- packaging.json: 제품 포장 확정 스냅샷 및 등록 박스',
