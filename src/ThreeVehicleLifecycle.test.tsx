@@ -2,7 +2,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import ThreeComparisonScene, { CameraController, type ThreeComparisonSceneProps } from './ThreeComparisonScene';
+import ThreeComparisonScene, { CameraController, planContentKey, type ThreeComparisonSceneProps } from './ThreeComparisonScene';
+import { RETIRED_SCENE_LINGER_MS } from './sceneRetirement';
 import { viewerPlan } from './viewerSceneProtocol';
 import { buildStagingYardLayout } from './stagingYardLayout';
 import { stagingSceneCameraPose } from './threeComparisonSceneState';
@@ -45,9 +46,42 @@ describe('cosmetic vehicle lifecycle', () => {
     expect(state.create.mock.calls[0][0].vehicleRig).toBe('none');
     expect(status).toHaveBeenLastCalledWith({ status: 'fallback', message: 'missing GLB' }); expect(error).not.toHaveBeenCalled();
     const first = state.create.mock.results[0].value;
-    await act(async () => root.render(<ThreeComparisonScene {...props} vehicleAttempt={1} onVehicleStatus={status} />));
-    expect(first.dispose).toHaveBeenCalledOnce(); expect(state.create.mock.calls[1][0]).toBe(props.plan);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await act(async () => root.render(<ThreeComparisonScene {...props} vehicleAttempt={1} onVehicleStatus={status} />));
+      expect(state.create.mock.calls[1][0]).toBe(props.plan); expect(status).toHaveBeenLastCalledWith({ status: 'ready' });
+      // The replaced scene keeps its shader programs alive until the new one has drawn.
+      expect(first.dispose).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(RETIRED_SCENE_LINGER_MS); });
+      expect(first.dispose).toHaveBeenCalledOnce();
+      act(() => root.render(null));
+      expect(first.dispose).toHaveBeenCalledOnce(); expect(state.create.mock.results[1].value.dispose).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
+  });
+  it('keeps one scene for a re-published plan with identical content and rebuilds when the content changes', async () => {
+    const props = options(), status = vi.fn();
+    await act(async () => root.render(<ThreeComparisonScene {...props} onVehicleStatus={status} />));
+    expect(state.create).toHaveBeenCalledOnce(); const first = state.create.mock.results[0].value;
+    const republished = options(2);
+    expect(republished.plan).not.toBe(props.plan); expect(planContentKey(republished.plan)).toBe(planContentKey(props.plan));
+    await act(async () => root.render(<ThreeComparisonScene {...republished} onVehicleStatus={status} />));
+    expect(state.create).toHaveBeenCalledOnce(); expect(first.dispose).not.toHaveBeenCalled();
     expect(status).toHaveBeenLastCalledWith({ status: 'ready' });
+    const changed = { ...options(3), plan: { ...plan(3), container: { ...plan(3).container, length: 12 } } };
+    expect(planContentKey(changed.plan)).not.toBe(planContentKey(props.plan));
+    await act(async () => root.render(<ThreeComparisonScene {...changed} onVehicleStatus={status} />));
+    expect(state.create).toHaveBeenCalledTimes(2); expect(state.create.mock.calls[1][0]).toBe(changed.plan);
+    // Unmounting releases the live scene and the lingering replaced one exactly once.
+    act(() => root.render(null));
+    expect(first.dispose).toHaveBeenCalledOnce(); expect(state.create.mock.results[1].value.dispose).toHaveBeenCalledOnce();
+  });
+  it('rebuilds a vehicle fallback on the next plan instead of keeping the scene without its vehicle', async () => {
+    state.load.mockRejectedValueOnce(new Error('missing GLB'));
+    const status = vi.fn();
+    await act(async () => root.render(<ThreeComparisonScene {...options()} onVehicleStatus={status} />));
+    expect(status).toHaveBeenLastCalledWith({ status: 'fallback', message: 'missing GLB' });
+    await act(async () => root.render(<ThreeComparisonScene {...options(2)} onVehicleStatus={status} />));
+    expect(state.create).toHaveBeenCalledTimes(2); expect(status).toHaveBeenLastCalledWith({ status: 'ready' });
   });
   it('releases acquired labels after cancelled late loads and never publishes obsolete resources', async () => {
     let resolve: (value: unknown) => void = () => {};

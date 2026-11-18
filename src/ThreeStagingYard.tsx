@@ -11,6 +11,7 @@ import type { Placement } from './engine/types';
 import { acquireComparisonLabels } from './threeComparisonLabels';
 import { stagingCartonLabelPlan } from './stagingCartonLabels';
 import { createStagingPointerInteraction, type StagingPointerCallbacks } from './stagingPointerInteraction';
+import { createSceneRetirement } from './sceneRetirement';
 
 type YardModels = Partial<Record<ModelKey, MeshyModel>>;
 export type StagingYardDrag = { unitId: string; point: [number, number, number]; cancelled?: boolean };
@@ -289,8 +290,12 @@ export default function ThreeStagingYard(props: ThreeStagingYardProps) {
   const pointer = useMemo(() => createStagingPointerInteraction(() => pointerCallbacks.current), []);
   useLayoutEffect(() => { pointer.activate(); return () => pointer.dispose(); }, [pointer]);
   useLayoutEffect(() => { if (props.canDrag === false) pointer.cancel(); }, [props.canDrag, pointer]);
+  // The yard is rebuilt for every inventory, zone or label change. Keep the replaced
+  // yard until the new one has drawn so its shaders and label textures are reused.
+  const live = useRef<{ dispose: () => void } | null>(null);
+  const retirement = useMemo(() => createSceneRetirement(), []);
   useEffect(() => {
-    let cancelled = false, dispose: (() => void) | undefined;
+    let cancelled = false;
     const ids = props.visibleZoneIds ? new Set(props.layout.slots.filter(slot => props.visibleZoneIds!.includes(slot.zoneId)).map(slot => slot.unitId)) : null;
     const units = ids ? props.units.filter(unit => ids.has(unit.id)) : props.units;
     const printed = props.cartonLabelsEnabled === false ? Promise.resolve(null) : acquireComparisonLabels(stagingCartonLabelPlan(units));
@@ -298,16 +303,29 @@ export default function ThreeStagingYard(props: ThreeStagingYardProps) {
       if (cancelled) { acquired?.release(); return; }
       try {
         const resources = createStagingYardResources(props.units, props.layout, Object.fromEntries(entries), { visibleZoneIds: props.visibleZoneIds, labels: props.labels, cartonLabelMaterials: acquired?.materials });
-        dispose = () => { resources.dispose(); acquired?.release(); };
+        const previous = live.current;
+        live.current = { dispose: () => { resources.dispose(); acquired?.release(); } };
+        if (previous) retirement.retire(previous.dispose);
         setLoaded({ units: props.units, layout: props.layout, options: optionsKey, resources }); invalidate();
       } catch (error) { acquired?.release(); throw error; }
     }).catch(error => {
       void printed.then(acquired => acquired?.release(), () => {});
       if (!cancelled) callbacks.current.onError?.(error instanceof Error ? error.message : String(error));
     });
-    return () => { cancelled = true; dispose?.(); pointer.cancel(); };
-  }, [props.units, props.layout, optionsKey, invalidate]);
+    return () => { cancelled = true; pointer.cancel(); };
+  }, [props.units, props.layout, optionsKey, invalidate, retirement]);
+  useEffect(() => () => {
+    const current = live.current; live.current = null;
+    current?.dispose(); retirement.flush();
+  }, [retirement]);
   const resources = loaded?.units === props.units && loaded.layout === props.layout && loaded.options === optionsKey ? loaded.resources : null;
+  useEffect(() => {
+    if (!resources || !retirement.size) return;
+    // The replacement is in the scene now and compiles on the next demand frame.
+    let second = 0;
+    const first = requestAnimationFrame(() => { second = requestAnimationFrame(() => retirement.flush()); });
+    return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); };
+  }, [resources, retirement]);
   useLayoutEffect(() => { resources?.setSelected(props.selectedUnitId ?? null); invalidate(); }, [resources, props.selectedUnitId, invalidate]);
   const unitAt = (event: ThreeEvent<PointerEvent | MouseEvent>) => event.object.userData.kind === 'stagingCargo'
     ? event.object.userData.unitIds[event.instanceId ?? -1] as string | undefined : undefined;

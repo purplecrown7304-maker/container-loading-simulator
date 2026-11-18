@@ -24,6 +24,7 @@ import ThreeSceneLighting from './ThreeSceneLighting';
 import { cameraFitAction, createCameraMotion, sampleCameraMotion, type CameraMotion, type CameraMotionPose } from './cameraMotion';
 import ThreeStagingFlights from './ThreeStagingFlights';
 import { createStagingPointerInteraction, type StagingPointerCallbacks } from './stagingPointerInteraction';
+import { createSceneRetirement } from './sceneRetirement';
 
 export type ThreeComparisonSceneStats = {
   revision: number;
@@ -94,6 +95,16 @@ export type ThreeComparisonSceneProps = {
 type Resources = ReturnType<typeof createComparisonSceneResources>;
 type FrameState = { acceptedFrameStep: number | null; rejectedFrame: boolean };
 type StagingCameraState = Pick<StagingSceneBridge, 'layout' | 'visibleZoneIds' | 'viewRequest' | 'dragging'>;
+
+/** Camera-only statistics reach React at most this often while the view moves.
+ * Scene, selection, frame and flight changes are still reported on their frame. */
+export const CAMERA_STATS_INTERVAL_MS = 120;
+
+/** Everything a scene is built from. `revision` only names the request. */
+export function planContentKey(plan: ThreeComparisonPlan) {
+  const { revision: _revision, ...content } = plan;
+  return JSON.stringify(content);
+}
 
 export function CameraController({ plan, view, autoRotate, staging, viewRequest = 0, instant = false }: { plan: ThreeComparisonPlan; view: string; autoRotate: boolean; staging?: StagingCameraState | null; viewRequest?: number; instant?: boolean }) {
   const controls = useRef<ElementRef<typeof OrbitControls>>(null);
@@ -261,10 +272,13 @@ function SceneContents({ resources, options, bindings, frameState }: { resources
     onPointerOut={(event: ThreeEvent<PointerEvent>) => { if (event.object.userData.kind === 'weightSurface') options.onCellSelect?.(null); }} /></>;
 }
 
-function SceneRuntime({ resources, options, frameState }: { resources: Resources | null; options: ThreeComparisonSceneProps; frameState: { current: FrameState } }) {
+export function SceneRuntime({ resources, options, frameState, onPresented }: { resources: Resources | null; options: ThreeComparisonSceneProps; frameState: { current: FrameState }; onPresented?: (resources: Resources) => void }) {
   const { invalidate, gl } = useThree();
   const callbacks = useRef(options); callbacks.current = options;
-  const readyResource = useRef<Resources | null>(null), lastStats = useRef('');
+  const presented = useRef(onPresented); presented.current = onPresented;
+  const readyFor = useRef<{ resources: Resources; plan: ThreeComparisonPlan } | null>(null), lastStats = useRef('');
+  const cameraStats = useRef<{ stable: string; sentAt: number; pending: ThreeComparisonSceneStats | null; timer: ReturnType<typeof setTimeout> | null }>({ stable: '', sentAt: 0, pending: null, timer: null });
+  useEffect(() => () => { const queued = cameraStats.current; if (queued.timer !== null) clearTimeout(queued.timer); queued.timer = null; queued.pending = null; }, []);
   const [autoRotate, setAutoRotate] = useState(false);
   const run = useRef<{ started: number; previous: number; samples: number[]; calls: number; triangles: number } | null>(null);
   useEffect(() => {
@@ -295,9 +309,28 @@ function SceneRuntime({ resources, options, frameState }: { resources: Resources
       flightActive: resources.displayFlightActive, flightCount: resources.displayFlightCount,
       ...frameState.current,
     };
-    if (readyResource.current !== resources) { readyResource.current = resources; callbacks.current.onReady?.(stats); }
+    // The same resources can serve a new plan with identical content; readiness is per plan.
+    if (readyFor.current?.resources !== resources || readyFor.current.plan !== options.plan) {
+      readyFor.current = { resources, plan: options.plan }; callbacks.current.onReady?.(stats); presented.current?.(resources);
+    }
     const signature = JSON.stringify(stats);
-    if (signature !== lastStats.current) { lastStats.current = signature; callbacks.current.onStats?.(stats); }
+    if (signature !== lastStats.current) {
+      lastStats.current = signature;
+      // Orbiting changes only the pose and the culled draw totals. Reporting those
+      // on every frame re-rendered the whole React viewer once per frame.
+      const queued = cameraStats.current, now = performance.now();
+      const stable = JSON.stringify({ ...stats, cameraPose: '', renderCalls: 0, triangles: 0 });
+      const send = (value: ThreeComparisonSceneStats) => {
+        if (queued.timer !== null) { clearTimeout(queued.timer); queued.timer = null; }
+        queued.pending = null; queued.sentAt = performance.now(); callbacks.current.onStats?.(value);
+      };
+      if (stable !== queued.stable || now - queued.sentAt >= CAMERA_STATS_INTERVAL_MS) { queued.stable = stable; send(stats); }
+      else {
+        queued.pending = stats;
+        // Demand rendering stops with the camera, so the final pose needs its own delivery.
+        queued.timer ??= setTimeout(() => { queued.timer = null; if (queued.pending) send(queued.pending); }, Math.max(0, CAMERA_STATS_INTERVAL_MS - (now - queued.sentAt)));
+      }
+    }
     const sample = run.current;
     if (sample) {
       const now = performance.now();
@@ -337,10 +370,22 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
   useEffect(() => {
     if (error && options.staging?.flight) options.staging.completeFlight?.(options.staging.flight.id);
   }, [error, options.staging]);
+  const live = useRef<{ key: string; resources: Resources; vehicleStatus: VehicleStatus; dispose: () => void } | null>(null);
+  // A replaced scene lingers until its replacement has drawn; see sceneRetirement.
+  const retirement = useMemo(() => createSceneRetirement(), []);
+  const onPresented = useCallback((shown: Resources) => { if (live.current?.resources === shown) retirement.flush(); }, [retirement]);
   useEffect(() => {
     let cancelled = false;
-    let dispose: (() => void) | undefined;
     setError(''); frameState.current = { acceptedFrameStep: null, rejectedFrame: false };
+    const key = `${options.vehicleAttempt ?? 0}:${planContentKey(plan)}`;
+    const current = live.current;
+    // A new plan identity with unchanged content (for example a re-published
+    // result) keeps its scene. A vehicle fallback still retries on the next plan.
+    if (current?.key === key && current.vehicleStatus.status !== 'fallback') {
+      callbacks.current.onVehicleStatus?.(current.vehicleStatus);
+      setLoaded({ plan, resources: current.resources });
+      return;
+    }
     const labels = acquireComparisonLabels(plan);
     const models = Promise.all(requiredComparisonModelKeys(plan).map(async key => [key, await loadMeshyModel(key)] as const));
     const vehicleKeys = vehicleLayout(plan.vehicleRig ?? 'none', plan.container).placements.map(item => item.key);
@@ -353,8 +398,11 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
       const mapped = Object.fromEntries(assets) as ComparisonModels;
       try {
         const resources = createComparisonSceneResources(vehicle.error ? { ...plan, vehicleRig: 'none' } : plan, mapped, acquired.materials, vehicle.models);
-        callbacks.current.onVehicleStatus?.(vehicle.error ? { status: 'fallback', message: vehicle.error } : { status: vehicleKeys.length ? 'ready' : 'none' });
-        dispose = () => { resources.dispose(); acquired.release(); };
+        const vehicleStatus: VehicleStatus = vehicle.error ? { status: 'fallback', message: vehicle.error } : { status: vehicleKeys.length ? 'ready' : 'none' };
+        callbacks.current.onVehicleStatus?.(vehicleStatus);
+        const previous = live.current;
+        live.current = { key, resources, vehicleStatus, dispose: () => { resources.dispose(); acquired.release(); } };
+        if (previous) retirement.retire(previous.dispose);
         setLoaded({ plan, resources });
       } catch (reason) { acquired.release(); throw reason; }
     }).catch(reason => {
@@ -363,8 +411,12 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
       const message = reason instanceof Error ? reason.message : String(reason);
       setError(message); callbacks.current.onError?.(message);
     });
-    return () => { cancelled = true; dispose?.(); };
+    return () => { cancelled = true; };
   }, [plan, options.vehicleAttempt]);
+  useEffect(() => () => {
+    const current = live.current; live.current = null;
+    current?.dispose(); retirement.flush();
+  }, [retirement]);
   const resources = loaded?.plan === plan ? loaded.resources : null;
   const groundY = vehicleLayout(plan.vehicleRig ?? 'none', plan.container).groundY;
   const staging = options.staging;
@@ -381,7 +433,7 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
         onInspect={staging.inspectUnit} onSelect={staging.selectUnit} onDragStart={staging.onDragStart} onDragMove={staging.onDragMove} onDragEnd={staging.onDragEnd} onDraggingChange={staging.onDraggingChange} onError={setYardError} />}
       {staging && <StagingVehicleOutline bounds={staging.flight?.flights.some(flight => flight.unitId === staging.selectedUnitId) ? null : selectedStaging?.bounds ?? null} />}
       {staging?.preview && previewUnit && <ThreeStagingPreview unit={previewUnit} candidate={staging.preview.candidate} container={plan.container} valid={staging.preview.valid} onError={setYardError} />}
-      <SceneRuntime resources={resources} options={options} frameState={frameState} />
+      <SceneRuntime resources={resources} options={options} frameState={frameState} onPresented={onPresented} />
       <ThreeRenderPipeline quality={quality.quality} ambientOcclusion={quality.ambientOcclusion} onStatus={options.onPipelineStatus} onError={setPipelineError} />
     </Canvas>
     {pipelineError && <div className="three-environment-error" role="status">{uiText('접촉 음영을 사용할 수 없어 기본 렌더링으로 표시합니다.')}</div>}
