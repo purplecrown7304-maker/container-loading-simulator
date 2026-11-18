@@ -1,0 +1,19 @@
+{
+  "name": "@load-studio/picomatch-safe",
+  "version": "4.0.7-load-studio.1",
+  "private": true,
+  "description": "Local security-maintained picomatch 4.0.7 with repeated-extglob wildcard protection",
+  "main": "index.js",
+  "sideEffects": false,
+  "license": "MIT",
+  "author": "Jon Schlinkert (https://github.com/jonschlinkert)",
+  "engines": { "node": ">=12" },
+  "files": ["index.js", "posix.js", "lib", "LICENSE", "README.md", "SECURITY.md"],
+  "upstream": {
+    "name": "picomatch",
+    "version": "4.0.7",
+    "repository": "https://github.com/micromatch/picomatch",
+    "tarball": "https://registry.npmjs.org/picomatch/-/picomatch-4.0.7.tgz",
+    "integrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA=="
+  }
+}
