@@ -28,6 +28,8 @@ test('Three renders four pallet straps per support in a two-by-two grid', async 
   const camera = await viewer.getAttribute('data-three-camera-pose');
   await viewer.getByRole('button', { name: '상단', exact: true }).click();
   await expect(viewer).not.toHaveAttribute('data-three-camera-pose', camera!);
+  // The top view is reached by a short camera move; record it once it has arrived.
+  await expect(viewer).toHaveAttribute('data-three-camera-moving', 'false');
   await expect.poll(async () => (await canvas.screenshot()).equals(oblique)).toBe(false);
   await canvas.screenshot({ path: test.info().outputPath('pallet-banding-grid-top.png') });
   expect(errors).toEqual([]);

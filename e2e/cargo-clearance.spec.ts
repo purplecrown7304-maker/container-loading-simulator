@@ -16,6 +16,14 @@ async function clickWorld(viewer: Locator, position: [number, number, number], c
   await canvas.click({clickCount, position:{x:(screen.x+1)*rect!.width/2,y:(1-screen.y)*rect!.height/2}});
 }
 
+/** A requested view is a short camera move; world clicks need the pose it ends at. */
+async function requestView(viewer: Locator, name: string) {
+  const previous = await viewer.getAttribute('data-three-camera-request');
+  await viewer.getByRole('button',{name,exact:true}).click();
+  await expect(viewer).not.toHaveAttribute('data-three-camera-request',previous??'');
+  await expect(viewer).toHaveAttribute('data-three-camera-moving','false');
+}
+
 async function selectIndex(page: Page, index: number) {
   await page.evaluate(index => window.dispatchEvent(new CustomEvent('container-loading:placement-select',{detail:{index}})),index);
 }
@@ -28,7 +36,7 @@ test('clicking cargo shows six signed boundary distances with two switchable dim
   const viewer=page.locator('.three-comparison-viewer');
   await expect(viewer).toHaveAttribute('data-three-applied','true',{timeout:60_000});
   const revision=await viewer.getAttribute('data-three-plan-revision');
-  await viewer.getByRole('button',{name:'상단',exact:true}).click();
+  await requestView(viewer,'상단');
   await viewer.getByRole('button',{name:'외벽 숨기기',exact:true}).click();
   // The upper carton at engine (0,0,.5) has center (-2.7,.75,-.975) in Three.
   await clickWorld(viewer,[-2.7,.75,-.975]);
@@ -80,7 +88,7 @@ test('pallet single and double clicks show measurements before explicit detail o
   test.setTimeout(90_000);await page.goto('/comparison.html');
   const viewer=page.locator('.three-comparison-viewer');
   await expect(viewer).toHaveAttribute('data-three-applied','true',{timeout:60_000});
-  await viewer.getByRole('button',{name:'상단',exact:true}).click();
+  await requestView(viewer,'상단');
   await viewer.getByRole('button',{name:'외벽 숨기기',exact:true}).click();
   await clickWorld(viewer,[-2.175,.825,-.425],2);
   await expect(viewer).toHaveAttribute('data-three-selected','4');
