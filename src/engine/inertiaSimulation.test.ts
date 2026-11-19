@@ -96,6 +96,40 @@ describe('inertia animation frames', () => {
   }, 30_000);
 });
 
+describe('tight block of narrow cartons', () => {
+  // Field case 2026-11-19: 235 x 130 x 265 mm cartons, 18 across a 2.35 m container, 4 tiers.
+  // Level 3 direct-box securing profile of that run (anti-slip mats, 62 dunnage blocks).
+  const blocked = { frictionCoefficient: 0.88, cargoRestraint: { springAccelerationPerM: 87.6, dampingPerSecond: 14.16, maxAccelerationG: 0.62 } };
+  const block = (sideGapM: number) => {
+    const across = 18;
+    const blockContainer: ContainerSpec = { length: 6, width: across * 0.13 + sideGapM * 2, height: 2.7, maxPayloadKg: 28600 };
+    const placements: Placement[] = [];
+    for (let tier = 0; tier < 4; tier += 1) {
+      for (let row = 0; row < 3; row += 1) {
+        for (let index = 0; index < across; index += 1) {
+          placements.push({ cargoId: 'BOX', x: row * 0.235, y: sideGapM + index * 0.13, z: tier * 0.265, length: 0.235, width: 0.13, height: 0.265, weightKg: 1.42 });
+        }
+      }
+    }
+    return { blockContainer, placements };
+  };
+
+  it('limits lateral travel to the side gap the plan really has', async () => {
+    const { blockContainer, placements } = block(0.005);
+    const result = await runInertiaAnimation(blockContainer, placements, 'cornering', [], undefined, blocked, { captureFrames: false });
+    // Neighbours touch in the plan. Eighteen cartons across must not add travel of their own:
+    // with a margin on every side face this block moved 19 mm and failed the 12 mm limit.
+    expect(result.maxHorizontalShiftM).toBeLessThan(0.008);
+    expect(result.maxTiltDeg).toBeLessThan(1);
+  }, 30_000);
+
+  it('still lets an unblocked block lean into a real side gap', async () => {
+    const { blockContainer, placements } = block(0.03);
+    const result = await runInertiaAnimation(blockContainer, placements, 'cornering', [], undefined, { frictionCoefficient: 0.88 }, { captureFrames: false });
+    expect(result.maxHorizontalShiftM).toBeGreaterThan(0.012);
+  }, 30_000);
+});
+
 describe('banded pallet unit load', () => {
   const bigContainer: ContainerSpec = { length: 3, width: 2.4, height: 2.4, maxPayloadKg: 28000 };
   // Light export pallet under a ~1 t load: the carton/pallet mass ratio that used to make the

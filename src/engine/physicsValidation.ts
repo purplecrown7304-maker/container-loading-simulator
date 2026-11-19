@@ -1,5 +1,6 @@
 import { runInertiaAnimation, isCompleteSecuredPhysicsDuration, type InertiaAnimationResult, type InertiaBodyMotion, type InertiaSecuringProfile } from './inertiaSimulation';
 export { isCompleteSecuredPhysicsDuration } from './inertiaSimulation';
+import { colliderHalfExtents } from './physicsColliders';
 import type { ContainerSpec, Placement } from './types';
 
 const EPS = 1e-6;
@@ -341,11 +342,9 @@ export async function runPhysicsValidation(
     const center = toPhysicsCenter(container, item);
     const desc = dynamic ? RAPIER.RigidBodyDesc.dynamic() : RAPIER.RigidBodyDesc.fixed();
     const body = world.createRigidBody(desc.setTranslation(center.x, center.y, center.z).setCanSleep(true).setCcdEnabled(false));
-    const collider = RAPIER.ColliderDesc.cuboid(
-      Math.max(EPS, item.length / 2 - 0.0005),
-      Math.max(EPS, item.height / 2 - 0.0005),
-      Math.max(EPS, item.width / 2 - 0.0005),
-    ).setFriction(DEFAULT_FRICTION).setRestitution(DEFAULT_RESTITUTION);
+    const { halfLength, halfHeight, halfWidth } = colliderHalfExtents(item);
+    const collider = RAPIER.ColliderDesc.cuboid(halfLength, halfHeight, halfWidth)
+      .setFriction(DEFAULT_FRICTION).setRestitution(DEFAULT_RESTITUTION);
     if (dynamic) collider.setMass(Math.max(0.01, weightKg));
     world.createCollider(collider, body);
     return { body, center, massKg: Math.max(0.01, weightKg), dynamic, item };

@@ -171,7 +171,7 @@ export function createPhysicsTargetSignature(target: PhysicsTarget) {
     .sort((a, b) => a.cargoId.localeCompare(b.cargoId) || a.quantity - b.quantity || a.reason.localeCompare(b.reason))
     .map(item => [item.cargoId, item.quantity, item.reason]);
   return JSON.stringify({
-    physicsModel: 'restraint-v7-stepped-door-faces',
+    physicsModel: 'restraint-v8-touching-neighbours',
     limitReview: target.container.limitReview ?? target.result.limitReview?.config,
     rulesMetadata: target.container.rules ? { cargo: target.cargo, ruleset: target.result.ruleset, orientation: target.result.placements.map(p=>[p.unitId,p.orientation]) } : undefined,
     bandingLayout: target.mode === 'pallets' ? 'grid-v1' : undefined,
