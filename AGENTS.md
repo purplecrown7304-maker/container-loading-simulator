@@ -74,7 +74,10 @@ sections 2A, 3, 3A, 4 and 5 of this file:
   `maxPayload / loadedWeight` and equals the previous 5% at full payload.
 - Securing and void fill follow actual voids, not carton count. `VOID_FILL_REQUIRED`
   must reach every output. `VOID_FILL_KG_PER_M3` is a placeholder until the company
-  material table exists; do not treat it as a verified value.
+  material table exists; do not treat it as a verified value. Owner decision 2026-11-19:
+  the 3D view draws planned fill materials only. A void with no applicable material is
+  not drawn there (formerly a red wire box); it stays in the plan, the finding, the result
+  list and every report and export.
 - Section 3 (EMS + Beam Search) describes the pallet/MIXED search, not the direct-box
   default. Section 5's sparse top-tier re-insertion (#86) applies to pallet, MIXED and
   A paths only. Section 4's "CG is an optimization preference" is replaced by the

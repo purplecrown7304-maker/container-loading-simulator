@@ -66,8 +66,18 @@ export function voidFillTotal(result: LoadingResult) {
   };
 }
 
+/**
+ * Whether a fill of the plan is drawn in the 3D view. Owner decision 2026-11-19: a void the
+ * plan has no material for is not drawn there (it used to be a red wire box). Only the
+ * drawing is left out: the void stays in the plan, in the `VOID_FILL_REQUIRED` finding, in
+ * the summary list and in every report and export.
+ */
+export function voidFillDrawnIn3D(fill: VoidFill) {
+  return fill.fixedSupportEligible && fill.material !== 'unresolved';
+}
+
+/** Colour of a planned fill material in the 3D view. */
 export function voidFillMaterialColor(fill: VoidFill) {
-  if (!fill.fixedSupportEligible || fill.material === 'unresolved') return '#dc2626';
   if (fill.material === 'dunnage-airbag') return '#7dd3fc';
   if (fill.material === 'paper-honeycomb') return '#d6b276';
   return '#e87924';

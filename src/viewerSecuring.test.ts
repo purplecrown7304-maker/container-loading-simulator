@@ -3,8 +3,10 @@ import type { LoadingResult } from './engine/types';
 import { buildSecuringUsage } from './inertiaCertification';
 import type { ViewerSupport } from './viewerSceneProtocol';
 import { securingGeometry } from './viewerSecuring';
+import { voidFillRows, voidFillTotal } from './voidFillPresentation';
 
 const container = { length: 6, width: 2.4, height: 2.5, maxPayloadKg: 1000 };
+const shape = ({ x, y, z, length, width, height }: { x: number; y: number; z: number; length: number; width: number; height: number }) => ({ x, y, z, length, width, height });
 const box = { cargoId: 'A', x: 1.2, y: .6, z: .15, length: .5, width: .5, height: .5, weightKg: 10 };
 const result: LoadingResult = { placements: [box], remaining: [], loadedWeightKg: 35, usedVolumeM3: .125, validationIssues: [] };
 const support: ViewerSupport = { id: 'PALLET-1', x: 1, y: .5, z: 0, length: 1.1, width: 1.1, height: .15, weightKg: 25 };
@@ -59,13 +61,33 @@ describe('whole-pallet display packaging', () => {
     ]);
   });
 
-  it('marks only actual wrapping as film while preserving unrelated void-fill wire geometry', () => {
-    const source: LoadingResult = { ...result, voidFillPlan: { sideGapM: .1, rearGapM: 0, volumeM3: .05, weightKg: 0, unresolvedCount: 1,
-      fills: [{ id: 'unresolved', kind: 'side-gap', material: 'unresolved', quantity: 0, weightKg: 0, fixedSupportEligible: false,
-        gapM: .1, voidVolumeM3: .05, x: 0, y: 0, z: 0, length: .1, width: 1, height: .5 }] } };
-    const geometry = securingGeometry(container, source, [{ ...support, visualPackaging: packaging }], null);
-    expect(geometry[0]).toMatchObject({ wire: true, supportIndex: -1 });
-    expect(geometry[0].wrapping).toBeUndefined(); expect(geometry.filter(item => item.wrapping)).toHaveLength(1);
+  it('draws the planned fill materials and leaves a void without a material undrawn', () => {
+    // Owner decision 2026-11-19: the red wire box of a void with no material is not drawn.
+    const base = { gapM: .1, voidVolumeM3: .05, x: 0, y: 0, z: 0, length: .1, width: 1, height: .5 };
+    const open = { material: 'unresolved' as const, quantity: 0, weightKg: 0, fixedSupportEligible: false };
+    const source: LoadingResult = { ...result, voidFillPlan: { sideGapM: .1, rearGapM: 0, volumeM3: .25, weightKg: 6.29, unresolvedCount: 2, fills: [
+      { ...base, ...open, id: 'open-top', kind: 'top-void', z: .8 },
+      { ...base, id: 'bag', kind: 'side-gap', material: 'dunnage-airbag', quantity: 1, weightKg: .59, fixedSupportEligible: true, y: 1 },
+      { ...base, id: 'honeycomb', kind: 'row-gap', material: 'paper-honeycomb', quantity: 1, weightKg: .6, fixedSupportEligible: true, y: 2 },
+      { ...base, id: 'bar', kind: 'door-face', material: 'load-bar', quantity: 1, weightKg: 5.1, fixedSupportEligible: true, x: 2 },
+      { ...base, ...open, id: 'open-door', kind: 'door-face', x: 3 },
+    ] } };
+    const before = JSON.stringify(source);
+    const geometry = securingGeometry(container, source, [], null);
+    expect(geometry).toEqual([
+      { ...shape(base), y: 1, color: '#7dd3fc', supportIndex: -1, wire: false, modelKey: 'dunnage-airbag' },
+      { ...shape(base), y: 2, color: '#d6b276', supportIndex: -1, wire: false },
+      { ...shape(base), x: 2, color: '#e87924', supportIndex: -1, wire: false },
+    ]);
+    expect(geometry.some(item => item.wire || item.color === '#dc2626')).toBe(false);
+    // Only the drawing is left out: the plan, its list and its totals still hold both voids.
+    expect(JSON.stringify(source)).toBe(before);
+    expect(voidFillRows(source).filter(row => row.fixedSupportEligible === 'N').map(row => row.id)).toEqual(['open-top', 'open-door']);
+    expect(voidFillTotal(source)).toMatchObject({ count: 5, unresolvedCount: 2 });
+    // Pallet wrapping is still the one wire decoration.
+    const wrapped = securingGeometry(container, source, [{ ...support, visualPackaging: packaging }], null);
+    expect(wrapped.filter(item => item.wire)).toEqual([expect.objectContaining({ wrapping: true, supportIndex: 0 })]);
+    expect(wrapped.filter(item => !item.wrapping && item.supportIndex === -1)).toEqual(geometry);
   });
 
   it('does not invent or loop over invalid source strap counts', () => {
