@@ -173,6 +173,17 @@ test('a heavy inner-wall load fails longitudinal CG and keeps the final result s
   await expect(choice).toContainText('1 EA · CG_LIMIT');
   await expect(choice.getByRole('button', { name: '전체 적재안 선택', exact: true })).toBeEnabled();
   await expect(choice.getByRole('button', { name: 'CG 충족안 선택', exact: true })).toBeEnabled();
+  // The viewer fills the workspace: the choice has to lie on top of it, or the operator
+  // never sees what the workflow is waiting for. `toBeVisible` does not notice a covered
+  // element, so ask what is actually under the pointer and whether a click would land.
+  for (const name of ['전체 적재안 선택', 'CG 충족안 선택']) {
+    const button = choice.getByRole('button', { name, exact: true });
+    await expect(button).toBeInViewport({ ratio: 1 });
+    expect(await button.evaluate(element => { const box = element.getBoundingClientRect(); return element.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)); }), name).toBe(true);
+    await button.click({ trial: true, timeout: 5000 });
+    // And its label can be read: the text is not the colour of the button.
+    expect(await button.evaluate(element => { const style = getComputedStyle(element); return style.color !== style.backgroundColor; }), `${name} label`).toBe(true);
+  }
   // An explicit plan choice starts final certification; a CG-error layout alone
   // must not be treated as either completed certification or a verified result.
   await expect(page.locator('.guided-status-row')).not.toHaveAttribute('data-verification-status', 'passed');

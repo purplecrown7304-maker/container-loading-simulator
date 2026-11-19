@@ -73,6 +73,12 @@ html[data-guided-workflow="true"] .mockup-dashboard .viewer-host > .inertia-canv
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .renderer-comparison,
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .renderer-comparison > .unity-viewer { position: static; background: transparent !important; border: 0 !important; border-radius: 0 !important; }
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-viewer > .unity-stage { position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; min-height: 0 !important; z-index: 0; }
+/* A plan with a longitudinal balance error waits for the operator to choose between the
+   whole load and the balance-compliant one. The viewer fills this card (rule above), so
+   the choice is laid over it; left in the flow it sat underneath the canvas, unseen, while
+   the workflow showed "checking" for ever. */
+html[data-guided-workflow="true"] .mockup-dashboard .viewer-card > .cg-plan-choice { position: absolute; z-index: 37; top: 96px; left: 50%; transform: translateX(-50%); width: min(760px, calc(100% - 512px)); max-height: calc(100% - 200px); overflow: auto; margin: 0; box-shadow: 0 14px 36px rgb(15 23 42 / 22%); }
+@media (max-width: 1100px) { html[data-guided-workflow="true"] .mockup-dashboard .viewer-card > .cg-plan-choice { top: 110px; width: calc(100% - 24px); max-height: calc(100% - 230px); } }
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .unity-toolbar { position: relative; z-index: 35; flex: 0 0 auto; align-self: center; width: fit-content; max-width: calc(100% - 512px); margin: 8px auto 0; border: 1px solid var(--studio-line); border-radius: 8px; background: var(--studio-surface); box-shadow: var(--studio-shadow); }
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .viewer-bottom-info { position: absolute; z-index: 35; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 16px; width: max-content; max-width: calc(100% - 32px); max-height: 30%; overflow: auto; padding: 8px 12px; border: 1px solid var(--studio-line); border-radius: 8px; background: var(--studio-surface); color: var(--studio-secondary); font-size: 12px; }
 html[data-guided-workflow="true"] .mockup-dashboard .viewer-host .viewer-bottom-info > :is(.unity-controls,.unity-summary) { display: contents; }

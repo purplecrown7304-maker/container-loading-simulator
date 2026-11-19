@@ -19,5 +19,5 @@
 .cg-plan-choice-grid article>span{font-size:12px;color:#6e6e73}.cg-plan-choice-grid article>b{display:block;font-size:24px;margin:4px 0 10px}
 .cg-plan-choice dl{display:grid;gap:6px;margin:0 0 12px}.cg-plan-choice dl div{display:flex;justify-content:space-between;gap:12px;font-size:12px}
 .cg-plan-choice dt{color:#6e6e73}.cg-plan-choice dd{margin:0;text-align:right;overflow-wrap:anywhere}.cg-plan-choice .bad{color:#b42318}.cg-plan-choice .good{color:#18794e}
-.cg-plan-choice button{width:100%;padding:10px 12px;border:1px solid #aeb4bd;border-radius:8px;background:#fff;font-weight:650;cursor:pointer}
+.cg-plan-choice button{width:100%;padding:10px 12px;border:1px solid #aeb4bd;border-radius:8px;background:#fff;color:#1d1d1f;font-weight:650;cursor:pointer}
 .cg-plan-choice button.primary{background:#0071e3;color:#fff;border-color:#0071e3}.cg-plan-choice>p{margin:10px 0 0;font-size:11px;color:#6e6e73;line-height:1.55}
