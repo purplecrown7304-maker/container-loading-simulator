@@ -151,6 +151,24 @@ Owner instruction: "팔렛트를 옮기고 오른쪽 아래 자동 적재 버튼
   not on the list, another pallet specification) are all ignored and the normal plan is
   used. A-rules, the WHAT-IF review, MIXED and BOX_ONLY replan everything as before.
 
+## 2G. Owner-approved filling of holes inside a level load (2026-11-19)
+
+Owner instruction: "빨간 테두리 빈공간에도 적재물이 채워져야 한다." Legacy **direct-box**
+level loading only (`engine/levelBlockPacker.ts`). Full text: `docs/engine/LOADING_RULES.md`
+section 1.
+
+- A column that mixed carton heights left below the columns toward the door is not kept
+  empty merely because one more carton would pass the common height. It takes the carton
+  that was loaded last (the door end of the top tier) when that makes the step smaller,
+  the carton is not heavier than the one it goes on, and ceiling, stack depth, cumulative
+  top load and floor load all hold.
+- Loaded quantity is unchanged; the empty space moves to the door end of the top tier. A
+  hole kept by a hard limit stays, and so does a step of `LEVEL_DIP_PROFILE.minDipM` or
+  less; the void-fill plan covers both.
+- Filling moves weight toward the inner wall. The CG verdict outranks it: a hole is left
+  open only when the filled plan fails the verdict and the open one passes it.
+- The inner-to-door weight sequence of 2A, pallets, MIXED and the A-rules are unchanged.
+
 ## 3. DIRECT BOX baseline algorithm
 The legacy fixed sequence of `CBM/weight sort -> full vertical stacks -> x shelf progression -> door-side tail mixing` is retired.
 
