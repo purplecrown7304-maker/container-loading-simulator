@@ -254,16 +254,17 @@ type LevelPlan = Pick<Candidate, 'counts' | 'cgErrors' | 'cgExcess' | 'heightMom
  * Level plans in the order they are judged: most cargo first, then the centre-of-gravity
  * verdict, then the lower load.
  *
- * Filling a hole inside the load moves weight toward the inner wall, and the verdict
- * outranks it (LOADING_RULES 1, rows 5 and 6). The plans with the holes left open are
- * built only when the best filled plan fails the verdict, and only those of them that pass
- * it are added: a hole stays open for no other reason.
+ * Setting the stacks down in order of height, so that no hole is left inside the load,
+ * moves weight along the length, and the verdict outranks it (LOADING_RULES 1, rows 5 and
+ * 6). The plans with the stacks left where they were built are made only when the best
+ * ordered plan fails the verdict, and only those of them that pass it are added: a hole
+ * stays inside the load for no other reason.
  */
-export function judgedLevelPlans<T extends LevelPlan>(filled: T[], open: () => T[]): T[] {
+export function judgedLevelPlans<T extends LevelPlan>(ordered: T[], asBuilt: () => T[]): T[] {
   const rough = (a: T, b: T) => { for (let i = 0; i < a.counts.length; i++) if (a.counts[i] !== b.counts[i]) return b.counts[i] - a.counts[i];
     return Number(Boolean(a.cgErrors)) - Number(Boolean(b.cgErrors)) || a.cgExcess - b.cgExcess || a.heightMoment - b.heightMoment; };
-  const plans = [...filled].sort(rough);
-  if (plans[0]?.cgErrors) plans.push(...open().filter(plan => !plan.cgErrors));
+  const plans = [...ordered].sort(rough);
+  if (plans[0]?.cgErrors) plans.push(...asBuilt().filter(plan => !plan.cgErrors));
   return plans.sort(rough);
 }
 
@@ -291,15 +292,15 @@ export function packByHeavyInnerBlocks(container: ContainerSpec, cargo: CargoIte
   }
   for (const candidate of candidates) candidate.voids = gapSecuringPlan(container, candidate.output.placements).volumeM3;
   // Heavy-low level loading: used when the sequence cannot load everything within CG.
-  const buildLevels = (fillDips: boolean) => { const levels: Candidate[] = []; for (const variant of ['sequential', 'centered'] as const) for (const cap of levelHeightCaps(container, ordered)) {
-    const output = packByLevelBlocks(container, ordered, strategy, cap, variant, { fillDips });
+  const buildLevels = (stepDown: boolean) => { const levels: Candidate[] = []; for (const variant of ['sequential', 'centered'] as const) for (const cap of levelHeightCaps(container, ordered)) {
+    const output = packByLevelBlocks(container, ordered, strategy, cap, variant, { stepDown });
     const counted = new Map<string, number>();
     for (const p of output.placements) counted.set(p.cargoId, (counted.get(p.cargoId) ?? 0) + 1);
     const errors = validateOperationalWeightAndCog(container, output.placements).filter(f => f.severity === 'error');
     levels.push({ output, mode: 1, voids: 0, counts: ordered.map(item => counted.get(item.id) ?? 0), cgErrors: errors.length,
       cgExcess: errors.reduce((sum, f) => sum + Math.max(0, (f.value ?? 0) - (f.limit ?? 0)), 0), sparseTop: false,
       heightMoment: output.placements.reduce((sum, p) => sum + (p.z + p.height / 2) * p.weightKg, 0) / Math.max(EPS, output.loadedWeightKg),
-      end: Math.max(0, ...output.placements.map(p => p.x + p.length)), signature: `level-${variant}-${cap}${fillDips ? '' : '-open'}` });
+      end: Math.max(0, ...output.placements.map(p => p.x + p.length)), signature: `level-${variant}-${cap}${stepDown ? '' : '-as-built'}` });
   } return levels; };
   const levels = judgedLevelPlans(buildLevels(true), () => buildLevels(false));
   for (const candidate of levels.slice(0, 10)) { candidate.voids = gapSecuringPlan(container, candidate.output.placements).volumeM3; candidates.push(candidate); }
