@@ -27,6 +27,7 @@ import { OPEN_INERTIA_TEST_EVENT } from './inertiaTestEvents';
 import { publishPhysicsTarget, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { openResultsModal } from './resultsModalEvents';
 import { STORAGE_UPDATED_EVENT, type StoredState } from './storage';
+import { requestStagingPlanMotion } from './stagingPlanMotion';
 import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
 import { isInertiaCertificationComplete, isPhysicsTargetVerified } from './inertiaWorkOrderPolicy';
 import { publishVerificationCancelled, publishVerificationFailure } from './workflowVerificationState';
@@ -104,6 +105,7 @@ function applyDirectCandidate(candidate: EvaluatedDirectCandidate) {
   writeManualOverride(target.container, target.cargo, target.result);
   const state: StoredState = { container: target.container, cargo: target.cargo };
   window.dispatchEvent(new CustomEvent<StoredState>(STORAGE_UPDATED_EVENT, { detail: state }));
+  requestStagingPlanMotion();
   publishPhysicsTarget(target);
   publishCertification(candidate.certification);
 }

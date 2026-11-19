@@ -9,7 +9,7 @@ import type { StagingUnit } from './stagingInventory';
 import type { StagingFlightSequence } from './stagingFlights';
 import { createComparisonSceneResources, type ComparisonModels, type DisplayFlightTransform } from './threeComparisonSceneResources';
 import { createMeshyMaterial, MESHY_MODEL_KEYS } from './threeComparisonModels';
-import { STAGING_FLIGHT_PROFILE } from './stagingFlights';
+import { STAGING_FLIGHT_PROFILE, STAGING_RELOCATION_PROFILE } from './stagingFlights';
 
 const state = vi.hoisted(() => ({ elapsed: 0, frame: null as ((state: unknown, dt: number) => void) | null, priority: -1,
   scene: null as unknown as Scene, camera: null as unknown as PerspectiveCamera,
@@ -90,6 +90,31 @@ describe('accepted staging flight consumer', () => {
     expect(props.onComplete).toHaveBeenCalledExactlyOnceWith(1);
     const invalidations = state.invalidate.mock.calls.length; frame(1500); expect(state.invalidate).toHaveBeenCalledTimes(invalidations);
     expect(JSON.stringify({ plan: props.plan, units: props.units, sequence: props.sequence })).toBe(before);
+  });
+
+  it('hops a unit that only changes place inside the vehicle instead of climbing over the vehicle', async () => {
+    const box = props.plan.placements[0];
+    const altitude = async (kind?: 'relocate') => {
+      const scene = resources(props.plan); state.elapsed = 0;
+      // `render` replaces `props`; start from a fresh flight so the kind is only what is asked for.
+      const moved: StagingFlightSequence = { ...sequence(props.plan, kind ? 7 : 8), flights: [{ ...sequence(props.plan).flights[0],
+        from: { position: [1, 0, .2], rotationY: 0 }, durationMs: STAGING_RELOCATION_PROFILE.durationMs, ...(kind ? { kind } : {}) }] };
+      await render({ ...props, resources: scene.props, sequence: moved });
+      const start = position(scene.cargo[0]);
+      let highest = -Infinity;
+      for (let elapsed = 50; elapsed <= 850; elapsed += 50) { frame(elapsed); highest = Math.max(highest, position(scene.cargo[0])[1]); }
+      frame(2000);
+      return { start, highest, scene };
+    };
+    const hop = await altitude('relocate');
+    expect(hop.start[0]).toBeCloseTo(1, 12); expect(hop.start[1]).toBeCloseTo(box.height / 2, 12); expect(hop.start[2]).toBeCloseTo(.2, 12);
+    // Rises by the hop height above its own floor and no further.
+    expect(hop.highest).toBeCloseTo(STAGING_RELOCATION_PROFILE.liftHeight + box.height / 2, 6);
+    expect(hop.scene.cargo).toEqual(hop.scene.baseline); expect(props.onComplete).toHaveBeenCalledWith(7);
+    // The same move declared as an arrival from the yard still clears the vehicle.
+    const arrival = await altitude();
+    expect(arrival.highest).toBeGreaterThan(container.height);
+    expect(arrival.scene.cargo).toEqual(arrival.scene.baseline);
   });
 
   it('keeps delayed units at the source and reuses its descriptor matrices during active frames', async () => {

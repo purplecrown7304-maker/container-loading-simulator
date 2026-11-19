@@ -9,6 +9,7 @@ import type { LoadingResult } from './engine/types';
 import { defaultPalletSpec } from './engine/palletOptimization';
 import { readStoredState, STORAGE_KEY, STORAGE_RESET_EVENT, STORAGE_UPDATED_EVENT, writeStoredState } from './storage';
 import { stagingInputSignature } from './stagingInventory';
+import { requestStagingPlanMotion } from './stagingPlanMotion';
 import { clearPalletSnapshot, publishPalletSnapshot, readPalletSnapshot } from './palletSnapshotStore';
 import { choosePalletType } from './palletTypeSelection';
 import { recordPalletJobSpec } from './palletJobSpecs';
@@ -59,6 +60,32 @@ describe('staging workspace controller', () => {
     expect(readStoredState()?.result?.placements).toHaveLength(1);
     expect(readStoredState()?.staging?.selectedUnitId).toBe(bridge.selectedUnitId);
     expect(readStoredState()?.result?.placements[0].unitId).toBeDefined();
+  });
+
+  it('shows a requested plan change as a hop inside the vehicle and replays nothing that was not requested', async () => {
+    await render(); await settle(); await loadFirst();
+    if (bridge.flight) await act(async () => bridge.completeFlight?.(bridge.flight!.id));
+    const accepted = props.result, placed = accepted.placements[0], unitId = bridge.inventory.vehicleUnits[0].id;
+    const movedTo = (x: number): LoadingResult => ({ ...accepted, placements: [{ ...placed, x }] });
+    // A replacing plan that merely arrives is never shown as a move.
+    await render({ result: movedTo(1) }); await settle(); expect(bridge.flight).toBeNull();
+    // The manual editor hands the plan over with a storage notice and then asks for the move.
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(STORAGE_UPDATED_EVENT, { detail: { container, cargo } }));
+      requestStagingPlanMotion();
+    });
+    await render({ result: movedTo(2) });
+    expect(bridge.flight?.flights.map(flight => [flight.unitId, flight.kind])).toEqual([[unitId, 'relocate']]);
+    expect(bridge.flight!.flights[0].from.position[0]).toBeCloseTo(1 + .5 - container.length / 2, 12);
+    expect(bridge.flight!.flights[0].to.position[0]).toBeCloseTo(2 + .5 - container.length / 2, 12);
+    // Display only: the accepted plan is the one that was handed over, with nothing added.
+    expect(props.result.placements).toHaveLength(1); expect(props.result.placements[0].x).toBe(2);
+    expect(bridge.inventory.summary.vehicle.boxes).toBe(1); expect(bridge.inventory.summary.yard.boxes).toBe(2);
+    await act(async () => bridge.completeFlight?.(bridge.flight!.id)); await settle(); expect(bridge.flight).toBeNull();
+    // A request made while only a preview is on screen has no accepted place to start from.
+    await render({ isPreview: true });
+    await act(async () => requestStagingPlanMotion());
+    await render({ result: movedTo(0) }); await settle(); expect(bridge.flight).toBeNull();
   });
   it('rejects a parent freshness refusal without changing stock, history or storage', async () => {
     accept = false; await render(); await settle(); await loadFirst();

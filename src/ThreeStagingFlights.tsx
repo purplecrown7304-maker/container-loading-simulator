@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Matrix4, Vector3 } from 'three';
 import { CargoMotion } from './motion/CargoMotion.js';
-import { STAGING_FLIGHT_PROFILE, type StagingFlight, type StagingFlightSequence } from './stagingFlights';
+import { STAGING_FLIGHT_PROFILE, STAGING_RELOCATION_PROFILE, type StagingFlight, type StagingFlightSequence } from './stagingFlights';
 import { stagingVehicleSelection, type ThreeComparisonPlan } from './threeComparisonSceneState';
 import type { StagingUnit } from './stagingInventory';
 import type { createComparisonSceneResources, DisplayFlightTransform } from './threeComparisonSceneResources';
@@ -138,15 +138,23 @@ export default function ThreeStagingFlights({ resources, plan, units, sequence, 
         },
       };
       try {
-        let cruiseY = plan.container.height + STAGING_FLIGHT_PROFILE.cruiseClearanceM;
-        for (const { flight } of bindings) cruiseY = Math.max(cruiseY,
-          flight.from.position[1] + STAGING_FLIGHT_PROFILE.liftHeight, flight.to.position[1] + STAGING_FLIGHT_PROFILE.liftHeight);
+        // Units that only change place inside the vehicle hop over their own floor. Anything
+        // arriving from the yard needs the common altitude above the vehicle, and one
+        // timeline has one profile, so a mixed batch uses the yard flight for all.
+        const hops = bindings.every(({ flight }) => flight.kind === 'relocate');
+        const profile = hops ? STAGING_RELOCATION_PROFILE : STAGING_FLIGHT_PROFILE;
+        let cruiseY: number | undefined;
+        if (!hops) {
+          cruiseY = plan.container.height + STAGING_FLIGHT_PROFILE.cruiseClearanceM;
+          for (const { flight } of bindings) cruiseY = Math.max(cruiseY,
+            flight.from.position[1] + STAGING_FLIGHT_PROFILE.liftHeight, flight.to.position[1] + STAGING_FLIGHT_PROFILE.liftHeight);
+        }
         const motion = new CargoMotion({ scene, camera, controls, options: { adapter, dockSlots,
-          path: STAGING_FLIGHT_PROFILE.path,
-          prepareDuration: STAGING_FLIGHT_PROFILE.prepareDurationMs / 1000,
-          liftHeight: STAGING_FLIGHT_PROFILE.liftHeight,
-          ascentRatio: STAGING_FLIGHT_PROFILE.ascentRatio, descentRatio: STAGING_FLIGHT_PROFILE.descentRatio,
-          cruiseY,
+          path: profile.path,
+          prepareDuration: profile.prepareDurationMs / 1000,
+          liftHeight: profile.liftHeight,
+          ascentRatio: profile.ascentRatio, descentRatio: profile.descentRatio,
+          ...(cruiseY === undefined ? {} : { cruiseY }),
           rig: { root: resources.root, wheels: [], wheelRadius: 1, doorPoint: new Vector3(plan.container.length / 2, 0, 0), parkX: 0, offX: 0 },
           loadDuration: bindings[0].flight.durationMs / 1000,
           loadStagger: bindings.length > 1 ? (bindings[1].flight.delayMs - bindings[0].flight.delayMs) / 1000 : 0,
