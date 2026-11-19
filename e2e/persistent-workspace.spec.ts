@@ -30,6 +30,8 @@ async function selectProduct(page: Page, quantity = '6') {
 }
 
 test('default page keeps a single main viewer and opens workspaces only on request', async ({ page }) => {
+  // About 6 s on a desktop GPU; a slow software-rendering runner has needed more than 30 s.
+  test.setTimeout(90_000);
   await page.goto('/');
   await seedProducts(page);
   await expect(page.locator('.viewer-card')).toBeVisible();
@@ -69,6 +71,8 @@ test('default page keeps a single main viewer and opens workspaces only on reque
 });
 
 test('product drafts and the packaging/strategy next flow survive closing and reopening', async ({ page }) => {
+  // Same allowance as its neighbours: every step passed on CI but the total ran past 30 s.
+  test.setTimeout(90_000);
   await page.goto('/');
   await seedProducts(page);
   const workspace = await selectProduct(page, '7');
