@@ -24,7 +24,9 @@ import { useViewerQuality, VIEWER_QUALITY_PROFILES } from './viewerQuality';
 import ThreeSceneLighting from './ThreeSceneLighting';
 import { cameraFitAction, createCameraMotion, sampleCameraMotion, type CameraMotion, type CameraMotionPose } from './cameraMotion';
 import ThreeStagingFlights from './ThreeStagingFlights';
-import { createStagingPointerInteraction, type StagingPointerCallbacks } from './stagingPointerInteraction';
+import { createStagingPointerInteraction, type StagingPointerCallbacks, type StagingPointerUnit } from './stagingPointerInteraction';
+import { nearestStagingHit, nextStagingHover, STAGING_CONFLICT_COLOR, STAGING_HOVER_COLOR, stagingCursor, stagingHitSource, stagingPreviewConflicts, stagingUnitDraggable, stagingUnitSceneBounds, type StagingHover } from './stagingDragCues';
+import { ThreeStagingCursor, ThreeStagingOutlines } from './ThreeStagingCues';
 import { createSceneRetirement } from './sceneRetirement';
 import { arrivalStartMs, arrivingOffset, departingOffset, dockShade, recallVehicleSwap, retargetVehicleSwap, VEHICLE_SWAP_PROFILE, vehicleIdentity, vehicleSwapTravel, type VehicleSwapState } from './vehicleSwapMotion';
 
@@ -256,12 +258,17 @@ function StagingVehicleOutline({ bounds }: { bounds: StagingBounds | null }) {
   return <primitive object={outline} dispose={null} />;
 }
 
-function SceneContents({ resources, options, bindings, frameState }: { resources: Resources; options: ThreeComparisonSceneProps; bindings: WeakMap<InertiaAnimationFrame, number>; frameState: { current: FrameState } }) {
+function SceneContents({ resources, options, bindings, frameState, onHover }: { resources: Resources; options: ThreeComparisonSceneProps; bindings: WeakMap<InertiaAnimationFrame, number>; frameState: { current: FrameState };
+  /** The staging unit under the pointer, or null once it is over none of this vehicle's units. */
+  onHover?: (unitId: string | null) => void }) {
   const { invalidate } = useThree();
   const { plan, frameData, frameRevision, cut, shell, step, labels, weight, showCg, selected, selectedSupport } = options;
   const flying = Boolean(options.staging?.flight && !frameData && !weight);
   const [clearance, setClearance] = useState<CargoClearance | null>(null);
-  const selectionAt = (event: ThreeEvent<PointerEvent | MouseEvent>) => {
+  const hoverCallback = useRef(onHover); hoverCallback.current = onHover;
+  // A scene that goes away takes its pointer-over state with it.
+  useEffect(() => () => hoverCallback.current?.(null), []);
+  const selectionAt = (event: Pick<THREE.Intersection, 'object' | 'instanceId'>) => {
     const data = event.object.userData;
     if (data.kind === 'cargo') {
       const index = event.instanceId === undefined ? undefined : data.batch?.visibleIndices[event.instanceId];
@@ -271,24 +278,33 @@ function SceneContents({ resources, options, bindings, frameState }: { resources
     }
     return null;
   };
+  /** The unit a hit belongs to: a pallet carton or its base is the whole pallet. */
+  const stagingTargetAt = (hit: Pick<THREE.Intersection, 'object' | 'instanceId'>): StagingPointerUnit | null => {
+    if (weight || frameData || flying) return null;
+    const selection = selectionAt(hit);
+    if (!selection) return null;
+    const support = selection.kind === 'support' ? plan.supports[selection.index] : undefined;
+    const unit = options.staging?.inventory.vehicleUnits.find(candidate => selection.kind === 'support'
+      ? support && candidate.pallet && (['x', 'y', 'z', 'length', 'width', 'height'] as const)
+        .every(key => Math.abs(candidate.pallet![key] - support[key]) < 1e-6)
+      : candidate.sourcePlacementIndex === selection.index || candidate.sourcePlacementIndexes?.includes(selection.index));
+    if (options.staging && !unit) return null;
+    const source = unit?.pallet ?? unit?.placement
+      ?? (selection.kind === 'support' ? plan.supports[selection.index] : plan.placements[selection.index]);
+    return { ...selection, id: unit?.id ?? `${selection.kind}:${selection.index}`, planeY: source.z,
+      center: [source.x + source.length / 2 - plan.container.length / 2, source.z,
+        source.y + source.width / 2 - plan.container.width / 2] };
+  };
+  const hoverAt = (event: ThreeEvent<PointerEvent>) => {
+    if (!options.staging || !onHover) return;
+    // Only the nearest unit under the pointer is "over"; one behind it is not.
+    const nearest = nearestStagingHit(event.intersections);
+    if (!nearest) onHover(null);
+    else if (stagingHitSource(nearest) === 'vehicle' && nearest.eventObject === resources.root) onHover(stagingTargetAt(nearest)?.id ?? null);
+  };
   const pointerCallbacks = useRef<StagingPointerCallbacks>(null!);
   pointerCallbacks.current = {
-    resolve: event => {
-      if (weight || frameData || flying) return null;
-      const selection = selectionAt(event);
-      if (!selection) return null;
-      const support = selection.kind === 'support' ? plan.supports[selection.index] : undefined;
-      const unit = options.staging?.inventory.vehicleUnits.find(candidate => selection.kind === 'support'
-        ? support && candidate.pallet && (['x', 'y', 'z', 'length', 'width', 'height'] as const)
-          .every(key => Math.abs(candidate.pallet![key] - support[key]) < 1e-6)
-        : candidate.sourcePlacementIndex === selection.index || candidate.sourcePlacementIndexes?.includes(selection.index));
-      if (options.staging && !unit) return null;
-      const source = unit?.pallet ?? unit?.placement
-        ?? (selection.kind === 'support' ? plan.supports[selection.index] : plan.placements[selection.index]);
-      return { ...selection, id: unit?.id ?? `${selection.kind}:${selection.index}`, planeY: source.z,
-        center: [source.x + source.length / 2 - plan.container.length / 2, source.z,
-          source.y + source.width / 2 - plan.container.width / 2] };
-    },
+    resolve: stagingTargetAt,
     canDrag: () => Boolean(options.staging && options.staging.canManipulate !== false && !weight && !frameData && !flying),
     onSelect: id => options.staging?.selectUnit(id),
     onInspect: unit => { if (unit.kind !== undefined && unit.index !== undefined) options.onInspect?.(unit.kind, unit.index); },
@@ -333,8 +349,8 @@ function SceneContents({ resources, options, bindings, frameState }: { resources
   };
   return <>{options.staging && <ThreeStagingFlights resources={resources} plan={plan} units={options.staging.inventory.vehicleUnits}
     sequence={options.staging.flight ?? null} suspended={Boolean(frameData || weight)} onComplete={options.staging.completeFlight ?? (() => {})} />}
-    <ThreeClearanceGuides plan={plan} clearance={options.clearanceVisible === false || flying ? null : clearance} axis={options.clearanceAxis ?? 'width'}/><primitive object={resources.root} dispose={null} {...pointer.handlers} onClick={handleClick} onPointerMove={(event: ThreeEvent<PointerEvent>) => { pointer.handlers.onPointerMove(event); selectCell(event); }}
-    onPointerOut={(event: ThreeEvent<PointerEvent>) => { if (event.object.userData.kind === 'weightSurface') options.onCellSelect?.(null); }} /></>;
+    <ThreeClearanceGuides plan={plan} clearance={options.clearanceVisible === false || flying ? null : clearance} axis={options.clearanceAxis ?? 'width'}/><primitive object={resources.root} dispose={null} {...pointer.handlers} onClick={handleClick} onPointerMove={(event: ThreeEvent<PointerEvent>) => { pointer.handlers.onPointerMove(event); selectCell(event); hoverAt(event); }}
+    onPointerOut={(event: ThreeEvent<PointerEvent>) => { if (event.object.userData.kind === 'weightSurface') options.onCellSelect?.(null); onHover?.(null); }} /></>;
 }
 
 export function SceneRuntime({ resources, options, frameState, onPresented }: { resources: Resources | null; options: ThreeComparisonSceneProps; frameState: { current: FrameState }; onPresented?: (resources: Resources) => void }) {
@@ -529,19 +545,40 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
   const staging = options.staging;
   const selectedStaging = staging ? stagingVehicleSelection(plan, staging.inventory.vehicleUnits, staging.selectedUnitId) : null;
   const previewUnit = staging?.preview ? staging.inventory.units.find(unit => unit.id === staging.preview!.unitId) : null;
+  // What the pointer is over. Display only: selection and drags keep their own owners.
+  const [hover, setHover] = useState<StagingHover | null>(null);
+  const hoverVehicle = useCallback((id: string | null) => setHover(current => nextStagingHover(current, 'vehicle', id)), []);
+  const hoverYard = useCallback((id: string | null) => setHover(current => nextStagingHover(current, 'yard', id)), []);
+  const canDragUnits = Boolean(staging && staging.canManipulate !== false && !options.frameData && !options.weight && !staging.flight);
+  const hoveredUnit = staging && hover && !staging.dragging && !staging.preview && !staging.flight && !options.frameData && !options.weight
+    ? staging.inventory.units.find(unit => unit.id === hover.id) ?? null : null;
+  // The selected unit already carries its own outline.
+  const outlinedHover = hoveredUnit && hoveredUnit.id !== staging?.selectedUnitId ? hover : null;
+  const vehicleUnits = staging?.inventory.vehicleUnits, dragPreview = staging?.preview;
+  const hoverBoxes = useMemo(() => {
+    const bounds = vehicleUnits && outlinedHover?.source === 'vehicle' ? stagingUnitSceneBounds(vehicleUnits, outlinedHover.id, plan.container) : null;
+    return bounds ? [bounds] : [];
+  }, [vehicleUnits, outlinedHover, plan.container]);
+  // Placed cargo that a rejected drag candidate runs into; the verdict itself is the command owner's.
+  const conflictBoxes = useMemo(() => vehicleUnits ? stagingPreviewConflicts(vehicleUnits, dragPreview, plan.container) : [], [vehicleUnits, dragPreview, plan.container]);
+  const cursor = staging ? stagingCursor({ dragging: staging.dragging, hover: hoveredUnit ? hover : null, canDrag: canDragUnits && stagingUnitDraggable(hoveredUnit) }) : '';
   return <div style={{ width: '100%', height: '100%', position: 'relative', minHeight: 180 }} data-three-scene-ready={Boolean(resources)}>
     <Canvas frameloop="demand" camera={{ fov: 40, near: .02, far: 500, position: [10, 7, 10] }} dpr={VIEWER_QUALITY_PROFILES[quality.quality].dpr} gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }} onPointerMissed={event => { if (event.type === 'click' && event.button === 0) options.onSelect(null); }} onContextMenu={event => event.preventDefault()} fallback={<WebGLFallback onError={options.onError} />}>
       <ThreeSceneLighting quality={quality.quality} groundY={groundY} />
       <ThreeViewerEnvironment groundY={groundY} id={options.environment ?? DEFAULT_VIEWER_ENVIRONMENT} length={plan.container.length} width={plan.container.width} height={plan.container.height} attempt={options.environmentAttempt} onStatus={options.onEnvironmentStatus} contactShade={dockShadeLevel} />
-      {resources && <SceneContents resources={resources} options={options} bindings={bindings.current} frameState={frameState} />}
+      {resources && <SceneContents resources={resources} options={options} bindings={bindings.current} frameState={frameState} onHover={staging ? hoverVehicle : undefined} />}
       {swap?.departing && swap.departing !== resources && <primitive object={swap.departing.root} dispose={null} />}
       {swap && <ThreeVehicleSwap swap={swap} arriving={swap.identity === vehicleIdentity(plan) ? resources : null} shade={dockShadeLevel} onDeparted={onDeparted} onDone={onSwapDone} />}
       {staging && <ThreeStagingYard key={yardAttempt} units={staging.inventory.yardUnits} layout={staging.layout} visibleZoneIds={staging.visibleZoneIds} selectedUnitId={staging.selectedUnitId} cartonLabelsEnabled={options.labels}
+        hoveredUnitId={outlinedHover?.source === 'yard' ? outlinedHover.id : null} onHover={hoverYard}
         labels={{ empty: uiText('대기 화물 없음'), aisle: uiText('이동 통로'), doorClearance: uiText('출입문 여유 공간'), boxes: uiText('낱박스'), pallets: uiText('파렛트'), pending: uiText('계산 전'), checking: uiText('검토 중'), unloaded: uiText('미적재'), error: uiText('입력·포장 확인') }}
         canDrag={staging.canManipulate !== false && !options.frameData && !options.weight && !staging.flight}
         onInspect={staging.inspectUnit} onSelect={staging.selectUnit} onDragStart={staging.onDragStart} onDragMove={staging.onDragMove} onDragEnd={staging.onDragEnd} onDraggingChange={staging.onDraggingChange} onError={setYardError} />}
       {staging && <StagingVehicleOutline bounds={staging.flight?.flights.some(flight => flight.unitId === staging.selectedUnitId) ? null : selectedStaging?.bounds ?? null} />}
       {staging?.preview && previewUnit && <ThreeStagingPreview unit={previewUnit} candidate={staging.preview.candidate} container={plan.container} valid={staging.preview.valid} onError={setYardError} />}
+      {staging && <ThreeStagingOutlines name="Pointer-over vehicle staging unit" color={STAGING_HOVER_COLOR} renderOrder={7} boxes={hoverBoxes} />}
+      {staging && <ThreeStagingOutlines name="Cargo a rejected drag runs into" color={STAGING_CONFLICT_COLOR} renderOrder={9} boxes={conflictBoxes} />}
+      {staging && <ThreeStagingCursor cursor={cursor} />}
       <SceneRuntime resources={resources} options={options} frameState={frameState} onPresented={onPresented} />
       <ThreeRenderPipeline quality={quality.quality} ambientOcclusion={quality.ambientOcclusion} onStatus={options.onPipelineStatus} onError={setPipelineError} />
       <ThreeViewerSnapshot />

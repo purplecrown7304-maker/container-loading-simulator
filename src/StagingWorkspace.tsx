@@ -33,6 +33,7 @@ import { openPackagingContents } from './packagingContentsModel';
 import { uiText } from './uiLanguage';
 import { useStagingFlights } from './useStagingFlights';
 import { STAGING_PLAN_MOTION_EVENT, STAGING_PLAN_MOTION_WAIT_MS } from './stagingPlanMotion';
+import { stagingUnitDraggable } from './stagingDragCues';
 import { setStagingFlightVisible } from './stagingFlightVisibility';
 
 type HistoryEntry = { previous: { result: LoadingResult; pallets: PalletLoad[] }; selection: string | null;
@@ -315,7 +316,7 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     const now = live.current;
     if (drag.current?.epoch !== now.epoch || drag.current.planKey !== now.currentPlanKey || now.props.calculating || !now.confirmed) return;
     const unit = now.inventory.units.find(candidate => candidate.id === event.unitId && candidate.location !== 'other-vehicle');
-    if (!unit || unit.requiresPackaging || (unit.location === 'yard' && unit.verdict === 'error')) return;
+    if (!unit || !stagingUnitDraggable(unit)) return;
     const position = stagingDragPosition(unit, event.point, now.props.container);
     const checked = unit.location === 'vehicle'
       ? assessStagingRelocation(stagingCommandContextForUnit(now.context, unit), unit, position)

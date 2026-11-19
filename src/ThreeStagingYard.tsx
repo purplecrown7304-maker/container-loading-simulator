@@ -12,6 +12,7 @@ import { acquireComparisonLabels } from './threeComparisonLabels';
 import { stagingCartonLabelPlan } from './stagingCartonLabels';
 import { createStagingPointerInteraction, type StagingPointerCallbacks } from './stagingPointerInteraction';
 import { createSceneRetirement } from './sceneRetirement';
+import { nearestStagingHit, STAGING_HOVER_COLOR, stagingHitSource } from './stagingDragCues';
 
 type YardModels = Partial<Record<ModelKey, MeshyModel>>;
 export type StagingYardDrag = { unitId: string; point: [number, number, number]; cancelled?: boolean };
@@ -21,6 +22,10 @@ export type ThreeStagingYardProps = {
   units: readonly StagingUnit[];
   layout: StagingYardLayout;
   selectedUnitId?: string | null;
+  /** The unit under the pointer, outlined without a label. Display only. */
+  hoveredUnitId?: string | null;
+  /** The unit the pointer is over, or null once it is over none of this yard's units. */
+  onHover?: (unitId: string | null) => void;
   /** Explicit zone paging; the owner retains all inventory and layout slots. */
   visibleZoneIds?: readonly string[];
   labels?: Partial<StagingYardLabels>;
@@ -240,6 +245,8 @@ export function createStagingYardResources(units: readonly StagingUnit[], layout
   }
   const selectedMaterial = new THREE.LineBasicMaterial({ color: '#2563eb', depthTest: false }); materials.push(selectedMaterial);
   const selection = new THREE.LineSegments(edgeGeometry, selectedMaterial); selection.name = 'Selected staging root unit'; selection.visible = false; selection.renderOrder = 5; selection.raycast = noRaycast; root.add(selection);
+  const hoverMaterial = new THREE.LineBasicMaterial({ color: STAGING_HOVER_COLOR, depthTest: false }); materials.push(hoverMaterial);
+  const hover = new THREE.LineSegments(edgeGeometry, hoverMaterial); hover.name = 'Pointer-over staging root unit'; hover.visible = false; hover.renderOrder = 4; hover.raycast = noRaycast; root.add(hover);
   let selectedLabel: THREE.Sprite | null = null;
   let selectedTexture: THREE.Texture | null = null;
   let selectedLabelMaterial: THREE.SpriteMaterial | null = null;
@@ -258,6 +265,14 @@ export function createStagingYardResources(units: readonly StagingUnit[], layout
       selectedTexture = labelTexture(`${slot.label} · ${unit.name} · ${state}`); if (!selectedTexture) return;
       selectedLabelMaterial = new THREE.SpriteMaterial({ map: selectedTexture, depthWrite: false, depthTest: false });
       selectedLabel = new THREE.Sprite(selectedLabelMaterial); selectedLabel.position.set(slot.center[0], slot.center[1] + slot.height + .3, slot.center[2]); selectedLabel.scale.set(3.5, 3.5 / 6, 1); selectedLabel.renderOrder = 6; selectedLabel.raycast = noRaycast; root.add(selectedLabel);
+    },
+    /** Outline only: the label and status text belong to the selected unit. */
+    setHovered(id: string | null) {
+      const slot = id && byId.has(id) ? visibleSlots.find(item => item.unitId === id) : undefined;
+      hover.visible = Boolean(slot);
+      if (!slot) return;
+      hover.position.set(slot.center[0], slot.center[1] + slot.height / 2, slot.center[2]); hover.rotation.y = slot.rotationY;
+      hover.scale.set(slot.length + .05, slot.height + .05, slot.width + .05);
     },
     dispose() {
       if (disposed) return; disposed = true; clearSelectedLabel(); instances.forEach(mesh => mesh.dispose());
@@ -327,14 +342,25 @@ export default function ThreeStagingYard(props: ThreeStagingYardProps) {
     return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); };
   }, [resources, retirement]);
   useLayoutEffect(() => { resources?.setSelected(props.selectedUnitId ?? null); invalidate(); }, [resources, props.selectedUnitId, invalidate]);
-  const unitAt = (event: ThreeEvent<PointerEvent | MouseEvent>) => event.object.userData.kind === 'stagingCargo'
-    ? event.object.userData.unitIds[event.instanceId ?? -1] as string | undefined : undefined;
+  useLayoutEffect(() => { resources?.setHovered(props.hoveredUnitId ?? null); invalidate(); }, [resources, props.hoveredUnitId, invalidate]);
+  // A yard that goes away takes its pointer-over state with it.
+  useEffect(() => () => callbacks.current.onHover?.(null), []);
+  const unitAt = (hit: Pick<THREE.Intersection, 'object' | 'instanceId'>) => hit.object.userData.kind === 'stagingCargo'
+    ? hit.object.userData.unitIds[hit.instanceId ?? -1] as string | undefined : undefined;
   if (!resources) return null;
   return <primitive object={resources.root} dispose={null} {...pointer.handlers}
     onClick={(event: ThreeEvent<MouseEvent>) => {
       if (event.button !== 0 || event.delta > 4) return;
       const id = unitAt(event); if (id) { event.stopPropagation(); callbacks.current.onSelect?.(id); }
     }}
+    onPointerMove={(event: ThreeEvent<PointerEvent>) => {
+      pointer.handlers.onPointerMove(event);
+      // Only the nearest unit under the pointer is "over"; one behind it is not.
+      const nearest = nearestStagingHit(event.intersections);
+      if (!nearest) callbacks.current.onHover?.(null);
+      else if (stagingHitSource(nearest) === 'yard' && nearest.object === resources.root) callbacks.current.onHover?.(unitAt(nearest) ?? null);
+    }}
+    onPointerOut={() => callbacks.current.onHover?.(null)}
   />;
 }
 

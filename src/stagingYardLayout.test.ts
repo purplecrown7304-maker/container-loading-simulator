@@ -270,4 +270,30 @@ describe('staging cargo rendering resource ownership and packaging parity', () =
     resources.setSelected(null); expect(selection.visible).toBe(false);
     resources.dispose(); fixture.geometry.dispose(); fixture.texture.dispose(); fixture.material.dispose();
   });
+  it('outlines the unit under the pointer without a label, independently of the selection and without becoming pickable', () => {
+    const pallet = palletUnit(), units = [pallet, ...Array.from({ length: 6 }, (_, i) => unit(`box-${i}`))];
+    const layout = buildStagingYardLayout(units, options), fixture = fixtureModels();
+    const resources = createStagingYardResources(units, layout, fixture.models);
+    const hover = resources.root.getObjectByName('Pointer-over staging root unit') as THREE.LineSegments;
+    const selection = resources.root.getObjectByName('Selected staging root unit')!;
+    expect(hover.visible).toBe(false);
+    const children = resources.root.children.length, slot = layout.slots.find(item => item.unitId === 'box-3')!;
+    resources.setSelected(pallet.id); const labelled = resources.root.children.length;
+    resources.setHovered('box-3');
+    expect(hover.visible).toBe(true); expect(resources.root.children.length).toBe(labelled);
+    expect(hover.position.toArray()).toEqual([slot.center[0], slot.center[1] + slot.height / 2, slot.center[2]]);
+    expect(hover.rotation.y).toBe(slot.rotationY);
+    expect(hover.scale.toArray()).toEqual([slot.length + .05, slot.height + .05, slot.width + .05]);
+    expect((hover.material as THREE.LineBasicMaterial).color.getHexString()).not.toBe(((selection as THREE.LineSegments).material as THREE.LineBasicMaterial).color.getHexString());
+    // The selection keeps its own outline, and the outline is never a pick target.
+    expect(selection.visible).toBe(true); expect(selection.scale.y).toBeCloseTo(pallet.height + .05);
+    resources.root.updateMatrixWorld(true);
+    const hits = new THREE.Raycaster(new THREE.Vector3(slot.center[0], slot.center[1] + slot.height + 2, slot.center[2]), new THREE.Vector3(0, -1, 0)).intersectObject(resources.root, true);
+    expect(hits.length).toBeGreaterThan(0); expect(hits.every(hit => hit.object === resources.root)).toBe(true);
+    // An unknown or cleared unit shows nothing.
+    resources.setHovered('missing'); expect(hover.visible).toBe(false);
+    resources.setHovered('box-3'); resources.setHovered(null); expect(hover.visible).toBe(false);
+    resources.setSelected(null); expect(resources.root.children.length).toBe(children);
+    resources.dispose(); fixture.geometry.dispose(); fixture.texture.dispose(); fixture.material.dispose();
+  });
 });
