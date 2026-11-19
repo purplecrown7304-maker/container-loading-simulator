@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, type RefObject } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Color } from 'three';
 import { createViewerEnvironmentResources } from './threeViewerEnvironmentResources';
@@ -13,14 +13,17 @@ type Props = {
   groundY?: number;
   attempt?: number;
   onStatus?: (status: EnvironmentStatus) => void;
+  /** 0..1 strength of the ground shade under the equipment, written by whoever moves
+   * the equipment off its footprint. Absent means the equipment is standing there. */
+  contactShade?: RefObject<number>;
 };
 
 /** View-only scenery owns no cargo, camera, picking or physics state. */
-export default function ThreeViewerEnvironment({ id, length, width, height, groundY = -.14, attempt, onStatus }: Props) {
+export default function ThreeViewerEnvironment({ id, length, width, height, groundY = -.14, attempt, onStatus, contactShade }: Props) {
   const { scene, camera, invalidate } = useThree();
   const active = useRef<ReturnType<typeof createViewerEnvironmentResources> | null>(null);
   const callback = useRef(onStatus); callback.current = onStatus;
-  useFrame(() => { active.current?.updateCamera(camera.position); });
+  useFrame(() => { active.current?.updateCamera(camera.position); active.current?.setContactShade(contactShade?.current ?? 1); });
   useLayoutEffect(() => {
     const previousBackground = scene.background;
     let environment: ReturnType<typeof createViewerEnvironmentResources> | undefined;
@@ -28,6 +31,7 @@ export default function ThreeViewerEnvironment({ id, length, width, height, grou
       environment = createViewerEnvironmentResources(id, { length, width, height });
       environment.root.position.y = groundY + .14;
       environment.updateCamera(camera.position);
+      environment.setContactShade(contactShade?.current ?? 1);
       active.current = environment;
       scene.add(environment.root);
       scene.background = environment.background;
@@ -46,6 +50,6 @@ export default function ThreeViewerEnvironment({ id, length, width, height, grou
       scene.background = previousBackground;
       invalidate();
     };
-  }, [scene, camera, invalidate, id, length, width, height, groundY, attempt]);
+  }, [scene, camera, invalidate, id, length, width, height, groundY, attempt, contactShade]);
   return null;
 }

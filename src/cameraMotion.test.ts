@@ -31,4 +31,17 @@ describe('display-only explicit camera motion', () => {
     for (const changes of [{ staging: false }, { reducedMotion: true }, { instant: true }]) expect(cameraFitAction(previous, next, { ...options, ...changes })).toBe('instant');
     expect(() => createCameraMotion({ position: [NaN, 0, 0], target: [0, 0, 0] }, { position: [1, 1, 1], target: [0, 0, 0] }, 0)).toThrow();
   });
+  it('follows replaced equipment only when that replacement is itself shown as a move', () => {
+    const previous = { physical: 'truck-A', request: 'all:0' }, replaced = { physical: 'truck-B', request: 'all:0' };
+    const options = { staging: true, reducedMotion: false, instant: false, physicalTransition: true };
+    expect(cameraFitAction(previous, replaced, options)).toBe('animate');
+    expect(cameraFitAction(previous, { physical: 'truck-B', request: 'yard:1' }, options)).toBe('animate');
+    expect(cameraFitAction(previous, previous, options)).toBe('skip');
+    // The first fit, the plain viewer, reduced motion and diagnostics stay instant.
+    expect(cameraFitAction(null, replaced, options)).toBe('instant');
+    for (const changes of [{ staging: false }, { reducedMotion: true }, { instant: true }, { physicalTransition: false }]) expect(cameraFitAction(previous, replaced, { ...options, ...changes })).toBe('instant');
+    const motion = createCameraMotion({ position: [0, 0, 0], target: [0, 0, 0] }, { position: [9, 0, 0], target: [0, 0, 0] }, 0, 900);
+    expect(sampleCameraMotion(motion, 450)).toMatchObject({ position: [4.5, 0, 0], complete: false });
+    expect(sampleCameraMotion(motion, 900)).toMatchObject({ position: [9, 0, 0], complete: true });
+  });
 });

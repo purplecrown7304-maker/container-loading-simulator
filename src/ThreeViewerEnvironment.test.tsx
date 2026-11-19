@@ -9,13 +9,13 @@ vi.mock('@react-three/fiber', () => ({ useThree: () => runtime, useFrame: vi.fn(
 vi.mock('./threeViewerEnvironmentResources', () => ({ createViewerEnvironmentResources: factory }));
 
 let root: Root, host: HTMLDivElement, scene: THREE.Scene;
-const allocations: { root: THREE.Group; background: THREE.Color; dispose: ReturnType<typeof vi.fn> }[] = [];
+const allocations: { root: THREE.Group; background: THREE.Color; dispose: ReturnType<typeof vi.fn>; setContactShade: ReturnType<typeof vi.fn> }[] = [];
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   allocations.length = 0; factory.mockReset(); runtime.invalidate.mockClear();
   scene = new THREE.Scene(); runtime.scene = scene; runtime.camera = new THREE.PerspectiveCamera();
   factory.mockImplementation(() => {
-    const value = { root: new THREE.Group(), background: new THREE.Color('#abcdef'), dispose: vi.fn(), updateCamera: vi.fn() };
+    const value = { root: new THREE.Group(), background: new THREE.Color('#abcdef'), dispose: vi.fn(), updateCamera: vi.fn(), setContactShade: vi.fn() };
     allocations.push(value); return value;
   });
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
@@ -50,6 +50,18 @@ describe('background resource lifecycle', () => {
     act(() => root.render(<ThreeViewerEnvironment id="beach" length={6} width={2.4} height={2.6} attempt={1} onStatus={status} />));
     expect(scene.children).toEqual([cargo, allocations[0].root]);
     expect(status).toHaveBeenLastCalledWith({ id: 'beach', status: 'ready' });
+  });
+
+  it('gives new scenery the current ground shade strength and full strength when nobody moves the equipment', () => {
+    const shade = { current: .3 };
+    act(() => root.render(<ThreeViewerEnvironment id="warehouse" length={6} width={2.4} height={2.6} contactShade={shade} />));
+    expect(allocations[0].setContactShade).toHaveBeenLastCalledWith(.3);
+    // Scenery rebuilt for other equipment while it is away starts from the same strength.
+    shade.current = 0;
+    act(() => root.render(<ThreeViewerEnvironment id="warehouse" length={12} width={2.4} height={2.6} contactShade={shade} />));
+    expect(allocations[1].setContactShade).toHaveBeenLastCalledWith(0);
+    act(() => root.render(<ThreeViewerEnvironment id="warehouse" length={12} width={2.4} height={2.6} attempt={1} />));
+    expect(allocations[2].setContactShade).toHaveBeenLastCalledWith(1);
   });
 
   it('balances all allocations under StrictMode, rapid switches and unmount', () => {

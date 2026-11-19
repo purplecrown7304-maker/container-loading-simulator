@@ -19,6 +19,8 @@ export type StagingSceneBridge = {
   /** Transient display poses; never serialized or passed to loading/physics. */
   flight?: StagingFlightSequence | null;
   completeFlight?: (id: number) => void;
+  /** The operator's motion checkbox and the system reduced-motion setting, combined. */
+  motionEnabled?: boolean;
   selectUnit: (id: string | null) => void;
   selectVehicleUnit: (kind: 'cargo' | 'support', index: number) => void;
   /** Read-only whole-pallet contents/miniature, independent of placement selection. */

@@ -131,14 +131,14 @@ export function createViewerEnvironmentResources(id: EnvironmentId, footprint: F
   const ground = ownMaterial(new THREE.ShaderMaterial({
     name: 'Environment ground and analytic contact shade', toneMapped: false,
     uniforms: { base: { value: tint(theme.floor) }, accent: { value: tint(theme.accent) }, style: { value: ['forest', 'warehouse', 'beach', 'space'].indexOf(id) },
-      extent: { value: new THREE.Vector2(l / 2 + .6, w / 2 + .7) }, pad: { value: new THREE.Vector2(rx * .8, rz * .7) } },
+      extent: { value: new THREE.Vector2(l / 2 + .6, w / 2 + .7) }, pad: { value: new THREE.Vector2(rx * .8, rz * .7) }, contact: { value: 1 } },
     vertexShader: 'varying vec3 vWorld; void main(){vec4 p=modelMatrix*vec4(position,1.);vWorld=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}',
     fragmentShader: `
-      uniform vec3 base; uniform vec3 accent; uniform float style; uniform vec2 extent; uniform vec2 pad; varying vec3 vWorld;
+      uniform vec3 base; uniform vec3 accent; uniform float style; uniform vec2 extent; uniform vec2 pad; uniform float contact; varying vec3 vWorld;
       void main(){
         vec2 p=vWorld.xz; float grain=sin(p.x*.72)*sin(p.y*.58)*.016;
         float distanceFromCargo=length(p/extent);
-        float shade=.16*exp(-distanceFromCargo*distanceFromCargo*1.45);
+        float shade=.16*contact*exp(-distanceFromCargo*distanceFromCargo*1.45);
         vec3 color=base+grain-shade;
         if(style>.5&&style<1.5){
           vec2 seam=abs(fract((p+.01)/4.)-.5);
@@ -355,6 +355,10 @@ export function createViewerEnvironmentResources(id: EnvironmentId, footprint: F
     }
     for (const item of standalone) item.object.visible = Math.max(item.minX * dx, item.maxX * dx) + Math.max(item.minZ * dz, item.maxZ * dz) <= rearLimit;
   };
-  return { root, background: new THREE.Color(theme.horizon), updateCamera, dispose };
+  /** 1 while the equipment stands on its footprint, 0 while the dock is empty. */
+  const setContactShade = (strength: number) => {
+    if (!disposed) ground.uniforms.contact.value = Number.isFinite(strength) ? Math.max(0, Math.min(1, strength)) : 1;
+  };
+  return { root, background: new THREE.Color(theme.horizon), updateCamera, setContactShade, dispose };
   } catch (error) { dispose(); throw error; }
 }

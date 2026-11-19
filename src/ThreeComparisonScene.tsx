@@ -26,6 +26,7 @@ import { cameraFitAction, createCameraMotion, sampleCameraMotion, type CameraMot
 import ThreeStagingFlights from './ThreeStagingFlights';
 import { createStagingPointerInteraction, type StagingPointerCallbacks } from './stagingPointerInteraction';
 import { createSceneRetirement } from './sceneRetirement';
+import { arrivalStartMs, arrivingOffset, departingOffset, dockShade, recallVehicleSwap, retargetVehicleSwap, VEHICLE_SWAP_PROFILE, vehicleIdentity, vehicleSwapTravel, type VehicleSwapState } from './vehicleSwapMotion';
 
 export type ThreeComparisonSceneStats = {
   revision: number;
@@ -107,7 +108,7 @@ export function planContentKey(plan: ThreeComparisonPlan) {
   return JSON.stringify(content);
 }
 
-export function CameraController({ plan, view, autoRotate, staging, viewRequest = 0, instant = false }: { plan: ThreeComparisonPlan; view: string; autoRotate: boolean; staging?: StagingCameraState | null; viewRequest?: number; instant?: boolean }) {
+export function CameraController({ plan, view, autoRotate, staging, viewRequest = 0, instant = false, physicalTransition = false }: { plan: ThreeComparisonPlan; view: string; autoRotate: boolean; staging?: StagingCameraState | null; viewRequest?: number; instant?: boolean; physicalTransition?: boolean }) {
   const controls = useRef<ElementRef<typeof OrbitControls>>(null);
   const { camera, size, invalidate } = useThree();
   const { length, width, height } = plan.container;
@@ -142,8 +143,10 @@ export function CameraController({ plan, view, autoRotate, staging, viewRequest 
   useLayoutEffect(() => {
     const physical = `${length}:${width}:${height}:${plan.vehicle}:${plan.vehicleRig}${staging ? `:${plan.geometry}:${plan.equipmentId ?? ''}:${staging.layout.frame.rearCenter.join(',')}:${staging.layout.frame.outward.join(',')}:${staging.layout.frame.groundY}` : ''}`;
     const identity = { physical, request: `${view}:${viewRequest}${staging ? `:staging:${staging.viewRequest}` : ''}` };
-    const action = cameraFitAction(fitted.current, identity, { staging: Boolean(staging), reducedMotion: reducedMotion.current, instant: instant || autoRotate || Boolean(staging?.dragging) });
+    const action = cameraFitAction(fitted.current, identity, { staging: Boolean(staging), reducedMotion: reducedMotion.current, instant: instant || autoRotate || Boolean(staging?.dragging), physicalTransition });
     if (action === 'skip') return;
+    // The equipment itself is being replaced on screen; follow it at its own pace.
+    const equipmentChanged = fitted.current !== null && fitted.current.physical !== physical;
     fitted.current = identity;
     camera.userData.viewerViewRequest = identity.request;
     const pose = staging && (view === 'all' || view === 'vehicle' || view === 'yard')
@@ -155,7 +158,8 @@ export function CameraController({ plan, view, autoRotate, staging, viewRequest 
     const destination = { position: pose.position.toArray(), target: pose.target.toArray() };
     if (action === 'animate') {
       setMaxDistance(Math.max(destinationLimit.current, camera.position.distanceTo(target) * 2));
-      motion.current = createCameraMotion({ position: camera.position.toArray(), target: target.toArray() }, destination, performance.now());
+      motion.current = createCameraMotion({ position: camera.position.toArray(), target: target.toArray() }, destination, performance.now(),
+        equipmentChanged ? VEHICLE_SWAP_PROFILE.cameraMs : undefined);
       if (controls.current) controls.current.enableDamping = false;
       camera.userData.viewerTransitionActive = true;
     } else {
@@ -165,7 +169,7 @@ export function CameraController({ plan, view, autoRotate, staging, viewRequest 
     }
     invalidate();
     // Preserve user orbit/pan when only cargo or frame data changes.
-  }, [camera, length, width, height, plan.vehicle, plan.vehicleRig, plan.geometry, plan.equipmentId, view, size.width, size.height, staging, viewRequest, instant, autoRotate, applyPose, restoreDamping, lastTarget, invalidate]);
+  }, [camera, length, width, height, plan.vehicle, plan.vehicleRig, plan.geometry, plan.equipmentId, view, size.width, size.height, staging, viewRequest, instant, autoRotate, physicalTransition, applyPose, restoreDamping, lastTarget, invalidate]);
   useFrame(() => {
     const current = motion.current; if (!current) return;
     const sample = sampleCameraMotion(current, performance.now()); applyPose(sample);
@@ -174,6 +178,66 @@ export function CameraController({ plan, view, autoRotate, staging, viewRequest 
   }, 0);
   useEffect(() => { invalidate(); }, [autoRotate, invalidate]);
   return <OrbitControls ref={controls} makeDefault enabled={!staging?.dragging} enableDamping={Boolean(staging) && !instant && !autoRotate && !reducedMotion.current} dampingFactor={.1} onStart={cancelMotion} autoRotate={autoRotate && !staging?.dragging} autoRotateSpeed={2} minDistance={.5} maxDistance={maxDistance} minPolarAngle={Math.PI / 180} maxPolarAngle={Math.PI / 2} />;
+}
+
+type VehicleSwap = VehicleSwapState<Resources>;
+/** Everything in a scene root that is not the equipment itself. */
+const SWAP_HIDDEN_GROUPS = ['Cargo', 'Supports', 'Securing', 'Weight cells', 'Center of gravity'];
+
+/** Moves whole scene roots along the vehicle axis while the equipment is replaced. It
+ * owns no cargo, plan or camera state, and every root it touched is back at the dock
+ * when the replacement ends or is abandoned. */
+export function ThreeVehicleSwap({ swap, arriving, shade, onDeparted, onDone }: { swap: VehicleSwap; arriving: Resources | null; shade?: { current: number }; onDeparted: (id: number) => void; onDone: (id: number) => void }) {
+  const { invalidate } = useThree();
+  // The ground shade under the equipment is back in full when this ends or is abandoned.
+  useLayoutEffect(() => () => { if (shade) shade.current = 1; invalidate(); }, [swap.id, shade, invalidate]);
+  const callbacks = useRef({ onDeparted, onDone }); callbacks.current = { onDeparted, onDone };
+  const run = useRef({ id: swap.id, departed: !swap.departing, arrival: null as { root: THREE.Object3D; startMs: number } | null, done: false });
+  if (run.current.id !== swap.id) run.current = { id: swap.id, departed: !swap.departing, arrival: null, done: false };
+  const departingRoot = swap.departing?.root ?? null, arrivingRoot = arriving?.root ?? null;
+  useLayoutEffect(() => {
+    if (!departingRoot) return;
+    // A changed equipment has already returned its cargo to the yard; only the equipment
+    // drives off. The root is restored in full in case its scene is shown again.
+    const hidden = SWAP_HIDDEN_GROUPS.flatMap(name => { const group = departingRoot.getObjectByName(name); return group?.visible ? [group] : []; });
+    for (const group of hidden) group.visible = false;
+    departingRoot.position.x = departingOffset(performance.now() - swap.startedAt, swap.travel, swap.from).offset;
+    invalidate();
+    return () => { for (const group of hidden) group.visible = true; departingRoot.position.x = 0; };
+  }, [swap.id, swap.startedAt, swap.travel, swap.from, departingRoot, invalidate]);
+  useLayoutEffect(() => {
+    const now = run.current;
+    if (!arrivingRoot || now.done) return;
+    const elapsed = performance.now() - swap.startedAt;
+    // It waits, unseen, for its models and for the old equipment to be gone. A scene that
+    // replaces the arriving one (a result published meanwhile) continues the same arrival.
+    now.arrival = { root: arrivingRoot, startMs: now.arrival?.startMs ?? arrivalStartMs(elapsed, !now.departed) };
+    const arrive = arrivingOffset(elapsed, now.arrival.startMs, swap.travel);
+    arrivingRoot.position.x = arrive.offset; arrivingRoot.visible = arrive.started; invalidate();
+    return () => { arrivingRoot.position.x = 0; arrivingRoot.visible = true; };
+  }, [swap.id, swap.startedAt, swap.travel, arrivingRoot, invalidate]);
+  useFrame(() => {
+    const now = run.current;
+    if (now.done) return;
+    const elapsed = performance.now() - swap.startedAt;
+    let moving = false, atDock = 0;
+    if (departingRoot && !now.departed) {
+      const leave = departingOffset(elapsed, swap.travel, swap.from);
+      departingRoot.position.x = leave.offset; atDock = dockShade(leave.offset, swap.travel);
+      if (leave.done) { now.departed = true; callbacks.current.onDeparted(swap.id); } else moving = true;
+    }
+    if (now.arrival) {
+      const arrive = arrivingOffset(elapsed, now.arrival.startMs, swap.travel);
+      now.arrival.root.position.x = arrive.offset; now.arrival.root.visible = arrive.started;
+      if (arrive.started) atDock = Math.max(atDock, dockShade(arrive.offset, swap.travel));
+      if (!arrive.done) moving = true;
+      else if (now.departed) { now.done = true; callbacks.current.onDone(swap.id); }
+    }
+    if (shade) shade.current = atDock;
+    // One more frame after the last move lets the scenery read the settled shade.
+    if (moving || now.done) invalidate();
+  }, 0);
+  return null;
 }
 
 function StagingVehicleOutline({ bounds }: { bounds: StagingBounds | null }) {
@@ -345,7 +409,7 @@ export function SceneRuntime({ resources, options, frameState, onPresented }: { 
       } else invalidate();
     }
   }, 2);
-  return <CameraController plan={options.plan} view={options.view} autoRotate={autoRotate} staging={options.staging} viewRequest={options.viewRequest} instant={Boolean(options.frameData || options.benchmark)} />;
+  return <CameraController plan={options.plan} view={options.view} autoRotate={autoRotate} staging={options.staging} viewRequest={options.viewRequest} instant={Boolean(options.frameData || options.benchmark)} physicalTransition={options.staging?.motionEnabled === true} />;
 }
 
 function WebGLFallback({ onError }: { onError?: (message: string) => void }) {
@@ -374,7 +438,30 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
   const live = useRef<{ key: string; resources: Resources; vehicleStatus: VehicleStatus; dispose: () => void } | null>(null);
   // A replaced scene lingers until its replacement has drawn; see sceneRetirement.
   const retirement = useMemo(() => createSceneRetirement(), []);
-  const onPresented = useCallback((shown: Resources) => { if (live.current?.resources === shown) retirement.flush(); }, [retirement]);
+  // Replacing the equipment is shown as the old one leaving and the new one arriving.
+  const [swap, setSwap] = useState<VehicleSwap | null>(null);
+  const leaving = useRef<Resources | null>(null); leaving.current = swap?.departing ?? null;
+  const swapNow = useRef(swap); swapNow.current = swap;
+  // The live scene once it has driven off while its replacement is still loading.
+  const gone = useRef<Resources | null>(null);
+  const equipment = useRef<{ identity: string; length: number } | null>(null);
+  const presentedLive = useRef<Resources | null>(null), swapSerial = useRef(0), dockShadeLevel = useRef(1);
+  const onPresented = useCallback((shown: Resources) => {
+    if (live.current?.resources !== shown) return;
+    presentedLive.current = shown;
+    // The equipment that is still driving off is drawn from the retired scene.
+    if (!leaving.current) retirement.flush();
+  }, [retirement]);
+  const departed = swap ? !swap.departing : true;
+  useEffect(() => { if (departed && live.current && presentedLive.current === live.current.resources) retirement.flush(); }, [departed, retirement]);
+  const onDeparted = useCallback((id: number) => {
+    if (swapNow.current?.id === id && swapNow.current.departing) gone.current = swapNow.current.departing;
+    setSwap(value => value?.id === id ? { ...value, departing: null } : value);
+  }, []);
+  const onSwapDone = useCallback((id: number) => {
+    if (swapNow.current?.id === id) gone.current = null;
+    setSwap(value => value?.id === id ? null : value);
+  }, []);
   useEffect(() => {
     let cancelled = false;
     setError(''); frameState.current = { acceptedFrameStep: null, rejectedFrame: false };
@@ -384,8 +471,26 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
     // result) keeps its scene. A vehicle fallback still retries on the next plan.
     if (current?.key === key && current.vehicleStatus.status !== 'fallback') {
       callbacks.current.onVehicleStatus?.(current.vehicleStatus);
+      // The live scene is asked for again. If it was still driving off it stays at the
+      // dock; if it had left, or was waiting behind another departure, it is what arrives.
+      const again = vehicleIdentity(plan); gone.current = null;
+      setSwap(value => recallVehicleSwap(value, current.resources, again));
       setLoaded({ plan, resources: current.resources });
       return;
+    }
+    const identity = vehicleIdentity(plan), shownEquipment = equipment.current;
+    if (current && shownEquipment && shownEquipment.identity !== identity) {
+      const now = callbacks.current;
+      const allowed = now.staging?.motionEnabled === true && !now.frameData && !now.benchmark
+        && !(typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      if (allowed) {
+        const scene = current.resources, alreadyGone = gone.current === scene;
+        // The scene on screen leaves from where it stands, which is short of the dock if it
+        // was itself still arriving.
+        const fresh: VehicleSwap = { id: ++swapSerial.current, departing: scene, from: scene.root.position.x, startedAt: performance.now(),
+          travel: vehicleSwapTravel(shownEquipment.length, plan.container.length), identity };
+        setSwap(value => retargetVehicleSwap(value, fresh, alreadyGone));
+      } else { gone.current = null; setSwap(null); }
     }
     const labels = acquireComparisonLabels(plan);
     const models = Promise.all(requiredComparisonModelKeys(plan).map(async key => [key, await loadMeshyModel(key)] as const));
@@ -403,6 +508,7 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
         callbacks.current.onVehicleStatus?.(vehicleStatus);
         const previous = live.current;
         live.current = { key, resources, vehicleStatus, dispose: () => { resources.dispose(); acquired.release(); } };
+        equipment.current = { identity, length: plan.container.length }; gone.current = null;
         if (previous) retirement.retire(previous.dispose);
         setLoaded({ plan, resources });
       } catch (reason) { acquired.release(); throw reason; }
@@ -426,8 +532,10 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
   return <div style={{ width: '100%', height: '100%', position: 'relative', minHeight: 180 }} data-three-scene-ready={Boolean(resources)}>
     <Canvas frameloop="demand" camera={{ fov: 40, near: .02, far: 500, position: [10, 7, 10] }} dpr={VIEWER_QUALITY_PROFILES[quality.quality].dpr} gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }} onPointerMissed={event => { if (event.type === 'click' && event.button === 0) options.onSelect(null); }} onContextMenu={event => event.preventDefault()} fallback={<WebGLFallback onError={options.onError} />}>
       <ThreeSceneLighting quality={quality.quality} groundY={groundY} />
-      <ThreeViewerEnvironment groundY={groundY} id={options.environment ?? DEFAULT_VIEWER_ENVIRONMENT} length={plan.container.length} width={plan.container.width} height={plan.container.height} attempt={options.environmentAttempt} onStatus={options.onEnvironmentStatus} />
+      <ThreeViewerEnvironment groundY={groundY} id={options.environment ?? DEFAULT_VIEWER_ENVIRONMENT} length={plan.container.length} width={plan.container.width} height={plan.container.height} attempt={options.environmentAttempt} onStatus={options.onEnvironmentStatus} contactShade={dockShadeLevel} />
       {resources && <SceneContents resources={resources} options={options} bindings={bindings.current} frameState={frameState} />}
+      {swap?.departing && swap.departing !== resources && <primitive object={swap.departing.root} dispose={null} />}
+      {swap && <ThreeVehicleSwap swap={swap} arriving={swap.identity === vehicleIdentity(plan) ? resources : null} shade={dockShadeLevel} onDeparted={onDeparted} onDone={onSwapDone} />}
       {staging && <ThreeStagingYard key={yardAttempt} units={staging.inventory.yardUnits} layout={staging.layout} visibleZoneIds={staging.visibleZoneIds} selectedUnitId={staging.selectedUnitId} cartonLabelsEnabled={options.labels}
         labels={{ empty: uiText('대기 화물 없음'), aisle: uiText('이동 통로'), doorClearance: uiText('출입문 여유 공간'), boxes: uiText('낱박스'), pallets: uiText('파렛트'), pending: uiText('계산 전'), checking: uiText('검토 중'), unloaded: uiText('미적재'), error: uiText('입력·포장 확인') }}
         canDrag={staging.canManipulate !== false && !options.frameData && !options.weight && !staging.flight}
