@@ -1,5 +1,5 @@
 import type { ContainerSpec, LoadingResult, Placement } from './engine/types';
-import { voidFillMaterialColor } from './voidFillPresentation';
+import { voidFillDrawnIn3D, voidFillMaterialColor } from './voidFillPresentation';
 import type { ViewerSupport } from './viewerSceneProtocol';
 import type { SecuringUsage } from './inertiaCertification';
 import { palletBandingSegments } from './palletBanding';
@@ -12,8 +12,10 @@ export function securingGeometry(container: ContainerSpec, source: LoadingResult
   const output: ViewerDecoration[] = [];
   const add = (x: number, y: number, z: number, length: number, width: number, height: number, color: string, supportIndex = -1, wire = false, modelKey?: string, wrapping?: true) => output.push({ x, y, z, length, width, height, color, supportIndex, wire, ...(modelKey ? { modelKey } : {}), ...(wrapping ? { wrapping } : {}) });
   for (const fill of result?.voidFillPlan?.fills ?? []) {
+    // Planned materials only. A void without one is listed in the results, not drawn.
+    if (!voidFillDrawnIn3D(fill)) continue;
     add(fill.x, fill.y, fill.z, fill.length, fill.width, fill.height, voidFillMaterialColor(fill), -1,
-      !fill.fixedSupportEligible, fill.material === 'dunnage-airbag' ? 'dunnage-airbag' : undefined);
+      false, fill.material === 'dunnage-airbag' ? 'dunnage-airbag' : undefined);
   }
   if (!boxes.length) return output;
   const securing = usage?.level ? usage : undefined;
