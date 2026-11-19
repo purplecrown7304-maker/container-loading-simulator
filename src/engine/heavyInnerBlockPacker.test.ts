@@ -1,15 +1,39 @@
 import { describe, expect, it } from 'vitest';
-import { packByHeavyInnerBlocks, heavyInnerLayerLimit } from './heavyInnerBlockPacker';
+import { compareCandidates, packByHeavyInnerBlocks, heavyInnerLayerLimit } from './heavyInnerBlockPacker';
 import { auditLoading } from './loadingAudit';
 import { heavyInnerConflictFindings, heavyInnerOrderViolations, usesHeavyInnerLoading } from './heavyInnerPolicy';
 import { validateOperationalWeightAndCog } from './operationalValidator';
 import { unloadingObstructions } from './operationalQuality';
-import type { CargoItem, ContainerSpec } from './types';
+import type { CargoItem, ContainerSpec, Placement } from './types';
 
 const item = (id: string, weightKg: number, quantity: number, overrides: Partial<CargoItem> = {}): CargoItem => ({
   id, name: id, length: .5, width: .5, height: .5, weightKg, quantity, maxStackLayers: 2, maxTopLoadKg: 200, ...overrides,
 });
 const container: ContainerSpec = { length: 4, width: 1, height: 2, maxPayloadKg: 1000 };
+
+/** Rows from the inner wall to the door: cartons whose X ranges overlap stand in one row.
+ * `full` are the leading rows one cargo fills by itself, every row of a cargo with the same
+ * number of cartons; `behind` is everything after them. */
+function sequenceOf(placements: Placement[]) {
+  const rows: Placement[][] = [];
+  let end = 0;
+  for (const p of [...placements].sort((a, b) => a.x - b.x || a.y - b.y || a.z - b.z)) {
+    if (!rows.length || p.x >= end - 1e-6) { rows.push([p]); end = p.x + p.length; }
+    else { rows.at(-1)!.push(p); end = Math.max(end, p.x + p.length); }
+  }
+  const size = new Map<string, number>();
+  let lead = 0;
+  for (; lead < rows.length; lead++) {
+    const row = rows[lead], id = row[0].cargoId;
+    if (row.some(p => p.cargoId !== id) || (size.has(id) && size.get(id) !== row.length)) break;
+    size.set(id, row.length);
+  }
+  return { rows, full: rows.slice(0, lead), behind: rows.slice(lead) };
+}
+const countByCargo = (placements: Placement[]) => { const counts: Record<string, number> = {}; for (const p of placements) counts[p.cargoId] = (counts[p.cargoId] ?? 0) + 1; return counts; };
+const top = (row: Placement[]) => Math.max(...row.map(p => p.z + p.height));
+/** Floor width a row leaves open between the side walls. */
+const openFloor = (space: ContainerSpec, row: Placement[]) => space.width - row.filter(p => p.z < 1e-9).reduce((sum, p) => sum + p.width * p.length, 0) / Math.max(...row.map(p => p.x + p.length - row[0].x));
 
 describe('heavy-inner continuous direct-box work blocks', () => {
   it('keeps deterministic maximum quantity ahead of work-order preference when level loading is selected', () => {
@@ -102,10 +126,121 @@ describe('heavy-inner continuous direct-box work blocks', () => {
     expect(result.placements.filter(p => p.cargoId === 'PRD001')).toHaveLength(937);
     expect(result.placements.filter(p => ['PRD004', 'PRD005', 'PRD006'].includes(p.cargoId))).toHaveLength(656);
     expect(result.loadedWeightKg).toBeLessThanOrEqual(28600);
-    expect(heavyInnerOrderViolations(spec, cargo, result.placements, 'capacity')).toBe(0);
+    // Owner rule 2026-11-19: the rows a cargo fills by itself keep the weight sequence. What
+    // could not fill a row stands behind them: fewer cartons of a cargo than one of its rows.
+    const { full, behind } = sequenceOf(result.placements);
+    expect(full.length).toBeGreaterThan(20);
+    expect(heavyInnerOrderViolations(spec, cargo, full.flat(), 'capacity')).toBe(0);
+    for (const [id, count] of Object.entries(countByCargo(behind.flat()))) {
+      const row = full.find(candidate => candidate[0].cargoId === id);
+      if (row) expect(count, id).toBeLessThan(row.length);
+    }
     expect(auditLoading(spec, cargo, result.placements)).toEqual([]);
     expect(validateOperationalWeightAndCog(spec, result.placements)).toContainEqual(expect.objectContaining({ code: 'CG_LONGITUDINAL', severity: 'error' }));
     expect(unloadingObstructions(cargo, result.placements)).toBe(0);
     expect(result.placements.filter(p => p.cargoId.startsWith('PRD030')).every(p => p.z === 0)).toBe(true);
+  });
+});
+
+describe('leftovers stand in the last rows (owner rule 2026-11-19)', () => {
+  /** The shipment the owner reported: four products in three carton sizes, each with one
+   * part-filled carton. As built, three heavy cartons stood alone in a row 1.3 m from the
+   * inner wall, and a part-filled carton had a row of its own a metre further on. */
+  const space: ContainerSpec = { length: 12.032, width: 2.35, height: 2.65, maxPayloadKg: 28600, floorLoadLimitKgPerM2: 1500, floorLoadWarningMultiplier: 3, unloadingPolicy: 'strict' };
+  const carton = (id: string, quantity: number, weightKg: number, length: number, width: number, height: number, maxTopLoadKg: number): CargoItem =>
+    ({ id, name: id, quantity, weightKg, length, width, height, maxTopLoadKg, strengthUnverified: false, allowRotation: true } as CargoItem);
+  const reported = [
+    carton('P014', 93, 22, .26, .24, .225, 40.2), carton('P014-PART', 1, 10.2, .26, .24, .225, 40.2),
+    carton('P003', 93, 22, .235, .13, .265, 34.3), carton('P003-PART', 1, 10.2, .235, .13, .265, 34.3),
+    carton('P050', 55, 4.2, .235, .31, .265, 42), carton('P050-PART', 1, 2.4, .235, .31, .265, 42),
+    carton('G002', 2439, 1.42, .235, .13, .265, 34.3), carton('G002-PART', 1, .62, .235, .13, .265, 34.3)];
+  const errors = (container: ContainerSpec, placements: Placement[]) => validateOperationalWeightAndCog(container, placements).filter(finding => finding.severity === 'error');
+
+  it('loads the reported shipment in full rows and gathers what is left over at the door end', () => {
+    const before = JSON.stringify(reported);
+    const result = packByHeavyInnerBlocks(space, reported, 'stability');
+    expect(result.remaining).toEqual([]); expect(result.placements).toHaveLength(2684);
+    expect(result.loadedWeightKg).toBeCloseTo(7809.8, 6);
+    expect(auditLoading(space, reported, result.placements)).toEqual([]);
+    expect(errors(space, result.placements)).toEqual([]);
+    const { rows, full, behind } = sequenceOf(result.placements);
+    // From the inner wall: only rows one cargo fills wall to wall and to its full height,
+    // the heaviest carton first.
+    expect(full.map(row => `${row[0].cargoId}x${row.length}`)).toEqual([
+      ...Array(5).fill('P014x18'), ...Array(2).fill('P003x36'), 'P050x28', ...Array(33).fill('G002x72')]);
+    expect(heavyInnerOrderViolations(space, reported, full.flat(), 'stability')).toBe(0);
+    for (const row of full) expect(new Set(row.map(p => Math.round((p.z + p.height) * 1e6)).filter((_, index) => !row.some(q => q !== row[index] && q.x === row[index].x && q.y === row[index].y && q.z > row[index].z))).size).toBe(1);
+    // Behind them stands what could not fill a row: 3 and 21 heavy cartons, 27 and 63 lighter
+    // ones and the four part-filled cartons.
+    expect(countByCargo(behind.flat())).toEqual({ P014: 3, 'P014-PART': 1, P003: 21, 'P003-PART': 1, P050: 27, 'P050-PART': 1, G002: 63, 'G002-PART': 1 });
+    expect(Math.min(...behind.flat().map(p => p.x))).toBeCloseTo(Math.max(...full.flat().map(p => p.x + p.length)), 6);
+    // No row before the last leaves floor open for even its narrowest carton, and the
+    // leftover rows end in the lowest one.
+    for (const row of rows.slice(0, -1)) expect(openFloor(space, row)).toBeLessThan(Math.min(...row.map(p => p.width)));
+    expect(behind).toHaveLength(3);
+    expect(behind.map(top).every((height, index, tops) => index === 0 || height <= tops[index - 1] + 1e-9)).toBe(true);
+    expect(top(behind.at(-1)!)).toBeLessThan(top(behind[0]));
+    // A part-filled carton lies on its own product, and lighter leftovers fill up the tops
+    // of heavier ones of the same size.
+    const under = (id: string) => { const p = result.placements.find(q => q.cargoId === id)!; return result.placements.find(q => q.x === p.x && q.y === p.y && Math.abs(q.z + q.height - p.z) < 1e-9)?.cargoId; };
+    expect(under('P014-PART')).toBe('P014'); expect(under('P003-PART')).toBe('P003'); expect(under('P050-PART')).toBe('P050');
+    expect(behind.flat().filter(p => p.cargoId === 'G002' && p.z > 0 && result.placements.some(q => q.cargoId.startsWith('P003') && q.x === p.x && q.y === p.y)).length).toBeGreaterThan(40);
+    // Heavier below in every column, each carton resting on the one under it.
+    const columns = new Map<string, Placement[]>();
+    for (const p of result.placements) { const key = `${p.x}|${p.y}`; columns.set(key, [...(columns.get(key) ?? []), p]); }
+    for (const column of columns.values()) {
+      column.sort((a, b) => a.z - b.z);
+      for (let i = 1; i < column.length; i++) { expect(column[i].weightKg).toBeLessThanOrEqual(column[i - 1].weightKg); expect(column[i].z).toBeCloseTo(column[i - 1].z + column[i - 1].height, 6); }
+    }
+    expect(JSON.stringify(reported)).toBe(before);
+    expect(packByHeavyInnerBlocks(space, reported, 'stability')).toEqual(result);
+  });
+
+  it('keeps a row a cargo cannot fill out of the middle of the load', () => {
+    const small: ContainerSpec = { length: 2, width: 1, height: 1.1, maxPayloadKg: 1000 };
+    const cargo = [item('heavy', 30, 6), item('light', 10, 8)];
+    const result = packByHeavyInnerBlocks(small, cargo, 'capacity');
+    const at = (id: string, x: number) => result.placements.filter(p => p.cargoId === id && Math.abs(p.x - x) < 1e-9);
+    // One row of the heavy cargo (two columns, two tiers), two rows of the light one, and
+    // only then the two heavy cartons that do not make a row.
+    expect(result.placements).toHaveLength(14);
+    expect(at('heavy', 0)).toHaveLength(4); expect(at('light', .5)).toHaveLength(4); expect(at('light', 1)).toHaveLength(4);
+    expect(at('heavy', 1.5)).toHaveLength(2); expect(at('heavy', 1.5).every(p => p.z === 0)).toBe(true);
+    expect(auditLoading(small, cargo, result.placements)).toEqual([]);
+    expect(errors(small, result.placements)).toEqual([]);
+  });
+
+  it('sets a part-filled carton on its own product in the last row', () => {
+    const small: ContainerSpec = { length: 2, width: 1, height: 1.1, maxPayloadKg: 1000 };
+    const cargo = [item('heavy', 30, 5), item('heavy-part', 12, 1), item('light', 10, 8)];
+    const result = packByHeavyInnerBlocks(small, cargo, 'capacity');
+    expect(result.placements).toHaveLength(14);
+    const last = result.placements.filter(p => Math.abs(p.x - 1.5) < 1e-9).sort((a, b) => a.z - b.z);
+    expect(last.map(p => p.cargoId)).toEqual(['heavy', 'heavy-part']);
+    expect(last[1]).toMatchObject({ y: last[0].y, z: .5 });
+    expect(auditLoading(small, cargo, result.placements)).toEqual([]);
+  });
+
+  it('keeps the payload for a heavier leftover that is loaded after lighter rows', () => {
+    const tight: ContainerSpec = { length: 2, width: 1, height: 1.1, maxPayloadKg: 200 };
+    const cargo = [item('heavy', 30, 5), item('light', 10, 8)];
+    const result = packByHeavyInnerBlocks(tight, cargo, 'capacity');
+    expect(countByCargo(result.placements)).toEqual({ heavy: 5, light: 5 });
+    expect(result.loadedWeightKg).toBe(200);
+    expect(result.remaining).toEqual([expect.objectContaining({ cargoId: 'light', quantity: 3, reasonCode: 'PAYLOAD_LIMIT' })]);
+  });
+
+  it('uses the sequence as built only when taking the leftovers to the back loads less or fails the centre-of-gravity verdict', () => {
+    const plan = (signature: string, extra: Partial<Parameters<typeof compareCandidates>[0]> = {}) =>
+      ({ signature, counts: [10, 5], cgErrors: 0, cgExcess: 0, voids: 0, sparseTop: false, heightMoment: 1, end: 1, ...extra });
+    const order = (...plans: ReturnType<typeof plan>[]) => plans.sort(compareCandidates).map(candidate => candidate.signature);
+    // Same cargo, both pass: the leftovers go to the back, whatever the as-built plan saves elsewhere.
+    expect(order(plan('as-built', { leftoversInside: true }), plan('settled', { voids: 9, heightMoment: 2 }))).toEqual(['settled', 'as-built']);
+    // Loaded quantity and the verdict still come first.
+    expect(order(plan('settled', { counts: [10, 4] }), plan('as-built', { leftoversInside: true }))).toEqual(['as-built', 'settled']);
+    expect(order(plan('settled', { cgErrors: 1, cgExcess: .2 }), plan('as-built', { leftoversInside: true }))).toEqual(['as-built', 'settled']);
+    // Level loading keeps its place: after a weight sequence that passes, before one that does not.
+    expect(order(plan('level', { mode: 1 }), plan('as-built', { leftoversInside: true }), plan('settled', { cgErrors: 1 }))).toEqual(['as-built', 'level', 'settled']);
+    expect(order(plan('as-built', { leftoversInside: true, cgErrors: 1 }), plan('level', { mode: 1 }), plan('settled', { cgErrors: 1 }))).toEqual(['level', 'settled', 'as-built']);
   });
 });

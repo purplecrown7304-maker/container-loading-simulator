@@ -17,7 +17,11 @@ const fit = (room: number, size: number) => Math.max(0, Math.floor((room + EPS) 
 const round = (value: number) => Math.round(value * 1e9) / 1e9;
 type FloorOrientation = { length: number; width: number; rotated: boolean };
 type Profile = { layerCap: number; lowerPrefix: number; lowerLayers: number; orientation: 'efficient' | 'normal' | 'rotated' };
-type Candidate = { output: StrictWallOutput; mode?: number; voids: number; counts: number[]; cgErrors: number; cgExcess: number; sparseTop: boolean; heightMoment: number; end: number; signature: string };
+type Candidate = { output: StrictWallOutput; mode?: number; voids: number; counts: number[]; cgErrors: number; cgExcess: number; sparseTop: boolean; heightMoment: number; end: number; signature: string;
+  /** The weight sequence exactly as built, with rows a cargo could not fill left where they
+   * fell inside the load. Judged after the plan that takes those leftovers to the door end. */
+  leftoversInside?: boolean };
+type Phase = 'sequence' | 'rows' | 'leftover';
 
 /** a rows of normal boxes equal b rows of rotated boxes in depth; choose the column mix covering most width. */
 export function pinwheelBlock(item: CargoItem, width: number) {
@@ -61,7 +65,17 @@ export function heavyInnerLayerLimit(container: ContainerSpec, item: CargoItem) 
   return Math.max(0, limit);
 }
 
-function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy: StrictWallStrategy, profile: Profile): Candidate {
+/**
+ * One plan of the weight sequence.
+ *
+ * `leftoversLast` (owner rule 2026-11-19, "what is awkwardly left over belongs in the last
+ * row; from the front to the row before the last there is no empty space"): each stop is
+ * loaded in two passes. First only the rows a cargo fills by itself, wall to wall and to its
+ * full height, in weight order from the inner wall. Then everything that could not fill such
+ * a row, in the same weight order, behind them at the door end. Without it the cargo is
+ * loaded in one pass and a row a cargo could not fill stays where it fell.
+ */
+function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy: StrictWallStrategy, profile: Profile, leftoversLast = false): Candidate {
   const placements: Placement[] = [];
   const remaining: StrictWallOutput['remaining'] = [];
   const stock = new Map(ordered.map(item => [item.id, item.quantity]));
@@ -72,10 +86,25 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
   let x = 0, y = 0, rowDepth = 0, loadedWeightKg = 0, usedVolumeM3 = 0;
   const strict = heavyInnerStrictUnloading(container, strategy);
   let prefixRemaining = Math.floor(ordered.filter(item => heavyInnerLayerLimit(container, item) > 1).reduce((sum, item) => sum + item.quantity, 0) * profile.lowerPrefix);
-  let previousStop: number | undefined;
   let rowId = 0;
   const groupOf = new Map<Placement, number>();
-  const put = (p: Placement) => { groupOf.set(p, rowId); placements.push(p); };
+  // The leftover rows of the stop being loaded: their cartons and the top carton of each of
+  // their columns. Rows are disjoint along the length, so every check on a leftover carton
+  // only has to look at these.
+  let inLeftoverRows = false;
+  const leftover: Placement[] = [];
+  const leftoverTops = new Map<string, Placement>();
+  const columnKey = (p: Placement) => `${round(p.x)}|${round(p.y)}|${round(p.length)}|${round(p.width)}`;
+  // Payload kept for leftovers that are loaded after lighter rows (see `load`).
+  let reservedKg = 0;
+  const reserved = new Map<string, number>();
+  const put = (p: Placement, row = rowId) => {
+    groupOf.set(p, row); placements.push(p);
+    if (!inLeftoverRows) return;
+    leftover.push(p);
+    const key = columnKey(p), top = leftoverTops.get(key);
+    if (!top || p.z > top.z) leftoverTops.set(key, p);
+  };
   const advance = () => { x = round(x + rowDepth); y = 0; rowDepth = 0; rowId++; };
 
   // Fill equal-weight side lanes before closing a front. This creates adjacent
@@ -89,7 +118,7 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
       const options = floorOrientations(filler).flatMap(o => {
         if (Math.abs(o.length - rowDepth) > 1e-6) return [];
         const count = Math.min(stock.get(filler.id) ?? 0, fit(container.width - y, o.width) * layers,
-          filler.weightKg > EPS ? fit(container.maxPayloadKg - loadedWeightKg, filler.weightKg) : Infinity);
+          filler.weightKg > EPS ? fit(container.maxPayloadKg - loadedWeightKg - reservedKg + (reserved.get(filler.id) ?? 0), filler.weightKg) : Infinity);
         return count > 0 ? [{ ...o, count, columns: Math.ceil(count / layers) }] : [];
       }).sort((a, b) => b.count - a.count || a.length - b.length || Number(a.rotated) - Number(b.rotated));
       const option = options[0];
@@ -100,6 +129,8 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
           length: option.length, width: option.width, height: filler.height, weightKg: filler.weightKg, rotated: option.rotated });
       }
       stock.set(filler.id, (stock.get(filler.id) ?? 0) - option.count);
+      const kept = Math.min(reserved.get(filler.id) ?? 0, option.count * filler.weightKg);
+      if (kept > 0) { reserved.set(filler.id, (reserved.get(filler.id) ?? 0) - kept); reservedKg -= kept; }
       loadedWeightKg += option.count * filler.weightKg;
       usedVolumeM3 += option.count * filler.length * filler.width * filler.height;
       y = round(y + option.columns * option.width);
@@ -125,10 +156,62 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
     return false;
   };
 
-  for (const [itemIndex, item] of ordered.entries()) {
-    const stop = item.unloadPriority ?? 1;
-    if (strict && previousStop != null && stop !== previousStop && rowDepth > EPS) advance();
-    previousStop = stop;
+  // A leftover carton first goes on top of an equal or heavier leftover carton of the same
+  // footprint, the lowest free top first, so the leftover rows are filled up before another
+  // one is opened. It passes every check a carton set on the open front passes. A column
+  // that refuses a cargo once stays closed for it: its limits only tighten as it grows.
+  const stackOnLeftover = (item: CargoItem, orientations: FloorOrientation[], closed: Set<string>) => {
+    if (item.floorOnly || item.strengthUnverified || Math.min(item.maxStackLayers ?? Infinity, profile.layerCap) < 2) return false;
+    const tops = [...leftoverTops].filter(([key, top]) => !closed.has(key) && top.weightKg >= item.weightKg - EPS)
+      .sort(([, a], [, b]) => (a.z + a.height) - (b.z + b.height) || a.x - b.x || a.y - b.y);
+    for (const [key, support] of tops) {
+      const o = orientations.find(o => Math.abs(o.length - support.length) <= EPS && Math.abs(o.width - support.width) <= EPS);
+      const candidate: Placement | undefined = o && { cargoId: item.id, x: support.x, y: support.y, z: round(support.z + support.height),
+        length: o.length, width: o.width, height: item.height, weightKg: item.weightKg, rotated: o.rotated };
+      if (candidate && isInsideContainer(container, candidate) && withinFloorLoadLimit(container, candidate, leftover)
+        && !leftover.some(p => overlaps(p, candidate)) && hasAdequateSupport(candidate, leftover, undefined, scenarioSupportRatio(container, .999))
+        && countStackLayersBelow(candidate, leftover) <= profile.layerCap && canPlaceByStackingRules(byId.get(item.id)!, candidate, leftover, byId)
+        && acceptsUnloadCandidate(container, byId, placements, candidate)) {
+        put(candidate, groupOf.get(support));
+        loadedWeightKg += item.weightKg;
+        usedVolumeM3 += item.length * item.width * item.height;
+        return true;
+      }
+      closed.add(key);
+    }
+    return false;
+  };
+  // The leftover rows of a stop are whole floor-rooted groups, so they are set down again
+  // without being rebuilt: rows that leave free width stand side by side, and the fullest
+  // rows come first, so that the load ends in its sparsest row and nothing is left open
+  // before it. No stack changes, only where it stands along the length and across the width.
+  const settleLeftoverRows = () => {
+    const rows = new Map<number, Placement[]>();
+    for (const p of leftover) { const row = groupOf.get(p)!; const list = rows.get(row); if (list) list.push(p); else rows.set(row, [p]); }
+    if (rows.size < 2) return;
+    const start = Math.min(...leftover.map(p => p.x));
+    const groups: Array<{ row: number; parts: Placement[]; cover: number; depth: number; volume: number }> = [];
+    for (const [row, parts] of [...rows].sort((a, b) => a[0] - b[0])) {
+      const x0 = Math.min(...parts.map(p => p.x));
+      const cover = Math.max(...parts.map(p => p.y + p.width));
+      const depth = round(Math.max(...parts.map(p => p.x + p.length)) - x0);
+      const volume = parts.reduce((sum, p) => sum + p.length * p.width * p.height, 0);
+      const host = groups.find(group => group.cover + cover <= container.width + EPS);
+      for (const p of parts) { p.x = round(p.x - x0); if (host) { p.y = round(p.y + host.cover); groupOf.set(p, host.row); } }
+      if (host) { host.parts.push(...parts); host.cover = round(host.cover + cover); host.depth = Math.max(host.depth, depth); host.volume += volume; }
+      else groups.push({ row, parts, cover, depth, volume });
+    }
+    const filled = (group: typeof groups[number]) => Math.round(group.volume / group.depth * 1e6);
+    groups.sort((a, b) => filled(b) - filled(a) || a.row - b.row);
+    let cursor = start;
+    for (const group of groups) { for (const p of group.parts) p.x = round(cursor + p.x); cursor = round(cursor + group.depth); }
+    x = cursor; y = 0; rowDepth = 0;
+  };
+
+  const load = (item: CargoItem, itemIndex: number, phase: Phase) => {
+    // The payload kept for this cargo's leftovers is its own again.
+    if (phase === 'leftover') { reservedKg -= reserved.get(item.id) ?? 0; reserved.delete(item.id); }
+    const closed = new Set<string>();
     const hardLayers = heavyInnerLayerLimit(container, item);
     const maxLayers = Math.min(hardLayers, profile.layerCap);
     const orientations = floorOrientations(item);
@@ -138,7 +221,7 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
     prefixRemaining = Math.max(0, prefixRemaining - lowerLeft);
     let blocked = '';
     while (left > 0) {
-      const payloadCount = item.weightKg > EPS ? fit(container.maxPayloadKg - loadedWeightKg, item.weightKg) : left;
+      const payloadCount = item.weightKg > EPS ? fit(container.maxPayloadKg - loadedWeightKg - reservedKg, item.weightKg) : left;
       if (payloadCount < 1) { blocked = 'PAYLOAD_LIMIT'; break; }
       if (item.height > container.height + EPS || !orientations.some(o => o.length <= container.length + EPS && o.width <= container.width + EPS)) { blocked = orientations.length ? 'SIZE_LIMIT' : 'ORIENTATION_RESTRICTED'; break; }
       if (maxLayers < 1) { blocked = floorLoadLayerCap(container, item) < 1 ? 'FLOOR_LOAD_LIMIT' : 'STACK_LIMIT'; break; }
@@ -147,7 +230,7 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
       // Width-filling pinwheel block (column stacked): mixed floor orientations share one depth.
       if (profile.orientation === 'efficient' && y <= EPS && rowDepth <= EPS && orientations.length === 2) {
         const pw = pinwheelBlock(item, container.width);
-        if (pw && x + pw.depth <= container.length + EPS && available >= pw.positions.length) {
+        if (pw && x + pw.depth <= container.length + EPS && available >= pw.positions.length * (phase === 'rows' ? layers : 1)) {
           const count = Math.min(available, pw.positions.length * layers);
           let n = 0;
           for (let iz = 0; iz < layers && n < count; iz++) for (const pos of pw.positions) {
@@ -160,6 +243,7 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
           loadedWeightKg += count * item.weightKg;
           usedVolumeM3 += count * item.length * item.width * item.height;
           left -= count; stock.set(item.id, left); lowerLeft = Math.max(0, lowerLeft - count);
+          if (phase === 'rows') advance();
           continue;
         }
       }
@@ -175,6 +259,13 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
         return a.cost - b.cost || b.count - a.count || a.length - b.length || Number(a.rotated) - Number(b.rotated);
       });
       const chosen = options[0];
+      if (phase === 'rows') {
+        // Only a row this cargo fills by itself, wall to wall and to its full height, keeps
+        // its place in the sequence. The rest waits for the leftover pass.
+        if (!chosen || chosen.count < fit(container.width, chosen.width) * layers) break;
+      } else if (phase === 'leftover' && stackOnLeftover(item, orientations, closed)) {
+        left--; stock.set(item.id, left); lowerLeft = Math.max(0, lowerLeft - 1); continue;
+      }
       if (!chosen) {
         if (rowDepth > EPS && fillCurrentFrontTop(item, orientations)) {
           left--; stock.set(item.id, left); lowerLeft = Math.max(0, lowerLeft - 1); continue;
@@ -202,6 +293,14 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
       left -= chosen.count;
       stock.set(item.id, left);
       lowerLeft = Math.max(0, lowerLeft - chosen.count);
+      if (phase === 'rows') advance();
+    }
+    if (phase === 'rows') {
+      // What is left is loaded after every row of this stop. Its payload is kept for it
+      // until then, so that lighter rows cannot take the place of a heavier carton.
+      const kept = Math.min(left, item.weightKg > EPS ? fit(container.maxPayloadKg - loadedWeightKg - reservedKg, item.weightKg) : left) * item.weightKg;
+      reserved.set(item.id, kept); reservedKg += kept;
+      return;
     }
     if (left) remaining.push({ cargoId: item.id, quantity: left, reasonCode: blocked === 'SIZE_LIMIT' ? 'NO_FEASIBLE_EMS' : blocked || 'NO_FEASIBLE_EMS', reason:
       blocked === 'SIZE_LIMIT' ? '박스 크기가 허용 회전 방향에서 컨테이너 적재공간을 초과함'
@@ -210,11 +309,31 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
           : blocked === 'STACK_LIMIT' ? '신고된 적층·상부하중·높이 한도 안에서 연속 작업 블록을 만들 수 없음'
             : blocked === 'ORIENTATION_RESTRICTED' ? '허용된 바닥 방향으로 배치할 수 없음'
               : '안쪽부터 중량순으로 진행하는 연속 작업 블록에 안전한 자리가 부족함' });
+  };
+
+  // Under strict unloading every stop is a block of its own; otherwise the cargo is one block.
+  const stops: Array<Array<[CargoItem, number]>> = [];
+  for (const [index, item] of ordered.entries()) {
+    const last = stops.at(-1);
+    if (last && (!strict || (last[0][0].unloadPriority ?? 1) === (item.unloadPriority ?? 1))) last.push([item, index]); else stops.push([[item, index]]);
+  }
+  for (const stop of stops) {
+    if (rowDepth > EPS) advance();
+    if (!leftoversLast) { for (const [item, index] of stop) load(item, index, 'sequence'); continue; }
+    for (const [item, index] of stop) load(item, index, 'rows');
+    inLeftoverRows = true; leftover.length = 0; leftoverTops.clear();
+    for (const [item, index] of stop) load(item, index, 'leftover');
+    if (rowDepth > EPS) advance();
+    settleLeftoverRows();
+    inLeftoverRows = false;
   }
   // Rows are disjoint in X. Center each row laterally as one rigid support group,
   // rather than leave short boundary rows against a side wall.
-  const rowGroups = new Map<number, Placement[]>();
-  for (const p of placements) { const key = groupOf.get(p) ?? 0; const group = rowGroups.get(key) ?? []; group.push(p); rowGroups.set(key, group); }
+  const grouped = new Map<number, Placement[]>();
+  for (const p of placements) { const key = groupOf.get(p) ?? 0; const group = grouped.get(key) ?? []; group.push(p); grouped.set(key, group); }
+  // From the inner wall to the door: the output lists the cartons in loading order.
+  const rowGroups = new Map([...grouped].map(([key, row]) => [key, row, Math.min(...row.map(p => p.x))] as const)
+    .sort((a, b) => a[2] - b[2] || a[0] - b[0]).map(([key, row]) => [key, row] as const));
   let voids = 0, previousTop: number | undefined;
   for (const row of rowGroups.values()) {
     const top = Math.max(...row.map(p => p.z + p.height)), depth = Math.max(...row.map(p => p.x + p.length)) - Math.min(...row.map(p => p.x));
@@ -234,7 +353,16 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
     end: x + rowDepth, signature: JSON.stringify(profile) };
 }
 
-function compareCandidates(a: Candidate, b: Candidate) {
+/** The same cartons in the same places, whatever order they are listed in. */
+function samePlacements(a: Placement[], b: Placement[]) {
+  if (a.length !== b.length) return false;
+  const key = (p: Placement) => `${p.cargoId}|${round(p.x)}|${round(p.y)}|${round(p.z)}|${round(p.length)}|${round(p.width)}`;
+  const left = a.map(key).sort(), right = b.map(key).sort();
+  return left.every((value, index) => value === right[index]);
+}
+
+/** How two plans of the same cargo are judged (LOADING_RULES 1). Exported for its tests. */
+export function compareCandidates(a: Omit<Candidate, 'output'>, b: Omit<Candidate, 'output'>) {
   // Operational CG admissibility precedes preferences. If all candidates fail, preserve
   // the actual error for the final result; never silently call a closest candidate safe.
   // Loadable demand first; CG is a verdict that must not silently remove cargo.
@@ -242,6 +370,10 @@ function compareCandidates(a: Candidate, b: Candidate) {
   if (Boolean(a.cgErrors) !== Boolean(b.cgErrors)) return a.cgErrors ? 1 : -1;
   // Owner sequence (inner-to-door by weight) stays preferred while it loads all cargo within CG.
   if ((a.mode ?? 0) !== (b.mode ?? 0)) return (a.mode ?? 0) - (b.mode ?? 0);
+  // Owner rule 2026-11-19: leftovers stand in the last rows. The sequence as built, with a
+  // row a cargo could not fill left inside the load, is used only when the other plan loads
+  // less or fails the centre-of-gravity verdict it passes.
+  if (Boolean(a.leftoversInside) !== Boolean(b.leftoversInside)) return a.leftoversInside ? 1 : -1;
   if (Math.abs(a.voids - b.voids) > 1e-6) return a.voids - b.voids;
   if (a.cgErrors && Math.abs(a.cgExcess - b.cgExcess) > EPS) return a.cgExcess - b.cgExcess;
   if (a.sparseTop !== b.sparseTop) return a.sparseTop ? 1 : -1;
@@ -286,9 +418,16 @@ export function packByHeavyInnerBlocks(container: ContainerSpec, cargo: CargoIte
   // Keep a bounded portfolio in memory instead of retaining every generated carton.
   const candidates: Candidate[] = [];
   for (const profile of profiles) {
-    candidates.push(buildCandidate(container, ordered, strategy, profile));
-    candidates.sort(compareCandidates);
-    if (candidates.length > 8) candidates.pop();
+    const asBuilt = buildCandidate(container, ordered, strategy, profile);
+    const settled = buildCandidate(container, ordered, strategy, profile, true);
+    // Where no row was left unfilled inside the load the two are the same plan.
+    const plans = samePlacements(asBuilt.output.placements, settled.output.placements) ? [asBuilt]
+      : [settled, { ...asBuilt, leftoversInside: true, signature: `${asBuilt.signature}-as-built` }];
+    for (const plan of plans) {
+      candidates.push(plan);
+      candidates.sort(compareCandidates);
+      if (candidates.length > 8) candidates.pop();
+    }
   }
   for (const candidate of candidates) candidate.voids = gapSecuringPlan(container, candidate.output.placements).volumeM3;
   // Heavy-low level loading: used when the sequence cannot load everything within CG.
