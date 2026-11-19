@@ -34,6 +34,11 @@ export function longitudinalCgLimitM(
     : container.length * CG_LONG_TOLERANCE;
 }
 
+/** Allowed lateral CG deviation from the container centreline, in metres. */
+export function lateralCgLimitM(container: Pick<ContainerSpec, 'width'>) {
+  return container.width * CG_LAT_TOLERANCE;
+}
+
 export type OperationalSupport = {
   id: string;
   x: number;
@@ -433,7 +438,7 @@ function checkWeightAndCog(container: ContainerSpec, bodies: Body[], proportiona
   }
 
   const latDev = Math.abs(cg.y - container.width / 2);
-  const latLimit = container.width * CG_LAT_TOLERANCE;
+  const latLimit = lateralCgLimitM(container);
   if (latDev > latLimit + EPS) {
     out.push(finding(
       'CG_LATERAL',

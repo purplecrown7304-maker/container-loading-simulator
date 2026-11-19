@@ -16,6 +16,8 @@ import { recordPalletJobSpec } from './palletJobSpecs';
 import { STAGING_PALLET_PLAN_EVENT, type StagingPalletPlanDetail } from './stagingPalletBridge';
 import { INERTIA_CERTIFICATION_EVENT, buildSecuringUsage, createPhysicsTargetSignature, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
 import { physicsTargetFromPalletSnapshot } from './certifiedExport';
+import { clearStagingPins, palletPinKey, readStagingPins, stagingPinKeys } from './stagingPins';
+import type { PalletLoad } from './engine/palletPacking';
 
 let panel: StagingYardPanelProps;
 vi.mock('./StagingYardPanel', () => ({ default: (props: StagingYardPanelProps) => { panel = props; return <div data-controller-panel />; } }));
@@ -37,7 +39,7 @@ async function loadFirst() {
   await act(async () => panel.onLoad()); await settle();
 }
 beforeEach(() => {
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); localStorage.clear(); sessionStorage.clear(); clearPalletSnapshot();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); localStorage.clear(); sessionStorage.clear(); clearPalletSnapshot(); clearStagingPins();
   choosePalletType('company-default'); recordPalletJobSpec('company-default', defaultPalletSpec);
   host = document.createElement('div'); document.body.append(host); root = createRoot(host); applications = []; accept = true;
   props = { container, cargo, mode: 'boxes', inputKey: 'input-1', result: empty(), isPreview: true, calculating: false,
@@ -342,6 +344,82 @@ describe('staging workspace controller', () => {
       expect(bridge.inventory.vehicleUnits[0].boxUnits.map(box => box.id)).toEqual(members);
       expect(bridge.inventory.vehicleUnits[0].packaging).toEqual(packaging); expect(readLatestInertiaCertification()).toBeUndefined();
     } finally { window.removeEventListener(STAGING_PALLET_PLAN_EVENT, ack); }
+  });
+  it('holds a pallet that was set down by hand for the next automatic loading, and lets go of it on unpin, undo, withdrawal and a plan that did not keep it', async () => {
+    const spec = { ...defaultPalletSpec, length: 1, width: 1, height: .15, tareWeightKg: 5,
+      maxLoadKg: 500, maxStaticLoadKg: 1000, maxSupportedTopWeightKg: 1000, maxStackLevels: 1,
+      useWrapping: false, useCornerGuards: false };
+    recordPalletJobSpec('company-default', spec);
+    const ack = (event: Event) => { (event as CustomEvent<StagingPalletPlanDetail>).detail.accepted = true; };
+    window.addEventListener(STAGING_PALLET_PLAN_EVENT, ack);
+    const pins = () => stagingPinKeys(readStagingPins(), props.inputKey);
+    const onVehicle = () => bridge.inventory.vehicleUnits[0].pallet!;
+    const dragBy = async (dx: number) => {
+      const unit = bridge.inventory.vehicleUnits[0], load = unit.pallet!;
+      const point: [number, number, number] = [load.x + load.length / 2 - container.length / 2 + dx, load.z, load.y + load.width / 2 - container.width / 2];
+      await act(async () => bridge.onDragStart({ unitId: unit.id, point }));
+      await act(async () => bridge.onDragEnd({ unitId: unit.id, point })); await settle(); await settle();
+    };
+    try {
+      await render({ mode: 'pallets', cargo: [{ ...cargo[0], quantity: 6, maxStackLayers: 3, maxTopLoadKg: 1000 }] });
+      await settle(); await settle(); await loadFirst(); await settle();
+      if (bridge.flight) await act(async () => bridge.completeFlight?.(bridge.flight!.id));
+      // A place the program chose holds nothing.
+      expect(bridge.inventory.vehicleUnits).toHaveLength(1); expect(pins()).toEqual([]);
+      expect(panel.pinned).toBe(false); expect(panel.pinnedCount).toBe(0);
+      const start = onVehicle().x;
+      // Set down by hand: held, and the operator is told.
+      await dragBy(.3);
+      expect(onVehicle().x).toBeCloseTo(start + .3); expect(pins()).toEqual([palletPinKey(onVehicle())]);
+      expect(panel.pinned).toBe(true); expect(panel.pinnedCount).toBe(1); expect(panel.message).toContain('자동 적재를 다시 실행해도 유지됩니다');
+      // Moved again: the pin follows the pallet, the old place is not held.
+      const first = pins()[0]; await dragBy(.3);
+      expect(pins()).toEqual([palletPinKey(onVehicle())]); expect(pins()[0]).not.toBe(first);
+      // Unpinned: the pallet stays where it is, nothing is applied, automatic loading is free again.
+      const count = applications.length, placed = onVehicle().x;
+      await act(async () => panel.onUnpin?.());
+      expect(pins()).toEqual([]); expect(panel.pinned).toBe(false); expect(applications).toHaveLength(count); expect(onVehicle().x).toBeCloseTo(placed);
+      expect(panel.message).toContain('고정을 해제했습니다');
+      // Undo of a hand move gives back the pins of the plan it returns to.
+      await dragBy(.3); expect(pins()).toHaveLength(1);
+      await act(async () => panel.onUndo()); await settle(); await settle();
+      expect(onVehicle().x).toBeCloseTo(placed); expect(pins()).toEqual([]);
+      // Withdrawn to the yard: nothing left to hold. Undoing the withdrawal holds it again.
+      await dragBy(.3); const held = pins(); expect(held).toHaveLength(1);
+      await act(async () => panel.onWithdraw()); await settle(); await settle();
+      expect(bridge.inventory.summary.vehicle.pallets).toBe(0); expect(pins()).toEqual([]);
+      await act(async () => panel.onUndo()); await settle(); await settle();
+      expect(bridge.inventory.summary.vehicle.pallets).toBe(1); expect(pins()).toEqual(held);
+      // A calculated plan that kept the pallet where it was: still held, and said so.
+      const snapshot = readPalletSnapshot()!, kept = onVehicle();
+      const anonymous = (load: PalletLoad, dx = 0): PalletLoad => ({ ...load, x: load.x + dx, palletIndex: load.palletIndex + (dx ? 1 : 0), stackColumn: load.stackColumn + (dx ? 1 : 0),
+        centerOfGravity: { ...load.centerOfGravity, x: load.centerOfGravity.x + dx },
+        cargoPlacements: load.cargoPlacements.map(({ unitId: _unitId, ...p }) => ({ ...p, x: p.x + dx })) });
+      const calculated = async (pallets: PalletLoad[]) => {
+        const placements = pallets.flatMap(load => load.cargoPlacements);
+        await act(async () => {
+          publishPalletSnapshot({ ...snapshot, result: { ...snapshot.result, pallets, placements, palletCount: pallets.length, remaining: [] } });
+          await render({ result: { ...props.result, placements, remaining: [] }, isPreview: false });
+        });
+        await settle(); await settle();
+      };
+      await calculated([anonymous(kept), anonymous(kept, 1.5)]);
+      expect(bridge.inventory.summary.vehicle.pallets).toBe(2); expect(pins()).toEqual(held);
+      expect(panel.pinnedCount).toBe(1); expect(panel.canUndo).toBe(false); expect(panel.message).toContain('손으로 옮긴 파렛트 1개의 자리를 유지');
+      // A plan that did not keep it has nothing left for the pin to hold.
+      await calculated([anonymous(kept, -.2), anonymous(kept, 1.5)]);
+      expect(pins()).toEqual([]); expect(panel.pinnedCount).toBe(0);
+    } finally { window.removeEventListener(STAGING_PALLET_PLAN_EVENT, ack); }
+  });
+  it('pins nothing for a loose box or a mixed load: only pallet loading is planned around hand-placed cargo', async () => {
+    await render(); await settle(); await loadFirst();
+    const unit = bridge.inventory.vehicleUnits[0], placed = unit.placement!;
+    const point: [number, number, number] = [placed.x + placed.length / 2 - container.length / 2 + .3, placed.z, placed.y + placed.width / 2 - container.width / 2];
+    await act(async () => bridge.onDragStart({ unitId: unit.id, point }));
+    await act(async () => bridge.onDragEnd({ unitId: unit.id, point })); await settle();
+    expect(bridge.inventory.vehicleUnits[0].placement!.x).toBeCloseTo(placed.x + .3);
+    expect(readStagingPins().keys).toEqual([]); expect(panel.pinned).toBe(false); expect(panel.pinnedCount).toBe(0);
+    expect(panel.message).not.toContain('자동 적재를 다시 실행해도');
   });
   it('rechecks a vehicle move against parent freshness, calculation state and changed inputs before applying', async () => {
     await render(); await settle(); await loadFirst();

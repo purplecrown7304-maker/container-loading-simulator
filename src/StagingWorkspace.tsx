@@ -35,10 +35,13 @@ import { useStagingFlights } from './useStagingFlights';
 import { STAGING_PLAN_MOTION_EVENT, STAGING_PLAN_MOTION_WAIT_MS } from './stagingPlanMotion';
 import { stagingUnitDraggable } from './stagingDragCues';
 import { stagingDragTarget } from './stagingDragTarget';
+import { livingPinKeys, palletPinKey, setStagingPins, stagingPinKeys, useStagingPins } from './stagingPins';
 import { setStagingFlightVisible } from './stagingFlightVisibility';
 
 type HistoryEntry = { previous: { result: LoadingResult; pallets: PalletLoad[] }; selection: string | null;
-  identity: StagingIdentityHints; yardPallets: PalletLoad[]; snapshot?: PalletSnapshot };
+  identity: StagingIdentityHints; yardPallets: PalletLoad[]; snapshot?: PalletSnapshot;
+  /** Hand-placed pallets as they were before this change, so an undo gives them back. */
+  pins: readonly string[] };
 type Control = { epoch: string; selected: string | null; inspected: string | null; identity: StagingIdentityHints; yardPallets: PalletLoad[];
   history: HistoryEntry[]; message: string; dragging: boolean; preview: StagingSceneBridge['preview'];
   view: StagingCameraView; viewRequest: number; page: number; arrange: number };
@@ -157,8 +160,10 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
   const snapshotSource = useMemo(() => props.mode === 'boxes' ? undefined
     : rawPlan && snapshot ? rawPlan.pallets === snapshot.result.pallets ? snapshot : { ...snapshot, result: { ...snapshot.result, pallets: rawPlan.pallets ?? snapshot.result.pallets } }
       : emptyStagingPalletSnapshot(spec, props.mode), [props.mode, rawPlan, snapshot, spec]);
-  const live = useRef({ props, epoch, base, signature, inventory, layout, currentPlanKey, flights, context, selected, current, snapshotSource, spec, palletType, confirmed });
-  live.current = { props, epoch, base, signature, inventory, layout, currentPlanKey, flights, context, selected, current, snapshotSource, spec, palletType, confirmed };
+  // Pallets put in place by hand in pallet mode: automatic loading keeps them there.
+  const pinKeys = stagingPinKeys(useStagingPins(), props.inputKey);
+  const live = useRef({ props, epoch, base, signature, inventory, layout, currentPlanKey, flights, context, selected, current, snapshotSource, spec, palletType, confirmed, pinKeys });
+  live.current = { props, epoch, base, signature, inventory, layout, currentPlanKey, flights, context, selected, current, snapshotSource, spec, palletType, confirmed, pinKeys };
 
   const update = useCallback((change: (value: Control) => Control) => {
     if (epochRef.current !== epoch) return;
@@ -216,10 +221,15 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
   useEffect(() => {
     const key = planKey(rawPlan);
     if (key && observedPlan.current && observedPlan.current !== key && manualPlan.current !== key) {
-      update(value => ({ ...value, yardPallets: [], history: [], preview: null, dragging: false }));
+      // A calculated plan replaced the one on screen. The hand-placed pallets it kept are
+      // still held; a plan that did not keep one has nothing left for that pin to hold.
+      const kept = livingPinKeys(live.current.pinKeys, rawPlan?.pallets ?? []);
+      setStagingPins(props.inputKey, kept);
+      update(value => ({ ...value, yardPallets: [], history: [], preview: null, dragging: false,
+        ...(kept.length ? { message: `손으로 옮긴 파렛트 ${kept.length}개의 자리를 유지하고 나머지를 다시 배치했습니다.` } : {}) }));
     }
     observedPlan.current = key;
-  }, [rawPlan, update]);
+  }, [rawPlan, update, props.inputKey]);
 
   const save = useCallback((value: { identity: StagingIdentityHints; selected: string | null; yardPallets: PalletLoad[] },
     result: LoadingResult, palletSnapshot?: PalletSnapshot) => {
@@ -257,10 +267,20 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     save(options, checked.result, application.palletSnapshot);
     return true;
   }, [applicationFor, save, update]);
-  const commit = useCallback((checked: StagingCommandAssessment, withdrawal = false, relocation = false) => {
+  const commit = useCallback((checked: StagingCommandAssessment, withdrawal = false, relocation = false, byHand = false) => {
     const now = live.current;
     const unit = now.selected;
     if (!unit) return false;
+    // A pallet the operator set down by dragging is kept there by the next automatic
+    // loading (pallet mode). A place the program chose, and a withdrawal, hold nothing.
+    let pins = [...now.pinKeys];
+    if (now.props.mode === 'pallets' && unit.kind === 'pallet' && checked.valid) {
+      const ids = new Set(unit.boxUnits.map(box => box.id));
+      const own = (pallets: readonly PalletLoad[]) => pallets.find(load => load.cargoPlacements.length === ids.size && load.cargoPlacements.every(p => p.unitId && ids.has(p.unitId)));
+      const before = own(now.context.pallets ?? []), after = own(checked.pallets);
+      if (before) { const left = palletPinKey(before); pins = pins.filter(key => key !== left); }
+      if (byHand && !withdrawal && after) pins.push(palletPinKey(after));
+    }
     const yardUnits = now.inventory.yardUnits.filter(candidate => candidate.kind === 'pallet' && (!withdrawal ? candidate.id !== unit.id : true));
     const yardPallets = yardUnits.map(identifiedLoad);
     const identity = transferYardAliases(now.inventory.identity, [...yardUnits, ...(withdrawal ? [unit] : [])]);
@@ -271,11 +291,14 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     }
     const history: HistoryEntry = { previous: checked.previous, selection: now.current.selected,
       identity: now.inventory.identity, yardPallets: now.inventory.yardUnits.filter(candidate => candidate.kind === 'pallet').map(identifiedLoad),
-      snapshot: now.snapshotSource };
+      snapshot: now.snapshotSource, pins: now.pinKeys };
     const done = relocation ? '선택 화물 위치를 이동했습니다. 운송 검증을 다시 실행하세요.' : withdrawal ? '선택 화물을 대기장으로 회수했습니다. 운송 검증을 다시 실행하세요.' : '선택 화물을 차량에 배치했습니다. 운송 검증을 다시 실행하세요.';
+    const held = pins.length > now.pinKeys.length || pins.some(key => !now.pinKeys.includes(key)) ? ['이 자리는 자동 적재를 다시 실행해도 유지됩니다.'] : [];
     // An accepted move may leave a centre-of-gravity error on the plan; the operator is told.
-    return apply(checked, { yardPallets, selected: unit.id, identity, history: [...now.current.history, history],
-      animateLoad: !withdrawal && !relocation, message: [done, ...checked.cautions].join(' · ') });
+    const applied = apply(checked, { yardPallets, selected: unit.id, identity, history: [...now.current.history, history],
+      animateLoad: !withdrawal && !relocation, message: [done, ...held, ...checked.cautions].join(' · ') });
+    if (applied) setStagingPins(now.props.inputKey, pins);
+    return applied;
   }, [apply]);
   const loadSelected = useCallback(() => {
     const now = live.current;
@@ -290,9 +313,17 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     const now = live.current, previous = now.current.history.at(-1);
     if (!previous || now.props.calculating || !now.confirmed) return;
     const checked = assessStagingRestore(stagingCommandContextForUnit(now.context, undefined, previous.previous.pallets), previous.previous);
-    apply(checked, { yardPallets: previous.yardPallets, selected: previous.selection, identity: previous.identity,
+    const applied = apply(checked, { yardPallets: previous.yardPallets, selected: previous.selection, identity: previous.identity,
       history: now.current.history.slice(0, -1), source: previous.snapshot, message: '이전 화물 위치와 포장 구성을 복원했습니다. 운송 검증을 다시 실행하세요.' });
+    if (applied) setStagingPins(now.props.inputKey, previous.pins);
   }, [apply]);
+  const unpinSelected = useCallback(() => {
+    const now = live.current, load = now.selected?.pallet;
+    if (!load) return;
+    const key = palletPinKey(load);
+    setStagingPins(now.props.inputKey, now.pinKeys.filter(pin => pin !== key));
+    update(value => ({ ...value, message: '고정을 해제했습니다. 자동 적재를 다시 실행하면 이 파렛트도 다시 배치됩니다.' }));
+  }, [update]);
   const selectUnit = useCallback((id: string | null) => update(value => ({ ...value,
     selected: id && live.current.inventory.units.some(unit => unit.id === id) ? id : null, inspected: null, preview: null })), [update]);
   const vehicleUnitAt = (kind: 'cargo' | 'support', index: number) => {
@@ -346,7 +377,7 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
       ? assessStagingRelocation(stagingCommandContextForUnit(now.context, unit), unit, target)
       : assessStagingAddition(stagingCommandContextForUnit(now.context, unit), unit, target);
     if (now.current.selected !== unit.id) live.current = { ...now, selected: unit, current: { ...now.current, selected: unit.id } };
-    commit(checked, false, unit.location === 'vehicle');
+    commit(checked, false, unit.location === 'vehicle', true);
   }, [commit, update]);
 
   const restoreAction = useRef<() => void>(() => {});
@@ -436,6 +467,8 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     busy={props.calculating || packaging.busy} canUndo={current.history.length > 0}
     canLoad={confirmed && !props.calculating && !selected?.requiresPackaging} canWithdraw={confirmed && !props.calculating}
     message={message} preview={current.preview ?? undefined} onSelect={selectUnit} onLoad={loadSelected} onWithdraw={withdraw}
+    pinned={Boolean(selected?.location === 'vehicle' && selected.pallet && pinKeys.includes(palletPinKey(selected.pallet)))}
+    pinnedCount={pinKeys.length} onUnpin={unpinSelected}
     flightEnabled={flights.enabled} flightReducedMotion={flights.reducedMotion} flightCount={flights.sequence?.flights.length ?? 0}
     onFlightEnabled={flights.setEnabled} onSkipFlight={flights.cancel}
     onUndo={undo} onView={setView}
