@@ -120,6 +120,21 @@ describe('presentation-only procedural environments', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  it.each(ids)('%s draws the ground shade under the equipment in full until told the dock is empty', id => {
+    const environment = createViewerEnvironmentResources(id, footprint);
+    const ground = (environment.root.getObjectByName('Ground below cargo') as THREE.Mesh).material as THREE.ShaderMaterial;
+    expect(ground.uniforms.contact.value).toBe(1); expect(ground.fragmentShader).toContain('.16*contact*');
+    const extent = (ground.uniforms.extent.value as THREE.Vector2).toArray();
+    environment.setContactShade(.25); expect(ground.uniforms.contact.value).toBe(.25);
+    environment.setContactShade(-3); expect(ground.uniforms.contact.value).toBe(0);
+    environment.setContactShade(7); expect(ground.uniforms.contact.value).toBe(1);
+    environment.setContactShade(0); environment.setContactShade(NaN); expect(ground.uniforms.contact.value).toBe(1);
+    // Only the strength changes; the footprint it is drawn for does not.
+    expect((ground.uniforms.extent.value as THREE.Vector2).toArray()).toEqual(extent);
+    environment.setContactShade(.5); environment.dispose(); environment.setContactShade(0);
+    expect(ground.uniforms.contact.value).toBe(.5);
+  });
+
   it('cleans already allocated geometry, materials and instances after an interrupted construction', () => {
     const geometryDisposal = vi.spyOn(THREE.BufferGeometry.prototype, 'dispose');
     const materialDisposal = vi.spyOn(THREE.Material.prototype, 'dispose');

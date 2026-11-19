@@ -23,8 +23,10 @@ export function sampleCameraMotion(motion: CameraMotion, now: number): CameraMot
 }
 
 /** Cargo, selection and label data are intentionally absent from this policy. */
-export function cameraFitAction(previous: { physical: string; request: string } | null, next: { physical: string; request: string }, options: { staging: boolean; reducedMotion: boolean; instant: boolean }): 'skip' | 'instant' | 'animate' {
+export function cameraFitAction(previous: { physical: string; request: string } | null, next: { physical: string; request: string }, options: { staging: boolean; reducedMotion: boolean; instant: boolean; physicalTransition?: boolean }): 'skip' | 'instant' | 'animate' {
   if (previous?.physical === next.physical && previous.request === next.request) return 'skip';
-  if (!previous || previous.physical !== next.physical || !options.staging || options.reducedMotion || options.instant) return 'instant';
+  if (!previous || !options.staging || options.reducedMotion || options.instant) return 'instant';
+  // Changed equipment is re-fitted at once, unless its replacement is itself shown as a move.
+  if (previous.physical !== next.physical && !options.physicalTransition) return 'instant';
   return 'animate';
 }

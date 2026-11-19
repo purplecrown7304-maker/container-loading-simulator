@@ -417,7 +417,7 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
   }, []);
   const bridge: StagingSceneBridge = { inventory, layout, visibleZoneIds, selectedUnitId: current.selected, view: current.view,
     viewRequest: current.viewRequest, dragging: current.dragging, preview: current.preview,
-    flight: flights.sequence, completeFlight: flights.complete,
+    flight: flights.sequence, completeFlight: flights.complete, motionEnabled: flights.enabled && !flights.reducedMotion,
     selectUnit, selectVehicleUnit, inspectUnit, inspectVehicleUnit,
     canManipulate: confirmed && !props.calculating && !packaging.busy && !flights.sequence && !inventory.referenceResult
       && (inventory.packagingStatus === 'ready' || inventory.packagingStatus === 'not-required'),

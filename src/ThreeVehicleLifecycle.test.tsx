@@ -2,8 +2,9 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import ThreeComparisonScene, { CameraController, planContentKey, type ThreeComparisonSceneProps } from './ThreeComparisonScene';
+import ThreeComparisonScene, { CameraController, planContentKey, ThreeVehicleSwap, type ThreeComparisonSceneProps } from './ThreeComparisonScene';
 import { RETIRED_SCENE_LINGER_MS } from './sceneRetirement';
+import { VEHICLE_SWAP_PROFILE } from './vehicleSwapMotion';
 import { viewerPlan } from './viewerSceneProtocol';
 import { buildStagingYardLayout } from './stagingYardLayout';
 import { stagingSceneCameraPose } from './threeComparisonSceneState';
@@ -180,5 +181,114 @@ describe('cosmetic vehicle lifecycle', () => {
     expect(camera.position.toArray()).toEqual(destination.position.toArray()); expect(state.orbit.target.toArray()).toEqual(destination.target.toArray());
     expect(camera.userData.viewerTransitionActive).toBe(false); expect(state.orbit.enableDamping).toBe(false);
     const invalidate = state.runtime.invalidate as ReturnType<typeof vi.fn>; invalidate.mockClear(); frameAt(2000); expect(invalidate).not.toHaveBeenCalled();
+  });
+  it('follows replaced equipment at the replacement pace only while that replacement is shown as a move', () => {
+    const current = plan(), camera = state.runtime.camera as THREE.PerspectiveCamera;
+    const layout = buildStagingYardLayout([], { container: current.container, vehicleRig: current.vehicleRig });
+    const staging = { layout, visibleZoneIds: [], viewRequest: 0, dragging: false };
+    act(() => root.render(<CameraController plan={current} view="all" autoRotate={false} staging={staging} physicalTransition />));
+    const before = camera.position.toArray();
+    const longer = { ...current, container: { ...current.container, length: 12 } };
+    const longerLayout = buildStagingYardLayout([], { container: longer.container, vehicleRig: longer.vehicleRig });
+    act(() => root.render(<CameraController plan={longer} view="all" autoRotate={false} staging={{ ...staging, layout: longerLayout }} physicalTransition />));
+    expect(camera.userData.viewerTransitionActive).toBe(true); expect(camera.position.toArray()).toEqual(before);
+    // Still under way after the ordinary view transition would have ended.
+    frameAt(450); expect(camera.userData.viewerTransitionActive).toBe(true); expect(camera.position.toArray()).not.toEqual(before);
+    frameAt(VEHICLE_SWAP_PROFILE.cameraMs); expect(camera.userData.viewerTransitionActive).toBe(false);
+    const destination = stagingSceneCameraPose(longer, 'all', 900 / 500, longerLayout, []);
+    expect(camera.position.toArray()).toEqual(destination.position.toArray()); expect(state.orbit.target.toArray()).toEqual(destination.target.toArray());
+    // An explicit view request afterwards keeps the ordinary pace.
+    act(() => root.render(<CameraController plan={longer} view="yard" autoRotate={false} staging={{ ...staging, layout: longerLayout, viewRequest: 1 }} physicalTransition />));
+    frameAt(VEHICLE_SWAP_PROFILE.cameraMs + 375); expect(camera.userData.viewerTransitionActive).toBe(false);
+    // With the move switched off, new equipment is fitted at once as before.
+    act(() => root.render(<CameraController plan={current} view="yard" autoRotate={false} staging={{ ...staging, viewRequest: 1 }} />));
+    expect(camera.userData.viewerTransitionActive).toBe(false);
+    expect(camera.position.toArray()).toEqual(stagingSceneCameraPose(current, 'yard', 900 / 500, layout, []).position.toArray());
+  });
+});
+
+type SwapProps = Parameters<typeof ThreeVehicleSwap>[0];
+const SCENE_GROUPS = ['Equipment', 'Cargo', 'Supports', 'Securing', 'Weight cells', 'Center of gravity'];
+function sceneRoot() {
+  const root = new THREE.Group();
+  for (const name of SCENE_GROUPS) { const group = new THREE.Group(); group.name = name; root.add(group); }
+  return { root } as unknown as NonNullable<SwapProps['arriving']>;
+}
+const shown = (scene: { root: THREE.Group }) => SCENE_GROUPS.filter(name => scene.root.getObjectByName(name)!.visible);
+
+describe('display-only equipment replacement', () => {
+  const { leaveMs, arriveMs } = VEHICLE_SWAP_PROFILE;
+  it('drives the old equipment off without its cargo, then brings the new one in on the cleared lane', () => {
+    const departing = sceneRoot(), arriving = sceneRoot(), shade = { current: 1 }, onDeparted = vi.fn(), onDone = vi.fn();
+    const invalidate = state.runtime.invalidate as ReturnType<typeof vi.fn>;
+    const swap = { id: 1, departing, from: 0, startedAt: 0, travel: 30, identity: 'next' } as SwapProps['swap'];
+    act(() => root.render(<ThreeVehicleSwap swap={swap} arriving={arriving} shade={shade} onDeparted={onDeparted} onDone={onDone} />));
+    expect(shown(departing)).toEqual(['Equipment']);
+    expect(arriving.root.visible).toBe(false); expect(arriving.root.position.x).toBe(-30); expect(shown(arriving)).toEqual(SCENE_GROUPS);
+    frameAt(leaveMs / 2);
+    expect(departing.root.position.x).toBeCloseTo(-3.75); expect(arriving.root.visible).toBe(false);
+    expect(shade.current).toBeCloseTo(1 - 3.75 / (30 * VEHICLE_SWAP_PROFILE.shadeReach)); expect(onDeparted).not.toHaveBeenCalled();
+    frameAt(leaveMs);
+    expect(departing.root.position.x).toBe(-30); expect(onDeparted).toHaveBeenCalledExactlyOnceWith(1); expect(shade.current).toBe(0);
+    // The owner drops the departed scene; its root is handed back exactly as it was.
+    act(() => root.render(<ThreeVehicleSwap swap={{ ...swap, departing: null }} arriving={arriving} shade={shade} onDeparted={onDeparted} onDone={onDone} />));
+    expect(departing.root.position.x).toBe(0); expect(shown(departing)).toEqual(SCENE_GROUPS);
+    expect(arriving.root.visible).toBe(true); expect(arriving.root.position.x).toBe(-30);
+    frameAt(leaveMs + arriveMs / 2);
+    expect(arriving.root.position.x).toBeCloseTo(-3.75); expect(onDone).not.toHaveBeenCalled();
+    frameAt(leaveMs + arriveMs);
+    expect(arriving.root.position.x).toBe(0); expect(arriving.root.visible).toBe(true); expect(shade.current).toBe(1);
+    expect(onDone).toHaveBeenCalledExactlyOnceWith(1); expect(onDeparted).toHaveBeenCalledOnce();
+    // Nothing keeps the demand loop awake once both have settled.
+    invalidate.mockClear(); frameAt(leaveMs + arriveMs + 5000);
+    expect(invalidate).not.toHaveBeenCalled(); expect(onDone).toHaveBeenCalledOnce(); expect(arriving.root.position.x).toBe(0);
+  });
+  it('waits at an empty dock for late models and starts the arrival from when they are ready', () => {
+    const departing = sceneRoot(), arriving = sceneRoot(), shade = { current: 1 }, onDeparted = vi.fn(), onDone = vi.fn();
+    const invalidate = state.runtime.invalidate as ReturnType<typeof vi.fn>;
+    const swap = { id: 4, departing, from: 0, startedAt: 0, travel: 30, identity: 'next' } as SwapProps['swap'];
+    act(() => root.render(<ThreeVehicleSwap swap={swap} arriving={null} shade={shade} onDeparted={onDeparted} onDone={onDone} />));
+    frameAt(leaveMs); expect(onDeparted).toHaveBeenCalledExactlyOnceWith(4);
+    act(() => root.render(<ThreeVehicleSwap swap={{ ...swap, departing: null }} arriving={null} shade={shade} onDeparted={onDeparted} onDone={onDone} />));
+    invalidate.mockClear(); frameAt(leaveMs + 600);
+    expect(invalidate).not.toHaveBeenCalled(); expect(shade.current).toBe(0); expect(onDone).not.toHaveBeenCalled();
+    const ready = leaveMs + 900; state.now = ready;
+    act(() => root.render(<ThreeVehicleSwap swap={{ ...swap, departing: null }} arriving={arriving} shade={shade} onDeparted={onDeparted} onDone={onDone} />));
+    expect(arriving.root.visible).toBe(true); expect(arriving.root.position.x).toBe(-30);
+    // A scene that replaces the arriving one mid-way continues the same arrival.
+    frameAt(ready + arriveMs / 2); expect(arriving.root.position.x).toBeCloseTo(-3.75);
+    const republished = sceneRoot();
+    act(() => root.render(<ThreeVehicleSwap swap={{ ...swap, departing: null }} arriving={republished} shade={shade} onDeparted={onDeparted} onDone={onDone} />));
+    expect(arriving.root.position.x).toBe(0); expect(republished.root.position.x).toBeCloseTo(-3.75); expect(republished.root.visible).toBe(true);
+    frameAt(ready + arriveMs); expect(republished.root.position.x).toBe(0); expect(onDone).toHaveBeenCalledExactlyOnceWith(4);
+  });
+  it('sends equipment that was still arriving away from where it stands, not from the dock', () => {
+    const first = sceneRoot(), second = sceneRoot(), shade = { current: 1 }, onDeparted = vi.fn(), onDone = vi.fn();
+    // The first replacement has nothing left to leave; its equipment is half-way in.
+    const arrival = { id: 2, departing: null, from: 0, startedAt: 0, travel: 30, identity: 'first' } as SwapProps['swap'];
+    act(() => root.render(<ThreeVehicleSwap swap={arrival} arriving={first} shade={shade} onDeparted={onDeparted} onDone={onDone} />));
+    frameAt(arriveMs / 2); expect(first.root.position.x).toBeCloseTo(-3.75);
+    // It is replaced in turn before it has parked.
+    const from = first.root.position.x;
+    const next = { id: 3, departing: first, from, startedAt: arriveMs / 2, travel: 30, identity: 'second' } as SwapProps['swap'];
+    act(() => root.render(<ThreeVehicleSwap swap={next} arriving={second} shade={shade} onDeparted={onDeparted} onDone={onDone} />));
+    expect(first.root.position.x).toBeCloseTo(-3.75); expect(first.root.visible).toBe(true);
+    expect(second.root.visible).toBe(false); expect(onDone).not.toHaveBeenCalled();
+    frameAt(arriveMs / 2 + leaveMs / 2); expect(first.root.position.x).toBeCloseTo(-3.75 - 26.25 * .125);
+    frameAt(arriveMs / 2 + leaveMs); expect(first.root.position.x).toBe(-30); expect(onDeparted).toHaveBeenCalledExactlyOnceWith(3);
+    expect(second.root.visible).toBe(true);
+    frameAt(arriveMs / 2 + leaveMs + arriveMs); expect(second.root.position.x).toBe(0); expect(onDone).toHaveBeenCalledExactlyOnceWith(3);
+  });
+  it('hands every root and the dock shade back when the replacement is abandoned mid-way', () => {
+    const departing = sceneRoot(), arriving = sceneRoot(), shade = { current: 1 }, onDeparted = vi.fn(), onDone = vi.fn();
+    departing.root.getObjectByName('Securing')!.visible = false;
+    const swap = { id: 7, departing, from: 0, startedAt: 0, travel: 30, identity: 'next' } as SwapProps['swap'];
+    act(() => root.render(<ThreeVehicleSwap swap={swap} arriving={arriving} shade={shade} onDeparted={onDeparted} onDone={onDone} />));
+    frameAt(leaveMs * .8); expect(departing.root.position.x).toBeLessThan(-10); expect(shade.current).toBe(0);
+    act(() => root.render(null));
+    expect(departing.root.position.x).toBe(0); expect(arriving.root.position.x).toBe(0); expect(arriving.root.visible).toBe(true); expect(shade.current).toBe(1);
+    // A group that was already hidden for its own reason stays hidden.
+    expect(shown(departing)).toEqual(SCENE_GROUPS.filter(name => name !== 'Securing'));
+    expect(onDeparted).not.toHaveBeenCalled(); expect(onDone).not.toHaveBeenCalled();
   });
 });
