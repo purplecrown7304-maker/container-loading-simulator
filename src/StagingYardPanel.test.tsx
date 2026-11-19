@@ -120,6 +120,34 @@ describe('staging yard panel', () => {
     await click(button('선택 해제')); expect(props.onSelect).toHaveBeenCalledWith(null);
   });
 
+  it('shows an accepted candidate that leaves a balance error as allowed with its caution, never as rejected', async () => {
+    const caution = '무게중심 기준을 벗어납니다. 이 오류가 해소될 때까지 운송 검증과 출고는 통과할 수 없습니다: CG_LATERAL · 폭 방향 무게중심 편차 183mm가 허용 ±118mm를 넘습니다.';
+    await render({ selectedId: 'A-0', preview: { valid: true, reasons: [], cautions: [caution] } });
+    const preview = host.querySelector('.staging-panel-preview')!;
+    expect(preview.className).toBe('staging-panel-preview valid caution');
+    expect(preview.textContent).toContain('배치 가능 · 무게중심 오류가 남습니다'); expect(preview.textContent).toContain('CG_LATERAL'); expect(preview.textContent).not.toContain('배치 불가');
+    // Without a caution it is the plain accepted state, and a rejected candidate shows its reasons only.
+    await render({ preview: { valid: true, reasons: [], cautions: [] } });
+    expect(host.querySelector('.staging-panel-preview')!.className).toBe('staging-panel-preview valid'); expect(host.querySelector('.staging-panel-preview ul')).toBeNull();
+    await render({ preview: { valid: false, reasons: ['다른 화물과 충돌합니다.'], cautions: [caution] } });
+    expect(host.querySelector('.staging-panel-preview')!.className).toBe('staging-panel-preview invalid');
+    expect(host.querySelector('.staging-panel-preview')!.textContent).not.toContain('무게중심');
+  });
+
+  it('marks a pallet that automatic loading will keep in place, offers to let go of it and counts the held ones', async () => {
+    const data = inventory([box('LOADED', 'vehicle'), box('WAIT')]), onUnpin = vi.fn();
+    await render({ inventory: data, selectedId: 'LOADED', pinned: true, pinnedCount: 2, onUnpin });
+    const held = host.querySelector<HTMLElement>('[data-staging-pinned="true"]')!;
+    expect(held.textContent).toContain('자리 고정'); expect(held.textContent).toContain('자동 적재');
+    await click(button('고정 해제', held)); expect(onUnpin).toHaveBeenCalledOnce();
+    expect(host.querySelector('[data-staging-pinned-count="2"]')!.textContent).toContain('자리 고정 파렛트 2개');
+    // While a calculation runs the pin cannot be changed under it.
+    await render({ busy: true }); expect(button('고정 해제').disabled).toBe(true);
+    // Nothing held: no marker and no count.
+    await render({ busy: false, pinned: false, pinnedCount: 0 });
+    expect(host.querySelector('[data-staging-pinned]')).toBeNull(); expect(host.querySelector('[data-staging-pinned-count]')).toBeNull();
+  });
+
   it('permits withdrawal only for a current-vehicle selection and honors busy and owner safety gates', async () => {
     const data = inventory([box('LOADED', 'vehicle'), box('OTHER', 'other-vehicle')]);
     await render({ inventory: data, selectedId: 'LOADED' });

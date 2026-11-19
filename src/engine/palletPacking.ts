@@ -109,7 +109,9 @@ function lateralSide(centerY: number, containerWidth: number) {
   return delta < 0 ? -1 : 1;
 }
 
-function palletPositions(container: ContainerSpec, pallet: PalletSpec) {
+/** Floor places for pallet columns: lanes side by side and centred on the width, rows from
+ * the inner wall, each row listed from the middle lane outward. */
+export function palletPositions(container: ContainerSpec, pallet: PalletSpec) {
   const positions: Array<{ x: number; y: number }> = [];
   const lanes = fitCount(container.width, pallet.width);
   if (lanes < 1) return positions;
@@ -398,7 +400,11 @@ export function canSupportUpper(lower: PalletLoad, upperWeightKg: number, cargoM
   return true;
 }
 
-function hasPalletFootprintSupport(lower: PalletLoad, pallet: PalletSpec) {
+/** Whether the cartons at the top of `lower` carry a pallet set on it: the shared support
+ * rule (at least 80% of the pallet's base in contact, its centre inside that contact) at
+ * the cargo top. Wrapping and corner guards sit between the two and are not a gap. The
+ * planner and, since the owner's 2026-11-19 decision, pallets stacked by hand both use it. */
+export function hasPalletFootprintSupport(lower: PalletLoad, pallet: PalletSpec) {
   const top = cargoTop(lower);
   const footprint: Placement = {
     cargoId: '__PALLET_SUPPORT_CHECK__',

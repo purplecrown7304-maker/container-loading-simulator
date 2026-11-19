@@ -89,6 +89,10 @@
 .staging-panel-preview > b { font-weight: 500; }
 .staging-panel-preview ul { margin: 4px 0 0; padding-left: 16px; }
 .staging-panel-preview.valid { color: var(--studio-green, #187047); background: var(--studio-green-tint, #edf7f1); }
+.staging-panel-pinned { margin: 12px 0; padding: 8px; border: 1px solid var(--studio-line, #e3e6eb); border-radius: 8px; color: var(--studio-blue, #1d4ed8); background: var(--studio-blue-tint, #eef4ff); }
+.staging-panel-pinned > b { font-weight: 500; }
+.staging-panel-pinned > p { margin: 4px 0 8px; }
+.staging-panel-preview.valid.caution { color: var(--studio-warning, #8a5300); background: var(--studio-warning-tint, #fff7e6); }
 .staging-panel-preview.invalid { color: var(--studio-danger, #b83939); background: var(--studio-danger-tint, #fff2f2); }
 .staging-panel-help { margin: 12px 0 0; color: var(--studio-faint, #67717e); font-size: 11px; line-height: 1.5; }
 .staging-panel-excluded { margin-top: 12px; }

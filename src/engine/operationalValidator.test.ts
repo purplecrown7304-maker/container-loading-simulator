@@ -36,6 +36,32 @@ describe('load-sim operational validator adapter', () => {
     expect(codes).not.toContain('INSUFFICIENT_SUPPORT');
   });
 
+  it('supports a stacked pallet through the wrapping and corner guards of the unit it stands on', () => {
+    const cargo = [{ ...item, length: 1, width: 1, height: .5, weightKg: 20 }];
+    const lowerBox = { cargoId: 'A', x: 1.5, y: .5, z: .15, length: 1, width: 1, height: .5, weightKg: 20 };
+    // The lower unit ends 1 cm above its carton (wrapping); the upper pallet stands at that top.
+    const stack = (upperZ: number, lowerUnitHeight: number | undefined, lowerLength = 1) => {
+      const lower = { ...lowerBox, length: lowerLength };
+      const upperBox = { ...lowerBox, z: upperZ + .15 };
+      const supports = [{ id: 'LOWER', x: 1.5, y: .5, z: 0, length: 1, width: 1, height: .15, weightKg: 5, unitHeightM: lowerUnitHeight },
+        { id: 'UPPER', x: 1.5, y: .5, z: upperZ, length: 1, width: 1, height: .15, weightKg: 5, unitHeightM: .65 }];
+      return operationalErrors(validateOperationalLoading(container, lowerLength === 1 ? cargo : [{ ...cargo[0], length: lowerLength }], [lower, upperBox], supports))
+        .filter(finding => finding.code === 'FLOATING' || finding.code === 'INSUFFICIENT_SUPPORT').map(finding => finding.code);
+    };
+    expect(stack(.66, .66)).toEqual([]);
+    // Without packaging the pallet stands on the cartons themselves, as before.
+    expect(stack(.65, .65)).toEqual([]);
+    // Above the unit's own top there is nothing between them: it floats.
+    expect(stack(.7, .66)).toEqual(['FLOATING']);
+    // A unit whose stated height is not known gives no layer to stand on.
+    expect(stack(.66, undefined)).toEqual(['FLOATING']);
+    // Far more than a packaging layer between the cartons and the stated top is not one.
+    expect(stack(.9, .9)).toEqual(['FLOATING']);
+    // Through the layer the same 80% rule applies to what the cartons below actually cover.
+    expect(stack(.66, .66, .7)).toEqual(['INSUFFICIENT_SUPPORT']);
+    expect(stack(.66, .66, .85)).toEqual([]);
+  });
+
   it('flags reversed rear-door unload order', () => {
     const cargo = [
       { ...item, id: 'FIRST', unloadPriority: 1 },

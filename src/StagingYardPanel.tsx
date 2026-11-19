@@ -18,7 +18,12 @@ export type StagingYardPanelProps = {
   canLoad?: boolean;
   canWithdraw?: boolean;
   message: string;
-  preview?: { valid: boolean; reasons: readonly string[] };
+  preview?: { valid: boolean; reasons: readonly string[]; cautions?: readonly string[] };
+  /** The selected pallet was put in place by hand and automatic loading keeps it there. */
+  pinned?: boolean;
+  /** How many pallets are held in place that way, selected or not. */
+  pinnedCount?: number;
+  onUnpin?: () => void;
   onSelect: (id: string | null) => void;
   onLoad: () => void;
   onWithdraw: () => void;
@@ -128,10 +133,21 @@ export default function StagingYardPanel(props: StagingYardPanelProps) {
         {props.onPackagingDetails && <button type="button" data-view-only="true" onClick={props.onPackagingDetails}>{uiText('포장 상세 보기')}</button>}
         {selected.reasons.length > 0 ? <ul className="staging-panel-reasons">{selected.reasons.map((reason, index) => <li key={`${reason.reasonCode ?? ''}-${index}`}>{reason.reasonCode && <code>{reason.reasonCode}</code>}{uiMessage(reason.reason)}</li>)}</ul> : selected.verdict === 'unloaded' ? <p className="staging-panel-warning">{uiText('사유 정보 없음')}</p> : null}
         {selected.requiresPackaging && <p className="staging-panel-warning">{uiText('포장 계획 완료 후 상차할 수 있습니다.')}</p>}
-        {props.preview && <div className={`staging-panel-preview ${props.preview.valid ? 'valid' : 'invalid'}`} role="status"><b>{uiText(props.preview.valid ? '배치 가능' : '배치 불가')}</b>{props.preview.reasons.length > 0 && <ul>{props.preview.reasons.map((reason, index) => <li key={index}>{uiMessage(reason)}</li>)}</ul>}</div>}
+        {props.pinned && <div className="staging-panel-pinned" role="status" data-staging-pinned="true"><b>{uiText('자리 고정')}</b>
+          <p>{uiText('손으로 놓은 자리입니다. 자동 적재를 다시 실행해도 이 자리를 유지하고 나머지를 다시 배치합니다.')}</p>
+          <button type="button" disabled={props.busy} onClick={props.onUnpin}>{uiText('고정 해제')}</button></div>}
+        {props.preview && (() => {
+          const cautions = props.preview.valid ? props.preview.cautions ?? [] : [];
+          const lines = props.preview.valid ? cautions : props.preview.reasons;
+          return <div className={`staging-panel-preview ${props.preview.valid ? cautions.length ? 'valid caution' : 'valid' : 'invalid'}`} role="status">
+            <b>{uiText(!props.preview.valid ? '배치 불가' : cautions.length ? '배치 가능 · 무게중심 오류가 남습니다' : '배치 가능')}</b>
+            {lines.length > 0 && <ul>{lines.map((line, index) => <li key={index}>{uiMessage(line)}</li>)}</ul>}
+          </div>;
+        })()}
         <div className="staging-panel-actions"><button type="button" className="staging-panel-primary" disabled={!loadAllowed} onClick={props.onLoad}>{uiText('선택 화물 적재')}</button><button type="button" disabled={!withdrawAllowed} onClick={props.onWithdraw}>{uiText('대기장으로 회수')}</button></div>
       </section>}
       <div className="staging-panel-undo"><button type="button" disabled={!props.canUndo || props.busy} onClick={props.onUndo}>{uiText('되돌리기')}</button></div>
+      {(props.pinnedCount ?? 0) > 0 && <p className="staging-panel-help" data-staging-pinned-count={props.pinnedCount}>{uiText('자리 고정 파렛트 {0}개 · 자동 적재가 이 자리를 유지합니다.', [props.pinnedCount!])}</p>}
       <p className="staging-panel-help">{uiText('대기 화물은 차량 안으로 드래그하거나 선택 화물 적재를 누르세요.')}</p>
       {props.inventory.excluded.length > 0 && <details className="staging-panel-excluded"><summary>{uiText('입력에서 제외된 화물')}</summary><ul>{props.inventory.excluded.map((entry, index) => <li key={`${entry.cargoId}-${index}`}><b>{uiText('{0} · {1}개', [entry.cargoId, format(entry.quantity)])}</b><span>{uiMessage(entry.reason)}</span></li>)}</ul></details>}
       {props.inventory.issues.length > 0 && <ul className="staging-panel-reasons">{props.inventory.issues.map((issue, index) => <li key={index}>{uiMessage(issue)}</li>)}</ul>}

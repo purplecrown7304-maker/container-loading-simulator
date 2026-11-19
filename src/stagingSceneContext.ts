@@ -15,7 +15,8 @@ export type StagingSceneBridge = {
   /** Changes only for an explicit view/zone action, never an inventory refresh. */
   viewRequest: number;
   dragging: boolean;
-  preview: { unitId: string; candidate: Placement; valid: boolean; reasons: string[] } | null;
+  /** `cautions` belong to an accepted candidate: errors it would leave on the plan without being refused. */
+  preview: { unitId: string; candidate: Placement; valid: boolean; reasons: string[]; cautions?: string[] } | null;
   /** Transient display poses; never serialized or passed to loading/physics. */
   flight?: StagingFlightSequence | null;
   completeFlight?: (id: number) => void;
