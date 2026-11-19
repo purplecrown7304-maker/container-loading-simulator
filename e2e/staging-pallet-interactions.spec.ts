@@ -235,8 +235,16 @@ test('native left drag relocates the whole wrapped pallet on its floor plane, in
 test('native outside and collision drags show actual invalid candidates and preserve every accepted pallet member', async ({ page }) => {
   test.setTimeout(180000); await page.setViewportSize({ width: 1920, height: 1080 });
   const setup = await boot(page), beforeOutside = await accepted(page), original = beforeOutside.pallets[0];
+  const conflicts = viewer(page).locator('[data-three-staging-conflicts]');
+  // The pointer shows what it can do before anything is pressed.
+  const over = (await projection(page)).screen(boxCenter(topBox(original)));
+  await page.mouse.move(over.x - 2, over.y); await page.mouse.move(over.x, over.y);
+  await expect(canvas(page)).toHaveCSS('cursor', 'grab');
   await beginPalletDrag(page, original, -.15, original.y);
   await expect(panel(page).locator('.staging-panel-preview.invalid')).toBeVisible();
+  await expect(canvas(page)).toHaveCSS('cursor', 'grabbing');
+  // Outside the equipment there is no cargo to point at: the candidate alone is red.
+  await expect(conflicts).toHaveAttribute('data-three-staging-conflicts', '0');
   await page.mouse.up(); expect(await accepted(page)).toEqual(beforeOutside);
   await summary(page, setup.totalPallets);
   await panel(page).getByRole('button', { name: '혼합 낱박스 선택', exact: true }).first().click();
@@ -250,6 +258,8 @@ test('native outside and collision drags show actual invalid candidates and pres
   await beginPalletDrag(page, source, x, y);
   await expect(panel(page).locator('.staging-panel-preview.invalid')).toBeVisible();
   await expect(panel(page).locator('.staging-panel-preview.invalid')).toContainText('충돌');
+  // The one placed carton the pallet runs into is outlined; the pallet never counts against itself.
+  await expect(conflicts).toHaveAttribute('data-three-staging-conflicts', '1');
   await page.mouse.up(); expect(await accepted(page)).toEqual(beforeCollision);
   await summary(page, setup.totalPallets, 1);
   await expect(panel(page).locator('.staging-panel-unit-id')).toHaveText(setup.id);
