@@ -47,8 +47,45 @@ function accepts(container: ContainerSpec, column: Column, item: CargoItem, heig
   return true;
 }
 
+/** A step smaller than this is left to filler material; it is the smallest step the
+ * void-fill plan reports (`gapSecuring.ts`). */
+export const LEVEL_DIP_PROFILE = { minDipM: 0.05 } as const;
+
+/**
+ * Owner instruction 2026-11-19: an empty place inside the load takes cargo too.
+ *
+ * With cartons of different heights in one zone some columns end below the columns that
+ * follow them toward the door: one more carton would have passed the common height, so
+ * the level pass skipped them and left a hole near the inner wall. Such a column takes the
+ * carton that was loaded last (the far end of the top tier) when
+ *  - that brings its top nearer to the columns toward the door than the hole was,
+ *  - the carton is not heavier than the one it goes on, and
+ *  - the ceiling, stack depth, cumulative top load and floor load all hold (`accepts`).
+ * The load gives up that carton at the end of its top tier instead of keeping a hole inside.
+ * Nothing is added or dropped, and a hole kept by a hard limit stays a hole.
+ */
+function fillDips(container: ContainerSpec, columns: Column[], history: Array<{ column: number; part: number }>, items: CargoItem[]) {
+  for (let index = 0; index < columns.length; index++) {
+    const column = columns[index];
+    for (;;) {
+      const last = history.at(-1), top = column.boxes.at(-1);
+      // Only a carton from further toward the door, onto a column that already carries cargo.
+      if (!last || !top || last.column <= index) break;
+      let ahead = 0;
+      for (let k = index + 1; k < columns.length; k++) if (columns[k].height > ahead) ahead = columns[k].height;
+      const dip = ahead - column.height, item = items[last.part];
+      if (dip <= LEVEL_DIP_PROFILE.minDipM + 1e-9) break;
+      if (column.height + item.height - ahead >= dip - 1e-9) break;
+      if (item.weightKg > top.weightKg + 1e-9 || !accepts(container, column, item, Infinity)) break;
+      const donor = columns[last.column];
+      history.pop(); donor.boxes.pop(); donor.height = round(donor.height - item.height); donor.weight -= item.weightKg;
+      column.boxes.push(item); column.height = round(column.height + item.height); column.weight += item.weightKg;
+    }
+  }
+}
+
 /** One footprint class: heaviest cartons form the lowest tiers across every used column. */
-function buildZone(container: ContainerSpec, parts: Part[], xStart: number, heightCap: number, payloadLeft: number) {
+function buildZone(container: ContainerSpec, parts: Part[], xStart: number, heightCap: number, payloadLeft: number, fill: boolean) {
   const pattern = floorPattern(parts[0].item, container.width);
   const none = { placements: [] as Placement[], used: new Map<string, number>(), xEnd: xStart, weight: 0, columns: [] as Column[], slotsPerBlock: 1 };
   if (!pattern) return none;
@@ -62,25 +99,29 @@ function buildZone(container: ContainerSpec, parts: Part[], xStart: number, heig
   const attempt = (count: number) => {
     const columns: Column[] = all.slice(0, count).map(slot => ({ ...slot, boxes: [], height: 0, weight: 0 }));
     const left = sorted.map(part => part.quantity);
+    // Loading order, so the carton loaded last can be found again.
+    const history: Array<{ column: number; part: number }> = [];
     let weight = 0, placed = 0, cursor = 0;
     for (let s = 0; s < sorted.length; s++) {
       const item = sorted[s].item;
       let misses = 0;
       while (left[s] > 0 && misses < columns.length) {
-        const column = columns[cursor];
+        const index = cursor, column = columns[index];
         cursor = (cursor + 1) % columns.length;
         if (weight + item.weightKg > payloadLeft + 1e-6) { misses = columns.length; break; }
         if (!accepts(container, column, item, heightCap)) { misses++; continue; }
         column.boxes.push(item); column.height = round(column.height + item.height); column.weight += item.weightKg;
+        history.push({ column: index, part: s });
         weight += item.weightKg; left[s]--; placed++; misses = 0;
       }
     }
-    return { columns, placed, weight, left };
+    return { columns, placed, weight, left, history };
   };
   const most = attempt(all.length).placed;
   let lo = 1, hi = all.length;
   while (lo < hi) { const mid = (lo + hi) >> 1; if (attempt(mid).placed >= most) hi = mid; else lo = mid + 1; }
   const best = attempt(lo);
+  if (fill) fillDips(container, best.columns, best.history, sorted.map(part => part.item));
   const placements: Placement[] = [];
   const used = new Map<string, number>();
   let xEnd = xStart;
@@ -176,7 +217,10 @@ function fillDeck(container: ContainerSpec, deck: Deck, parts: Part[], payloadLe
  * Hard limits (height, stack depth, cumulative top load, floor load, payload) are checked
  * for every carton; columns are exact same-footprint stacks, i.e. fully supported.
  */
-export function packByLevelBlocks(container: ContainerSpec, ordered: CargoItem[], strategy: StrictWallStrategy, heightCap: number, variant: LevelVariant = 'sequential'): StrictWallOutput {
+export function packByLevelBlocks(container: ContainerSpec, ordered: CargoItem[], strategy: StrictWallStrategy, heightCap: number, variant: LevelVariant = 'sequential',
+  /** `fillDips: false` leaves the holes of mixed carton heights open; the caller compares it
+   * only when the filled plan fails the centre-of-gravity verdict. */
+  options: { fillDips?: boolean } = {}): StrictWallOutput {
   const strict = heavyInnerStrictUnloading(container, strategy);
   const groups: CargoItem[][] = [];
   for (const item of ordered) {
@@ -202,7 +246,7 @@ export function packByLevelBlocks(container: ContainerSpec, ordered: CargoItem[]
   for (const parts of zones) {
     const active = parts.filter(p => p.quantity > 0 && floorLoadLayerCap(container, p.item) > 0);
     if (!active.length) continue;
-    const zone = buildZone(container, active, x, heightCap, container.maxPayloadKg - loadedWeightKg);
+    const zone = buildZone(container, active, x, heightCap, container.maxPayloadKg - loadedWeightKg, options.fillDips !== false);
     placements.push(...zone.placements);
     for (const [id, n] of zone.used) counts.set(id, (counts.get(id) ?? 0) + n);
     loadedWeightKg += zone.weight;
