@@ -11,7 +11,7 @@ import { stagingInputSignature } from '../src/stagingInventory';
 test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } });
 const container: ContainerSpec = { length: 12.032, width: 2.35, height: 2.7, maxPayloadKg: 28600,
   floorLoadLimitKgPerM2: 1500, floorLoadWarningMultiplier: 3, ceilingClearanceM: .05 };
-const cargo: CargoItem[] = [{ id: 'PALLET-BOX', name: '파렛트 구성 박스', quantity: 9, length: .5, width: .5, height: .3,
+const baseCargo: CargoItem[] = [{ id: 'PALLET-BOX', name: '파렛트 구성 박스', quantity: 9, length: .5, width: .5, height: .3,
   weightKg: 1, maxStackLayers: 3, maxTopLoadKg: 100, allowRotation: true, mixedLoadingMethod: 'pallet' },
 { id: 'LOOSE', name: '혼합 낱박스', quantity: 2, length: .2, width: .2, height: .2, weightKg: 1,
   maxStackLayers: 1, maxTopLoadKg: 0, allowRotation: true, mixedLoadingMethod: 'direct' }];
@@ -35,19 +35,23 @@ async function accepted(page: Page): Promise<Accepted> {
 
 /** Minimal copy of the mixed wrapped9 + loose2 cloud fixture from staging-yard.
  * Native pointer input and the real pack/move validators own all plan changes. */
-async function boot(page: Page) {
+async function boot(page: Page, options: { typeId?: string; palletBoxes?: number; load?: number } = {}) {
   const userId = 'staging-pallet-pointer-fixture', mode = 'mixed' as const;
-  const spec = { ...palletSpecForType(PALLET_CATALOG[0]), useWrapping: true, useCornerGuards: true, minimizePackaging: false };
+  const typeId = options.typeId ?? 'company-default', loadCount = options.load ?? 1;
+  const cargo = baseCargo.map(item => item.id === 'PALLET-BOX' ? { ...item, quantity: options.palletBoxes ?? item.quantity } : item);
+  const spec = { ...palletSpecForType(PALLET_CATALOG.find(type => type.id === typeId)!), useWrapping: true, useCornerGuards: true, minimizePackaging: false };
   const source = { container, cargo, result: { placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0, validationIssues: [] },
     staging: { version: 1, scopeKey: `operator:${userId}|active`, mode,
       inputSignature: stagingInputSignature({ scopeKey: `operator:${userId}|active`, mode, container, cargo, palletSpec: spec, strategy: 'capacity' }),
       selectedUnitId: null, identity: { unitToStableId: {} },
-      palletSnapshot: { spec, result: packMixedMode(container, [], spec, 'capacity') }, palletTypeId: 'company-default' } };
+      palletSnapshot: { spec, result: packMixedMode(container, [], spec, 'capacity') }, palletTypeId: typeId } };
   let appState: Record<string, string> = { 'container-loading-simulator-v1': JSON.stringify(source),
-    'container-loading:guided-loading-unit': mode, 'container-loading:guided-loading-strategy': 'capacity' };
+    'container-loading:guided-loading-unit': mode, 'container-loading:guided-loading-strategy': 'capacity',
+    ...(typeId === 'company-default' ? {} : { 'container-loading:pallet-type-selection': typeId }) };
   const member = { id: userId, displayName: '파렛트 포인터 검증', email: 'pallet-pointer@example.test', status: 'active' };
-  await page.addInitScript(({ userId }) => {
+  await page.addInitScript(({ userId, typeId }) => {
     localStorage.setItem('load-studio-ui-language', 'ko');
+    localStorage.setItem('container-loading:pallet-type-selection', typeId);
     sessionStorage.setItem('container-loading:supabase-member-session:v2', JSON.stringify({
       token: 'synthetic-pallet-pointer-token', expiresAt: new Date(Date.now() + 3600000).toISOString(),
       userId, displayName: '파렛트 포인터 검증', email: 'pallet-pointer@example.test',
@@ -59,7 +63,7 @@ async function boot(page: Page) {
       // The DOM normalizes an omitted/undefined CustomEvent payload to null.
       if ((event as CustomEvent).detail == null) (window as any).__palletInteractionCertClears++;
     });
-  }, { userId });
+  }, { userId, typeId });
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') return route.continue();
@@ -94,6 +98,15 @@ async function boot(page: Page) {
   await panel(page).getByRole('button', { name: '선택 화물 적재', exact: true }).click();
   await expect(countRow(page, '현재 차량 배치량')).toHaveText(['1', '0']);
   await expect(countRow(page, '대기량')).toHaveText([String(totalPallets - 1), '2']);
+  for (let loaded = 1; loaded < loadCount; loaded++) {
+    // Each further pallet is the next one still waiting in the yard.
+    await expect(viewer(page)).toHaveAttribute('data-three-applied', 'true', { timeout: 60000 });
+    const next = panel(page).locator('[data-staging-unit-id]').filter({ has: page.getByText('포장 파렛트', { exact: false }) })
+      .filter({ hasNot: page.getByText('차량 배치됨', { exact: false }) }).first();
+    await next.click();
+    await panel(page).getByRole('button', { name: '선택 화물 적재', exact: true }).click();
+    await expect(countRow(page, '현재 차량 배치량')).toHaveText([String(loaded + 1), '0']);
+  }
   await expect(viewer(page)).toHaveAttribute('data-three-applied', 'true', { timeout: 60000 });
   await expect(viewer(page)).toHaveAttribute('data-three-flight-active', 'false');
   await expect(panel(page).getByLabel('화물 이동 연출', { exact: true })).toBeDisabled();
@@ -104,8 +117,8 @@ async function boot(page: Page) {
   await expect(viewer(page)).toHaveAttribute('data-three-camera-moving', 'false');
   await viewer(page).getByRole('button', { name: '외벽 숨기기', exact: true }).click();
   await canvas(page).evaluate(element => element.setAttribute('data-pallet-persistent-canvas', 'original'));
-  const plan = await accepted(page); expect(plan.pallets).toHaveLength(1);
-  expect(plan.pallets[0].wrappingUsed).toBe(true); expect(plan.pallets[0].cornerGuardsUsed).toBe(true);
+  const plan = await accepted(page); expect(plan.pallets).toHaveLength(loadCount);
+  if (typeId === 'company-default') { expect(plan.pallets[0].wrappingUsed).toBe(true); expect(plan.pallets[0].cornerGuardsUsed).toBe(true); }
   return { id: id!, totalPallets, plan };
 }
 
@@ -264,4 +277,36 @@ test('native outside and collision drags show actual invalid candidates and pres
   await summary(page, setup.totalPallets, 1);
   await expect(panel(page).locator('.staging-panel-unit-id')).toHaveText(setup.id);
   await expect(canvas(page)).toHaveAttribute('data-pallet-persistent-canvas', 'original');
+});
+
+test('native drag sets a pallet exactly on another one as a second tier and undo brings it back to the floor', async ({ page }, info) => {
+  test.setTimeout(180000); await page.setViewportSize({ width: 1920, height: 1080 });
+  // A pallet type with a static load rating, so a second tier is allowed at all; two full pallets in the vehicle.
+  await boot(page, { typeId: 't11-plastic', palletBoxes: 24, load: 2 });
+  const before = await accepted(page);
+  expect(before.pallets.map(load => load.stackLevel)).toEqual([1, 1]);
+  const [lower, moving] = before.pallets;
+  const lowerTop = lower.z + Math.max(lower.height, ...lower.cargoPlacements.map(box => box.z + box.height - lower.z)) + lower.packagingExtraHeightM;
+  await info.attach('second-tier-fixture', { contentType: 'application/json', body: JSON.stringify({ lower: { x: lower.x, y: lower.y, boxes: lower.cargoPlacements.length, wrapped: lower.wrappingUsed, guards: lower.cornerGuardsUsed, extra: lower.packagingExtraHeightM, top: lowerTop },
+    moving: { x: moving.x, y: moving.y, boxes: moving.cargoPlacements.length } }) });
+  // Dragged roughly over the other pallet, a hand's width off in both directions.
+  await beginPalletDrag(page, moving, lower.x + .12, lower.y - .09);
+  await expect(panel(page).locator('.staging-panel-preview.valid')).toBeVisible();
+  await expect(viewer(page).locator('[data-three-staging-conflicts]')).toHaveAttribute('data-three-staging-conflicts', '0');
+  await screenshot(page, info, 'staging-pallet-second-tier-preview');
+  await page.mouse.up();
+  await expect.poll(async () => (await accepted(page)).pallets.map(load => load.stackLevel).sort()).toEqual([1, 2]);
+  const after = await accepted(page), upper = after.pallets.find(load => load.stackLevel === 2)!, base = after.pallets.find(load => load.stackLevel === 1)!;
+  // It stands exactly on the lower pallet, at the top of that pallet's packaged unit.
+  expect(base.x).toBe(lower.x); expect(base.y).toBe(lower.y); expect(base.z).toBe(lower.z);
+  expect(upper.x).toBeCloseTo(lower.x, 6); expect(upper.y).toBeCloseTo(lower.y, 6); expect(upper.z).toBeCloseTo(lowerTop, 3);
+  expect(upper.stackColumn).toBe(base.stackColumn);
+  expect(upper.cargoPlacements.map(box => box.unitId).sort()).toEqual(moving.cargoPlacements.map(box => box.unitId).sort());
+  expect(upper.wrappingUsed).toBe(moving.wrappingUsed); expect(upper.cornerGuardsUsed).toBe(moving.cornerGuardsUsed); expect(upper.bandingPlan).toEqual(moving.bandingPlan);
+  expect(after.placements).toHaveLength(before.placements.length); expect(after.certification).toBeNull();
+  await expect(viewer(page)).toHaveAttribute('data-three-applied', 'true', { timeout: 60000 });
+  await screenshot(page, info, 'staging-pallet-second-tier-accepted');
+  const undo = panel(page).getByRole('button', { name: '되돌리기', exact: true }); await expect(undo).toBeEnabled(); await undo.click();
+  await expect.poll(async () => (await accepted(page)).pallets.map(load => load.stackLevel)).toEqual([1, 1]);
+  const restored = await accepted(page); expect(restored.pallets).toEqual(before.pallets); expect(restored.placements).toEqual(before.placements);
 });

@@ -178,7 +178,16 @@ describe('staging cargo rendering resource ownership and packaging parity', () =
     expect((cartons.material as THREE.MeshBasicMaterial).opacity).toBeLessThan(1);
     const validColor = (cartons.material as THREE.MeshBasicMaterial).color.getHexString();
     preview.update({ ...candidate, x: 2 }, container, false);
-    expect((cartons.material as THREE.MeshBasicMaterial).color.getHexString()).not.toBe(validColor);
+    const rejectedColor = (cartons.material as THREE.MeshBasicMaterial).color.getHexString();
+    expect(rejectedColor).not.toBe(validColor);
+    // Accepted with a caution is a third state; a caution on a rejected candidate changes nothing.
+    preview.update(candidate, container, true, true);
+    const cautionColor = (cartons.material as THREE.MeshBasicMaterial).color.getHexString();
+    expect(cautionColor).not.toBe(validColor); expect(cautionColor).not.toBe(rejectedColor);
+    expect(preview.root.userData).toEqual({ valid: true, caution: true, unitId: source.id, displayOnly: true });
+    preview.update(candidate, container, false, true);
+    expect((cartons.material as THREE.MeshBasicMaterial).color.getHexString()).toBe(rejectedColor);
+    expect(preview.root.userData).toEqual({ valid: false, unitId: source.id, displayOnly: true });
     expect(JSON.stringify(source)).toBe(before);
     const dispose = vi.spyOn(fixture.geometry, 'dispose'); preview.dispose(); expect(dispose).not.toHaveBeenCalled();
     fixture.geometry.dispose(); fixture.texture.dispose(); fixture.material.dispose();

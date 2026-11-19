@@ -389,18 +389,20 @@ export function createStagingPreviewResources(unit: StagingUnit, models: YardMod
   const outline = new THREE.LineSegments(edges, edgeMaterial); outline.position.y = unit.height / 2; outline.scale.set(unit.length, unit.height, unit.width); outline.renderOrder = 7; outline.raycast = noRaycast; root.add(outline);
   let disposed = false;
   return { root,
-    update(candidate: Placement, container: { length: number; width: number; height: number }, valid: boolean) {
+    /** `caution`: accepted, but it would leave an error on the plan that blocks verification. */
+    update(candidate: Placement, container: { length: number; width: number; height: number }, valid: boolean, caution = false) {
       root.position.set(candidate.x + candidate.length / 2 - container.length / 2, candidate.z, candidate.y + candidate.width / 2 - container.width / 2);
       root.rotation.y = unit.kind === 'box' && Math.abs(candidate.length - unit.length) > 1e-6
         && Math.abs(candidate.length - unit.width) < 1e-6 && Math.abs(candidate.width - unit.length) < 1e-6 ? Math.PI / 2 : 0;
-      material.color.set(valid ? '#16a34a' : '#dc2626'); edgeMaterial.color.set(valid ? '#15803d' : '#b91c1c');
-      root.userData = { valid, unitId: unit.id, displayOnly: true };
+      const warned = valid && caution;
+      material.color.set(!valid ? '#dc2626' : warned ? '#d97706' : '#16a34a'); edgeMaterial.color.set(!valid ? '#b91c1c' : warned ? '#b45309' : '#15803d');
+      root.userData = { valid, unitId: unit.id, displayOnly: true, ...(warned ? { caution: true } : {}) };
     },
     dispose() { if (disposed) return; disposed = true; meshes.forEach(mesh => mesh.dispose()); geometry.dispose(); edges.dispose(); material.dispose(); edgeMaterial.dispose(); cartonGeometry?.release(); root.clear(); },
   };
 }
 
-export function ThreeStagingPreview({ unit, candidate, container, valid, onError }: { unit: StagingUnit; candidate: Placement; container: { length: number; width: number; height: number }; valid: boolean; onError?: (message: string) => void }) {
+export function ThreeStagingPreview({ unit, candidate, container, valid, caution = false, onError }: { unit: StagingUnit; candidate: Placement; container: { length: number; width: number; height: number }; valid: boolean; caution?: boolean; onError?: (message: string) => void }) {
   const { invalidate } = useThree();
   const callback = useRef(onError); callback.current = onError;
   const [loaded, setLoaded] = useState<{ unit: StagingUnit; resources: ReturnType<typeof createStagingPreviewResources> } | null>(null);
@@ -413,6 +415,6 @@ export function ThreeStagingPreview({ unit, candidate, container, valid, onError
     return () => { cancelled = true; dispose?.(); };
   }, [unit, invalidate]);
   const resources = loaded?.unit === unit ? loaded.resources : null;
-  useLayoutEffect(() => { resources?.update(candidate, container, valid); invalidate(); }, [resources, candidate, container, valid, invalidate]);
+  useLayoutEffect(() => { resources?.update(candidate, container, valid, caution); invalidate(); }, [resources, candidate, container, valid, caution, invalidate]);
   return resources ? <primitive object={resources.root} dispose={null} /> : null;
 }

@@ -43,6 +43,8 @@ export type OperationalSupport = {
   width: number;
   height: number;
   weightKg: number;
+  /** Height of the whole unit on this support: its cargo and packaging included. */
+  unitHeightM?: number;
 };
 
 type Body = {
@@ -50,7 +52,13 @@ type Body = {
   placement: Placement;
   cargo?: CargoItem;
   cargoIndex?: number;
+  unitHeightM?: number;
 };
+
+/** Wrapping and corner guards end a pallet unit a little above its top cartons. A larger
+ * distance between those cartons and the unit's stated top is not a packaging layer.
+ * This bounds what the data may claim; it is not a rating of any packaging material. */
+export const MAX_PALLET_PACKAGING_LAYER_M = 0.1;
 
 type SupportLink = { bodyIndex: number; area: number };
 
@@ -104,9 +112,36 @@ function buildBodies(cargo: CargoItem[], placements: Placement[], supports: Oper
         height: support.height,
         weightKg: support.weightKg,
       },
+      unitHeightM: Number.isFinite(support.unitHeightM) ? support.unitHeightM : undefined,
     });
   }
   return bodies;
+}
+
+/** The packaged pallet units an elevated pallet deck stands on, each with the height of
+ * its top cartons. A packaged unit ends above those cartons by its wrapping and corner
+ * guards; a pallet set at the unit's top rests on the cartons through that layer, which is
+ * how the planner stacks pallets (LOADING_RULES 7B). A deck anywhere else gets none. */
+function packagedUnitsUnder(bodies: Body[], candidates: number[], deckIndex: number) {
+  const deck = bodies[deckIndex].placement;
+  const units: Array<{ x0: number; x1: number; y0: number; y1: number; cargoTop: number }> = [];
+  for (const j of candidates) {
+    const lower = bodies[j];
+    if (j === deckIndex || lower.kind !== 'support' || lower.unitHeightM === undefined) continue;
+    const s = lower.placement;
+    if (Math.abs(s.z + lower.unitHeightM - deck.z) > HEIGHT_TOLERANCE_M) continue;
+    const x0 = s.x, x1 = s.x + s.length, y0 = s.y, y1 = s.y + s.width;
+    let cargoTop = -Infinity;
+    for (const k of candidates) {
+      const c = bodies[k].placement;
+      if (bodies[k].kind !== 'cargo' || c.x < x0 - EPS || c.x + c.length > x1 + EPS || c.y < y0 - EPS || c.y + c.width > y1 + EPS) continue;
+      if (c.z < s.z + s.height - HEIGHT_TOLERANCE_M || c.z + c.height > deck.z + HEIGHT_TOLERANCE_M) continue;
+      cargoTop = Math.max(cargoTop, c.z + c.height);
+    }
+    const layer = deck.z - cargoTop;
+    if (layer > HEIGHT_TOLERANCE_M && layer <= MAX_PALLET_PACKAGING_LAYER_M + EPS) units.push({ x0, x1, y0, y1, cargoTop });
+  }
+  return units;
 }
 
 function supportersOf(bodies: Body[]) {
@@ -116,10 +151,16 @@ function supportersOf(bodies: Body[]) {
     const p = body.placement;
     const links: SupportLink[] = [];
     if (p.z <= HEIGHT_TOLERANCE_M) return links;
-    for (const j of candidateIndexes(grid, bodies.length, p.x, p.y, p.x + p.length, p.y + p.width)) {
+    const candidates = [...candidateIndexes(grid, bodies.length, p.x, p.y, p.x + p.length, p.y + p.width)];
+    const packaged = body.kind === 'support' ? packagedUnitsUnder(bodies, candidates, index) : [];
+    for (const j of candidates) {
       if (j === index) continue;
       const below = bodies[j].placement;
-      const area = supportContactArea(below, p);
+      let area = supportContactArea(below, p);
+      if (!area && bodies[j].kind === 'cargo' && packaged.some(unit => below.x >= unit.x0 - EPS && below.x + below.length <= unit.x1 + EPS
+        && below.y >= unit.y0 - EPS && below.y + below.width <= unit.y1 + EPS && Math.abs(below.z + below.height - unit.cargoTop) <= HEIGHT_TOLERANCE_M)) {
+        area = overlap1d(below.x, below.x + below.length, p.x, p.x + p.length) * overlap1d(below.y, below.y + below.width, p.y, p.y + p.width);
+      }
       if (area > 0) links.push({ bodyIndex: j, area });
     }
     return links;

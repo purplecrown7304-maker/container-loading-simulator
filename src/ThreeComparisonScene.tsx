@@ -25,8 +25,9 @@ import ThreeSceneLighting from './ThreeSceneLighting';
 import { cameraFitAction, createCameraMotion, sampleCameraMotion, type CameraMotion, type CameraMotionPose } from './cameraMotion';
 import ThreeStagingFlights from './ThreeStagingFlights';
 import { createStagingPointerInteraction, type StagingPointerCallbacks, type StagingPointerUnit } from './stagingPointerInteraction';
-import { nearestStagingHit, nextStagingHover, STAGING_CONFLICT_COLOR, STAGING_HOVER_COLOR, stagingCursor, stagingHitSource, stagingPreviewConflicts, stagingUnitDraggable, stagingUnitSceneBounds, type StagingHover } from './stagingDragCues';
+import { nearestStagingHit, nextStagingHover, STAGING_CONFLICT_COLOR, STAGING_HOVER_COLOR, STAGING_SUPPORT_COLOR, stagingCursor, stagingHitSource, stagingPreviewConflicts, stagingUnitDraggable, stagingUnitSceneBounds, type StagingHover } from './stagingDragCues';
 import { ThreeStagingCursor, ThreeStagingOutlines } from './ThreeStagingCues';
+import { stagingPreviewSupport } from './stagingDragTarget';
 import { createSceneRetirement } from './sceneRetirement';
 import { arrivalStartMs, arrivingOffset, departingOffset, dockShade, recallVehicleSwap, retargetVehicleSwap, VEHICLE_SWAP_PROFILE, vehicleIdentity, vehicleSwapTravel, type VehicleSwapState } from './vehicleSwapMotion';
 
@@ -561,6 +562,11 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
   }, [vehicleUnits, outlinedHover, plan.container]);
   // Placed cargo that a rejected drag candidate runs into; the verdict itself is the command owner's.
   const conflictBoxes = useMemo(() => vehicleUnits ? stagingPreviewConflicts(vehicleUnits, dragPreview, plan.container) : [], [vehicleUnits, dragPreview, plan.container]);
+  // What a raised candidate would rest on, in the candidate's own colour.
+  const supportBoxes = useMemo(() => {
+    const bounds = vehicleUnits ? stagingPreviewSupport(vehicleUnits, dragPreview, plan.container) : null;
+    return bounds ? [bounds] : [];
+  }, [vehicleUnits, dragPreview, plan.container]);
   const cursor = staging ? stagingCursor({ dragging: staging.dragging, hover: hoveredUnit ? hover : null, canDrag: canDragUnits && stagingUnitDraggable(hoveredUnit) }) : '';
   return <div style={{ width: '100%', height: '100%', position: 'relative', minHeight: 180 }} data-three-scene-ready={Boolean(resources)}>
     <Canvas frameloop="demand" camera={{ fov: 40, near: .02, far: 500, position: [10, 7, 10] }} dpr={VIEWER_QUALITY_PROFILES[quality.quality].dpr} gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }} onPointerMissed={event => { if (event.type === 'click' && event.button === 0) options.onSelect(null); }} onContextMenu={event => event.preventDefault()} fallback={<WebGLFallback onError={options.onError} />}>
@@ -575,9 +581,10 @@ export default function ThreeComparisonScene(options: ThreeComparisonSceneProps)
         canDrag={staging.canManipulate !== false && !options.frameData && !options.weight && !staging.flight}
         onInspect={staging.inspectUnit} onSelect={staging.selectUnit} onDragStart={staging.onDragStart} onDragMove={staging.onDragMove} onDragEnd={staging.onDragEnd} onDraggingChange={staging.onDraggingChange} onError={setYardError} />}
       {staging && <StagingVehicleOutline bounds={staging.flight?.flights.some(flight => flight.unitId === staging.selectedUnitId) ? null : selectedStaging?.bounds ?? null} />}
-      {staging?.preview && previewUnit && <ThreeStagingPreview unit={previewUnit} candidate={staging.preview.candidate} container={plan.container} valid={staging.preview.valid} onError={setYardError} />}
+      {staging?.preview && previewUnit && <ThreeStagingPreview unit={previewUnit} candidate={staging.preview.candidate} container={plan.container} valid={staging.preview.valid} caution={Boolean(staging.preview.cautions?.length)} onError={setYardError} />}
       {staging && <ThreeStagingOutlines name="Pointer-over vehicle staging unit" color={STAGING_HOVER_COLOR} renderOrder={7} boxes={hoverBoxes} />}
       {staging && <ThreeStagingOutlines name="Cargo a rejected drag runs into" color={STAGING_CONFLICT_COLOR} renderOrder={9} boxes={conflictBoxes} />}
+      {staging && <ThreeStagingOutlines name="Cargo a raised drag candidate rests on" color={dragPreview?.valid === false ? STAGING_CONFLICT_COLOR : STAGING_SUPPORT_COLOR} renderOrder={8} boxes={supportBoxes} />}
       {staging && <ThreeStagingCursor cursor={cursor} />}
       <SceneRuntime resources={resources} options={options} frameState={frameState} onPresented={onPresented} />
       <ThreeRenderPipeline quality={quality.quality} ambientOcclusion={quality.ambientOcclusion} onStatus={options.onPipelineStatus} onError={setPipelineError} />

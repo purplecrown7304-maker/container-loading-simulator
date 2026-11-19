@@ -271,7 +271,77 @@ describe('atomic in-vehicle staging relocation', () => {
     expect(checked.result.loadedWeightKg).toBeCloseTo(current.result.loadedWeightKg); expect(checked.result.securingBudget?.level).toBe(3);
     expect(JSON.stringify({ current, unit })).toBe(before);
   });
-  it('validates the final balanced plan rather than rejecting an invalid intermediate withdrawal CG', () => {
+  it('carries an out-of-range centre of gravity as a verdict instead of refusing the move (owner decision 2026-11-19)', () => {
+    const heavyItem = { ...item, quantity: 2, weightKg: 400 };
+    const makeLoad = (id: string, x: number, index: number): PalletLoad => ({ ...pallet(id).pallet!, x, y: .5, palletIndex: index, stackColumn: index,
+      cargoPlacements: [{ ...placement(id, x, .15), weightKg: 400 }], cargoWeightKg: 400, totalWeightKg: 405,
+      centerOfGravity: { x: x + .5, y: 1, z: .35 } });
+    const loads = [makeLoad('A:0', .5, 1), makeLoad('A:1', 2.5, 2)];
+    let current: StagingCommandContext = { ...palletContext(), cargo: [heavyItem], container: { ...context().container, maxPayloadKg: 900 },
+      pallets: loads, result: { ...empty(), placements: loads.flatMap(load => load.cargoPlacements) } };
+    current = { ...current, result: assessStagingRestore(current, { result: current.result, pallets: loads }).result };
+    expect(current.result.operationalFindings?.some(f => f.severity === 'error')).toBe(false);
+    // Both pallets pushed to the inner end: the plan is applied and keeps the error.
+    const moved = assessStagingRelocation(current, vehiclePallet(current, 1), { x: 1.5, y: .5, z: 0 });
+    expect(moved.reasons).toEqual([]); expect(moved.valid).toBe(true); expect(moved.changed).toBe(true); expect(moved.invalidateVerification).toBe(true);
+    expect(moved.cautions).toHaveLength(1); expect(moved.cautions[0]).toContain('CG_LONGITUDINAL'); expect(moved.cautions[0]).toContain('운송 검증과 출고');
+    expect(moved.result.operationalFindings?.filter(f => f.severity === 'error').map(f => f.code)).toEqual(['CG_LONGITUDINAL']);
+    // From the unbalanced plan the operator can go on, go back to it after an undo, or put it right.
+    const unbalanced = { ...current, result: moved.result, pallets: moved.pallets };
+    const again = assessStagingRestore(current, { result: moved.result, pallets: moved.pallets });
+    expect(again.reasons).toEqual([]); expect(again.cautions.join()).toContain('CG_LONGITUDINAL');
+    const balanced = assessStagingRelocation(unbalanced, vehiclePallet(unbalanced, 1), { x: 2.5, y: .5, z: 0 });
+    expect(balanced.reasons).toEqual([]); expect(balanced.cautions).toEqual([]);
+    expect(balanced.result.operationalFindings?.some(f => f.severity === 'error')).toBe(false);
+    // The error that is already there is not announced again when a move leaves it as it was.
+    const sideways = assessStagingRelocation(unbalanced, vehiclePallet(unbalanced, 1), { x: 1.5, y: .52, z: 0 });
+    expect(sideways.valid).toBe(true); expect(sideways.cautions.filter(text => text.includes('CG_LONGITUDINAL'))).toEqual([]);
+    // Everything else still refuses a move: here the same position, into the other pallet.
+    const collision = assessStagingRelocation(current, vehiclePallet(current, 1), { x: 1, y: .5, z: 0 });
+    expect(collision.valid).toBe(false); expect(collision.cautions).toEqual([]); expect(collision.reasons.join()).toContain('충돌'); expect(collision.result).toBe(current.result);
+  });
+  it('proposes a balanced position itself and offers an unbalanced one only when there is no other', () => {
+    const heavy = { ...item, quantity: 2, weightKg: 400, maxStackLayers: 1 };
+    const source = { ...context([], [heavy]), container: { ...context().container, maxPayloadKg: 900 } };
+    const first = findStagingLoadingPosition(source, { ...box('A:0'), weightKg: 400 });
+    expect(first.reasons).toEqual([]); expect(first.cautions).toEqual([]); expect(first.candidate).toMatchObject({ x: 1.5, y: .5, z: 0 });
+    // Beside it every free place is off balance, and it may not be stacked: the first safe place, with its caution.
+    const second = findStagingLoadingPosition({ ...source, result: first.result }, { ...box('A:1'), weightKg: 400 });
+    expect(second.reasons).toEqual([]); expect(second.valid).toBe(true); expect(second.candidate!.z).toBe(0);
+    expect(second.cautions.join()).toContain('CG_LONGITUDINAL');
+    // The explicit strict form, used for that first pass, still refuses the same place.
+    const strict = assessStagingAddition({ ...source, result: first.result }, { ...box('A:1'), weightKg: 400 }, second.candidate!, false, { strictBalance: true });
+    expect(strict.valid).toBe(false); expect(strict.reasons.join()).toContain('CG_LONGITUDINAL');
+  });
+  it('stacks a pallet by hand under the planner\'s own support rule, through the lower pallet\'s packaging (owner decision 2026-11-19)', () => {
+    const partial = (id: string, cargoId: string, length: number): StagingUnit => {
+      const unit = pallet(id);
+      unit.pallet = { ...unit.pallet!, cargoPlacements: [{ ...unit.pallet!.cargoPlacements[0], cargoId, length }] };
+      return { ...unit, cargoId, cargoIds: [cargoId], boxUnits: [{ id, cargoId, stableId: `staging:${id}` }] };
+    };
+    const source = { ...palletContext(), cargo: [item, { ...item, id: 'B', length: .9 }, { ...item, id: 'C', length: .7 }] };
+    // The lower pallet's top carton carries 90% of the upper pallet's base: allowed, as the planner allows it.
+    const ninety = loadedPallet(source, partial('B:0', 'B', .9));
+    const upper = assessStagingAddition(ninety, pallet('A:0'), { x: 1.5, y: .5, z: .65 });
+    expect(upper.reasons).toEqual([]); expect(upper.valid).toBe(true); expect(upper.pallets[1].stackLevel).toBe(2); expect(upper.pallets[1].stackColumn).toBe(upper.pallets[0].stackColumn);
+    // 70% is short of the shared 80% rule.
+    const seventy = loadedPallet(source, partial('C:0', 'C', .7));
+    const short = assessStagingAddition(seventy, pallet('A:0'), { x: 1.5, y: .5, z: .65 });
+    expect(short.valid).toBe(false); expect(short.reasons).toContain('하부 파렛트 윗면 화물이 상부 파렛트 바닥을 충분히(80% 이상) 받치지 못합니다.');
+    // A wrapped lower pallet ends 1 cm above its cartons; the upper pallet stands on that unit.
+    const wrapped = { ...palletContext(), palletSpec: { ...spec, useWrapping: true, wrappingWeightKg: 1.5, wrappingExtraHeightM: .01 } };
+    const lower = loadedPallet(wrapped, pallet('A:0', true));
+    const onWrapped = assessStagingAddition(lower, pallet('A:1', true), { x: 1.5, y: .5, z: .66 });
+    expect(onWrapped.reasons).toEqual([]); expect(onWrapped.valid).toBe(true); expect(onWrapped.pallets[1].stackLevel).toBe(2);
+    expect(onWrapped.result.operationalFindings?.filter(f => f.severity === 'error')).toEqual([]);
+    // Level with the cartons is inside the wrapped unit, not on it.
+    expect(assessStagingAddition(lower, pallet('A:1', true), { x: 1.5, y: .5, z: .65 }).valid).toBe(false);
+    // The limits that are not about support are unchanged: a third level and a pallet without a static rating.
+    const stacked = { ...lower, result: onWrapped.result, pallets: onWrapped.pallets };
+    expect(assessStagingAddition(stacked, pallet('A:2', true), { x: 1.5, y: .5, z: 1.32 }).valid).toBe(false);
+    expect(assessStagingAddition({ ...lower, palletSpec: { ...wrapped.palletSpec, maxStaticLoadKg: undefined } }, pallet('A:1', true), { x: 1.5, y: .5, z: .66 }).valid).toBe(false);
+  });
+  it('validates the final balanced plan of a relocation whose intermediate withdrawal would be out of balance', () => {
     const heavyItem = { ...item, quantity: 2, weightKg: 400 };
     const makeLoad = (id: string, x: number, index: number): PalletLoad => ({ ...pallet(id).pallet!, x, y: .5, palletIndex: index, stackColumn: index,
       cargoPlacements: [{ ...placement(id, x, .15), weightKg: 400 }], cargoWeightKg: 400, totalWeightKg: 405,
@@ -282,7 +352,10 @@ describe('atomic in-vehicle staging relocation', () => {
     const restored = assessStagingRestore(current, { result: current.result, pallets: loads }); expect(restored.reasons).toEqual([]);
     current = { ...current, result: restored.result };
     const unit = vehiclePallet(current);
-    expect(assessStagingWithdrawal(current, unit).reasons.join()).toContain('CG_LONGITUDINAL');
+    // Taking one of the two away leaves the other off balance. That is now a caution on the
+    // withdrawal (owner decision 2026-11-19), and still never a reason against the relocation.
+    const withdrawn = assessStagingWithdrawal(current, unit);
+    expect(withdrawn.reasons).toEqual([]); expect(withdrawn.cautions.join()).toContain('CG_LONGITUDINAL');
     const checked = assessStagingRelocation(current, unit, { x: .6, y: .5, z: 0 });
     expect(checked.reasons).toEqual([]); expect(checked.valid).toBe(true); expect(checked.result.placements).toHaveLength(2);
     expect(checked.result.operationalFindings?.some(f => f.severity === 'error')).toBe(false);

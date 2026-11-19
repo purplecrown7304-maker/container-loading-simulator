@@ -15,6 +15,8 @@ export type StagingDragPreview = { unitId: string; candidate: Placement; valid: 
 export const STAGING_CONFLICT_OUTLINE_LIMIT = 24;
 /** The red of a rejected candidate, so cargo and candidate read as one conflict. */
 export const STAGING_CONFLICT_COLOR = '#dc2626';
+/** The green of an accepted candidate, for the cargo it would be put on. */
+export const STAGING_SUPPORT_COLOR = '#15803d';
 /** Pointer-over outline, distinct from the blue selection and the red/green candidate. */
 export const STAGING_HOVER_COLOR = '#0891b2';
 

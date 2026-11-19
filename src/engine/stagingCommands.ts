@@ -8,10 +8,10 @@ import { resolveLimitReview, reviewPlacementBlockers } from './limitReview';
 import { aCandidateAllowed, auditAIdentity } from './loadSimAdapter';
 import { isARules } from './loadingRuleset';
 import type { LoadingStrategy } from './loadingEngine';
-import { manualEditRegressionReasons, recomputeManualEditResult } from './manualEditPolicy';
+import { MANUAL_MOVE_VERDICT_CODES, manualEditRegressionReasons, manualMoveBalanceCautions, recomputeManualEditResult } from './manualEditPolicy';
 import { snapManualCoordinate, supportsOtherPlacement } from './manualPlacement';
 import { validateOperationalLoading } from './operationalValidator';
-import { canSupportUpper, type PalletLoad, type PalletSpec } from './palletPacking';
+import { canSupportUpper, hasPalletFootprintSupport, type PalletLoad, type PalletSpec } from './palletPacking';
 import type { OptimizedPalletPackingResult } from './palletOptimization';
 import type { MixedModePackingResult } from './mixedModePacking';
 import { palletAdvisoryFindings, palletSupportBodies } from './palletPlanValidation';
@@ -36,6 +36,9 @@ export type StagingCommandContext = {
 export type StagingCommandAssessment = {
   valid: boolean;
   reasons: string[];
+  /** For an accepted command only: centre-of-gravity errors it leaves on the plan. They do
+   * not refuse it; the plan cannot pass verification or be dispatched while they stand. */
+  cautions: string[];
   unitId: string;
   candidate?: Placement;
   result: LoadingResult;
@@ -53,9 +56,9 @@ const envelope = (load: PalletLoad): Placement => ({ cargoId: `PALLET-${load.pal
 const strategy = (context: StagingCommandContext) => context.strategy === 'unloading' || (!context.strategy && context.result.operationalFindings?.some(f => f.code === 'HEAVY_INNER_UNLOAD_CONFLICT')) ? 'unloading' as const : 'capacity' as const;
 const owned = (load: PalletLoad, p: Placement) => load.cargoPlacements.some(q => q === p || (q.unitId && q.unitId === p.unitId));
 
-function outcome(context: StagingCommandContext, unit: Pick<StagingUnit, 'id'>, reasons: string[], candidate?: Placement, result = context.result, pallets = context.pallets ?? []): StagingCommandAssessment {
+function outcome(context: StagingCommandContext, unit: Pick<StagingUnit, 'id'>, reasons: string[], candidate?: Placement, result = context.result, pallets = context.pallets ?? [], cautions: string[] = []): StagingCommandAssessment {
   const valid = reasons.length === 0;
-  return { valid, reasons: [...new Set(reasons)], unitId: unit.id, candidate,
+  return { valid, reasons: [...new Set(reasons)], cautions: valid ? [...new Set(cautions)] : [], unitId: unit.id, candidate,
     result: valid ? result : context.result, pallets: valid ? pallets : context.pallets ?? [],
     changed: valid && result !== context.result, invalidateVerification: valid && result !== context.result,
     previous: { result: context.result, pallets: context.pallets ?? [] } };
@@ -138,7 +141,15 @@ function evidence(context: StagingCommandContext, placements: Placement[], palle
   return result;
 }
 
-function regressionReasons(context: StagingCommandContext, result: LoadingResult, pallets: PalletLoad[]) {
+/** Owner decision 2026-11-19: under the legacy rules a move made by hand is not refused
+ * for the vehicle's centre of gravity; that error is a verdict the plan then carries.
+ * A-rules and the numerical WHAT-IF review keep their own handling. */
+const balanceIsVerdict = (context: StagingCommandContext) => !isARules(context.container) && context.container.limitReview === undefined;
+const cautionText = (finding: { code: string; message: string }) => `무게중심 기준을 벗어납니다. 이 오류가 해소될 때까지 운송 검증과 출고는 통과할 수 없습니다: ${finding.code} · ${finding.message}`;
+
+/** `strictBalance` is for a position the program itself proposes: it should not choose a
+ * place that puts the centre of gravity out of range when another place does not. */
+function regressionReasons(context: StagingCommandContext, result: LoadingResult, pallets: PalletLoad[], strictBalance = false) {
   const before = evidence(context, context.result.placements, context.pallets ?? []);
   // Removal changes flat array indexes. Compare the same surviving physical objects.
   const remap = (indexes: number[]) => indexes.flatMap(index => {
@@ -147,9 +158,11 @@ function regressionReasons(context: StagingCommandContext, result: LoadingResult
     return next < 0 ? [] : [next];
   });
   const aligned = { ...before, validationIssues: before.validationIssues.map(f => ({ ...f, placementIndexes: remap(f.placementIndexes) })), operationalFindings: before.operationalFindings?.map(f => ({ ...f, placementIndexes: remap(f.placementIndexes) })) };
-  const reasons = manualEditRegressionReasons(aligned, result);
-  if (context.container.limitReview === undefined) return reasons;
-  return [...reviewPlacementBlockers(context.container, context.cargo, result.placements, result.securingBudget?.totalTransportWeightKg), ...reasons.filter(reason => reason.includes('기존 운영 오류'))];
+  const verdict = balanceIsVerdict(context) && !strictBalance;
+  const reasons = manualEditRegressionReasons(aligned, result, { balanceIsVerdict: verdict });
+  const cautions = verdict ? manualMoveBalanceCautions(aligned, result).map(cautionText) : [];
+  if (context.container.limitReview === undefined) return { reasons, cautions };
+  return { reasons: [...reviewPlacementBlockers(context.container, context.cargo, result.placements, result.securingBudget?.totalTransportWeightKg), ...reasons.filter(reason => reason.includes('기존 운영 오류'))], cautions };
 }
 
 function palletReasons(context: StagingCommandContext, pallets: PalletLoad[]) {
@@ -179,13 +192,13 @@ function palletReasons(context: StagingCommandContext, pallets: PalletLoad[]) {
 }
 
 /** No command writes stores, publishes events or changes the original input/plan. */
-export function assessStagingAddition(context: StagingCommandContext, unit: StagingUnit, target: StagingPosition, rotate = false): StagingCommandAssessment {
-  return assessAddition(context, unit, target, rotate, context);
+export function assessStagingAddition(context: StagingCommandContext, unit: StagingUnit, target: StagingPosition, rotate = false, options: { strictBalance?: boolean } = {}): StagingCommandAssessment {
+  return assessAddition(context, unit, target, rotate, context, options.strictBalance === true);
 }
 
 /** Relocation evaluates the final plan against its original accepted baseline,
  * never against the temporary state with the moving unit removed. */
-function assessAddition(context: StagingCommandContext, unit: StagingUnit, target: StagingPosition, rotate: boolean, baseline: StagingCommandContext): StagingCommandAssessment {
+function assessAddition(context: StagingCommandContext, unit: StagingUnit, target: StagingPosition, rotate: boolean, baseline: StagingCommandContext, strictBalance = false): StagingCommandAssessment {
   const reasons = inputReasons(context, unit);
   if (unit.location !== 'yard') reasons.push('대기장에 있는 화물만 상차할 수 있습니다.');
   if (![target.x, target.y, target.z].every(value => Number.isFinite(value) && value >= 0)) reasons.push('적재 위치는 차량 내부의 유한한 좌표여야 합니다.');
@@ -210,7 +223,11 @@ function assessAddition(context: StagingCommandContext, unit: StagingUnit, targe
     moved.stackLevel = moved.z <= .001 ? 1 : Math.max(0, ...below.map(p => p.stackLevel)) + 1;
     moved.stackColumn = below[0]?.stackColumn ?? index;
     if (moved.z > .001 && !below.length) reasons.push('상부 파렛트는 검증된 하부 파렛트 전체 지지면 위에 놓아야 합니다.');
-    if (moved.z > .001 && !hasAdequateSupport({ ...candidate, height: moved.height }, context.result.placements, undefined, 1)) reasons.push('하부 화물이 파렛트 전체 바닥면을 지지하지 못합니다.');
+    // Owner decision 2026-11-19: a pallet stacked by hand needs what the planner needs of
+    // its own stacks, not more. The lower pallet's top cartons must carry it by the shared
+    // support rule; its wrapping and corner guards between the two are not a gap.
+    const spec = context.palletSpec;
+    if (moved.z > .001 && below.length && !below.some(lower => hasPalletFootprintSupport(lower, spec))) reasons.push('하부 파렛트 윗면 화물이 상부 파렛트 바닥을 충분히(80% 이상) 받치지 못합니다.');
     if (pallets.some(p => overlaps(candidate, envelope(p)))) reasons.push('다른 파렛트와 충돌합니다.');
     const loose = context.result.placements.filter(p => !pallets.some(load => owned(load, p)));
     if (loose.some(p => overlaps(candidate, p))) reasons.push('파렛트 전체 단위가 다른 화물과 충돌합니다.');
@@ -239,8 +256,9 @@ function assessAddition(context: StagingCommandContext, unit: StagingUnit, targe
   reasons.push(...quantityReasons(context, placements));
   if (reasons.length) return outcome(baseline, unit, reasons, candidate);
   const result = evidence(context, placements, pallets);
-  reasons.push(...regressionReasons(baseline, result, pallets));
-  return outcome(baseline, unit, reasons, candidate, result, pallets);
+  const regression = regressionReasons(baseline, result, pallets, strictBalance);
+  reasons.push(...regression.reasons);
+  return outcome(baseline, unit, reasons, candidate, result, pallets, regression.cautions);
 }
 
 /** Membership and physical support locks are shared; no intermediate plan is
@@ -272,8 +290,9 @@ export function assessStagingWithdrawal(context: StagingCommandContext, unit: St
   const { reasons, placements, pallets } = withdrawalSelection(context, unit);
   if (reasons.length) return outcome(context, unit, reasons);
   const result = evidence(context, placements, pallets, true);
-  reasons.push(...quantityReasons(context, placements), ...palletReasonsIfPresent(context, pallets), ...regressionReasons(context, result, pallets));
-  return outcome(context, unit, reasons, undefined, result, pallets);
+  const regression = regressionReasons(context, result, pallets);
+  reasons.push(...quantityReasons(context, placements), ...palletReasonsIfPresent(context, pallets), ...regression.reasons);
+  return outcome(context, unit, reasons, undefined, result, pallets, regression.cautions);
 }
 
 /** Atomic in-vehicle movement. Temporary removal supplies collision/support
@@ -324,11 +343,15 @@ export function assessStagingRestore(context: StagingCommandContext, previous: {
     && (context.mode === 'pallets' || (context.mode === 'mixed' && explicitPallet.has(p.cargoId))))) reasons.push('포장 계획 완료 후 상차할 수 있습니다.');
   if (reasons.length) return outcome(context, unit, reasons);
   const result = evidence(restoredContext, previous.result.placements, previous.pallets);
+  // A plan that a move left with a centre-of-gravity error can be gone back to: that error
+  // was accepted as a verdict when the move was made and still blocks verification.
+  const carried = (code: string) => balanceIsVerdict(context) && MANUAL_MOVE_VERDICT_CODES.has(code);
   if (context.container.limitReview === undefined) reasons.push(...result.validationIssues.map(issue => issue.message),
-    ...(result.operationalFindings ?? []).filter(finding => finding.severity === 'error').map(finding => finding.message));
+    ...(result.operationalFindings ?? []).filter(finding => finding.severity === 'error' && !carried(finding.code)).map(finding => finding.message));
   else if (previous.pallets.length || (context.mode && context.mode !== 'boxes')) reasons.push('WHAT-IF REVIEW는 legacy 직접 박스 적재만 지원합니다. A·팔레트·MIXED는 엄격 모드로 전환하세요.');
-  reasons.push(...regressionReasons(context, result, previous.pallets));
-  return outcome(context, unit, reasons, undefined, result, previous.pallets);
+  const regression = regressionReasons(context, result, previous.pallets);
+  reasons.push(...regression.reasons);
+  return outcome(context, unit, reasons, undefined, result, previous.pallets, regression.cautions);
 }
 
 function palletReasonsIfPresent(context: StagingCommandContext, pallets: PalletLoad[]) { return pallets.length ? palletReasons(context, pallets) : []; }
@@ -343,16 +366,22 @@ export function findStagingLoadingPosition(context: StagingCommandContext, unit:
   for (const body of occupied) spaces = nextSpaces(spaces, body);
   let firstFailure: StagingCommandAssessment | undefined;
   const rotations = unit.kind === 'box' && !same(dimensions.length, dimensions.width) ? [false, true] : [false];
-  for (const rotate of rotations) {
-    const length = rotate ? dimensions.width : dimensions.length, width = rotate ? dimensions.length : dimensions.width;
-    for (const space of [...spaces].sort((a, b) => a.z - b.z || a.x - b.x || a.y - b.y)) {
-      if (length > space.length + EPS || width > space.width + EPS || dimensions.height > space.height + EPS) continue;
-      const xs = [...new Set([space.x + (space.length - length) / 2, space.x, space.x + space.length - length])];
-      const ys = [...new Set([space.y + (space.width - width) / 2, space.y, space.y + space.width - width])];
-      for (const x of xs) for (const y of ys) {
-        const checked = assessStagingAddition(context, unit, { x, y, z: space.z }, rotate);
-        if (checked.valid) return checked;
-        firstFailure ??= checked;
+  // A place the program proposes keeps the centre of gravity in range whenever any place
+  // does. Only when none does is the first otherwise-safe place offered, with its caution.
+  for (const strictBalance of balanceIsVerdict(context) ? [true, false] : [true]) {
+    // The second pass ignores only the balance; what still fails there is the real obstacle.
+    if (!strictBalance) firstFailure = undefined;
+    for (const rotate of rotations) {
+      const length = rotate ? dimensions.width : dimensions.length, width = rotate ? dimensions.length : dimensions.width;
+      for (const space of [...spaces].sort((a, b) => a.z - b.z || a.x - b.x || a.y - b.y)) {
+        if (length > space.length + EPS || width > space.width + EPS || dimensions.height > space.height + EPS) continue;
+        const xs = [...new Set([space.x + (space.length - length) / 2, space.x, space.x + space.length - length])];
+        const ys = [...new Set([space.y + (space.width - width) / 2, space.y, space.y + space.width - width])];
+        for (const x of xs) for (const y of ys) {
+          const checked = assessStagingAddition(context, unit, { x, y, z: space.z }, rotate, { strictBalance });
+          if (checked.valid) return checked;
+          firstFailure ??= checked;
+        }
       }
     }
   }

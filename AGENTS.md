@@ -103,6 +103,28 @@ Owner instruction: "무게 중심보다는 적재물이나 파렛트가 움직�
 - The inertia certification, its thresholds and all hard limits are unchanged, and the
   static check never replaces the certification result. A-rules keep their own path.
 
+## 2E. Owner-approved manual staging rules (2026-11-19)
+
+Owner decisions for cargo moved by hand in the staging view (`engine/stagingCommands.ts`:
+load, in-vehicle move, withdraw, undo), legacy rules only. Full text:
+`docs/engine/LOADING_RULES.md` section 7B.
+
+- A pallet stacked by hand is judged by the planner's own stacking support rule: the lower
+  pallet's top cartons carry at least 80% of the upper pallet's base, through that
+  pallet's wrapping and corner guards. The operational validator uses the same rule, so
+  a packaged second tier is no longer reported as floating. Stack levels, static load,
+  top load, ceiling, floor load, payload and collision checks are unchanged.
+- The vehicle's centre of gravity (`CG_LONGITUDINAL`, `CG_LATERAL`) is a verdict on a
+  manual move, not a reason to refuse it. The move is applied, the error stays on the
+  plan, and the plan cannot pass transport verification or be dispatched while it stands.
+  Every other new or worsened error still refuses the move.
+- A position the program itself proposes keeps the centre of gravity in range whenever
+  any position does.
+- Drag aiming (onto the cargo under the pointer, flush against a wall or neighbour within
+  0.1 m) only chooses coordinates; the checks above decide.
+- A-rules, the WHAT-IF review, the coordinate-entry manual editor and group moves are
+  unchanged.
+
 ## 3. DIRECT BOX baseline algorithm
 The legacy fixed sequence of `CBM/weight sort -> full vertical stacks -> x shelf progression -> door-side tail mixing` is retired.
 

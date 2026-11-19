@@ -120,6 +120,20 @@ describe('staging yard panel', () => {
     await click(button('선택 해제')); expect(props.onSelect).toHaveBeenCalledWith(null);
   });
 
+  it('shows an accepted candidate that leaves a balance error as allowed with its caution, never as rejected', async () => {
+    const caution = '무게중심 기준을 벗어납니다. 이 오류가 해소될 때까지 운송 검증과 출고는 통과할 수 없습니다: CG_LATERAL · 폭 방향 무게중심 편차 183mm가 허용 ±118mm를 넘습니다.';
+    await render({ selectedId: 'A-0', preview: { valid: true, reasons: [], cautions: [caution] } });
+    const preview = host.querySelector('.staging-panel-preview')!;
+    expect(preview.className).toBe('staging-panel-preview valid caution');
+    expect(preview.textContent).toContain('배치 가능 · 무게중심 오류가 남습니다'); expect(preview.textContent).toContain('CG_LATERAL'); expect(preview.textContent).not.toContain('배치 불가');
+    // Without a caution it is the plain accepted state, and a rejected candidate shows its reasons only.
+    await render({ preview: { valid: true, reasons: [], cautions: [] } });
+    expect(host.querySelector('.staging-panel-preview')!.className).toBe('staging-panel-preview valid'); expect(host.querySelector('.staging-panel-preview ul')).toBeNull();
+    await render({ preview: { valid: false, reasons: ['다른 화물과 충돌합니다.'], cautions: [caution] } });
+    expect(host.querySelector('.staging-panel-preview')!.className).toBe('staging-panel-preview invalid');
+    expect(host.querySelector('.staging-panel-preview')!.textContent).not.toContain('무게중심');
+  });
+
   it('permits withdrawal only for a current-vehicle selection and honors busy and owner safety gates', async () => {
     const data = inventory([box('LOADED', 'vehicle'), box('OTHER', 'other-vehicle')]);
     await render({ inventory: data, selectedId: 'LOADED' });

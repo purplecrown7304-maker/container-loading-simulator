@@ -34,6 +34,7 @@ import { uiText } from './uiLanguage';
 import { useStagingFlights } from './useStagingFlights';
 import { STAGING_PLAN_MOTION_EVENT, STAGING_PLAN_MOTION_WAIT_MS } from './stagingPlanMotion';
 import { stagingUnitDraggable } from './stagingDragCues';
+import { stagingDragTarget } from './stagingDragTarget';
 import { setStagingFlightVisible } from './stagingFlightVisibility';
 
 type HistoryEntry = { previous: { result: LoadingResult; pallets: PalletLoad[] }; selection: string | null;
@@ -271,9 +272,10 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     const history: HistoryEntry = { previous: checked.previous, selection: now.current.selected,
       identity: now.inventory.identity, yardPallets: now.inventory.yardUnits.filter(candidate => candidate.kind === 'pallet').map(identifiedLoad),
       snapshot: now.snapshotSource };
+    const done = relocation ? '선택 화물 위치를 이동했습니다. 운송 검증을 다시 실행하세요.' : withdrawal ? '선택 화물을 대기장으로 회수했습니다. 운송 검증을 다시 실행하세요.' : '선택 화물을 차량에 배치했습니다. 운송 검증을 다시 실행하세요.';
+    // An accepted move may leave a centre-of-gravity error on the plan; the operator is told.
     return apply(checked, { yardPallets, selected: unit.id, identity, history: [...now.current.history, history],
-      animateLoad: !withdrawal && !relocation,
-      message: relocation ? '선택 화물 위치를 이동했습니다. 운송 검증을 다시 실행하세요.' : withdrawal ? '선택 화물을 대기장으로 회수했습니다. 운송 검증을 다시 실행하세요.' : '선택 화물을 차량에 배치했습니다. 운송 검증을 다시 실행하세요.' });
+      animateLoad: !withdrawal && !relocation, message: [done, ...checked.cautions].join(' · ') });
   }, [apply]);
   const loadSelected = useCallback(() => {
     const now = live.current;
@@ -317,14 +319,16 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     if (drag.current?.epoch !== now.epoch || drag.current.planKey !== now.currentPlanKey || now.props.calculating || !now.confirmed) return;
     const unit = now.inventory.units.find(candidate => candidate.id === event.unitId && candidate.location !== 'other-vehicle');
     if (!unit || !stagingUnitDraggable(unit)) return;
-    const position = stagingDragPosition(unit, event.point, now.props.container);
+    // Aim only: onto the cargo under the pointer and flush against what is nearly touched.
+    const aimed = stagingDragTarget(unit, stagingDragPosition(unit, event.point, now.props.container), now.props.container, now.inventory.vehicleUnits);
+    const position = { x: aimed.x, y: aimed.y, z: aimed.z };
     const checked = unit.location === 'vehicle'
       ? assessStagingRelocation(stagingCommandContextForUnit(now.context, unit), unit, position)
       : assessStagingAddition(stagingCommandContextForUnit(now.context, unit), unit, position);
     const candidate: Placement = checked.candidate ?? { cargoId: unit.cargoId ?? unit.id, ...position,
       length: unit.length, width: unit.width, height: unit.height, weightKg: unit.weightKg };
     update(value => ({ ...value, selected: unit.id, dragging: true,
-      preview: { unitId: unit.id, candidate, valid: checked.valid, reasons: checked.reasons } }));
+      preview: { unitId: unit.id, candidate, valid: checked.valid, reasons: checked.reasons, cautions: checked.cautions } }));
   }, [update]);
   const onDragStart = useCallback((event: StagingYardDrag) => {
     drag.current = { epoch: live.current.epoch, unitId: event.unitId, planKey: live.current.currentPlanKey }; previewDrag(event);
@@ -336,7 +340,8 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
     const unit = now.inventory.units.find(candidate => candidate.id === event.unitId && candidate.location !== 'other-vehicle');
     if (!unit || unit.requiresPackaging) { update(value => ({ ...value, dragging: false, preview: null })); return; }
     // Reassess now; the preview is never itself permission to mutate the plan.
-    const target = stagingDragPosition(unit, event.point, now.props.container);
+    const aimed = stagingDragTarget(unit, stagingDragPosition(unit, event.point, now.props.container), now.props.container, now.inventory.vehicleUnits);
+    const target = { x: aimed.x, y: aimed.y, z: aimed.z };
     const checked = unit.location === 'vehicle'
       ? assessStagingRelocation(stagingCommandContextForUnit(now.context, unit), unit, target)
       : assessStagingAddition(stagingCommandContextForUnit(now.context, unit), unit, target);

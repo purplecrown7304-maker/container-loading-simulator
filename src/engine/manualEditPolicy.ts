@@ -23,10 +23,29 @@ function findingMagnitude(finding: OperationalRuleFinding) {
   return Math.max(0, value - limit);
 }
 
-function operationalRegressionReasons(before: OperationalRuleFinding[], after: OperationalRuleFinding[]) {
+/** Owner decision 2026-11-19 (LOADING_RULES section 7B): for cargo moved by hand in the
+ * staging view, the vehicle's centre of gravity is a verdict the plan carries, not a
+ * reason to refuse the move. Such a move is applied and the error stays on the plan,
+ * which cannot pass transport verification or be dispatched while it stands. */
+export const MANUAL_MOVE_VERDICT_CODES: ReadonlySet<string> = new Set(['CG_LONGITUDINAL', 'CG_LATERAL']);
+const NO_VERDICT_CODES: ReadonlySet<string> = new Set();
+
+/** Errors of `codes` that `after` has and `before` did not, or had smaller. */
+function newOrWorse(before: OperationalRuleFinding[], after: OperationalRuleFinding[], codes: ReadonlySet<string>) {
+  const previous = before.filter(f => f.severity === 'error' && codes.has(f.code));
+  return after.filter(finding => {
+    if (finding.severity !== 'error' || !codes.has(finding.code)) return false;
+    const same = previous.filter(row => row.code === finding.code);
+    if (!same.length) return true;
+    const magnitude = findingMagnitude(finding), earlier = same.map(findingMagnitude).filter((value): value is number => value !== null);
+    return magnitude !== null && earlier.length > 0 && magnitude > Math.max(...earlier) + EPS;
+  });
+}
+
+function operationalRegressionReasons(before: OperationalRuleFinding[], after: OperationalRuleFinding[], verdictCodes: ReadonlySet<string> = NO_VERDICT_CODES) {
   const reasons: string[] = [];
-  const beforeErrors = before.filter(f => f.severity === 'error');
-  const afterErrors = after.filter(f => f.severity === 'error');
+  const beforeErrors = before.filter(f => f.severity === 'error' && !verdictCodes.has(f.code));
+  const afterErrors = after.filter(f => f.severity === 'error' && !verdictCodes.has(f.code));
   const beforeByCode = new Map<string, OperationalRuleFinding[]>();
   for (const finding of beforeErrors) {
     const list = beforeByCode.get(finding.code) ?? [];
@@ -144,7 +163,10 @@ export function recomputeManualEditResult(
   return result;
 }
 
-export function manualEditRegressionReasons(before: LoadingResult, after: LoadingResult) {
+/** `balanceIsVerdict` leaves the centre-of-gravity errors out of the reasons to refuse
+ * an edit; `manualMoveBalanceCautions` reports them instead. Every other new, worsened
+ * or widened error refuses the edit exactly as before. */
+export function manualEditRegressionReasons(before: LoadingResult, after: LoadingResult, options: { balanceIsVerdict?: boolean } = {}) {
   return [
     ...validationRegressionReasons(
       before.validationIssues,
@@ -152,6 +174,13 @@ export function manualEditRegressionReasons(before: LoadingResult, after: Loadin
       before.securingBudget?.totalTransportWeightKg ?? before.loadedWeightKg,
       after.securingBudget?.totalTransportWeightKg ?? after.loadedWeightKg,
     ),
-    ...operationalRegressionReasons(before.operationalFindings ?? [], after.operationalFindings ?? []),
+    ...operationalRegressionReasons(before.operationalFindings ?? [], after.operationalFindings ?? [],
+      options.balanceIsVerdict ? MANUAL_MOVE_VERDICT_CODES : NO_VERDICT_CODES),
   ];
+}
+
+/** The centre-of-gravity errors an edit would leave on the plan that were not there, or
+ * were smaller, before it. They do not refuse the edit; they are what the operator is told. */
+export function manualMoveBalanceCautions(before: LoadingResult, after: LoadingResult): OperationalRuleFinding[] {
+  return newOrWorse(before.operationalFindings ?? [], after.operationalFindings ?? [], MANUAL_MOVE_VERDICT_CODES);
 }
