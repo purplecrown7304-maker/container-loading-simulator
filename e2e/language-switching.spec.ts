@@ -7,6 +7,9 @@ test.beforeEach(async ({ context, baseURL }) => {
 
 test('compact desktop header keeps the rules label and language controls visible in every language', async ({ page, isMobile }) => {
   test.skip(isMobile, 'The simulator retains its existing PC-only gate.');
+  // Nine viewport/language passes take about 11 s on a fast desktop. On a busy CI runner the
+  // 30 s default ran out mid-loop with no failed assertion; use the 90 s of the test below.
+  test.setTimeout(90000);
   await page.goto('/');
   for (const width of [1440, 1280, 1024]) {
     await page.setViewportSize({ width, height: 900 });
