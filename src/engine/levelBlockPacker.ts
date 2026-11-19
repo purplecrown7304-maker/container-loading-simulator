@@ -28,6 +28,26 @@ function floorPattern(item: CargoItem, width: number) {
   return best;
 }
 
+type Pattern = { depth: number; slots: Slot[] };
+
+/** Ways to set one footprint on a deck of this width: the pattern the floor would use,
+ * then each plain orientation in rows. On a deck the plain rows often lie flatter, because
+ * every carton touches fewer of the columns below (see `fillDeck`). */
+function deckPatterns(item: CargoItem, width: number): Pattern[] {
+  const patterns: Pattern[] = [];
+  const add = (pattern: Pattern | null) => {
+    if (!pattern || !pattern.slots.length) return;
+    const key = (p: Pattern) => `${p.depth.toFixed(6)}|${p.slots.map(s => `${s.dx.toFixed(6)},${s.dy.toFixed(6)},${s.length.toFixed(6)},${s.width.toFixed(6)}`).join(';')}`;
+    if (!patterns.some(other => key(other) === key(pattern))) patterns.push(pattern);
+  };
+  add(floorPattern(item, width));
+  for (const o of floorOrientations(item)) {
+    const columns = fit(width, o.width);
+    add(columns ? { depth: o.length, slots: Array.from({ length: columns }, (_, c) => ({ dx: 0, dy: c * o.width, length: o.length, width: o.width, rotated: o.rotated })) } : null);
+  }
+  return patterns;
+}
+
 function accepts(container: ContainerSpec, column: Column, item: CargoItem, heightCap: number) {
   if (column.height + item.height > Math.min(heightCap, container.height) + 1e-6) return false;
   const position = column.boxes.length + 1;
@@ -138,26 +158,38 @@ function decksOf(columns: Column[], slotsPerBlock: number, stop: number): Deck[]
   return decks;
 }
 
-/** Lighter cartons on a deck. Every touched lower column carries the whole upper load (conservative). */
-function fillDeck(container: ContainerSpec, deck: Deck, parts: Part[], payloadLeft: number) {
-  const result = { placements: [] as Placement[], used: new Map<string, number>(), weight: 0 };
-  const pattern = floorPattern(parts[0].item, deck.width);
-  if (!pattern) return result;
+/** What the cargo already set on a deck puts on each column under it: weight, weight per
+ * floor area and cartons. One record per deck, shared by everything loaded onto it. */
+type DeckLoad = { extra: Float64Array; extraDensity: Float64Array; extraLayers: Int32Array };
+const emptyDeckLoad = (deck: Deck): DeckLoad => ({ extra: new Float64Array(deck.lower.length), extraDensity: new Float64Array(deck.lower.length), extraLayers: new Int32Array(deck.lower.length) });
+
+/** Lighter cartons of one footprint on a deck, from `xFrom` toward the door. Every touched
+ * lower column carries the whole upper load (conservative). `xEnd` is where the rows this
+ * footprint used end, so cargo of another footprint can take the deck from there. */
+function fillDeck(container: ContainerSpec, deck: Deck, parts: Part[], payloadLeft: number, before: DeckLoad, xFrom: number, pattern: Pattern) {
+  // The record is copied: the caller keeps the one of the pattern it chooses.
+  const load: DeckLoad = { extra: before.extra.slice(), extraDensity: before.extraDensity.slice(), extraLayers: before.extraLayers.slice() };
+  const result = { placements: [] as Placement[], used: new Map<string, number>(), weight: 0, xEnd: xFrom, load, count: 0, envelopeM3: 0 };
   const cover = Math.max(...pattern.slots.map(s => s.dy + s.width));
   const y0 = deck.y + (deck.width - cover) / 2;
   const limit = configuredFloorLoadLimit(container);
-  const extra = new Float64Array(deck.lower.length), extraDensity = new Float64Array(deck.lower.length), extraLayers = new Int32Array(deck.lower.length);
-  const columns: Array<Column & { under: number[] }> = [];
-  for (let b = 0; b < fit(deck.length, pattern.depth); b++) for (const slot of pattern.slots) {
-    const x = round(deck.x + b * pattern.depth + slot.dx), y = round(y0 + slot.dy);
+  const { extra, extraDensity, extraLayers } = load;
+  const columns: Array<Column & { under: number[]; row: number }> = [];
+  for (let b = 0; b < fit(deck.x + deck.length - xFrom, pattern.depth); b++) for (const slot of pattern.slots) {
+    const x = round(xFrom + b * pattern.depth + slot.dx), y = round(y0 + slot.dy);
     const under = deck.lower.flatMap((c, i) => Math.min(x + slot.length, c.x + c.length) - Math.max(x, c.x) > 1e-6 && Math.min(y + slot.width, c.y + c.width) - Math.max(y, c.y) > 1e-6 ? [i] : []);
-    columns.push({ ...slot, x, y, boxes: [], height: 0, weight: 0, under });
+    columns.push({ ...slot, x, y, boxes: [], height: 0, weight: 0, under, row: b });
   }
+  let rows = 0;
   const lightestTop = (i: number) => deck.lower[i].boxes.at(-1)!.weightKg;
   const sorted = [...parts].sort((a, b) => b.item.weightKg - a.item.weightKg || a.item.id.localeCompare(b.item.id));
+  // One round over the columns goes on from where the cartons before it stopped, so a
+  // lighter carton of the same footprint continues the open tier instead of starting a
+  // new one on the first column.
+  let cursor = 0;
   for (const part of sorted) {
     const item = part.item;
-    let left = part.quantity, misses = 0, cursor = 0;
+    let left = part.quantity, misses = 0;
     if (item.floorOnly || !columns.length) continue;
     while (left > 0 && misses < columns.length) {
       const column = columns[cursor];
@@ -187,9 +219,26 @@ function fillDeck(container: ContainerSpec, deck: Deck, parts: Part[], payloadLe
       for (const i of column.under) { extra[i] += item.weightKg; extraDensity[i] += item.weightKg / area; extraLayers[i] = Math.max(extraLayers[i], column.boxes.length); }
       result.used.set(item.id, (result.used.get(item.id) ?? 0) + 1);
       result.weight += item.weightKg; left--; misses = 0;
+      if (column.row + 1 > rows) rows = column.row + 1;
     }
   }
+  result.xEnd = round(xFrom + rows * pattern.depth);
+  result.count = result.placements.length;
+  // The box the cargo of this footprint fills on the deck: its rows, the deck's width and
+  // its highest column. For the same cartons a smaller box is a flatter, tighter load.
+  result.envelopeM3 = rows * pattern.depth * deck.width * Math.max(0, ...columns.map(column => column.height));
   return result;
+}
+
+/** One footprint on a deck in the pattern that loads the most cartons and, among those,
+ * leaves the flattest top; the pattern the floor would use wins a tie. */
+function fillDeckBest(container: ContainerSpec, deck: Deck, parts: Part[], payloadLeft: number, load: DeckLoad, xFrom: number) {
+  let best: ReturnType<typeof fillDeck> | null = null;
+  for (const pattern of deckPatterns(parts[0].item, deck.width)) {
+    const filled = fillDeck(container, deck, parts, payloadLeft, load, xFrom, pattern);
+    if (!best || filled.count > best.count || (filled.count === best.count && filled.envelopeM3 < best.envelopeM3 - 1e-9)) best = filled;
+  }
+  return best;
 }
 
 /**
@@ -243,15 +292,22 @@ export function packByLevelBlocks(container: ContainerSpec, ordered: CargoItem[]
       if (quantity <= 0 || (strict && (item.unloadPriority ?? 1) !== deck.stop)) continue;
       const key = footprintKey(item); classes.set(key, [...(classes.get(key) ?? []), { item, quantity }]);
     }
-    let z = deck.z;
+    // Owner report 2026-11-19: a deck is not given to one footprint only. The heaviest
+    // footprint takes it from the inner wall; the next one takes it from the row where that
+    // one ended, and so on, so the room above a low heavy tier is used instead of building
+    // the lighter cargo up beside it. What each of them puts on the columns below is added
+    // up in one record, so the limits of those columns hold for everything on the deck.
+    let load = emptyDeckLoad(deck);
+    let from = deck.x;
     for (const parts of [...classes.values()].sort((a, b) => Math.max(...b.map(p => p.item.weightKg)) - Math.max(...a.map(p => p.item.weightKg)))) {
-      if (Math.abs(z - deck.z) > 1e-6) break;
-      const filled = fillDeck(container, deck, parts, container.maxPayloadKg - loadedWeightKg);
-      if (!filled.placements.length) continue;
+      if (deck.x + deck.length - from <= EPS) break;
+      const filled = fillDeckBest(container, deck, parts, container.maxPayloadKg - loadedWeightKg, load, from);
+      if (!filled?.placements.length) continue;
       placements.push(...filled.placements);
       for (const [id, n] of filled.used) counts.set(id, (counts.get(id) ?? 0) + n);
       loadedWeightKg += filled.weight;
-      z = -1;
+      load = filled.load;
+      from = filled.xEnd;
     }
   }
   const remaining = ordered.flatMap(item => {
