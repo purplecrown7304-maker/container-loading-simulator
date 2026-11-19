@@ -125,6 +125,50 @@ load, in-vehicle move, withdraw, undo), legacy rules only. Full text:
 - A-rules, the WHAT-IF review, the coordinate-entry manual editor and group moves are
   unchanged.
 
+## 2F. Owner-approved automatic loading around hand-placed pallets (2026-11-19)
+
+Owner instruction: "팔렛트를 옮기고 오른쪽 아래 자동 적재 버튼을 다시 누르면 옮긴 위치에서의
+최적화 적재가 된다." Legacy **pallet** mode only (`engine/palletFixedArrangement.ts`,
+`stagingPins.ts`). Full text: `docs/engine/LOADING_RULES.md` section 7C.
+
+- A pallet set down by dragging in the staging view is kept exactly where it is, position
+  and cartons, by the next automatic loading; a pallet it stands on is kept with it. A
+  place the program chose is not kept. Unpin, withdrawal and undo release it. Pins hold for
+  one input and one session and are never stored.
+- The rest is planned by the normal planner within the payload the kept pallets leave and
+  set down in the planner's order from the inner wall. A column that would stand in a kept
+  pallet slides toward the door in its lane until it stands clear and touches it (2D).
+  Cargo with no floor place left stays waiting with `NO_FEASIBLE_EMS`; with no payload
+  left, `PAYLOAD_LIMIT`. Nothing is stacked onto or under a kept pallet.
+- The centre of gravity is judged for the whole load. The planned group leaves the inner
+  wall only as far as the longitudinal verdict requires. Compare the planner's layout, its
+  mirror image across the width and both centred across the width, in this order: loaded
+  quantity, longitudinal verdict, lateral verdict, shortest planned block, fewest columns
+  that gave way, the planner's own layout. Pass counts are fixed; the result is deterministic.
+- No hard limit is relaxed. The combined plan goes through the same operational validation
+  and inertia certification as any plan, and an error caused by a kept position stays on it.
+- Kept pallets that no longer describe the job (outside the equipment, overlapping, cargo
+  not on the list, another pallet specification) are all ignored and the normal plan is
+  used. A-rules, the WHAT-IF review, MIXED and BOX_ONLY replan everything as before.
+
+## 2G. Owner-approved filling of holes inside a level load (2026-11-19)
+
+Owner instruction: "빨간 테두리 빈공간에도 적재물이 채워져야 한다." Legacy **direct-box**
+level loading only (`engine/levelBlockPacker.ts`). Full text: `docs/engine/LOADING_RULES.md`
+section 1.
+
+- A column that mixed carton heights left below the columns toward the door is not kept
+  empty merely because one more carton would pass the common height. It takes the carton
+  that was loaded last (the door end of the top tier) when that makes the step smaller,
+  the carton is not heavier than the one it goes on, and ceiling, stack depth, cumulative
+  top load and floor load all hold.
+- Loaded quantity is unchanged; the empty space moves to the door end of the top tier. A
+  hole kept by a hard limit stays, and so does a step of `LEVEL_DIP_PROFILE.minDipM` or
+  less; the void-fill plan covers both.
+- Filling moves weight toward the inner wall. The CG verdict outranks it: a hole is left
+  open only when the filled plan fails the verdict and the open one passes it.
+- The inner-to-door weight sequence of 2A, pallets, MIXED and the A-rules are unchanged.
+
 ## 3. DIRECT BOX baseline algorithm
 The legacy fixed sequence of `CBM/weight sort -> full vertical stacks -> x shelf progression -> door-side tail mixing` is retired.
 

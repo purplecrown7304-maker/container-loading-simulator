@@ -4,10 +4,12 @@ import PalletContents from './PalletContents';
 import { palletModelKey } from './palletModel';
 import { readLoadingStrategyPreference } from './loadingStrategyPreference';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { centerPalletCargo, consumeNextPalletCenteredResultOverride } from './engine/palletCentering';
+import { consumeNextPalletCenteredResultOverride } from './engine/palletCentering';
+import { packOnPalletsAroundFixed } from './engine/palletFixedArrangement';
+import { fixedPalletsFor, readStagingPins, stagingPinKeys } from './stagingPins';
 import { validatePlacements } from './engine/constraints';
 import { validateOperationalLoading } from './engine/operationalValidator';
-import { packOnPallets, type OptimizedPalletPackingResult, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
+import type { OptimizedPalletPackingResult, PalletLoad, PalletSpec } from './engine/palletOptimization';
 import { packMixedMode, type MixedModePackingResult } from './engine/mixedModePacking';
 import type { CargoItem, ContainerSpec, LoadingResult, Placement } from './engine/types';
 import { INERTIA_CERTIFICATION_EVENT, clearLatestInertiaCertification, createPhysicsTargetSignature, readLatestInertiaCertification, type InertiaCertification, type SecuringUsage } from './inertiaCertification';
@@ -40,10 +42,10 @@ function sanitizeSpec(spec: PalletSpec): PalletSpec {
   };
 }
 
-function packForMode(container: ContainerSpec, cargo: CargoItem[], spec: PalletSpec, mode: 'pallets' | 'mixed') {
+function packForMode(container: ContainerSpec, cargo: CargoItem[], spec: PalletSpec, mode: 'pallets' | 'mixed', fixed: readonly PalletLoad[] = []) {
   const strategy = readLoadingStrategyPreference() ?? 'capacity';
   if (mode === 'mixed') return packMixedMode(container, cargo, spec, strategy);
-  return centerPalletCargo(packOnPallets(container, cargo, spec, strategy), container);
+  return packOnPalletsAroundFixed(container, cargo, spec, strategy, fixed);
 }
 
 function palletForPlacement(result: OptimizedPalletPackingResult, box: Placement) {
@@ -66,6 +68,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
   const [spec, setSpec] = useState<PalletSpec>(() => palletJobSpec(resolvePalletType()));
   const [calculated, setCalculated] = useState<{ key: string; result: OptimizedPalletPackingResult | MixedModePackingResult } | null>(null);
   const result = (calculated?.key === inputKey ? calculated.result : EMPTY_RESULT) as OptimizedPalletPackingResult | MixedModePackingResult;
+  const currentPallets = useRef<readonly PalletLoad[]>(result.pallets); currentPallets.current = result.pallets;
   const [specRunToken, setSpecRunToken] = useState(0);
   // Counts calculations that delivered a result. It is set together with that result, so
   // the commit that shows the result is also the one that reports the run as finished.
@@ -91,8 +94,14 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
     // The pallet path publishes no loading-result event, so the diagnostic trace would
     // otherwise show no outcome (and a wrong duration) for a pallet calculation.
     const startedAt = performance.now();
+    // Pallets the operator put in place by hand stay there; the rest is planned around
+    // them. They are read from the plan on screen at the moment automatic loading is
+    // asked for. A changed pallet specification plans everything afresh: the pallets on
+    // screen were built to the old one.
+    const fixed = mode === 'pallets' && specRunToken === previous.spec ? fixedPalletsFor(stagingPinKeys(readStagingPins(), inputKey), currentPallets.current) : [];
     const recordOutcome = (packed?: OptimizedPalletPackingResult | MixedModePackingResult, error?: string) => recordDiagnosticTrace('pallet-loading-result', {
       mode,
+      fixedPallets: fixed.length,
       placements: packed?.placements.length ?? 0,
       pallets: packed?.palletCount ?? 0,
       remainingUnits: packed?.remaining.reduce((sum, row) => sum + row.quantity, 0) ?? 0,
@@ -112,12 +121,12 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
         else { onRunningChange(false); window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT,{detail:{mode:'pallets',error:event.data.error}})); }
       };
       worker.onerror = () => { worker.terminate(); if(!cancelled){onRunningChange(false);window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT,{detail:{mode:'pallets',error:'A 규칙 계산 오류'}}));} };
-      worker.postMessage({container,cargo:cargo.filter(item=>item.quantity>0),spec:sanitizeSpec(spec),mode,strategy:readLoadingStrategyPreference()??'capacity'});
+      worker.postMessage({container,cargo:cargo.filter(item=>item.quantity>0),spec:sanitizeSpec(spec),mode,strategy:readLoadingStrategyPreference()??'capacity',fixed});
       return () => { cancel(); if (cancelActiveRun.current === cancel) cancelActiveRun.current = null; };
     }
     const timer = window.setTimeout(() => {
       try {
-        const packed = packForMode(container, cargo.filter(item => item.quantity > 0), sanitizeSpec(spec), mode);
+        const packed = packForMode(container, cargo.filter(item => item.quantity > 0), sanitizeSpec(spec), mode, fixed);
         recordOutcome(packed);
         // Yield before publication so queued edits can cancel the obsolete run.
         publishTimer = window.setTimeout(() => {

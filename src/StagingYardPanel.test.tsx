@@ -134,6 +134,20 @@ describe('staging yard panel', () => {
     expect(host.querySelector('.staging-panel-preview')!.textContent).not.toContain('무게중심');
   });
 
+  it('marks a pallet that automatic loading will keep in place, offers to let go of it and counts the held ones', async () => {
+    const data = inventory([box('LOADED', 'vehicle'), box('WAIT')]), onUnpin = vi.fn();
+    await render({ inventory: data, selectedId: 'LOADED', pinned: true, pinnedCount: 2, onUnpin });
+    const held = host.querySelector<HTMLElement>('[data-staging-pinned="true"]')!;
+    expect(held.textContent).toContain('자리 고정'); expect(held.textContent).toContain('자동 적재');
+    await click(button('고정 해제', held)); expect(onUnpin).toHaveBeenCalledOnce();
+    expect(host.querySelector('[data-staging-pinned-count="2"]')!.textContent).toContain('자리 고정 파렛트 2개');
+    // While a calculation runs the pin cannot be changed under it.
+    await render({ busy: true }); expect(button('고정 해제').disabled).toBe(true);
+    // Nothing held: no marker and no count.
+    await render({ busy: false, pinned: false, pinnedCount: 0 });
+    expect(host.querySelector('[data-staging-pinned]')).toBeNull(); expect(host.querySelector('[data-staging-pinned-count]')).toBeNull();
+  });
+
   it('permits withdrawal only for a current-vehicle selection and honors busy and owner safety gates', async () => {
     const data = inventory([box('LOADED', 'vehicle'), box('OTHER', 'other-vehicle')]);
     await render({ inventory: data, selectedId: 'LOADED' });

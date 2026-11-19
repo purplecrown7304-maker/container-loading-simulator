@@ -109,7 +109,9 @@ function lateralSide(centerY: number, containerWidth: number) {
   return delta < 0 ? -1 : 1;
 }
 
-function palletPositions(container: ContainerSpec, pallet: PalletSpec) {
+/** Floor places for pallet columns: lanes side by side and centred on the width, rows from
+ * the inner wall, each row listed from the middle lane outward. */
+export function palletPositions(container: ContainerSpec, pallet: PalletSpec) {
   const positions: Array<{ x: number; y: number }> = [];
   const lanes = fitCount(container.width, pallet.width);
   if (lanes < 1) return positions;
