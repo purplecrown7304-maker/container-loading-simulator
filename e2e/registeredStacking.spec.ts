@@ -101,7 +101,7 @@ test('registered stacking updates without reload and bulk packaging advances bef
   expect(loaded.issues).toEqual([]);
   console.log('bulk stacking result', { count: loaded.count, remaining: loaded.left, maxZ: loaded.maxZ });
   // The 1mm packing changes carton masses and the resulting bulk layout. Its
-  // geometry is valid, but the actual inertia metrics exceed the danger limits.
+  // geometry is valid, but the actual inertia metrics exceed the PASS limits.
   // Failed certification must still block dispatch regardless of full loading.
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestCertification?.status), { timeout: 120_000 }).toBe('failed');
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
@@ -116,7 +116,7 @@ test('registered stacking updates without reload and bulk packaging advances bef
     window.dispatchEvent(new CustomEvent('container-loading:request-direct-work-order', { detail: { ...target, preserveSelectedPlan: true } }));
   });
   // All three real scenarios are completed again; preserving the selected plan
-  // does not turn a failed/danger result into dispatch approval.
+  // does not turn a failed result into dispatch approval.
   const report = await reportPromise;
   // The global record can refer to an in-flight alternative until the checked plan is applied.
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification.testedScenarios)).toBe(3);
@@ -127,19 +127,23 @@ test('registered stacking updates without reload and bulk packaging advances bef
   });
   expect(metrics).toHaveLength(3);
   expect(metrics.every(metric => Number.isFinite(metric.shift) && Number.isFinite(metric.tilt))).toBe(true);
-  // Match the unchanged 30mm / 4.5deg danger limits in inertiaWorkOrderPolicy.ts.
-  expect(metrics.some(metric => metric.shift > 0.03 || metric.tilt > 4.5)).toBe(true);
+  // Above the unchanged 12mm / 1.8deg PASS limits in inertiaCertification.ts, inside the
+  // unchanged 30mm / 4.5deg danger limits in inertiaWorkOrderPolicy.ts. With cartons kept at
+  // their planned footprint (restraint-v8) the rows no longer lean into gaps the plan does
+  // not have, so braking stays a failure but is no longer measured as danger.
+  expect(metrics.some(metric => metric.shift > 0.012 || metric.tilt > 1.8)).toBe(true);
+  expect(metrics.every(metric => metric.shift <= 0.03 && metric.tilt <= 4.5)).toBe(true);
   await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
   await expect(report.getByRole('heading', { name: /통합 출하·적재 작업지시서/ })).toBeVisible();
   await expect(report.locator('.summary')).toContainText(`${loaded.count} EA`);
   await expectSecuredPhysicsEvidence(page);
   // Full physics may supply the stronger failure label instead of inertia's
-  // generic danger label. Both must block approval and retain the review mark.
-  await expect(report.locator('aside.technical-note > b')).toHaveText(/검증 판정: (위험|물리검증 실패 · 출고 차단)/);
+  // review-only caution label. Both must block approval and retain the review mark.
+  await expect(report.locator('aside.technical-note > b')).toHaveText(/검증 판정: (주의 · 검토용|물리검증 실패 · 출고 차단)/);
   await expect(report.locator('.watermark')).toContainText('검토용');
   await expect(report.locator('.footer')).not.toContainText('완료 · PASS');
-  await expect(report.locator('aside.technical-note')).toContainText('관성 결과가 위험 기준을 초과했습니다');
+  await expect(report.locator('aside.technical-note')).toContainText('내부 PASS 기준을 일부 초과했지만 위험 기준 이내입니다');
   await expect(report.locator('aside.technical-note')).toContainText('출고 승인을 의미하지 않습니다');
-  console.log('bulk danger work order opened with matching loaded quantity; measured danger and failed inertia remain blocked', metrics);
+  console.log('bulk review-only work order opened with matching loaded quantity; failed inertia remains blocked', metrics);
   await page.screenshot({ path: test.info().outputPath('registered-stacking.png'), fullPage: true });
 });
