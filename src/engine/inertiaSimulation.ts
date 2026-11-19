@@ -1,4 +1,5 @@
 import type { PhysicsScenario, PhysicsSupport } from './physicsValidation';
+import { colliderHalfExtents } from './physicsColliders';
 import { horizontalRestraintForce, supportingIndexForPlacement, supportingIndexForSupport, type RestraintModel } from './restraintPhysics';
 import type { ContainerSpec, Placement } from './types';
 
@@ -254,11 +255,9 @@ export async function runInertiaAnimation(
     weightKg: number,
     withMass: boolean,
   ) => {
-    const desc = RAPIER.ColliderDesc.cuboid(
-      Math.max(EPS, item.length / 2 - 0.0005),
-      Math.max(EPS, item.height / 2 - 0.0005),
-      Math.max(EPS, item.width / 2 - 0.0005),
-    ).setFriction(friction).setRestitution(DEFAULT_RESTITUTION);
+    const { halfLength, halfHeight, halfWidth } = colliderHalfExtents(item);
+    const desc = RAPIER.ColliderDesc.cuboid(halfLength, halfHeight, halfWidth)
+      .setFriction(friction).setRestitution(DEFAULT_RESTITUTION);
     if (withMass) desc.setMass(Math.max(0.01, weightKg));
     return desc;
   };
