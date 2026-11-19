@@ -7,7 +7,7 @@ import { RETIRED_SCENE_LINGER_MS } from './sceneRetirement';
 import { VEHICLE_SWAP_PROFILE } from './vehicleSwapMotion';
 import { viewerPlan } from './viewerSceneProtocol';
 import { buildStagingYardLayout } from './stagingYardLayout';
-import { stagingSceneCameraPose } from './threeComparisonSceneState';
+import { sceneCameraPose, stagingSceneCameraPose } from './threeComparisonSceneState';
 
 const state = vi.hoisted(() => ({ runtime: {} as Record<string, unknown>, controls: {} as Record<string, unknown>, frame: null as (() => void) | null,
   orbit: {} as { target: import('three').Vector3; update: ReturnType<typeof vi.fn>; enableDamping: boolean }, now: 0,
@@ -101,8 +101,38 @@ describe('cosmetic vehicle lifecycle', () => {
     state.runtime.size = { width: 700, height: 450 };
     act(() => root.render(<CameraController plan={plan(2)} view="free" autoRotate={false} />));
     expect([...camera.position.toArray(), ...camera.quaternion.toArray()]).toEqual(pose);
+    // A requested view moves there instead of jumping, also without a staging yard.
     act(() => root.render(<CameraController plan={plan(2)} view="top" autoRotate={false} />));
-    expect(camera.position.toArray()).not.toEqual([4, 5, 6]);
+    expect(camera.position.toArray()).toEqual([4, 5, 6]); expect(camera.userData.viewerTransitionActive).toBe(true);
+    frameAt(187.5); expect(camera.position.toArray()).not.toEqual([4, 5, 6]); expect(camera.userData.viewerTransitionActive).toBe(true);
+    frameAt(375); expect(camera.userData.viewerTransitionActive).toBe(false);
+    const top = sceneCameraPose(plan(2), 'top', 700 / 450);
+    expect(camera.position.toArray()).toEqual(top.position.toArray()); expect(state.orbit.target.toArray()).toEqual(top.target.toArray());
+    // Orbit damping stays a staging-only behaviour.
+    expect(state.orbit.enableDamping).toBe(false);
+    // New equipment in a plain viewer is still fitted at once.
+    const longer = { ...plan(3), container: { ...plan(3).container, length: 12 } };
+    act(() => root.render(<CameraController plan={longer} view="top" autoRotate={false} />));
+    expect(camera.userData.viewerTransitionActive).toBe(false);
+    expect(camera.position.toArray()).toEqual(sceneCameraPose(longer, 'top', 700 / 450).position.toArray());
+  });
+  it('fits a requested view at once in a plain viewer under reduced motion, diagnostics and auto-rotation, and lets the user take over mid-way', () => {
+    const current = plan(), camera = state.runtime.camera as THREE.PerspectiveCamera, aspect = 900 / 500;
+    act(() => root.render(<CameraController plan={current} view="free" autoRotate={false} instant />));
+    act(() => root.render(<CameraController plan={current} view="top" autoRotate={false} instant />));
+    expect(camera.userData.viewerTransitionActive).toBe(false); expect(camera.position.toArray()).toEqual(sceneCameraPose(current, 'top', aspect).position.toArray());
+    act(() => root.render(<CameraController plan={current} view="side" autoRotate />));
+    expect(camera.userData.viewerTransitionActive).toBe(false); expect(camera.position.toArray()).toEqual(sceneCameraPose(current, 'side', aspect).position.toArray());
+    // Taking over the orbit mid-way keeps the pose the user grabbed.
+    act(() => root.render(<CameraController plan={current} view="door" autoRotate={false} />));
+    expect(camera.userData.viewerTransitionActive).toBe(true); frameAt(150);
+    const grabbed = camera.position.toArray();
+    act(() => (state.controls.onStart as () => void)());
+    expect(camera.userData.viewerTransitionActive).toBe(false); frameAt(1000); expect(camera.position.toArray()).toEqual(grabbed);
+    act(() => root.render(null)); state.media.matches = true;
+    act(() => root.render(<CameraController plan={current} view="free" autoRotate={false} />));
+    act(() => root.render(<CameraController plan={current} view="top" autoRotate={false} />));
+    expect(camera.userData.viewerTransitionActive).toBe(false); expect(camera.position.toArray()).toEqual(sceneCameraPose(current, 'top', aspect).position.toArray());
   });
   it('keeps orbit through staging inventory/selection/drag refreshes, locks drag controls and only refits explicit requests', () => {
     const current = plan(), camera = state.runtime.camera as THREE.PerspectiveCamera;

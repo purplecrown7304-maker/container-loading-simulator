@@ -21,14 +21,22 @@ describe('display-only explicit camera motion', () => {
     expect(sampleCameraMotion(motion, 99999)).toMatchObject(motion.to);
     expect(cameraMotionEase(-1)).toBe(0); expect(cameraMotionEase(2)).toBe(1);
   });
-  it('animates explicit main requests while initial, physical changes, reduced motion and diagnostics fit instantly', () => {
+  it('animates explicit requests in every viewer while initial, physical changes, reduced motion and diagnostics fit instantly', () => {
     const previous = { physical: 'truck-A', request: 'all:0' }, next = { physical: 'truck-A', request: 'yard:1' };
     const options = { staging: true, reducedMotion: false, instant: false };
     expect(cameraFitAction(previous, previous, options)).toBe('skip');
     expect(cameraFitAction(previous, next, options)).toBe('animate');
     expect(cameraFitAction(null, next, options)).toBe('instant');
     expect(cameraFitAction(previous, { ...next, physical: 'truck-B' }, options)).toBe('instant');
-    for (const changes of [{ staging: false }, { reducedMotion: true }, { instant: true }]) expect(cameraFitAction(previous, next, { ...options, ...changes })).toBe('instant');
+    for (const changes of [{ reducedMotion: true }, { instant: true }]) expect(cameraFitAction(previous, next, { ...options, ...changes })).toBe('instant');
+    // A viewer without a staging yard (previews, pallet contents, comparison) moves the same way.
+    const plain = { staging: false, reducedMotion: false, instant: false };
+    expect(cameraFitAction({ physical: 'box', request: 'free:0' }, { physical: 'box', request: 'top:1' }, plain)).toBe('animate');
+    expect(cameraFitAction({ physical: 'box', request: 'free:0' }, { physical: 'box', request: 'free:0' }, plain)).toBe('skip');
+    expect(cameraFitAction(null, { physical: 'box', request: 'top:1' }, plain)).toBe('instant');
+    expect(cameraFitAction({ physical: 'box', request: 'free:0' }, { physical: 'other', request: 'top:1' }, plain)).toBe('instant');
+    expect(cameraFitAction({ physical: 'box', request: 'free:0' }, { physical: 'other', request: 'top:1' }, { ...plain, physicalTransition: true })).toBe('instant');
+    for (const changes of [{ reducedMotion: true }, { instant: true }]) expect(cameraFitAction({ physical: 'box', request: 'free:0' }, { physical: 'box', request: 'top:1' }, { ...plain, ...changes })).toBe('instant');
     expect(() => createCameraMotion({ position: [NaN, 0, 0], target: [0, 0, 0] }, { position: [1, 1, 1], target: [0, 0, 0] }, 0)).toThrow();
   });
   it('follows replaced equipment only when that replacement is itself shown as a move', () => {
