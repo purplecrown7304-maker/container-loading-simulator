@@ -15,14 +15,17 @@ export function useStagingFlights(options: Options) {
   const [reducedMotion, setReducedMotion] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [active, setActive] = useState<{ epoch: string; sequence: StagingFlightSequence } | null>(null);
-  const pending = useRef<{ epoch: string; source: StagingFlightOrigin; automatic: boolean } | null>(null);
+  const pending = useRef<{ epoch: string; source: StagingFlightOrigin; automatic: boolean; expiresAt?: number } | null>(null);
   const stable = useRef<{ epoch: string; source: StagingFlightOrigin } | null>(null);
   const previous = useRef({ epoch: options.epoch, calculating: false });
   const nextId = useRef(0), current = useRef(options); current.current = options;
   const allowed = useRef(enabled && !reducedMotion); allowed.current = enabled && !reducedMotion;
   const cancel = useCallback(() => { pending.current = null; setActive(null); }, []);
-  const queueLoad = useCallback((source: StagingFlightOrigin) => {
-    pending.current = allowed.current ? { epoch: current.current.epoch, source, automatic: false } : null;
+  // `waitMs` bounds a request whose replacing plan may not arrive: without it a much later,
+  // unrelated plan of the same job would be shown as a move from this origin.
+  const queueLoad = useCallback((source: StagingFlightOrigin, waitMs?: number) => {
+    pending.current = allowed.current ? { epoch: current.current.epoch, source, automatic: false,
+      ...(waitMs === undefined ? {} : { expiresAt: Date.now() + waitMs }) } : null;
     setActive(null);
   }, []);
   const complete = useCallback((id: number) => setActive(value => value?.sequence.id === id ? null : value), []);
@@ -44,6 +47,7 @@ export function useStagingFlights(options: Options) {
       pending.current = { epoch, source: stable.current?.epoch === epoch ? stable.current.source : source, automatic: true };
       setActive(null);
     }
+    if (pending.current?.expiresAt !== undefined && Date.now() > pending.current.expiresAt) pending.current = null;
     const origin = pending.current;
     if (!calculating && origin?.epoch === epoch) {
       if (confirmed && !isPreview && !inventory.referenceResult && planKey && planKey !== origin.source.planKey) {

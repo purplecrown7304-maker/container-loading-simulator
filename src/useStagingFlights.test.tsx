@@ -89,6 +89,42 @@ describe('display-only staging flight lifecycle', () => {
     const sequence = latest.sequence; await render({ ...destination }); expect(latest.sequence).toBe(sequence);
   });
 
+  it('shows a requested plan change as a hop for the unit that changes place inside the vehicle', async () => {
+    const moved = unit('b', true); moved.placement = { ...moved.placement!, x: 4 };
+    const source = origin([unit('a', true), unit('b', true)], 'accepted-ab');
+    const destination = origin([unit('a', true), moved], 'accepted-ab-moved');
+    const before = JSON.stringify({ source, destination });
+    await render({ ...source, isPreview: false });
+    // A plan that merely arrives is never replayed; the move has to be requested.
+    await render({ ...destination, isPreview: false }); expect(latest.sequence).toBeNull();
+    await render({ ...source, isPreview: false });
+    await act(async () => latest.queueLoad(source, 1500));
+    await render({ ...destination, isPreview: false });
+    expect(latest.sequence?.flights.map(flight => [flight.unitId, flight.kind])).toEqual([['b', 'relocate']]);
+    expect(latest.sequence?.flights[0].from.position[0]).toBeCloseTo(2 + .25 - 3, 12);
+    expect(latest.sequence?.flights[0].to.position[0]).toBeCloseTo(4 + .25 - 3, 12);
+    expect(latest.sequence?.planKey).toBe('accepted-ab-moved');
+    expect(destination.inventory.summary.vehicle.boxes).toBe(2); expect(JSON.stringify({ source, destination })).toBe(before);
+  });
+
+  it('forgets a requested plan change when no plan follows in time', async () => {
+    const moved = unit('b', true); moved.placement = { ...moved.placement!, x: 4 };
+    const source = origin([unit('a', true), unit('b', true)], 'accepted-ab');
+    const destination = origin([unit('a', true), moved], 'accepted-ab-moved');
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+    await render({ ...source, isPreview: false });
+    await act(async () => latest.queueLoad(source, 1500));
+    clock.mockReturnValue(11_501);
+    await render({ ...destination, isPreview: false });
+    expect(latest.sequence).toBeNull();
+    // Inside the wait the same request is honoured.
+    await render({ ...source, isPreview: false });
+    await act(async () => latest.queueLoad(source, 1500));
+    clock.mockReturnValue(13_000);
+    await render({ ...destination, isPreview: false });
+    expect(latest.sequence?.flights.map(flight => flight.unitId)).toEqual(['b']);
+  });
+
   it('captures the pre-worker yard on calculation rise and animates only newly accepted members on fall', async () => {
     const source = origin([unit('a', true), unit('b'), unit('c')], 'accepted-a');
     await render({ ...source, isPreview: false });

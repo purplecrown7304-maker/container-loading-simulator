@@ -15,6 +15,7 @@ import {
 } from './groupDragEvents';
 import { PLACEMENT_SELECT_EVENT, type PlacementSelectDetail } from './selectionEvents';
 import { writeStoredState } from './storage';
+import { requestStagingPlanMotion } from './stagingPlanMotion';
 
 type Detail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type LoadingWindow = Window & { __containerLoadingLatestResult?: Detail };
@@ -89,6 +90,7 @@ export default function GroupDragController() {
       setHistory(items => [...items.slice(-9),detail.result]);
       writeManualOverride(detail.container,detail.cargo,checked.result);
       writeStoredState({container:detail.container,cargo:detail.cargo},true);
+      requestStagingPlanMotion();
     };
     window.addEventListener(GROUP_DRAG_CANDIDATE_EVENT,onCandidate);
     window.addEventListener(GROUP_DRAG_APPLY_EVENT,onApply);
@@ -104,6 +106,7 @@ export default function GroupDragController() {
     setHistory(items => items.slice(0,-1));
     writeManualOverride(detail.container,detail.cargo,previous);
     writeStoredState({container:detail.container,cargo:detail.cargo},true);
+    requestStagingPlanMotion();
   };
 
   return undoTarget && history.length > 0

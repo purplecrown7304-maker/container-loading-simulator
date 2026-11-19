@@ -18,6 +18,7 @@ import {
 } from './manualDragEvents';
 import { PLACEMENT_SELECT_EVENT, type PlacementSelectDetail } from './selectionEvents';
 import { writeStoredState } from './storage';
+import { requestStagingPlanMotion } from './stagingPlanMotion';
 
 type Detail = { container: ContainerSpec; cargo: CargoItem[]; result: LoadingResult };
 type LoadingWindow = Window & { __containerLoadingLatestResult?: Detail };
@@ -142,6 +143,7 @@ export default function ManualPlacementEditor() {
       setHistory(h => [...h.slice(-9),detail.result]);
       writeManualOverride(detail.container,detail.cargo,checked.result);
       writeStoredState({container:detail.container,cargo:detail.cargo},true);
+      requestStagingPlanMotion();
       setSelectedIndex(drag.index);
       setPosition(targetPosition);
       setSnapReason(snap?.reason ?? null);
@@ -161,6 +163,7 @@ export default function ManualPlacementEditor() {
     setHistory(h => [...h.slice(-9),detail.result]);
     writeManualOverride(detail.container,detail.cargo,checked.result);
     writeStoredState({container:detail.container,cargo:detail.cargo},true);
+    requestStagingPlanMotion();
     setMessage('수동 이동을 적용했습니다. 모든 분석값을 다시 계산했습니다.');
   };
   const applyGroup = () => {
@@ -170,6 +173,7 @@ export default function ManualPlacementEditor() {
     setHistory(h => [...h.slice(-9),detail.result]);
     writeManualOverride(detail.container,detail.cargo,checked.result);
     writeStoredState({container:detail.container,cargo:detail.cargo},true);
+    requestStagingPlanMotion();
     setGroupDelta(zeroDelta);
     setMessage(`${groupIndices.length}개 박스 블록 이동을 적용했습니다. 모든 분석값을 다시 계산했습니다.`);
   };
@@ -179,6 +183,7 @@ export default function ManualPlacementEditor() {
     setHistory(h => h.slice(0,-1));
     writeManualOverride(detail.container,detail.cargo,previous);
     writeStoredState({container:detail.container,cargo:detail.cargo},true);
+    requestStagingPlanMotion();
     setSnapReason(null); setGroupDelta(zeroDelta);
     setMessage('마지막 수동 이동을 취소했습니다.');
   };
@@ -186,6 +191,7 @@ export default function ManualPlacementEditor() {
     if (!detail) return;
     clearManualOverride(); setHistory([]); setSnapReason(null); setGroupMode(null); setGroupDelta(zeroDelta);
     writeStoredState({container:detail.container,cargo:detail.cargo},true);
+    requestStagingPlanMotion();
     setMessage('수동 편집을 지우고 자동 적재 결과로 복귀했습니다.');
   };
   const chooseGroup = (mode: GroupSelectionMode) => {

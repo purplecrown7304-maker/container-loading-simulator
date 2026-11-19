@@ -9,6 +9,7 @@ import { LOADING_RESULT_EVENT } from './engine/loadingEngine';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { PLACEMENT_SELECT_EVENT, type PlacementSelectDetail } from './selectionEvents';
 import { writeStoredState } from './storage';
+import { requestStagingPlanMotion } from './stagingPlanMotion';
 
 type Detail={container:ContainerSpec;cargo:CargoItem[];result:LoadingResult};
 type LoadingWindow=Window&{__containerLoadingLatestResult?:Detail};
@@ -36,6 +37,7 @@ export default function GroupMoveSuggestionPanel(){
     if(!checked.valid){setMessage(checked.reasons[0]??'안전조건을 만족하지 않습니다.');return;}
     writeManualOverride(detail.container,detail.cargo,checked.result);
     writeStoredState({container:detail.container,cargo:detail.cargo},true);
+    requestStagingPlanMotion();
     setMessage(`${indices.length}개 블록을 추천 위치로 이동했습니다.`);
   };
 

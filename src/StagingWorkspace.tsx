@@ -32,6 +32,7 @@ import { vehicleRigForEquipment } from './threeVehicleLayout';
 import { openPackagingContents } from './packagingContentsModel';
 import { uiText } from './uiLanguage';
 import { useStagingFlights } from './useStagingFlights';
+import { STAGING_PLAN_MOTION_EVENT, STAGING_PLAN_MOTION_WAIT_MS } from './stagingPlanMotion';
 import { setStagingFlightVisible } from './stagingFlightVisibility';
 
 type HistoryEntry = { previous: { result: LoadingResult; pallets: PalletLoad[] }; selection: string | null;
@@ -194,13 +195,20 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
       drag.current = null; manualPlan.current = ''; observedPlan.current = '';
       setControl(value => ({ ...freshControl(epochRef.current), view: value.view, viewRequest: value.viewRequest }));
     };
+    const planMotion = () => {
+      const now = live.current;
+      // Only from an accepted plan that is on screen. A preview, a running calculation and
+      // a reference result have no accepted place to start a move from.
+      if (now.props.calculating || now.props.isPreview || !now.confirmed || now.inventory.referenceResult || !now.currentPlanKey) return;
+      now.flights.queueLoad({ inventory: now.inventory, layout: now.layout, planKey: now.currentPlanKey }, STAGING_PLAN_MOTION_WAIT_MS);
+    };
     for (const event of [LOCAL_OPERATOR_EVENT, MEMBER_AUTH_EVENT, ADMIN_ACCESS_EVENT]) window.addEventListener(event, identity);
     window.addEventListener(LOADING_STRATEGY_PREFERENCE_EVENT, preference); window.addEventListener(STORAGE_UPDATED_EVENT, load);
-    window.addEventListener(STORAGE_RESET_EVENT, reset);
+    window.addEventListener(STORAGE_RESET_EVENT, reset); window.addEventListener(STAGING_PLAN_MOTION_EVENT, planMotion);
     return () => {
       for (const event of [LOCAL_OPERATOR_EVENT, MEMBER_AUTH_EVENT, ADMIN_ACCESS_EVENT]) window.removeEventListener(event, identity);
       window.removeEventListener(LOADING_STRATEGY_PREFERENCE_EVENT, preference); window.removeEventListener(STORAGE_UPDATED_EVENT, load);
-      window.removeEventListener(STORAGE_RESET_EVENT, reset);
+      window.removeEventListener(STORAGE_RESET_EVENT, reset); window.removeEventListener(STAGING_PLAN_MOTION_EVENT, planMotion);
     };
   }, []);
   useEffect(() => {

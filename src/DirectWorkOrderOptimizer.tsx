@@ -25,6 +25,7 @@ import {
 import { publishPhysicsTarget, readPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { openLoadingReport } from './report';
 import { STORAGE_UPDATED_EVENT, type StoredState } from './storage';
+import { requestStagingPlanMotion } from './stagingPlanMotion';
 import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
 import { publishVerificationCancelled, publishVerificationFailure } from './workflowVerificationState';
 
@@ -63,6 +64,7 @@ function applyCandidate(candidate: Candidate, certification: InertiaCertificatio
   writeManualOverride(target.container, target.cargo, target.result);
   const state: StoredState = { container: target.container, cargo: target.cargo };
   window.dispatchEvent(new CustomEvent<StoredState>(STORAGE_UPDATED_EVENT, { detail: state }));
+  requestStagingPlanMotion();
   publishPhysicsTarget(target);
   publishCertification(certification);
 }
