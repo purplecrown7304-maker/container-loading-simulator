@@ -1,10 +1,11 @@
 import { cargoColor } from './cargoColors';
 import type { CargoItem } from './engine/types';
 import { readShipmentInstructionSnapshot } from './shipmentInstruction';
+import { confirmedShipmentOfSplit } from './vehicleSplitState';
 
 /** A report identity keeps partial cartons with their product, without guessing arbitrary IDs. */
 export function reportCargoCatalog(cargo: CargoItem[]) {
-  const snapshot = readShipmentInstructionSnapshot(cargo);
+  const snapshot = readShipmentInstructionSnapshot(cargo) ?? confirmedShipmentOfSplit(cargo);
   return new Map(cargo.map(item => {
     const line = snapshot?.lines.find(line => item.id === line.cargoId || item.id === `${line.cargoId}-PARTIAL`);
     const base = cargo.find(other => `${other.id}-PARTIAL` === item.id);

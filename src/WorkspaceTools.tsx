@@ -1,4 +1,5 @@
 import { excelIssueMessage } from './excelPresentation';
+import { vehicleSplitDocumentNote } from './vehicleSplitPresentation';
 import { useUiMessage } from './useUiMessage';
 import { uiMessage, uiText, uiLocale, useUiLanguage } from './uiLanguage';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -315,7 +316,10 @@ export default function WorkspaceTools({ showNav = true }: Props) {
   const saveBox = () => {
     const state = currentState();
     if (!state) return setMessage('저장할 현재 작업 데이터가 없습니다.');
-    const name = boxName.trim() || `작업 ${boxes.length + 1}`;
+    // A plan saved while one vehicle of a divided job is open holds that vehicle's cargo only
+    // (AGENTS.md 2L): its name says so, because loading it later does not bring the split back.
+    const vehicle = vehicleSplitDocumentNote(state.cargo)?.label;
+    const name = `${boxName.trim() || `작업 ${boxes.length + 1}`}${vehicle ? ` · ${vehicle}` : ''}`;
     const currentResult = (window as LoadingWindow).__containerLoadingLatestResult;
     const result = currentResult && (!state.staging || state.staging.mode === 'boxes')
       && JSON.stringify([currentResult.container, currentResult.cargo]) === JSON.stringify([state.container, state.cargo])

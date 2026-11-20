@@ -6,6 +6,7 @@ import { uiMessage, uiText } from './uiLanguage';
 import { excelDisplayRows } from './excelPresentation';
 import { assessPhysicsVerification } from './physicsVerificationPolicy';
 import { isLimitReviewTarget, limitReviewRows, LIMIT_REVIEW_WARNING, LIMIT_REVIEW_PROVENANCE } from './limitReviewPresentation';
+import { vehicleSplitDocumentNote, vehicleSplitSummaryRows } from './vehicleSplitPresentation';
 import * as XLSX from 'xlsx';
 import { analyzeConstraints } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
@@ -147,8 +148,11 @@ export function exportBoxWorkbook(detail: Detail, certification: InertiaCertific
   const voidRows = voidFillRows(result);
   const voidTotal = voidFillTotal(result);
 
+  const vehicleNote = vehicleSplitDocumentNote(cargo);
   const summary = [
     [uiText('항목'), uiText('값')], [uiText('적재모드'), uiText('박스 직접 적재')],
+    // One vehicle of a divided job (AGENTS.md 2L): the workbook says which, before any number.
+    ...(vehicleNote ? vehicleSplitSummaryRows(vehicleNote) : []),
     [uiText('컨테이너 길이(m)'), container.length], [uiText('컨테이너 폭(m)'), container.width], [uiText('컨테이너 높이(m)'), container.height],
     [uiText('최대 적재중량(kg)'), container.maxPayloadKg], [uiText('적재 중량(kg)'), result.loadedWeightKg],
     [uiText('적재 부피(m3)'), result.usedVolumeM3], [uiText('적재 박스 수(EA)'), result.placements.length],
