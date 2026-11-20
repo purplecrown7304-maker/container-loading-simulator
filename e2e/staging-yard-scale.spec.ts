@@ -15,7 +15,7 @@ async function boot(page: Page) {
   let appState: Record<string, string> = {
     'container-loading-simulator-v1': JSON.stringify({ container, cargo }),
     'container-loading:guided-loading-unit': 'boxes',
-    'container-loading:guided-loading-strategy': 'capacity',
+    'container-loading:guided-loading-strategy': 'stability',
   };
   const userId = 'staging-scale-browser-fixture';
   const member = { id: userId, displayName: '대량 대기장 검증', email: 'staging-scale@example.test', status: 'active' };

@@ -35,12 +35,12 @@ async function boot(page: Page, cargo: CargoItem[], wrapped = false) {
     const spec = { ...palletSpecForType(PALLET_CATALOG[0]), useWrapping: true, useCornerGuards: true, minimizePackaging: false };
     source.result = { placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0, validationIssues: [] };
     source.staging = { version: 1, scopeKey: `operator:${userId}|active`, mode,
-      inputSignature: stagingInputSignature({ scopeKey: `operator:${userId}|active`, mode, container, cargo, palletSpec: spec, strategy: 'capacity' }),
+      inputSignature: stagingInputSignature({ scopeKey: `operator:${userId}|active`, mode, container, cargo, palletSpec: spec, strategy: 'stability' }),
       selectedUnitId: null, identity: { unitToStableId: {} },
-      palletSnapshot: { spec, result: packOnPallets(container, [], spec, 'capacity') }, palletTypeId: 'company-default' };
+      palletSnapshot: { spec, result: packOnPallets(container, [], spec, 'stability') }, palletTypeId: 'company-default' };
   }
   let appState: Record<string, string> = { 'container-loading-simulator-v1': JSON.stringify(source),
-    'container-loading:guided-loading-unit': mode, 'container-loading:guided-loading-strategy': 'capacity' };
+    'container-loading:guided-loading-unit': mode, 'container-loading:guided-loading-strategy': 'stability' };
   const member = { id: userId, displayName: '이동 연출 검증', email: 'staging-motion@example.test', status: 'active' };
   await page.addInitScript(({ userId }) => {
     localStorage.setItem('load-studio-ui-language', 'ko');

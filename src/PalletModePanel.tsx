@@ -2,7 +2,7 @@ import { uiText, useUiLanguage } from './uiLanguage';
 import type { LoadingViewerProps } from './LoadingViewer';
 import PalletContents from './PalletContents';
 import { palletModelKey } from './palletModel';
-import { readLoadingStrategyPreference } from './loadingStrategyPreference';
+import { currentLoadingStrategy } from './loadingStrategyPreference';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { consumeNextPalletCenteredResultOverride } from './engine/palletCentering';
 import { packOnPalletsAroundFixed } from './engine/palletFixedArrangement';
@@ -43,7 +43,7 @@ function sanitizeSpec(spec: PalletSpec): PalletSpec {
 }
 
 function packForMode(container: ContainerSpec, cargo: CargoItem[], spec: PalletSpec, mode: 'pallets' | 'mixed', fixed: readonly PalletLoad[] = []) {
-  const strategy = readLoadingStrategyPreference() ?? 'capacity';
+  const strategy = currentLoadingStrategy();
   if (mode === 'mixed') return packMixedMode(container, cargo, spec, strategy);
   return packOnPalletsAroundFixed(container, cargo, spec, strategy, fixed);
 }
@@ -121,7 +121,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
         else { onRunningChange(false); window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT,{detail:{mode:'pallets',error:event.data.error}})); }
       };
       worker.onerror = () => { worker.terminate(); if(!cancelled){onRunningChange(false);window.dispatchEvent(new CustomEvent(FINAL_PHYSICS_VALIDATION_ERROR_EVENT,{detail:{mode:'pallets',error:'A 규칙 계산 오류'}}));} };
-      worker.postMessage({container,cargo:cargo.filter(item=>item.quantity>0),spec:sanitizeSpec(spec),mode,strategy:readLoadingStrategyPreference()??'capacity',fixed});
+      worker.postMessage({container,cargo:cargo.filter(item=>item.quantity>0),spec:sanitizeSpec(spec),mode,strategy:currentLoadingStrategy(),fixed});
       return () => { cancel(); if (cancelActiveRun.current === cancel) cancelActiveRun.current = null; };
     }
     const timer = window.setTimeout(() => {
@@ -290,7 +290,7 @@ export default function PalletModePanel({ container, cargo, runToken, mode = 'pa
       try {
         const requestedScene = stagingPalletSceneData(container, cargo, requested);
         const checked = assessStagingRestore({ container, cargo, result: scene.result, pallets: result.pallets,
-          palletSpec: currentSpec, mode, materials: readSecuringMaterialSettings(), strategy: readLoadingStrategyPreference() ?? 'capacity' },
+          palletSpec: currentSpec, mode, materials: readSecuringMaterialSettings(), strategy: currentLoadingStrategy() },
         { result: requestedScene.result, pallets: requested.result.pallets });
         if (!checked.valid) { detail.reasons = checked.reasons; return; }
         const next = rebuildStagingPalletResult(requested.result, checked.result, checked.pallets, container);

@@ -12,7 +12,7 @@ import { buildSecuringUsage, clearLatestInertiaCertification, createPhysicsTarge
 import { clearPhysicsTarget, publishPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
 import { publishVerificationCancelled } from './workflowVerificationState';
-import { readLoadingStrategyPreference, writeLoadingStrategyPreference } from './loadingStrategyPreference';
+import { LOADING_STRATEGY_PREFERENCE_KEY, readLoadingStrategyPreference, writeLoadingStrategyPreference } from './loadingStrategyPreference';
 import { adoptRemoteOperator } from './localOperator';
 import { ADMIN_ACCESS_EVENT } from './adminAccess';
 import { MEMBER_SESSION_KEY } from './memberAuth';
@@ -71,9 +71,12 @@ async function prepareStrategy() {
   expect(action().disabled).toBe(false);
   await click(action());
   expect(modal().getAttribute('aria-label')).toBe('적재 방식 선택 설정');
-  const capacity = Array.from(modal().querySelectorAll<HTMLButtonElement>('[role="radio"]')).find(button => button.textContent!.includes('공간효율'))!;
-  await click(capacity);
-  expect(capacity.getAttribute('aria-checked')).toBe('true');
+  // Owner decision 2026-11-20: no space-efficiency goal. The one goal left is in force
+  // as soon as the packaging is confirmed; nobody has to click it.
+  const goals = Array.from(modal().querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="최적화 목표"] [role="radio"]'));
+  expect(goals.map(goal => [goal.querySelector('strong')!.textContent, goal.getAttribute('aria-checked')])).toEqual([['안정성 우선', 'true']]);
+  expect(modal().textContent).not.toContain('공간효율');
+  expect(readLoadingStrategyPreference()).toBe('stability');
   expect(action().disabled).toBe(false);
 }
 
@@ -144,25 +147,38 @@ it('retains packaging confirmation and strategy across modal reopens, but resets
   expect(modal().querySelector('.guided-packaging-list')!.textContent).toContain('4 EA');
   await click(action());
   expect(readStoredState()!.cargo[0].quantity).toBe(4);
-  expect(action().disabled).toBe(true); // The new shipment needs a deliberate strategy choice.
+  // The new shipment starts with the one goal there is: nothing more to choose in STEP 04.
+  expect(readLoadingStrategyPreference()).toBe('stability');
+  expect(action().disabled).toBe(false);
 });
 
 it('preserves a reloaded strategy through initial shell and packaging hydration', async () => {
-  writeLoadingStrategyPreference('capacity');
+  // A goal other than the default, as an older job may still hold it.
+  writeLoadingStrategyPreference('unloading');
   await mount();
-  expect(readLoadingStrategyPreference()).toBe('capacity');
+  expect(readLoadingStrategyPreference()).toBe('unloading');
   await act(async () => { writeProductSelection({ 'RETAIN-1': 3 }); }); await settle();
-  expect(readLoadingStrategyPreference()).toBe('capacity');
+  expect(readLoadingStrategyPreference()).toBe('unloading');
   await open(3); await click(action());
-  expect(readLoadingStrategyPreference()).toBeNull(); // Explicit new package confirmation still requires choosing.
+  expect(readLoadingStrategyPreference()).toBe('stability'); // A newly confirmed package starts with the one goal offered.
+});
+
+it('reads a stored space-efficiency goal as stability and never stores it again', async () => {
+  localStorage.setItem(LOADING_STRATEGY_PREFERENCE_KEY, 'capacity');
+  expect(readLoadingStrategyPreference()).toBe('stability');
+  await mount();
+  expect(step(4).textContent).toContain('무게중심·안정성 우선형');
+  expect(document.body.textContent).not.toContain('공간효율');
+  await act(async () => writeLoadingStrategyPreference('capacity'));
+  expect(localStorage.getItem(LOADING_STRATEGY_PREFERENCE_KEY)).toBe('stability');
 });
 
 it('preserves mode and strategy on same-member hydration or name change, and resets for a different account', async () => {
   adoptRemoteOperator({ id: 'stable-member', name: 'Original name' });
-  publishGuidedLoadingUnit('mixed'); writeLoadingStrategyPreference('capacity');
+  publishGuidedLoadingUnit('mixed'); writeLoadingStrategyPreference('stability');
   await mount();
   await act(async () => adoptRemoteOperator({ id: 'stable-member', name: 'Restored profile name' })); await settle();
-  expect(readGuidedLoadingUnit()).toBe('mixed'); expect(readLoadingStrategyPreference()).toBe('capacity');
+  expect(readGuidedLoadingUnit()).toBe('mixed'); expect(readLoadingStrategyPreference()).toBe('stability');
   await act(async () => adoptRemoteOperator({ id: 'different-member', name: 'New account' })); await settle();
   expect(readGuidedLoadingUnit()).toBeNull(); expect(readLoadingStrategyPreference()).toBeNull();
   expect(step(1).getAttribute('aria-current')).toBe('step');
@@ -171,15 +187,15 @@ it('preserves mode and strategy on same-member hydration or name change, and res
 it('recognizes a restored member before the header hydrates its local operator profile', async () => {
   sessionStorage.setItem(MEMBER_SESSION_KEY, JSON.stringify({ token: 'synthetic', userId: 'cloud-member',
     displayName: 'Cloud member', email: 'cloud@example.test', expiresAt: new Date(Date.now() + 3600000).toISOString() }));
-  publishGuidedLoadingUnit('mixed'); writeLoadingStrategyPreference('capacity'); await mount();
+  publishGuidedLoadingUnit('mixed'); writeLoadingStrategyPreference('stability'); await mount();
   await act(async () => adoptRemoteOperator({ id: 'cloud-member', name: 'Hydrated profile' })); await settle();
-  expect(readGuidedLoadingUnit()).toBe('mixed'); expect(readLoadingStrategyPreference()).toBe('capacity');
+  expect(readGuidedLoadingUnit()).toBe('mixed'); expect(readLoadingStrategyPreference()).toBe('stability');
 });
 
 it('resets once for an administrator boundary and preserves choices on repeated same-admin access events', async () => {
   await mount();
   await act(async () => {
-    publishGuidedLoadingUnit('mixed'); writeLoadingStrategyPreference('capacity');
+    publishGuidedLoadingUnit('mixed'); writeLoadingStrategyPreference('stability');
     sessionStorage.setItem('container-loading-admin-session-v1', JSON.stringify({ role: 'admin', userId: 'admin',
       loggedInAt: new Date().toISOString(), sessionToken: 'a'.repeat(64), expiresAt: new Date(Date.now() + 3600000).toISOString() }));
     window.dispatchEvent(new Event(ADMIN_ACCESS_EVENT));

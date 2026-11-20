@@ -3,6 +3,7 @@ import { preflightCargoInput, type RejectedCargoRow } from './engine/inputPrefli
 import { buildPalletPackaging } from './engine/mixedModePacking';
 import { defaultPalletSpec, packOnPallets, type PalletLoad, type PalletSpec } from './engine/palletOptimization';
 import type { LoadingStrategy } from './engine/loadingEngine';
+import { DEFAULT_LOADING_STRATEGY } from './loadingStrategyPreference';
 
 export type StagingMode = 'boxes' | 'pallets' | 'mixed';
 export type StagingReason = { reason: string; reasonCode?: string };
@@ -103,7 +104,7 @@ export function stagingInputSignature(input: StagingInput): string {
   const cargo = input.cargo.map(row => canonical({ ...row, id: row.id?.trim() ?? '', allowRotation: row.allowRotation !== false }))
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   return 'staging-v1:' + JSON.stringify(canonical({ scopeKey: input.scopeKey, mode: input.mode,
-    container: input.container, cargo, strategy: input.strategy ?? 'capacity',
+    container: input.container, cargo, strategy: input.strategy ?? DEFAULT_LOADING_STRATEGY,
     palletSpec: input.mode === 'boxes' ? undefined : input.palletSpec ?? defaultPalletSpec }));
 }
 
@@ -241,7 +242,7 @@ export function prepareStagingPackaging(input: PrepareStagingPackagingInput): St
   const provenance = { scope: 'yard' as const, reservedCounts };
   if (!palletCargo.length) return { inputSignature, ...provenance, status: 'ready', pallets: preserved, remaining: [] };
   try {
-    const strategy = input.strategy ?? 'capacity';
+    const strategy = input.strategy ?? DEFAULT_LOADING_STRATEGY;
     // Pallet mode first preserves the actual current engine's complete fitting
     // profiles, including its configured stack-target and packaging decisions.
     const ordinary = input.mode === 'pallets' ? packOnPallets(input.container, palletCargo, spec, strategy)

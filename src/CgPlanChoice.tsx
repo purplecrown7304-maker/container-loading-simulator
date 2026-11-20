@@ -2,7 +2,7 @@ import { uiText, useUiLanguage } from './uiLanguage';
 import { useMemo, useState } from 'react';
 import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { cgCompliantAlternativeForResult } from './engine/cgCompliantPlan';
-import { readLoadingStrategyPreference } from './loadingStrategyPreference';
+import { currentLoadingStrategy } from './loadingStrategyPreference';
 
 type Choice = 'full' | 'cg';
 
@@ -28,7 +28,7 @@ export default function CgPlanChoice({ container, cargo, fullResult, onChoose }:
   const alternative = useMemo(() => {
     if (!finding) return null;
     return cgCompliantAlternativeForResult(container, cargo, fullResult, {
-      strategy: readLoadingStrategyPreference() ?? 'capacity',
+      strategy: currentLoadingStrategy(),
       publish: false,
     });
   }, [container, cargo, fullResult, finding?.value, finding?.limit]);

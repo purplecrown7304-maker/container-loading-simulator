@@ -48,7 +48,7 @@ describe('saved staging provenance', () => {
     const metadata = saved();
     const mismatches: StagingInput[] = [
       { ...input, scopeKey: 'other-shipment' }, { ...input, mode: 'pallets' }, { ...input, mode: 'mixed' },
-      { ...input, strategy: 'stability' }, { ...input, container: { ...input.container, maxPayloadKg: 999 } },
+      { ...input, strategy: 'unloading' }, { ...input, strategy: 'capacity' }, { ...input, container: { ...input.container, maxPayloadKg: 999 } },
       { ...input, cargo: [{ ...input.cargo[0], quantity: 3 }] },
     ];
     for (const changed of mismatches) expect(matchingStagingMetadata(metadata, changed)).toBeNull();

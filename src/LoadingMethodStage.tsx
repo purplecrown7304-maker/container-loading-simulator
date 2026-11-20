@@ -11,11 +11,13 @@ import { writeStoredState, type StoredState } from './storage';
 import GuidedPalletTypePicker from './GuidedPalletTypePicker';
 import CargoStackRestrictionNotice from './CargoStackRestrictionNotice';
 import { loadingMethodBlockReason } from './loadingMethodReadiness';
+import { DEFAULT_LOADING_STRATEGY } from './loadingStrategyPreference';
 import { addIncompatiblePair, addRecommendedPairs, normalizeIncompatiblePairs, removeIncompatiblePair, segregationPreview, SEGREGATION_CLASSES, TEMP_ZONES } from './segregationSettings';
 
+// Owner decision 2026-11-20 (AGENTS.md 2K): the space-efficiency goal is no longer offered.
+// One goal is left; it is shown as the goal in force and needs no click.
 const objectives = [
-  { id:'stability' as const, title:'안정성 우선', detail:'무거운 화물을 낮게 두고 좌우·전후 균형을 맞춥니다.' },
-  { id:'capacity' as const, title:'공간효율 우선', detail:'빈 공간과 미적재를 줄입니다.' },
+  { id:DEFAULT_LOADING_STRATEGY, title:'안정성 우선', detail:'무거운 화물을 낮게 두고 좌우·전후 균형을 맞춥니다.' },
 ];
 const modes: Array<{ id:GuidedLoadingUnit; title:string; detail:string }> = [
   { id:'boxes',title:'박스 직접 적재',detail:'포장된 박스를 적재 공간 바닥에 직접 배치합니다.' },
@@ -23,8 +25,8 @@ const modes: Array<{ id:GuidedLoadingUnit; title:string; detail:string }> = [
   { id:'mixed',title:'혼합 적재',detail:'품목별로 팔레트·직접 적재를 지정하고 같은 공간에 배치합니다.' },
 ];
 
-export default function LoadingMethodStage({ input, strategy, onStrategy, confirmed, active, onPackaging }: {
-  input:StoredState; strategy:LoadingStrategy|null; onStrategy:(strategy:LoadingStrategy)=>void; confirmed:boolean; active:boolean; onPackaging:()=>void;
+export default function LoadingMethodStage({ input, onStrategy, confirmed, active, onPackaging }: {
+  input:StoredState; onStrategy:(strategy:LoadingStrategy)=>void; confirmed:boolean; active:boolean; onPackaging:()=>void;
 }) {
   useUiLanguage();
   const mode = useGuidedLoadingUnit() ?? 'boxes';
@@ -33,8 +35,10 @@ export default function LoadingMethodStage({ input, strategy, onStrategy, confir
   const equipment = useTransportEquipment();
   const jobSpecs = usePalletJobSpecs();
   const pallet = palletJobSpec(resolvePalletType(palletSelection), jobSpecs);
-  const currentStrategy = strategy === 'unloading' ? 'capacity' : strategy;
-  const reason = loadingMethodBlockReason(confirmed,currentStrategy,mode,input,palletSelection);
+  // The step plans with its one goal whatever an older job stored (capacity, or the
+  // unloading preference this step has always shown as its plain goal).
+  const currentStrategy = DEFAULT_LOADING_STRATEGY;
+  const reason = loadingMethodBlockReason(confirmed,mode,input,palletSelection);
   const destination = input.container.palletDestination ?? { transport:'domestic',region:'europe',requiredSize:'' };
   const updateContainer = (change: Partial<ContainerSpec>) => writeStoredState({ ...input, container:{...input.container,...change} },true);
   useEffect(() => {
@@ -59,7 +63,7 @@ export default function LoadingMethodStage({ input, strategy, onStrategy, confir
   const strict = input.container.unloadingPolicy !== 'soft';
   const forecastInput:ForecastInput = { ...input, mode, pallet };
   const forecastKey = JSON.stringify(forecastInput);
-  const [request, setRequest] = useState<{key:string;first:LoadingStrategy;version:number}|null>(null);
+  const [request, setRequest] = useState<{key:string;strategy:LoadingStrategy;version:number}|null>(null);
   const finishedRequest = useRef<typeof request>(null);
   const [comparison, setComparison] = useState<{key:string;results:LoadingForecast[];status:'running'|'done'|'error';error?:string}|null>(null);
   useEffect(() => {
@@ -74,14 +78,14 @@ export default function LoadingMethodStage({ input, strategy, onStrategy, confir
       else { worker.terminate();if(event.data.done)finishedRequest.current=request;setComparison(previous=>({key:forecastKey,results:previous?.results??[],status:event.data.error?'error':'done',error:event.data.error})); }
     };
     worker.onerror=()=>{if(!cancelled)setComparison({key:forecastKey,results:[],status:'error',error:'예상 결과 계산에 실패했습니다.'});worker.terminate();};
-    worker.postMessage({input:JSON.parse(forecastKey),first:request.first});
+    worker.postMessage({input:JSON.parse(forecastKey),strategy:request.strategy});
     return()=>{cancelled=true;worker.terminate();};
   },[active,confirmed,request,forecastKey]);
   const currentComparison = comparison?.key === forecastKey && request?.key === forecastKey ? comparison : null;
   const calculating = active && currentComparison?.status === 'running';
   const regions = {europe:'유럽','north-america':'북미',asia:'아시아',other:'기타'};
   return <section className="guided-stage-panel guided-strategy-stage step04-redesign">
-    <div className="guided-panel-title"><div><h1>{uiT("적재 방식 선택")}</h1><p>{uiT("화물을 싣는 방식과 최적화 목표를 고릅니다. 같은 수량이면 팔레트를 적게 쓰는 후보를 우선합니다.")}</p></div>
+    <div className="guided-panel-title"><div><h1>{uiT("적재 방식 선택")}</h1><p>{uiT("화물을 싣는 방식을 고릅니다. 같은 수량이면 팔레트를 적게 쓰는 후보를 우선합니다.")}</p></div>
       <span className={`guided-strategy-status ${!reason?'ready':''}`}>{reason ? <>{!confirmed?uiT("제품 포장 확정 필요"):uiT(reason)}{!confirmed && <button type="button" onClick={onPackaging}>{uiT("3단계로 이동")}</button>}</>:uiT("선택 완료")}</span></div>
     <div className="step04-context">
       <div><small>{uiT("적재 공간")}</small><b>{equipment.shortName} {uiT("· 내폭")} {Math.round(input.container.width*1000).toLocaleString()} mm</b></div>
@@ -93,17 +97,17 @@ export default function LoadingMethodStage({ input, strategy, onStrategy, confir
     <section className="step04-section guided-loading-unit-inline" aria-label={uiT("적재 유형 선택")}><h2>{uiT("1. 적재 유형")}</h2>
       <div className="guided-loading-unit-grid" role="radiogroup" aria-label={uiT("적재 유형")}>{modes.map(option=><button key={option.id} type="button" role="radio" aria-checked={mode===option.id} className={mode===option.id?'selected':''} onClick={()=>chooseMode(option.id)}><span><b>{uiT(option.title)}</b><small>{uiT(option.detail)}</small></span></button>)}</div>
       {mode==='mixed' && <div className="step04-sku-choices" aria-label={uiT("품목별 혼합 적재 지정")}><p>{uiT("지정한 팔레트 화물은 직접 적재로 전환하지 않습니다. 정량·잔량 박스에 같은 지정을 적용합니다.")}</p>{products.map(item=><label key={item.productId??item.id}><span>{item.productName??item.name}</span><select aria-label={uiT("{0} 혼합 적재 방식", [item.productName??item.name])} value={item.mixedLoadingMethod??''} onChange={e=>updateProduct(item,{mixedLoadingMethod:e.target.value as 'pallet'|'direct'})}><option value="" disabled>{uiT("선택 필요")}</option><option value="pallet">{uiT("팔레트")}</option><option value="direct">{uiT("박스 직접 적재")}</option></select></label>)}</div>}
-      {mode!=='boxes' ? <GuidedPalletTypePicker mode={mode} input={input} strategy={currentStrategy??'capacity'} active={active&&confirmed} /> : <CargoStackRestrictionNotice cargo={input.cargo}/>}
+      {mode!=='boxes' ? <GuidedPalletTypePicker mode={mode} input={input} strategy={currentStrategy} active={active&&confirmed} /> : <CargoStackRestrictionNotice cargo={input.cargo}/>}
     </section>
-    <section className="step04-section"><div className="step04-section-heading"><div><h2>{uiT("2. 최적화 목표")}</h2><p>{uiT("팔레트 수가 같으면 선택한 목표로 비교합니다. 비교 예측은 최종 적재·관성 검사와 별개입니다.")}</p></div><button type="button" disabled={!confirmed||!strategy||calculating||Boolean(reason)} onClick={()=>setRequest({key:forecastKey,first:currentStrategy??'capacity',version:(request?.version??0)+1})}>{uiT("예상 결과 비교")}</button>{calculating && <button type="button" onClick={()=>{setRequest(null);setComparison(null);}}>{uiT("비교 취소")}</button>}</div>
-      <div className="guided-strategy-grid" role="radiogroup" aria-label={uiT("최적화 목표")}>{objectives.map(option=>{
+    <section className="step04-section"><div className="step04-section-heading"><div><h2>{uiT("2. 최적화 목표")}</h2><p>{uiT("팔레트 수가 같으면 안정성을 기준으로 고릅니다. 예상 결과는 최종 적재·관성 검사와 별개입니다.")}</p></div><button type="button" disabled={!confirmed||calculating||Boolean(reason)} onClick={()=>setRequest({key:forecastKey,strategy:currentStrategy,version:(request?.version??0)+1})}>{uiT("예상 결과 계산")}</button>{calculating && <button type="button" onClick={()=>{setRequest(null);setComparison(null);}}>{uiT("계산 취소")}</button>}</div>
+      <div className="guided-strategy-grid step04-goal-grid" role="radiogroup" aria-label={uiT("최적화 목표")}>{objectives.map(option=>{
         const forecast=currentComparison?.results.find(f=>f.strategy===option.id);
         return <button key={option.id} type="button" role="radio" aria-checked={currentStrategy===option.id} className={`guided-strategy-card ${currentStrategy===option.id?'selected':''}`} onClick={()=>onStrategy(option.id)}>
           <strong>{uiT(option.title)}</strong><small>{uiT(option.detail)}</small><dl className="step04-forecast"><div><dt>{uiT("적재 수량")}</dt><dd>{forecast?uiT("{0}개", [forecast.loaded.toLocaleString()]):uiT("미계산")}</dd></div><div><dt>{uiT("용적률")}</dt><dd>{forecast?`${forecast.volumePct.toFixed(1)}%`:uiT("미계산")}</dd></div><div><dt>{uiT("무게중심 편차")}</dt><dd>{forecast?.cogDeviationMm!=null?`${Math.round(forecast.cogDeviationMm)} mm`:uiT("미계산")}</dd></div></dl>
           {forecast && <small>{uiT("팔레트")} {forecast.pallets}{uiT("장 · 미적재")} {forecast.waiting}{uiT("개 · 계산상 오류")} {forecast.errors}{uiT("건")}</small>}
         </button>;
       })}</div>
-      <p className="step04-help" role="status">{calculating?uiT("목표 비교 계산 중 · {0}/2", [currentComparison?.results.length??0]):currentComparison?.status==='error'?currentComparison.error:uiT("편차는 적재공간 수평 중심에서 화물·팔레트 무게중심까지의 거리입니다. 입력 변경 시 이전 예측은 표시하지 않습니다.")}</p>
+      <p className="step04-help" role="status">{calculating?uiT("예상 결과 계산 중…"):currentComparison?.status==='error'?currentComparison.error:uiT("편차는 적재공간 수평 중심에서 화물·팔레트 무게중심까지의 거리입니다. 입력 변경 시 이전 예측은 표시하지 않습니다.")}</p>
     </section>
     <section className="step04-section"><h2>{uiT("3. 하역 순서")} {stops>1?uiT("· 착지 {0}곳", [stops]):''}</h2>
       <details className="step04-sku-choices"><summary>{uiT("품목별 착지 번호 · 같은 배송지는 같은 번호")}</summary>{products.map(item=><label key={item.productId??item.id}><span>{item.productName??item.name}</span><input aria-label={uiT("{0} 하역 순서", [item.productName??item.name])} type="number" min="1" step="1" value={item.unloadPriority??1} onChange={e=>{const stop=Number(e.target.value);if(Number.isInteger(stop)&&stop>0)updateProduct(item,{unloadPriority:stop});}}/></label>)}</details>

@@ -2,7 +2,7 @@ import { inspectionProgressText, inspectionDiagnosticText } from './inspectionPr
 import { uiText as uiT, uiMessage, useUiLanguage } from './uiLanguage';
 import { assessPhysicsVerification } from './physicsVerificationPolicy';
 import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
-import { readLoadingStrategyPreference } from './loadingStrategyPreference';
+import { currentLoadingStrategy } from './loadingStrategyPreference';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { buildDirectResultReoptimizationCandidatesAsync, buildSecuringPayloadAdjustmentCandidateAsync, type DirectResultReoptimizationCandidate, type DirectSearchProgress } from './engine/finalResultOptimization';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
@@ -217,11 +217,11 @@ export default function FinalCertificationGate() {
 
       setProgress(null);
       const payloadAdjustment = !result.payloadWithinLimit;
-      const adjusted = payloadAdjustment ? await buildSecuringPayloadAdjustmentCandidateAsync(nextTarget, readLoadingStrategyPreference() ?? 'capacity', controller.signal) : null;
+      const adjusted = payloadAdjustment ? await buildSecuringPayloadAdjustmentCandidateAsync(nextTarget, currentLoadingStrategy(), controller.signal) : null;
       const searchResult = payloadAdjustment
         ? { candidates: adjusted ? [adjusted] : [], timedOut: false }
         : await buildDirectResultReoptimizationCandidatesAsync(nextTarget, MAX_DIRECT_REPOSITION_CANDIDATES, cancelled, {
-          strategy: readLoadingStrategyPreference() ?? undefined,
+          strategy: currentLoadingStrategy(),
           signal: controller.signal,
           onProgress: next => { if (!cancelled()) setSearch(next); },
         });

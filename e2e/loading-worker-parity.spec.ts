@@ -88,11 +88,11 @@ async function installInput(page: Page, disableWorker: boolean, state = storedSt
   await page.evaluate(({ state, materials }) => {
     localStorage.setItem('container-loading-simulator-v1', JSON.stringify(state));
     localStorage.setItem('container-loading-securing-material-settings', JSON.stringify(materials));
-    localStorage.setItem('container-loading:guided-loading-strategy', 'capacity');
+    localStorage.setItem('container-loading:guided-loading-strategy', 'stability');
     localStorage.setItem('container-loading:guided-loading-unit', 'boxes');
     localStorage.setItem('container-loading-strategy', 'capacity');
     window.dispatchEvent(new CustomEvent('container-loading-simulator:storage-updated', { detail: state }));
-    window.dispatchEvent(new CustomEvent('container-loading:guided-loading-strategy-updated', { detail: 'capacity' }));
+    window.dispatchEvent(new CustomEvent('container-loading:guided-loading-strategy-updated', { detail: 'stability' }));
     window.dispatchEvent(new CustomEvent('container-loading:guided-loading-unit-updated', { detail: 'boxes' }));
     window.dispatchEvent(new CustomEvent('container-loading:securing-material-settings', { detail: materials }));
   }, { state, materials });

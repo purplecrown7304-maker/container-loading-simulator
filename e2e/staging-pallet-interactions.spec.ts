@@ -45,11 +45,11 @@ async function boot(page: Page, options: { typeId?: string; palletBoxes?: number
   const spec = { ...palletSpecForType(PALLET_CATALOG.find(type => type.id === typeId)!), useWrapping: true, useCornerGuards: true, minimizePackaging: false };
   const source = { container, cargo, result: { placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0, validationIssues: [] },
     staging: { version: 1, scopeKey: `operator:${userId}|active`, mode,
-      inputSignature: stagingInputSignature({ scopeKey: `operator:${userId}|active`, mode, container, cargo, palletSpec: spec, strategy: 'capacity' }),
+      inputSignature: stagingInputSignature({ scopeKey: `operator:${userId}|active`, mode, container, cargo, palletSpec: spec, strategy: 'stability' }),
       selectedUnitId: null, identity: { unitToStableId: {} },
-      palletSnapshot: { spec, result: mode === 'mixed' ? packMixedMode(container, [], spec, 'capacity') : packOnPallets(container, [], spec, 'capacity') }, palletTypeId: typeId } };
+      palletSnapshot: { spec, result: mode === 'mixed' ? packMixedMode(container, [], spec, 'stability') : packOnPallets(container, [], spec, 'stability') }, palletTypeId: typeId } };
   let appState: Record<string, string> = { 'container-loading-simulator-v1': JSON.stringify(source),
-    'container-loading:guided-loading-unit': mode, 'container-loading:guided-loading-strategy': 'capacity',
+    'container-loading:guided-loading-unit': mode, 'container-loading:guided-loading-strategy': 'stability',
     ...(typeId === 'company-default' ? {} : { 'container-loading:pallet-type-selection': typeId }) };
   const member = { id: userId, displayName: '파렛트 포인터 검증', email: 'pallet-pointer@example.test', status: 'active' };
   await page.addInitScript(({ userId, typeId }) => {

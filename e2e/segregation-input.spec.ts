@@ -15,7 +15,7 @@ async function seedAndPackage(page:Page) {
   for(const id of ['A','B']) await page.locator('.guided-product-table article').filter({hasText:`SEG-${id}`}).locator('input[type=number]').fill('4');
   await page.getByRole('button',{name:/다음: 제품 포장/}).click();
   await page.getByRole('button',{name:/포장 확정 · 다음: 적재 방식 선택/}).click();
-  await page.getByRole('radio',{name:/공간효율 우선/}).click();
+  await expect(page.getByRole('radio', { name: /안정성 우선/ })).toHaveAttribute('aria-checked', 'true');
 }
 
 test.beforeEach(async ({context,baseURL})=>{

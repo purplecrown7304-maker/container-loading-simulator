@@ -16,7 +16,7 @@ async function seedAndPackage(page:Page, mixed=false) {
   for(const id of mixed?['A','B']:['A']) await page.locator('.guided-product-table article').filter({hasText:`MIN-${id}`}).locator('input[type=number]').fill(mixed?'4':'24');
   await page.getByRole('button',{name:/다음: 제품 포장/}).click();
   await page.getByRole('button',{name:/포장 확정 · 다음: 적재 방식 선택/}).click();
-  await page.getByRole('radio',{name:/공간효율 우선/}).click();
+  await expect(page.getByRole('radio', { name: /안정성 우선/ })).toHaveAttribute('aria-checked', 'true');
 }
 
 test.beforeEach(async ({context,baseURL})=>{
@@ -37,13 +37,13 @@ test('STEP04 compares real counts and loads 24 cartons on one pallet',async ({pa
   const gate=new Promise<void>(resolve=>{release=resolve;});
   const workerPattern='**/loadingForecast.worker-*.js';
   await page.route(workerPattern,async route=>{await gate;await route.continue().catch(()=>{});});
-  await page.getByRole('button',{name:'예상 결과 비교',exact:true}).click();
-  await expect(page.getByRole('button',{name:'예상 결과 비교',exact:true})).toBeDisabled();
-  await page.getByRole('button',{name:'비교 취소',exact:true}).click();
+  await page.getByRole('button',{name:'예상 결과 계산',exact:true}).click();
+  await expect(page.getByRole('button',{name:'예상 결과 계산',exact:true})).toBeDisabled();
+  await page.getByRole('button',{name:'계산 취소',exact:true}).click();
   release();
   await page.unroute(workerPattern);
   await expect(page.locator('.step04-forecast dd').first()).toHaveText('미계산');
-  await page.getByRole('button',{name:'예상 결과 비교',exact:true}).click();
+  await page.getByRole('button',{name:'예상 결과 계산',exact:true}).click();
   await expect(page.locator('.step04-forecast dd').first()).toHaveText('24개',{timeout:60000});
   await expect(page.locator('.guided-strategy-grid[aria-label="최적화 목표"]')).toContainText('팔레트 1장 · 미적재 0개 · 계산상 오류 0건');
   await page.screenshot({path:test.info().outputPath('step04-calculated-forecast.png'),fullPage:true,animations:'disabled'});

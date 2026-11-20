@@ -100,7 +100,7 @@ test('completed loading keeps result quantities visible after switching result t
   await page.goto('/');
   await advanceToStrategy(page, 'E2E-FINAL-RESULT');
   // Full-depth cargo satisfies the unchanged CG gate without shifting off X=0.
-  await page.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await expect(page.getByRole('radio', { name: /안정성 우선/ })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
 

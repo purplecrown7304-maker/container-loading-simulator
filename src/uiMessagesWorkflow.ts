@@ -80,10 +80,6 @@ export const uiMessagesWorkflow: Readonly<Record<string, readonly [string, strin
     "No cargo to load. Register or select cargo from your box list.",
     "Không có hàng để xếp. Đăng ký hoặc chọn hàng từ danh sách thùng của bạn."
   ],
-  "적재 방식을 먼저 선택해 주세요.": [
-    "Select a loading method first.",
-    "Hãy chọn cách xếp hàng trước."
-  ],
   "팔레트 배치 후보 계산 중…": [
     "Calculating pallet layout candidates…",
     "Đang tính các phương án bố trí pallet…"

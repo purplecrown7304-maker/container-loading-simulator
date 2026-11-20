@@ -74,7 +74,7 @@ test('registered stacking updates without reload and bulk packaging advances bef
   expect(prepared.remaining).toBe(0);
   console.log('bulk packaging confirmed: 1691 cartons, 110000 products, 9 layers, no hidden loading');
 
-  await page.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await expect(page.getByRole('radio', { name: /안정성 우선/ })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: /다음 단계/ }).click();
   const workerStarted = page.waitForEvent('worker', { predicate: worker => /loading\.worker-/.test(worker.url()), timeout: 15_000 });
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();

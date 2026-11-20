@@ -228,6 +228,30 @@ section 1.
   MIXED and the A-rules are unchanged.
 - Planning a second vehicle for the cargo that still waits is not part of this rule and is
   not built: the waiting cargo is listed with its reason as before.
+## 2K. Owner decision: no space-efficiency goal (2026-11-20)
+
+Owner instruction: "최적화 목표에 공간 효율 목표는 그냥 없애자." Product UI and stored
+preference only (`LoadingMethodStage.tsx`, `loadingStrategyPreference.ts`).
+
+- STEP 04 "최적화 목표" offers one goal, 안정성 우선 (`stability`). It is in force as soon as
+  the packaging is confirmed; the user does not pick it and no step waits for a goal.
+- A job with no stored goal plans with `stability`. A stored or legacy `capacity` is read
+  as `stability` everywhere the product reads the preference, and the product never stores
+  `capacity` again. A legacy `unloading` preference keeps its meaning; unloading order is
+  set by the stop numbers and the strict/soft policy as before.
+- A staging plan or pallet snapshot saved under `capacity` is a different input now: it is
+  kept as a reference only and the job is planned again. Nothing is restored as a current
+  plan under a goal the product no longer applies.
+- The STEP 04 estimate is one calculation for that goal, not a comparison of goals.
+- The engine keeps the `capacity` strategy and the `LoadingStrategy` type: its own tests,
+  the worker-parity fixtures and engine-internal defaults (for example the A-rule adapter's
+  parameter) still use it. Section 7's `capacity` bullet describes that engine strategy; it
+  is no longer selectable in the product, and every planner the product calls (legacy,
+  A-rules, pallet, MIXED) receives the stored goal.
+- No hard limit, certification threshold or loading rule is changed by this decision.
+  Pallet, MIXED and A-rule plans that were made under `capacity` can come out differently
+  under `stability`. The legacy direct-box plan is the same under both goals; only the
+  order in which alternative layouts are tried after a failed certification differs.
 
 ## 3. DIRECT BOX baseline algorithm
 The legacy fixed sequence of `CBM/weight sort -> full vertical stacks -> x shelf progression -> door-side tail mixing` is retired.
