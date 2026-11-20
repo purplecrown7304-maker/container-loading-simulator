@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { applyPersonalStackPolicyToCargo } from './boxStackingPolicy';
+import { loadingRunContextKey } from './loadingRunContext';
 import { readLocalOperator } from './localOperator';
 import { readPersonalBoxCatalog, type PersonalBoxCatalogItem } from './personalBoxCatalog';
 import { recordDiagnosticTrace } from './runtimeDiagnostics';
@@ -98,9 +99,16 @@ export default function ConfirmedPackagingLoadingBridge() {
       // React state 반영이 끝난 뒤 동일 확정 화물로 자동 적재를 재실행한다.
       // 다른 가드의 재실행 표시는 유지해, 한 번의 클릭이 가드마다 한 번만 재실행되게 한다.
       const replayDetail: ReplayActionDetail = { ...custom.detail, action: 'run-loading', confirmedPackagingReplay: true };
+      // The request is for the job as it stands now. If the rules or the job change before the
+      // replay, it must not start a run for an input nobody asked to run.
+      const requestedFor = loadingRunContextKey();
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           if (cancelled) return;
+          if (loadingRunContextKey() !== requestedFor) {
+            recordDiagnosticTrace('run-loading-replay-dropped', { guard: 'confirmed-packaging', shipmentNo: snapshot.shipmentNo });
+            return;
+          }
           window.dispatchEvent(new CustomEvent<ReplayActionDetail>(APP_ACTION_EVENT, {
             detail: replayDetail,
           }));
