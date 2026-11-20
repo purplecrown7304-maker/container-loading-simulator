@@ -6,6 +6,7 @@ import { recordDiagnosticTrace } from './runtimeDiagnostics';
 import { readShipmentInstructionSnapshot, type ShipmentInstructionSnapshot } from './shipmentInstruction';
 import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
+import { confirmedShipmentOfSplit } from './vehicleSplitState';
 
 type ReplayActionDetail = AppActionDetail & { confirmedPackagingReplay?: boolean };
 
@@ -66,7 +67,8 @@ export default function ConfirmedPackagingLoadingBridge() {
 
       const stored = readStoredState();
       if (!stored?.cargo?.length) return;
-      const snapshot = readShipmentInstructionSnapshot(stored.cargo);
+      // A vehicle's share of a divided job keeps the confirmed identity and stacking policy too.
+      const snapshot = readShipmentInstructionSnapshot(stored.cargo) ?? confirmedShipmentOfSplit(stored.cargo);
       if (!snapshot) return;
 
       // App의 기존 run-loading listener가 이전 cargo state로 먼저 실행되는 것을 차단한다.

@@ -4,6 +4,7 @@ import { readShipmentInstructionSnapshot } from './shipmentInstruction';
 import { readStoredState } from './storage';
 import { APP_ACTION_EVENT, type AppActionDetail } from './uiEvents';
 import { recordDiagnosticTrace } from './runtimeDiagnostics';
+import { confirmedShipmentOfSplit } from './vehicleSplitState';
 
 /**
  * 제품 포장 흐름인데 저장 cargo와 포장 확정 signature가 다르면 자동 적재를 중단한다.
@@ -24,7 +25,9 @@ export default function PackagingDataIntegrityGuard() {
 
       const rawSnapshot = readShipmentInstructionSnapshot();
       if (!rawSnapshot) return;
-      const matchingSnapshot = readShipmentInstructionSnapshot(stored.cargo);
+      // One vehicle of a divided job (AGENTS.md 2L) loads its share of the confirmed cargo:
+      // accepted only while the whole job it was divided from is the confirmed packaging.
+      const matchingSnapshot = readShipmentInstructionSnapshot(stored.cargo) ?? confirmedShipmentOfSplit(stored.cargo);
       if (matchingSnapshot) return;
 
       event.stopImmediatePropagation();

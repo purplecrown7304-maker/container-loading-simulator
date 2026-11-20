@@ -1,4 +1,5 @@
 import { uiText as uiT, readUiLanguage } from './uiLanguage';
+import { vehicleSplitBanner } from './vehicleSplitPresentation';
 import { buildLimitReviewHtml, buildLimitReviewInertiaHtml, isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 import { buildReportDocument, reportTable, reportSignoff } from './reportLayout';
 import type { InertiaAnimationResult } from './engine/inertiaSimulation';
@@ -175,7 +176,7 @@ export function buildInertiaImprovementReportHtml(target: PhysicsTarget, results
     status: overallLabel,
     watermark: review ? uiT("WHAT-IF REVIEW · 출고 승인 아님") : undefined,
     tone: worst.level === 'danger' ? 'danger' : review ? 'caution' : tested < 3 ? 'neutral' : worst.level === 'warning' ? 'caution' : 'good',
-    summary: `${buildLimitReviewHtml(target)}${buildLimitReviewInertiaHtml(target, { maxHorizontalShiftM: Math.max(...assessments.map(item => item.result.maxHorizontalShiftM)), maxTiltDeg: Math.max(...assessments.map(item => item.result.maxTiltDeg)) })}<section class="summary" aria-label="${uiT("관성 검증 요약")}"><div><span>${uiT("실행 시나리오")}</span><b>${tested} / 3</b></div><div><span>${uiT("적재 화물")}</span><b>${target.result.placements.length} EA</b></div><div><span>${uiT("팔레트")}</span><b>${target.supports?.length ?? 0} EA</b></div><div class="text-metric"><span>${uiT("실행 결과 중 최악 조건")}</span><b>${worst.label}</b></div></section>`,
+    summary: `${buildLimitReviewHtml(target)}${vehicleSplitBanner(target.cargo)}${buildLimitReviewInertiaHtml(target, { maxHorizontalShiftM: Math.max(...assessments.map(item => item.result.maxHorizontalShiftM)), maxTiltDeg: Math.max(...assessments.map(item => item.result.maxTiltDeg)) })}<section class="summary" aria-label="${uiT("관성 검증 요약")}"><div><span>${uiT("실행 시나리오")}</span><b>${tested} / 3</b></div><div><span>${uiT("적재 화물")}</span><b>${target.result.placements.length} EA</b></div><div><span>${uiT("팔레트")}</span><b>${target.supports?.length ?? 0} EA</b></div><div class="text-metric"><span>${uiT("실행 결과 중 최악 조건")}</span><b>${worst.label}</b></div></section>`,
     sections: [
       { title: uiT("종합 평가와 보완할 점"), description: uiT("현재 판정과 우선 조치사항을 먼저 확인하세요."),
         content: `<div class="overall"><b>${overallLabel}</b><span>${escapeHtml(worst.evaluation)}${tested < 3 ? uiT(" · 미실행 시나리오는 평가에 포함되지 않았습니다.") : ''}</span></div><h3>${uiT("보완할 점")}</h3><ol class="recommend">${recommendationHtml}</ol>` },

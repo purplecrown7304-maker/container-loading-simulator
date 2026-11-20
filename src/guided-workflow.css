@@ -12,7 +12,7 @@ html[data-guided-workflow="true"] .mockup-dashboard{height:auto!important;min-he
 html[data-guided-workflow="true"] .dashboard-grid{display:grid!important;grid-template-columns:216px minmax(0,1fr) 272px!important;gap:24px!important;max-width:1440px!important;width:100%!important;height:auto!important;min-height:calc(100vh - 56px)!important;margin:0 auto!important;padding:24px!important;background:transparent!important}
 html[data-guided-workflow="true"] .dashboard-left,html[data-guided-workflow="true"] .dashboard-right{position:sticky!important;top:80px!important;align-self:start!important;display:block!important;max-height:calc(100vh - 112px)!important;overflow:auto!important;padding:0!important;gap:0!important;scrollbar-width:thin}
 html[data-guided-workflow="true"] .dashboard-center{display:block!important;min-width:0!important}
-html[data-guided-workflow="true"] .dashboard-left>*:not(.guided-step-rail),html[data-guided-workflow="true"] .dashboard-right>*:not(.guided-job-summary){display:none!important}
+html[data-guided-workflow="true"] .dashboard-left>*:not(.guided-step-rail),html[data-guided-workflow="true"] .dashboard-right>*:not(.guided-job-summary):not(.vehicle-split-panel){display:none!important}
 html[data-guided-workflow="true"] .dashboard-center>.guided-stage-panel{display:block}
 .guided-loading-placeholder{display:none}
 .guided-step-rail h2,.guided-job-summary h2{margin:0 0 14px 4px;color:var(--gw-faint);font-size:12.5px;font-weight:600}

@@ -226,8 +226,8 @@ section 1.
 - Search sizes are fixed functions of the input (the plans kept for comparison, two step
   searches). No hard limit and no certification threshold changes. Level loading, pallets,
   MIXED and the A-rules are unchanged.
-- Planning a second vehicle for the cargo that still waits is not part of this rule and is
-  not built: the waiting cargo is listed with its reason as before.
+- Planning a second vehicle for the cargo that still waits is not part of this rule: the
+  waiting cargo is listed with its reason as before, and section 2L offers to divide the job.
 ## 2J. Owner-approved pallet rule: fewer pallets (2026-11-20)
 
 Owner instruction: "파렛트를 더 적게 사용해야한다." Legacy **pallet** loading only
@@ -281,6 +281,47 @@ preference only (`LoadingMethodStage.tsx`, `loadingStrategyPreference.ts`).
   Pallet, MIXED and A-rule plans that were made under `capacity` can come out differently
   under `stability`. The legacy direct-box plan is the same under both goals; only the
   order in which alternative layouts are tried after a failed certification differs.
+## 2L. Owner-approved rule: cargo that does not fit is divided evenly over vehicles (2026-11-20)
+
+Owner instruction: "적재공간이 작은데 상자가 많아 다 못 실으면 일단 차량을 두 대를 써야 한다." Owner
+decision on how to divide (2026-11-20): evenly, not "fill the first vehicle and send the rest".
+Legacy **direct-box** jobs in the guided workflow only (`engine/vehicleSplit.ts`,
+`vehicleSplitState.ts`, `VehicleSplitPanel.tsx`). Full text: `docs/engine/LOADING_RULES.md`
+section 7E.
+
+- When one vehicle carried part of the cargo and left the rest waiting, or carried it and failed
+  transport verification, the product offers to divide the job over two vehicles. Nothing is
+  divided without that press. Cargo of which no vehicle took a single carton stays waiting with
+  its reason as before.
+- Even split: every cargo line gives each of the N vehicles floor(q / N) cartons. The cartons
+  that do not divide are handed out one at a time, heaviest line first (equal weights: the
+  smaller id), each to the vehicle that is lightest so far (equal: the earlier vehicle). Vehicles
+  differ by at most one carton in every line and are as close in weight as whole cartons allow.
+  The split is a function of the input alone.
+- Each vehicle is a job of its own on the same equipment: its share is planned by the unchanged
+  planner (2A-2I apply to it as to any job), checked, certified and printed by itself. No limit
+  and no certification threshold changes, and one vehicle's PASS is never another's. Vehicles
+  whose shares are identical are one input and share one plan and one verification.
+- The product holds one plan at a time. Opening another vehicle makes its share the job's cargo
+  and plans and verifies it afresh; what the other vehicles achieved is kept only as a dated
+  note, never as a current PASS. Each vehicle's work order is printed while that vehicle is open.
+- A share must never pass for the whole shipment. The 차량 n/N mark is on the screen, on the work
+  order (title and a banner with every vehicle's cartons and weight), in the Excel summary and
+  in the check file. The split is stored beside the job input, so a reload that keeps the job
+  keeps the mark. The packaging integrity guard accepts a share only while the whole divided
+  job is still the confirmed packaging.
+- The split ends, giving the whole cargo back to one vehicle, when the operator asks for it, when
+  the packaging is confirmed again, when an edit changes how the cartons divide, and when the
+  job leaves legacy direct-box loading (pallet, MIXED, A-rules, WHAT-IF review). If the open
+  share is replaced by some other partial list, the split ends with a warning that the cargo
+  may not be the whole shipment.
+- When a vehicle of the split still leaves cargo waiting or fails verification, the job can be
+  divided again over one more vehicle, up to `MAX_SPLIT_VEHICLES` (6: a fixed bound of the
+  split, not a safety limit).
+- Not built: two vehicles on screen at once, a different equipment per vehicle, one combined
+  work order, keeping a product whole in one vehicle, pallet and MIXED splits, and the staging
+  view's "other vehicle" list. `planMultipleContainers` (fill the first, the remainder in the
+  next) stays an estimate in the advanced tools and is not this rule.
 ## 3. DIRECT BOX baseline algorithm
 The legacy fixed sequence of `CBM/weight sort -> full vertical stacks -> x shelf progression -> door-side tail mixing` is retired.
 

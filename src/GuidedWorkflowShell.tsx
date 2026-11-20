@@ -64,6 +64,8 @@ import CargoStackRestrictionNotice from './CargoStackRestrictionNotice';
 import LoadingMethodStage from './LoadingMethodStage';
 import { loadingMethodBlockReason } from './loadingMethodReadiness';
 import { guidedLoadingUnitLabel } from './guidedLoadingUnitState';
+import VehicleSplitPanel, { vehicleSplitApplies } from './VehicleSplitPanel';
+import { endVehicleSplit, recordActiveVehicle, useVehicleSplitSnapshot, vehicleSplitContext } from './vehicleSplitState';
 
 type LiveDetail = { container: ContainerSpec; cargo: CargoItem[]; result?: LoadingResult };
 const PackagingContentsDialog = lazy(() => import('./PackagingContentsDialog'));
@@ -520,6 +522,26 @@ export default function GuidedWorkflowShell() {
   const [noLoadComplete, setNoLoadComplete] = useState(false);
   const running = verification.status === 'running';
   const finalReady = verification.status === 'passed' || noLoadComplete;
+  const { split: vehicleSplit } = useVehicleSplitSnapshot();
+  const loadingRuleset = useLoadingRuleset();
+  // A divided job is a legacy direct-box job (AGENTS.md 2L). Another loading type, the A rules
+  // or a WHAT-IF review plans the whole cargo again in one vehicle.
+  useEffect(() => {
+    if (vehicleSplit && !vehicleSplitApplies(live.container, mode, loadingRuleset)) endVehicleSplit();
+  }, [vehicleSplit, live.container, mode, loadingRuleset]);
+  // Vehicles with the same share are one and the same input: opening the other one keeps the
+  // plan and its verification. Note that outcome for the vehicle that is now open.
+  const openVehicle = vehicleSplit?.active;
+  useEffect(() => {
+    if (openVehicle === undefined) return;
+    const target = readPhysicsTarget();
+    const status = verification.status;
+    if ((status !== 'passed' && status !== 'failed' && status !== 'review') || !target || !vehicleSplitContext(target.cargo)) return;
+    recordActiveVehicle({
+      status, loaded: target.result.placements.length,
+      waiting: target.result.remaining.reduce((sum, item) => sum + item.quantity, 0), recordedAt: new Date().toISOString(),
+    });
+  }, [openVehicle]);
   const completedEmpty = useRef<LiveDetail | null>(null);
   const previewActivated = useRef(false);
   const emptyInputsUnchanged = () => {
@@ -722,13 +744,22 @@ export default function GuidedWorkflowShell() {
     };
     const applyCertification = (certification: InertiaCertification | undefined) => {
       if (!certification) {
+        // The open vehicle of a divided job no longer has a verified plan.
+        recordActiveVehicle(null);
         if (completedEmpty.current && emptyInputsUnchanged()) return;
         // Target publication during an active run clears its old certification.
         setVerification(previous => previous.status === 'running' ? previous : { status: 'unrun' });
         lockResults();
         return;
       }
-      const next = certificationVerificationState(certification, readPhysicsTarget());
+      const target = readPhysicsTarget();
+      const next = certificationVerificationState(certification, target);
+      if (target && vehicleSplitContext(target.cargo)) {
+        recordActiveVehicle(next.status === 'passed' || next.status === 'failed' || next.status === 'review' ? {
+          status: next.status, loaded: target.result.placements.length,
+          waiting: target.result.remaining.reduce((sum, item) => sum + item.quantity, 0), recordedAt: new Date().toISOString(),
+        } : null);
+      }
       setVerification(next);
       setNoLoadComplete(false);
       setLive(readLive());
@@ -763,7 +794,7 @@ export default function GuidedWorkflowShell() {
 
   const selectionCount = Object.keys(selection).length;
   const rail = hosts.left ? createPortal(<StepRail step={step} furthest={furthest} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} verification={verification} finalReady={finalReady} onStep={openWorkspace}/>, hosts.left) : null;
-  const summary = hosts.right ? createPortal(<JobSummary step={step} live={live} mode={mode} finalReady={finalReady} verification={verification} selection={selection} strategy={strategy}/>, hosts.right) : null;
+  const summary = hosts.right ? createPortal(<><VehicleSplitPanel container={live.container} cargo={live.cargo} result={live.result} mode={mode} verification={verification}/><JobSummary step={step} live={live} mode={mode} finalReady={finalReady} verification={verification} selection={selection} strategy={strategy}/></>, hosts.right) : null;
   const blockReason = loadingMethodBlockReason(packagingConfirmed,mode,live,methodPalletSelection);
   const footer = <BottomBar blockReason={blockReason} packagingConfirmed={packagingConfirmed} canReport={!noLoadComplete} step={step} selectionCount={selectionCount} packagedReady={packaging.ready} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>;
   return <>{rail}{summary}{inspection && <Suspense fallback={<div role="status">{uiT("박스 내부 화면 준비 중…")}</div>}><PackagingContentsDialog inspection={inspection} onClose={() => setInspection(undefined)}/></Suspense>}{typeof document !== 'undefined' ? createPortal(<>

@@ -18,6 +18,7 @@ import type { CargoItem, ContainerSpec, LoadingResult } from './engine/types';
 import { assessWeightBalance } from './engine/weightBalance';
 import { GUIDED_LOADING_UNIT_EVENT, publishGuidedLoadingUnit, readGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingUnitState';
 import { shouldRenderGuidedViewer, useGuidedWorkflowState } from './guidedWorkflowState';
+import { takeVehicleSplitAnnouncement, VEHICLE_SPLIT_SAME_LOAD_ANNOUNCEMENT } from './vehicleSplitState';
 import { clearLatestInertiaCertification } from './inertiaCertification';
 import { LOADING_STRATEGY_PREFERENCE_EVENT, currentLoadingStrategy } from './loadingStrategyPreference';
 import { readWorkflowPreview, useWorkflowPreview, WORKFLOW_INPUT_INVALIDATED_EVENT, WORKFLOW_PREVIEW_EVENT } from './workflowPreview';
@@ -268,10 +269,14 @@ export default function App() {
   useEffect(() => {
     const onStorageUpdated = (event: Event) => {
       const state = (event as CustomEvent<StoredState>).detail ?? readStoredState();
+      // Choosing a vehicle of a divided job replaces the cargo; say so instead of "imported".
+      const vehicleSplitAnnouncement = takeVehicleSplitAnnouncement();
       if (!state) return;
       const normalized = normalizeCargo(state.cargo);
       const sameInput = JSON.stringify({ container: state.container, cargo: normalized }) === JSON.stringify({ container: liveInputs.current.container, cargo: liveInputs.current.cargo });
       if (sameInput) {
+        // Another vehicle of a divided job with the very same share: nothing to recompute.
+        if (vehicleSplitAnnouncement) announce('info', VEHICLE_SPLIT_SAME_LOAD_ANNOUNCEMENT);
         // Report optimizers can explicitly apply a new manual layout for the
         // same cargo; ordinary repeated storage notifications are not edits.
         const stagedRestore = state.staging && (state.result || state.staging.palletSnapshot);
@@ -291,7 +296,7 @@ export default function App() {
       setStagingUsesWorkflow(false);
       restoreInput.current = { container: state.container, cargo: normalized };
       invalidatePhysics();
-      announce('success', '가져온 데이터가 현재 화면에 반영되었습니다.');
+      announce('success', vehicleSplitAnnouncement ?? '가져온 데이터가 현재 화면에 반영되었습니다.');
       setEditingId(null);
       setDraft(emptyDraft);
     };

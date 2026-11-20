@@ -1,4 +1,6 @@
 import { isAdminSession } from './adminAccess';
+import { vehicleSplitDocumentNote } from './vehicleSplitPresentation';
+import { confirmedShipmentOfSplit, vehicleSplitContext } from './vehicleSplitState';
 import { readFinalPhysicsValidation } from './autoCertification';
 import { analyzeConstraints, type ConstraintCheck } from './engine/constraintAnalysis';
 import { analyzeFloorLoad } from './engine/floorLoad';
@@ -275,7 +277,11 @@ function equipmentChecks(equipment: TransportEquipment, container: ContainerSpec
   return checks;
 }
 
-function packagingChecks(cargo: CargoItem[]): DiagnosticCheck[] {
+function packagingChecks(input: CargoItem[]): DiagnosticCheck[] {
+  // One vehicle of a divided job (AGENTS.md 2L): the confirmed packaging is compared with the
+  // whole job the share was divided from, and the division itself is reported as a row.
+  const split = vehicleSplitContext(input);
+  const cargo = split ? split.split.sourceCargo : input;
   const snapshot = readShipmentInstructionSnapshot();
   if (!snapshot) return [{ id: 'packaging-snapshot', label: '포장 확정 스냅샷', severity: 'WARNING', detail: '제품 포장 확정 스냅샷이 없습니다. 일반 화물 작업이면 무시할 수 있습니다.' }];
   const matchingSnapshot = readShipmentInstructionSnapshot(cargo);
@@ -324,6 +330,16 @@ function packagingChecks(cargo: CargoItem[]): DiagnosticCheck[] {
                   : '제품·박스·규격·수량·중량이 포장 확정 정보와 일치합니다.',
       expected: line.packagingMode === 'box' ? { productId: line.productId, boxId: line.boxId, boxesNeeded: line.boxesNeeded } : { productId: line.productId, boxesNeeded: line.boxesNeeded },
       actual: family.map(item => ({ id: item.id, productId: item.productId ?? null, boxId: item.boxId ?? null, quantity: item.quantity, weightKg: item.weightKg })),
+    });
+  }
+  if (split) {
+    checks.push({
+      id: 'vehicle-split',
+      label: '차량 나누기',
+      severity: 'OK',
+      detail: `자동 적재 입력은 포장 확정 화물을 차량 ${split.split.vehicleCount}대에 고르게 나눈 것 중 차량 ${split.split.active + 1}의 화물입니다. 위 포장 대조는 나누기 전 전체 화물 기준입니다.`,
+      expected: split.summaries.map(item => ({ vehicle: item.index + 1, units: item.units })),
+      actual: input.map(item => ({ id: item.id, quantity: item.quantity })),
     });
   }
   return checks;
@@ -492,6 +508,12 @@ export function buildConsistencyReport(container: ContainerSpec, cargo: CargoIte
   };
 }
 
+function vehicleSplitInput(cargo: CargoItem[]) {
+  const note = vehicleSplitDocumentNote(cargo);
+  const context = note ? vehicleSplitContext(cargo) : null;
+  return note && context ? { vehicle: note.vehicle, vehicleCount: note.vehicleCount, vehicles: note.vehicles, sourceCargo: context.split.sourceCargo } : null;
+}
+
 export function buildBlackboxSnapshots(container: ContainerSpec, cargo: CargoItem[], result: LoadingResult) {
   const equipment = readTransportEquipment();
   const planner = readEnterprisePackagingPlannerState();
@@ -545,6 +567,8 @@ export function buildBlackboxSnapshots(container: ContainerSpec, cargo: CargoIte
       schema: 'container-loading-packaging-v2',
       shipmentSnapshot: shipment,
       cargoMatchesShipmentSignature: Boolean(shipment && readShipmentInstructionSnapshot(cargo)),
+      // True when `cargo` is one vehicle's share and the whole divided job is the confirmed shipment.
+      wholeJobMatchesShipmentSignature: Boolean(shipment && confirmedShipmentOfSplit(cargo)),
       registeredBoxes: planner?.boxes ?? [],
     },
     loadingInput: {
@@ -553,6 +577,9 @@ export function buildBlackboxSnapshots(container: ContainerSpec, cargo: CargoIte
       cargo,
       // A preference may change after a run; never label it the effective strategy.
       strategyPreferenceAtExport: readLoadingStrategyPreference(),
+      // One vehicle of a divided job (AGENTS.md 2L): `cargo` above is this vehicle's share,
+      // the exact engine input. `sourceCargo` is the whole job it was divided from.
+      vehicleSplit: vehicleSplitInput(cargo),
       palletPlanningStatus: target?.mode !== 'pallets' ? 'not-applicable'
         : !targetMatchesCurrentResult ? 'stale-target'
           : !palletSnapshot ? 'missing-snapshot' : palletSnapshotMatches ? 'matched-current-target' : 'stale-snapshot',

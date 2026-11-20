@@ -28,6 +28,7 @@ import { buildWorkOrderCargoSummary, loadedCargoCounts } from './workOrderCargoS
 import { VOID_FILL_DISCLAIMER, voidFillRows, voidFillTotal } from './voidFillPresentation';
 import { buildFieldChecklistHtml } from './reportFieldChecklist';
 import { INERTIA_SCENARIO_ACCELERATION_G } from './engine/inertiaSimulation';
+import { VEHICLE_SPLIT_SHIPMENT_NOTE, vehicleSplitDocumentNote, vehicleSplitReportHtml } from './vehicleSplitPresentation';
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -60,7 +61,9 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
   const physicsComplete = physicsState.status === 'passed' || physicsState.status === 'failed';
   const equipment = readTransportEquipment();
   const equipmentKind = equipment.category === 'truck' ? uiText("트럭") : uiText("컨테이너");
-  const title = uiText("{0} 통합 출하·적재 작업지시서", [equipmentKind]);
+  // One vehicle of a divided job (AGENTS.md 2L) is named as such on its own work order.
+  const vehicleNote = vehicleSplitDocumentNote(cargo);
+  const title = `${uiText("{0} 통합 출하·적재 작업지시서", [equipmentKind])}${vehicleNote ? ` · ${vehicleNote.label}` : ''}`;
   const zones = buildReportZones(result.placements);
   const overview = buildZoneOverview(container, cargo, result.placements, zones);
   const zoneTable = buildZoneTable(cargo, result.placements, zones);
@@ -71,7 +74,7 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
   const progress = zones.map(zone => `<article><h3>${uiText("{0} {1} 구역 · {2}개", [zone.number, zone.label, zone.indices.length])}</h3>${buildNumberedZone3d(container, cargo, result.placements, zones, zone.number)}${buildZone3dInstructions(cargo, result.placements, zone)}<p class="zone-3d-reference">${uiText("{0}개 · {1}단 · 높이 {2} mm", [zone.indices.length, zone.levels.length, Math.round(zone.height * 1000)])}</p></article>`).join('');
   const generatedAt = new Date().toLocaleString(uiLocale());
   const cargoIntake = buildWorkOrderCargoSummary(cargo, loadedCargoCounts(result.placements), reportCargoCatalog(cargo));
-  const shipmentInstruction = buildShipmentInstructionSection(cargo, result);
+  const shipmentInstruction = buildShipmentInstructionSection(cargo, result, vehicleNote ? uiText(VEHICLE_SPLIT_SHIPMENT_NOTE) : undefined);
   const voidRows = voidFillRows(result);
   const voidTotal = voidFillTotal(result);
   const voidFillTable = voidRows.length ? `<div class="section-title"><h3>${uiText("메움재 상세")}</h3><span>${uiText("총 {0} EA · {1} kg", [voidTotal.quantity, voidTotal.weightKg.toFixed(2)])}</span></div><div class="report-table-scroll"><table><thead><tr><th>${uiText("유형")}</th><th>${uiText("자재")}</th><th>${uiText("수량")}</th><th>${uiText("중량")}</th><th>${uiText("위치 X/Y/Z")}</th><th>${uiText("크기 L/W/H")}</th><th>${uiText("적용")}</th></tr></thead><tbody>${voidRows.map(row => `<tr><td>${escapeHtml(uiText(row.gapType))}</td><td>${escapeHtml(uiText(row.material))}</td><td>${row.quantity} EA</td><td>${row.weightKg.toFixed(2)} kg</td><td>${row.xM}/${row.yM}/${row.zM} m</td><td>${row.lengthM}/${row.widthM}/${row.heightM} m</td><td>${row.fixedSupportEligible === 'Y' ? uiText("계획 적용") : uiText("범위 밖 · 미확정")}</td></tr>`).join('')}</tbody></table></div><p class="technical-note">${escapeHtml(uiText(VOID_FILL_DISCLAIMER))}</p>` : '';
@@ -117,7 +120,7 @@ export function buildLoadingReportHtml(container: ContainerSpec, cargo: CargoIte
     status: uiText("{0}출고 전 확인 {1}건{2}", [review ? uiText("WHAT-IF REVIEW · 출고 승인 아님 · ") : '', actions.length, approval === 'danger' ? uiText(" · 위험") : approval === 'incomplete' ? uiText(" · 검증 미완료") : '']),
     tone: review && approval !== 'danger' ? 'caution' : approval === 'caution' ? 'caution' : approval === 'danger' ? 'danger' : approval === 'incomplete' ? 'neutral' : 'good',
     watermark: review ? uiText("WHAT-IF REVIEW · 출고 승인 아님") : physicsVerified ? undefined : uiText("검토용 · 검증 확인 필요"),
-    summary: `${buildLimitReviewHtml(reportTarget, certification)}<section class="summary" aria-label="${uiText("적재 요약")}"><div class="text-metric"><span>${uiText("운송 장비")}</span><b>${escapeHtml(equipmentDisplayText(equipment, 'shortName'))}</b><small>${container.length} × ${container.width} × ${container.height} m</small></div><div><span>${uiText("실제 적재단위")}</span><b>${result.placements.length} EA</b></div><div><span>${uiText("화물 중량")}</span><b>${result.loadedWeightKg.toLocaleString()} kg</b></div><div class="text-metric"><span>${uiText("미적재 · 별도 확인")}</span><b>${escapeHtml(remainingText)}</b></div></section>`,
+    summary: `${buildLimitReviewHtml(reportTarget, certification)}${vehicleNote ? vehicleSplitReportHtml(vehicleNote) : ''}<section class="summary" aria-label="${uiText("적재 요약")}"><div class="text-metric"><span>${uiText("운송 장비")}</span><b>${escapeHtml(equipmentDisplayText(equipment, 'shortName'))}</b><small>${container.length} × ${container.width} × ${container.height} m</small></div><div><span>${uiText("실제 적재단위")}</span><b>${result.placements.length} EA</b></div><div><span>${uiText("화물 중량")}</span><b>${result.loadedWeightKg.toLocaleString()} kg</b></div><div class="text-metric"><span>${uiText("미적재 · 별도 확인")}</span><b>${escapeHtml(remainingText)}</b></div></section>`,
     sections: [
       {
         title: uiText("한눈에 보는 적재 배치"), description: uiText("구역 순서와 그림 번호를 따라 열·행·단별 수량을 놓으세요. 각 구역은 낮은 단부터 작업합니다."),

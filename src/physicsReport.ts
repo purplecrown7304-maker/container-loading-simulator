@@ -1,4 +1,5 @@
 import { physicsReasonText } from './inspectionPresentation';
+import { vehicleSplitBanner } from './vehicleSplitPresentation';
 import { uiText as uiT, readUiLanguage } from './uiLanguage';
 import { buildLimitReviewHtml, isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
 import type { PhysicsScenario, PhysicsValidationSuite } from './engine/physicsValidation';
@@ -32,7 +33,7 @@ export function buildPhysicsReportHtml(container: ContainerSpec, cargo: CargoIte
     subtitle: uiT("{0} · 정적 중력 / 급제동 / 횡가속 종합검증", [new Date().toLocaleString({ ko: 'ko-KR', en: 'en-US', vi: 'vi-VN' }[readUiLanguage()])]),
     watermark: review ? uiT("WHAT-IF REVIEW · 출고 승인 아님") : undefined,
     status: review ? `${uiT(LIMIT_REVIEW_WARNING)} · ${status}` : status, tone: unstable > 0 ? 'danger' : warning > 0 || review ? 'caution' : 'good',
-    summary: `${buildLimitReviewHtml(target)}<section class="summary" aria-label="${uiT("물리 검증 요약")}"><div><span>${uiT("종합점수")}</span><b>${physics.score}/100</b></div><div><span>${uiT("불안정 박스 / 팔레트")}</span><b>${physics.unstableCount} / ${physics.supportUnstableCount}</b></div><div><span>${uiT("주의 박스 / 팔레트")}</span><b>${physics.warningCount} / ${physics.supportWarningCount}</b></div><div class="text-metric"><span>${uiT("최악 조건")}</span><b>${scenarioLabel(physics.worstScenario)}</b></div></section>`,
+    summary: `${buildLimitReviewHtml(target)}${vehicleSplitBanner(target.cargo)}<section class="summary" aria-label="${uiT("물리 검증 요약")}"><div><span>${uiT("종합점수")}</span><b>${physics.score}/100</b></div><div><span>${uiT("불안정 박스 / 팔레트")}</span><b>${physics.unstableCount} / ${physics.supportUnstableCount}</b></div><div><span>${uiT("주의 박스 / 팔레트")}</span><b>${physics.warningCount} / ${physics.supportWarningCount}</b></div><div class="text-metric"><span>${uiT("최악 조건")}</span><b>${scenarioLabel(physics.worstScenario)}</b></div></section>`,
     sections: [
       { title: uiT("우선 재확인 위치"), description: uiT("불안정 항목을 먼저 표시합니다. 사유와 위치를 대조하고 조치 후 확인 칸에 표시하세요."),
         content: `<h3>${uiT("박스 재확인 위치 ·")} ${issues.length}${uiT("건")}</h3>${issues.length ? issueTable(issueRows, uiT("박스 재확인 위치 표")) : `<p class="empty-state">${uiT("주의 또는 불안정 박스가 없습니다.")}</p>`}${physics.supports.length ? `<h3>${uiT("팔레트/지지체 재확인 ·")} ${supportIssues.length}${uiT("건")}</h3>${supportIssues.length ? issueTable(supportRows, uiT("팔레트 지지체 재확인 표")) : `<p class="empty-state">${uiT("주의 또는 불안정 팔레트가 없습니다.")}</p>`}` : ''}` },

@@ -185,7 +185,8 @@ function loadedProductCount(line: ShipmentInstructionLine, loaded: Map<string, n
   return Math.min(line.productQuantity, baseProducts + partialLoaded * (remainderUnits || units));
 }
 
-export function buildShipmentInstructionSection(cargo: CargoItem[], result: ResultLike) {
+/** `fallbackNote` replaces the generic notice when the cargo is deliberately not the confirmed shipment (one vehicle of a divided job). */
+export function buildShipmentInstructionSection(cargo: CargoItem[], result: ResultLike, fallbackNote?: string) {
   const snapshot = readShipmentInstructionSnapshot(cargo);
   const loaded = loadedCounts(result.placements);
   const remaining = remainingCounts(result.remaining);
@@ -210,5 +211,5 @@ export function buildShipmentInstructionSection(cargo: CargoItem[], result: Resu
     const code = specCode(item.length, item.width, item.height);
     return `<tr><td><b>${escapeHtml(item.id)}</b><small>${escapeHtml(item.name)}</small></td><td>${item.quantity} EA</td><td>${code}<small>${item.weightKg} kg</small></td><td>${item.quantity} EA</td><td><b>${count} EA</b><small>${escapeHtml(uiText('미적재 {0}', [waiting]))}</small></td><td class="check">□</td></tr>`;
   }).join('');
-  return `<section class="shipment-block"><div class="shipment-head"><h3>${escapeHtml(uiText('출하 지시 · 수량 대조'))}</h3><span>${snapshot ? escapeHtml(uiText('출하지시번호 {0}', [snapshot.shipmentNo])) : escapeHtml(uiText('일반 화물 기준'))}</span></div>${!snapshot ? `<p class="shipment-fallback">${escapeHtml(uiText('제품 흐름에서 생성된 출하정보가 없어 현재 화물 기준으로 표시합니다.'))}</p>` : ''}${reportTable(uiText('출하 수량 대조표'), `<table class="shipment-table"><colgroup><col style="width:24%"><col style="width:22%"><col style="width:20%"><col style="width:14%"><col style="width:14%"><col style="width:6%"></colgroup><thead><tr><th>${escapeHtml(uiText('품목'))}</th><th>${escapeHtml(uiText('제품 출하수량'))}</th><th>${escapeHtml(uiText('규격 / 입수'))}</th><th>${escapeHtml(uiText('필요단위'))}</th><th>${escapeHtml(uiText('적재결과'))}</th><th>${escapeHtml(uiText('확인'))}</th></tr></thead><tbody>${rows}</tbody></table>`)}<div class="shipment-specs"><b>${escapeHtml(uiText('박스/화물 규격 · 길이 × 폭 × 높이'))}</b>${[...specs].map(([size, number]) => `<span>S${number} · ${size}</span>`).join('')}</div></section>`;
+  return `<section class="shipment-block"><div class="shipment-head"><h3>${escapeHtml(uiText('출하 지시 · 수량 대조'))}</h3><span>${snapshot ? escapeHtml(uiText('출하지시번호 {0}', [snapshot.shipmentNo])) : escapeHtml(fallbackNote ? uiText('차량별 화물 기준') : uiText('일반 화물 기준'))}</span></div>${!snapshot ? `<p class="shipment-fallback">${escapeHtml(fallbackNote ?? uiText('제품 흐름에서 생성된 출하정보가 없어 현재 화물 기준으로 표시합니다.'))}</p>` : ''}${reportTable(uiText('출하 수량 대조표'), `<table class="shipment-table"><colgroup><col style="width:24%"><col style="width:22%"><col style="width:20%"><col style="width:14%"><col style="width:14%"><col style="width:6%"></colgroup><thead><tr><th>${escapeHtml(uiText('품목'))}</th><th>${escapeHtml(uiText('제품 출하수량'))}</th><th>${escapeHtml(uiText('규격 / 입수'))}</th><th>${escapeHtml(uiText('필요단위'))}</th><th>${escapeHtml(uiText('적재결과'))}</th><th>${escapeHtml(uiText('확인'))}</th></tr></thead><tbody>${rows}</tbody></table>`)}<div class="shipment-specs"><b>${escapeHtml(uiText('박스/화물 규격 · 길이 × 폭 × 높이'))}</b>${[...specs].map(([size, number]) => `<span>S${number} · ${size}</span>`).join('')}</div></section>`;
 }
