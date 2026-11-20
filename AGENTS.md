@@ -193,6 +193,42 @@ Owner instruction: "애매하게 남는 경우는 맨 뒷줄로 옮기는 게 �
 - Level loading, pallets, MIXED and the A-rules are unchanged. Height differences between
   blocks that come from each cargo's own stacking limit are not removed by this rule.
 
+## 2I. Owner-approved rule: heavy cartons on the floor, low blocks filled up (2026-11-20)
+
+Owner instructions: "앞부분이 비었잖아. 그 뒷줄 단이랑 높이를 맞추던가 해야지", "적재공간이 작은데 상자가
+많아 다 못 실으면 일단 차량을 두 대를 써야 한다. 우선 갯수가 많은 상자부터 채운다. 단 무게가 무거운 건
+바닥에 채우는 것을 우선으로 한다." Legacy **direct-box** weight sequence only
+(`engine/heavyInnerBlockPacker.ts`, `stackLedger.ts`). Full text: `docs/engine/LOADING_RULES.md`
+section 1.
+
+- The floor rows keep the weight sequence of 2A: heavier cartons take the floor first, from
+  the inner wall.
+- A block of rows that ends below the rows of lighter cargo behind it is filled up with
+  lighter cargo of the same stop, the cargo there is most of first, in whole tiers, until the
+  next tier would stand above that cargo's own rows. Every carton laid passes the checks a
+  carton on the open front passes (bounds, floor load, support, stack depth including
+  mixed-SKU chains, cumulative top load, unloading path). This replaces the last sentence
+  of 2H.
+- A cargo is stacked lower than its own limit only where that brings the finished block
+  higher; otherwise it keeps its own height.
+- Loaded quantity (LOADING_RULES 1, row 3) is the number of cartons loaded. The plan that
+  loads more comes first, so that as little as possible waits for a second vehicle; between
+  plans that load as many, the one that loads more of the heavier cargo. This replaces the
+  earlier comparison, cargo by cargo from the heaviest.
+- A filled load is shorter. Where it then fails the CG verdict although it stops short of
+  the door, the rows behind the inner rows stand one tier lower, with as few inner rows at
+  full height as still load as much, so that the top only steps down toward the door. This
+  is the one exception to "no step laid low to fit the centre of gravity" of LOADING_RULES 1.
+- Order of judgement: loaded quantity, CG verdict, weight sequence before level loading,
+  leftovers at the back (2H), filled before open (this rule), then the preferences. The plan
+  that leaves a block open is used only when the filled one loads less or fails the verdict
+  the open one passes.
+- Search sizes are fixed functions of the input (the plans kept for comparison, two step
+  searches). No hard limit and no certification threshold changes. Level loading, pallets,
+  MIXED and the A-rules are unchanged.
+- Planning a second vehicle for the cargo that still waits is not part of this rule and is
+  not built: the waiting cargo is listed with its reason as before.
+
 ## 3. DIRECT BOX baseline algorithm
 The legacy fixed sequence of `CBM/weight sort -> full vertical stacks -> x shelf progression -> door-side tail mixing` is retired.
 
