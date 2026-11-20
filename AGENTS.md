@@ -211,10 +211,10 @@ section 1.
   of 2H.
 - A cargo is stacked lower than its own limit only where that brings the finished block
   higher; otherwise it keeps its own height.
-- Loaded quantity (LOADING_RULES 1, row 3) is the number of cartons loaded. The plan that
-  loads more comes first, so that as little as possible waits for a second vehicle; between
-  plans that load as many, the one that loads more of the heavier cargo. This replaces the
-  earlier comparison, cargo by cargo from the heaviest.
+- Loaded quantity (LOADING_RULES 1, row 3) is compared cargo by cargo, the cargo there is
+  most of first (equal quantities: the heavier first; under strict unloading the stops keep
+  their order). This replaces the earlier comparison from the heaviest cargo, under which a
+  plan that left 1,320 light cartons behind beat one that left 22 heavier ones.
 - A filled load is shorter. Where it then fails the CG verdict although it stops short of
   the door, the rows behind the inner rows stand one tier lower, with as few inner rows at
   full height as still load as much, so that the top only steps down toward the door. This

@@ -62,9 +62,15 @@ test('sparse top tier moves to a final pallet and diagnostics download a local Z
   });
   expect(result.loaded).toBe(9);
   expect(result.remaining).toEqual([]);
-  expect(result.pallets.map((p: any) => p.count)).toEqual([8, 1]);
+  // Owner decision 2026-11-20 (AGENTS.md 2K): stability is the one goal. Its plan spreads the two
+  // full tiers over the two bases (4 and 4) where the removed space-efficiency goal stacked them
+  // on one (8 and 1). The sparse top tier of one carton still ends on the final pallet (#97),
+  // and the regular pallet keeps a full top tier.
+  expect(result.pallets.map((p: any) => p.count)).toEqual([4, 5]);
+  expect(result.pallets[0]).toMatchObject({ tail: false, count: 4 });
   expect(result.pallets[0].fill).toBeCloseTo(1);
-  expect(result.pallets[1]).toMatchObject({ tail: true, count: 1 });
+  expect(result.pallets[1]).toMatchObject({ tail: true, count: 5 });
+  expect(result.pallets[1].fill).toBeCloseTo(.25);
   await page.screenshot({ path: test.info().outputPath('pallet-top-layer.png'), fullPage: true });
 
   await page.getByRole('button', { name: '메뉴', exact: true }).click();

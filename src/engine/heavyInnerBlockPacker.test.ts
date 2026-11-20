@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareCandidates, compareLoaded, packByHeavyInnerBlocks, heavyInnerLayerLimit } from './heavyInnerBlockPacker';
+import { compareCandidates, compareLoaded, loadedPriority, packByHeavyInnerBlocks, heavyInnerLayerLimit } from './heavyInnerBlockPacker';
 import { placementsWithinFloorLoadLimit } from './floorLoadLimit';
 import { supportContactArea } from './support';
 import { auditLoading } from './loadingAudit';
@@ -359,12 +359,16 @@ describe('a block is filled up to the rows behind it (owner rule 2026-11-20)', (
     expect(result.placements.filter(p => p.cargoId === 'early-light').every(p => p.x >= heavyEnd - 1e-9)).toBe(true);
   });
 
-  it('judges loaded quantity by the number of cartons, then the filled plan before the one that leaves a block open', () => {
-    // More cartons first, whatever their weight: less is left for a second vehicle.
-    expect(compareLoaded([10, 0], [5, 6])).toBeGreaterThan(0);
-    expect(compareLoaded([5, 6], [10, 0])).toBeLessThan(0);
-    // As many cartons: more of the heavier cargo.
-    expect(compareLoaded([10, 5], [9, 6])).toBeLessThan(0);
+  it('judges loaded quantity from the cargo there is most of, then the filled plan before the one that leaves a block open', () => {
+    // The cargo with the most cartons is compared first; equal quantities, the heavier first.
+    const few = item('few-heavy', 30, 4), many = item('many-light', 5, 40), other = item('other-light', 3, 40);
+    expect(loadedPriority(room, [few, many, other], 'stability')).toEqual([1, 2, 0]);
+    // Strict unloading keeps the stops in their order.
+    const stops = [item('late', 5, 4, { unloadPriority: 2 }), item('early', 5, 40, { unloadPriority: 1 })];
+    expect(loadedPriority({ ...room, unloadingPolicy: 'strict' }, stops, 'stability')).toEqual([0, 1]);
+    expect(loadedPriority(room, stops, 'stability')).toEqual([1, 0]);
+    expect(compareLoaded([10, 0], [9, 60])).toBeLessThan(0);
+    expect(compareLoaded([10, 5], [10, 6])).toBeGreaterThan(0);
     expect(compareLoaded([10, 5], [10, 5])).toBe(0);
     const plan = (signature: string, extra: Partial<Parameters<typeof compareCandidates>[0]> = {}) =>
       ({ signature, counts: [10, 5], cgErrors: 0, cgExcess: 0, voids: 0, sparseTop: false, heightMoment: 1, end: 1, ...extra });
@@ -372,8 +376,8 @@ describe('a block is filled up to the rows behind it (owner rule 2026-11-20)', (
     expect(order(plan('open', { openAbove: true }), plan('filled', { voids: 9, heightMoment: 2 }))).toEqual(['filled', 'open']);
     expect(order(plan('filled', { counts: [10, 4] }), plan('open', { openAbove: true }))).toEqual(['open', 'filled']);
     expect(order(plan('filled', { cgErrors: 1, cgExcess: .2 }), plan('open', { openAbove: true }))).toEqual(['open', 'filled']);
-    // A plan that loads more cartons comes first even when it leaves heavier cargo behind.
-    expect(order(plan('fewer', { counts: [10, 5] }), plan('more', { counts: [9, 60] }))).toEqual(['more', 'fewer']);
+    // More of the cargo there is most of comes first, whatever is loaded of the rest.
+    expect(order(plan('rest', { counts: [9, 60] }), plan('most', { counts: [10, 5] }))).toEqual(['most', 'rest']);
     // Leftovers inside the load are still judged before an open block.
     expect(order(plan('as-built', { leftoversInside: true }), plan('open', { openAbove: true }))).toEqual(['open', 'as-built']);
   });

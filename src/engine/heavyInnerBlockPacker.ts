@@ -506,7 +506,8 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
   const top = Math.max(0, ...tiers.keys());
   const sparseTop = tiers.size >= SPARSE_TOP_MIN_LEVELS && (tiers.get(top) ?? 0) <= Math.max(...tiers.values()) * SPARSE_TOP_LAYER_RATIO;
   const errors = validateOperationalWeightAndCog(container, centered).filter(f => f.severity === 'error');
-  return { output: { placements: centered, remaining, loadedWeightKg, usedVolumeM3 }, voids, counts: ordered.map(item => item.quantity - (stock.get(item.id) ?? 0)),
+  return { output: { placements: centered, remaining, loadedWeightKg, usedVolumeM3 }, voids,
+    counts: loadedPriority(container, ordered, strategy).map(index => ordered[index].quantity - (stock.get(ordered[index].id) ?? 0)),
     cgErrors: errors.length, sparseTop, cgExcess: errors.reduce((sum, f) => sum + Math.max(0, (f.value ?? 0) - (f.limit ?? 0)), 0),
     heightMoment: centered.reduce((sum, p) => sum + (p.z + p.height / 2) * p.weightKg, 0) / Math.max(EPS, loadedWeightKg),
     end: x + rowDepth, signature: JSON.stringify(profile), rows: fullRows,
@@ -522,14 +523,20 @@ function samePlacements(a: Placement[], b: Placement[]) {
 }
 
 /**
- * Loaded quantity (LOADING_RULES 1, row 3): the plan that loads more cartons first, so that
- * as little as possible is left for a second vehicle; between plans that load as many, the
- * one that loads more of the heavier cargo. Negative when `a` is the better plan.
+ * The order in which the loaded quantity of two plans is compared (LOADING_RULES 1, row 3;
+ * owner rule 2026-11-20, "fill the cartons there are most of first"): cargo by cargo, the
+ * cargo with the most cartons first and, between cargo of equal quantity, the heavier one.
+ * Under strict unloading the stops keep their order. Returns indexes into `ordered`.
  */
+export function loadedPriority(container: ContainerSpec, ordered: CargoItem[], strategy: StrictWallStrategy) {
+  const strict = heavyInnerStrictUnloading(container, strategy);
+  return ordered.map((item, index) => ({ item, index }))
+    .sort((a, b) => (strict ? (b.item.unloadPriority ?? 1) - (a.item.unloadPriority ?? 1) : 0) || b.item.quantity - a.item.quantity || a.index - b.index)
+    .map(entry => entry.index);
+}
+
+/** Loaded quantity of two plans, counted in the order of `loadedPriority`. Negative when `a` loads more. */
 export function compareLoaded(a: number[], b: number[]) {
-  let total = 0;
-  for (let i = 0; i < a.length; i++) total += b[i] - a[i];
-  if (total) return total;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return b[i] - a[i];
   return 0;
 }
@@ -648,7 +655,7 @@ export function packByHeavyInnerBlocks(container: ContainerSpec, cargo: CargoIte
     const counted = new Map<string, number>();
     for (const p of output.placements) counted.set(p.cargoId, (counted.get(p.cargoId) ?? 0) + 1);
     const errors = validateOperationalWeightAndCog(container, output.placements).filter(f => f.severity === 'error');
-    levels.push({ output, mode: 1, voids: 0, counts: ordered.map(item => counted.get(item.id) ?? 0), cgErrors: errors.length,
+    levels.push({ output, mode: 1, voids: 0, counts: loadedPriority(container, ordered, strategy).map(index => counted.get(ordered[index].id) ?? 0), cgErrors: errors.length,
       cgExcess: errors.reduce((sum, f) => sum + Math.max(0, (f.value ?? 0) - (f.limit ?? 0)), 0), sparseTop: false,
       heightMoment: output.placements.reduce((sum, p) => sum + (p.z + p.height / 2) * p.weightKg, 0) / Math.max(EPS, output.loadedWeightKg),
       end: Math.max(0, ...output.placements.map(p => p.x + p.length)), signature: `level-${variant}-${cap}${stepDown ? '' : '-as-built'}` });
