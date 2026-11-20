@@ -14,4 +14,9 @@ export const directLoadingFixtures = {
   // 1,217 kg/m² stays below the 1,500 floor limit. Two boxes fail proportional
   // longitudinal CG; one passes for both the 26,500 and 28,600 kg 40FT defaults.
   blockedHeavyInnerLoad: { length: 1, width: 2.3, height: 0.2, weightKg: 2800, quantity: 2 },
+  // Direct products load in one layer: twelve of these slabs cover the 40FT floor and the rest
+  // wait. Divided over two vehicles (AGENTS.md 2L) every slab stands on a floor and both pass:
+  // 21 slabs give unequal shares (11 + 10), 20 slabs two identical ones (10 + 10).
+  overflowTwentyOneBox40ft: { length: 1, width: 2.3, height: 0.5, weightKg: 1, quantity: 21 },
+  overflowTwentyBox40ft: { length: 1, width: 2.3, height: 0.5, weightKg: 1, quantity: 20 },
 } as const;
