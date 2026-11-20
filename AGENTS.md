@@ -172,6 +172,27 @@ section 1.
   used only when the ordered plan fails the verdict and the as-built one passes it.
 - The inner-to-door weight sequence of 2A, pallets, MIXED and the A-rules are unchanged.
 
+## 2H. Owner-approved rule: leftovers stand in the last rows (2026-11-19)
+
+Owner instruction: "애매하게 남는 경우는 맨 뒷줄로 옮기는 게 맞다. 적재시 앞쪽부터 맨 뒷줄 전까지는
+빈공간이 없이 적재가 되어야 한다." Legacy **direct-box** weight sequence only
+(`engine/heavyInnerBlockPacker.ts`). Full text: `docs/engine/LOADING_RULES.md` section 1.
+
+- In the sequence of 2A only a row that one cargo fills by itself, wall to wall and to its
+  full height, keeps its place. Whatever cannot fill such a row (the remainder of each
+  cargo, part-filled cartons) is loaded in the same weight order behind those rows, at the
+  door end. This overrides "keep SKU/height blocks contiguous" of 2A for those leftovers.
+- Leftovers first go on top of an equal or heavier leftover carton of the same footprint,
+  under every check a carton at the open front gets. Leftover rows that leave free width
+  stand side by side, and the fullest rows come first, so the load ends in its sparsest
+  row. Rows are moved whole and never rebuilt.
+- Payload for a heavier leftover is kept while lighter rows are loaded before it. Under
+  strict unloading the rule applies inside each stop.
+- Loaded quantity and the CG verdict outrank it: the sequence as built is used when the
+  other plan loads less, or fails a verdict the as-built plan passes.
+- Level loading, pallets, MIXED and the A-rules are unchanged. Height differences between
+  blocks that come from each cargo's own stacking limit are not removed by this rule.
+
 ## 3. DIRECT BOX baseline algorithm
 The legacy fixed sequence of `CBM/weight sort -> full vertical stacks -> x shelf progression -> door-side tail mixing` is retired.
 

@@ -1,6 +1,6 @@
 import { openWorkspace } from './helpers/workspace';
 import { expect, test } from '@playwright/test';
-import { expectSecuredPhysicsEvidence } from './helpers/certification';
+import { expectSecuredPhysicsEvidence, expectVerifiedLoading } from './helpers/certification';
 
 test('registered stacking updates without reload and bulk packaging advances before loading', async ({ page, context, baseURL }) => {
   // Measured locally: ~234 s end to end, of which ~67 s is the work-order inertia re-check.
@@ -91,7 +91,15 @@ test('registered stacking updates without reload and bulk packaging advances bef
   // finalization before asking for a report, so final-loading cleanup cannot race it.
   await expect.poll(() => page.evaluate(() => Boolean((window as any).__containerLoadingFinalPhysicsSignature
     && (window as any).__containerLoadingFinalPhysicsResult && !(window as any).__containerLoadingFinalPhysicsRunning)), { timeout: 180_000 }).toBe(true);
-  await expect(page.locator('.guided-status-row')).toHaveAttribute('data-verification-status', 'failed', { timeout: 120_000 });
+  // Owner rule 2026-11-19 (AGENTS.md 2H): leftovers stand in the last rows. For this cargo the
+  // plan is now 20 full rows of one product each and the leftovers behind them, in rows one
+  // carton length (235 mm) deep. The earlier plan (130 mm deep rows, four tiers) failed braking
+  // at 20.9 mm / 2.51 deg; this one measures 5.8 mm / 0.39 deg under the unchanged limits.
+  // The owner approved following the measured verdict here (2026-11-20). A failed certification
+  // that blocks dispatch stays covered by workOrderRecovery, manual-inspection and
+  // direct-orientation-recovery.
+  await expect(page.locator('.guided-status-row')).toHaveAttribute('data-verification-status', 'passed', { timeout: 120_000 });
+  await expectVerifiedLoading(page);
   const loaded = await page.evaluate(() => {
     const { result, cargo } = (window as any).__containerLoadingLatestResult;
     return { count: result.placements.length, left: result.remaining.reduce((sum: number, item: any) => sum + item.quantity, 0), maxZ: Math.max(...result.placements.map((item: any) => item.z)), issues: result.validationIssues, cargo };
@@ -100,11 +108,10 @@ test('registered stacking updates without reload and bulk packaging advances bef
   expect(loaded.maxZ).toBeGreaterThan(0.265);
   expect(loaded.issues).toEqual([]);
   console.log('bulk stacking result', { count: loaded.count, remaining: loaded.left, maxZ: loaded.maxZ });
-  // The 1mm packing changes carton masses and the resulting bulk layout. Its
-  // geometry is valid, but the actual inertia metrics exceed the PASS limits.
-  // Failed certification must still block dispatch regardless of full loading.
-  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestCertification?.status), { timeout: 120_000 }).toBe('failed');
-  await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
+  expect(loaded.left).toBe(0);
+  // The verified plan opens the result step.
+  await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestCertification?.status), { timeout: 120_000 }).toBe('passed');
+  await expect(page.locator('.guided-step-list button').nth(5)).toBeEnabled();
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestResult.result.placements.length)).toBe(loaded.count);
   // The direct work order re-runs all three inertia scenarios for the loaded cartons before
   // opening the report (~67 s locally). 60 s made this test fail on slower machines.
@@ -115,35 +122,28 @@ test('registered stacking updates without reload and bulk packaging advances bef
     // covered separately in workOrderRecovery.spec.ts; never replace this plan.
     window.dispatchEvent(new CustomEvent('container-loading:request-direct-work-order', { detail: { ...target, preserveSelectedPlan: true } }));
   });
-  // All three real scenarios are completed again; preserving the selected plan
-  // does not turn a failed result into dispatch approval.
+  // All three real scenarios are completed again for the plan that was selected.
   const report = await reportPromise;
   // The global record can refer to an in-flight alternative until the checked plan is applied.
   expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification.testedScenarios)).toBe(3);
-  expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification.status)).toBe('failed');
+  expect(await page.evaluate(() => (window as any).__containerLoadingLatestCertification.status)).toBe('passed');
   const metrics = await page.evaluate(() => {
     const certification = (window as any).__containerLoadingLatestCertification;
     return Object.values(certification.results).map((result: any) => ({ shift: result.maxHorizontalShiftM, tilt: result.maxTiltDeg }));
   });
   expect(metrics).toHaveLength(3);
   expect(metrics.every(metric => Number.isFinite(metric.shift) && Number.isFinite(metric.tilt))).toBe(true);
-  // Above the unchanged 12mm / 1.8deg PASS limits in inertiaCertification.ts, inside the
-  // unchanged 30mm / 4.5deg danger limits in inertiaWorkOrderPolicy.ts. With cartons kept at
-  // their planned footprint (restraint-v8) the rows no longer lean into gaps the plan does
-  // not have, so braking stays a failure but is no longer measured as danger.
-  expect(metrics.some(metric => metric.shift > 0.012 || metric.tilt > 1.8)).toBe(true);
-  expect(metrics.every(metric => metric.shift <= 0.03 && metric.tilt <= 4.5)).toBe(true);
-  await expect(page.locator('.guided-step-list button').nth(5)).toBeDisabled();
+  // Every scenario inside the unchanged 12mm / 1.8deg PASS limits in inertiaCertification.ts.
+  expect(metrics.every(metric => metric.shift <= 0.012 && metric.tilt <= 1.8)).toBe(true);
+  await expect(page.locator('.guided-step-list button').nth(5)).toBeEnabled();
   await expect(report.getByRole('heading', { name: /통합 출하·적재 작업지시서/ })).toBeVisible();
   await expect(report.locator('.summary')).toContainText(`${loaded.count} EA`);
-  await expectSecuredPhysicsEvidence(page);
-  // Full physics may supply the stronger failure label instead of inertia's
-  // review-only caution label. Both must block approval and retain the review mark.
-  await expect(report.locator('aside.technical-note > b')).toHaveText(/검증 판정: (주의 · 검토용|물리검증 실패 · 출고 차단)/);
-  await expect(report.locator('.watermark')).toContainText('검토용');
-  await expect(report.locator('.footer')).not.toContainText('완료 · PASS');
-  await expect(report.locator('aside.technical-note')).toContainText('내부 PASS 기준을 일부 초과했지만 위험 기준 이내입니다');
-  await expect(report.locator('aside.technical-note')).toContainText('출고 승인을 의미하지 않습니다');
-  console.log('bulk review-only work order opened with matching loaded quantity; failed inertia remains blocked', metrics);
+  await expectSecuredPhysicsEvidence(page, true);
+  // A verified plan carries the PASS verdict and no review mark.
+  await expect(report.locator('aside.technical-note > b')).toHaveText('검증 판정: PASS');
+  await expect(report.locator('.watermark')).toHaveCount(0);
+  await expect(report.locator('.footer')).toContainText('완료 · PASS');
+  await expect(report.locator('aside.technical-note')).toContainText('관성 3종 내부 PASS 조건을 충족했습니다');
+  console.log('bulk work order opened with matching loaded quantity; all three inertia scenarios inside the PASS limits', metrics);
   await page.screenshot({ path: test.info().outputPath('registered-stacking.png'), fullPage: true });
 });
