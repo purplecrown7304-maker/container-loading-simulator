@@ -11,7 +11,7 @@ import type { ContainerSpec, LoadingResult } from './engine/types';
 import { buildSecuringUsage, clearLatestInertiaCertification, createPhysicsTargetSignature, type InertiaCertification } from './inertiaCertification';
 import { clearPhysicsTarget, publishPhysicsTarget, type PhysicsTarget } from './physicsTarget';
 import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
-import { publishVerificationCancelled } from './workflowVerificationState';
+import { publishVerificationCancelled, publishVerificationStage } from './workflowVerificationState';
 import { LOADING_STRATEGY_PREFERENCE_KEY, readLoadingStrategyPreference, writeLoadingStrategyPreference } from './loadingStrategyPreference';
 import { adoptRemoteOperator } from './localOperator';
 import { ADMIN_ACCESS_EVENT } from './adminAccess';
@@ -398,4 +398,38 @@ it('gives the whole cargo back when a divided job leaves direct-box loading', as
   expect(readVehicleSplit()).toBeNull();
   expect(storedUnits()).toBe(5);
   expect(splitPanel()).toBeNull();
+});
+
+it('says what a running verification is doing without changing its status, and drops the note with the verdict', async () => {
+  await mount(); await prepareStrategy(); await click(action());
+  const stored = readStoredState()!;
+  const result: LoadingResult = { placements: [{ cargoId: stored.cargo[0].id, x: 0, y: 0, z: 0, length: .2, width: .15, height: .1, weightKg: 1, rotated: false }], remaining: [], validationIssues: [], loadedWeightKg: 1, usedVolumeM3: .003 };
+  latest.__containerLoadingLatestResult = { ...stored, result };
+  const target: PhysicsTarget = { mode: 'boxes', ...latest.__containerLoadingLatestResult };
+  const state = () => document.querySelector('.guided-status-row')?.getAttribute('data-verification-status');
+  const note = () => document.querySelector('.guided-job-summary [data-verification-note]');
+
+  // A note for a verification that is not running is ignored.
+  await act(async () => { publishPhysicsTarget(target); publishVerificationStage(target, '최종 적재 자동검증 1/1 · 현재 적재안'); });
+  expect(state()).toBe('unrun');
+  expect(note()).toBeNull();
+
+  await act(async () => { window.dispatchEvent(new CustomEvent('test:physics-progress')); });
+  await act(async () => { publishVerificationStage(target, '동일 수량을 유지하는 안전 재배치 후보를 계산 중입니다.'); });
+  expect(state()).toBe('running');
+  expect(note()?.getAttribute('data-verification-note')).toBe('running');
+  expect(note()?.getAttribute('role')).toBe('status');
+  expect(note()?.textContent).toBe('동일 수량을 유지하는 안전 재배치 후보를 계산 중입니다.');
+  expect(step(6).disabled).toBe(true);
+
+  // A note about some other plan is not this verification's.
+  const other: PhysicsTarget = { ...target, result: { ...result, placements: [{ ...result.placements[0], x: 1 }] } };
+  await act(async () => { publishVerificationStage(other, '다른 적재안'); });
+  expect(note()?.textContent).toBe('동일 수량을 유지하는 안전 재배치 후보를 계산 중입니다.');
+
+  // The one verdict of the run ends the note and opens the results.
+  await act(async () => { publishCertification(); });
+  expect(state()).toBe('passed');
+  expect(note()).toBeNull();
+  expect(step(6).disabled).toBe(false);
 });

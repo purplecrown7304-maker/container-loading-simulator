@@ -27,7 +27,7 @@ import { openLoadingReport } from './report';
 import { STORAGE_UPDATED_EVENT, type StoredState } from './storage';
 import { requestStagingPlanMotion } from './stagingPlanMotion';
 import { WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
-import { publishVerificationCancelled, publishVerificationFailure } from './workflowVerificationState';
+import { publishVerificationCancelled, publishVerificationFailure, publishVerificationStage } from './workflowVerificationState';
 
 const EPS = 1e-9;
 const MAX_DIRECT_WORK_ORDER_CANDIDATES = 8;
@@ -150,6 +150,15 @@ export default function DirectWorkOrderOptimizer() {
     publishPhysicsTarget(current);
     const initialSignature = createPhysicsTargetSignature(current);
     sourceSignature.current = initialSignature;
+    // Automatic final loading has no dialog. The comparison can take as long as the first
+    // certification did, so the workflow is told what the running verification is doing.
+    const say = (text: string) => {
+      setMessage(text);
+      if (automatic && !cancelled()) publishVerificationStage(current, text);
+    };
+    if (automatic) say(detail.preserveSelectedPlan
+      ? '사용자가 선택한 적재안을 유지하고 관성 3종을 검증합니다.'
+      : '최종 적재 진행 · 관성 3종과 안전 후보를 자동 검증합니다.');
     const checkCurrent = () => {
       const live = readPhysicsTarget();
       if (!live || createPhysicsTargetSignature(live) !== initialSignature) throw new Error('LOADING_TARGET_CHANGED');
@@ -168,6 +177,24 @@ export default function DirectWorkOrderOptimizer() {
     setAttempt({ index: 0, total: candidates.length, label: '' });
     let bestEvaluated: Evaluated | null = null;
     let searchNotice = '';
+    // What the comparison certified, kept on the certification it publishes.
+    const compared: Evaluated[] = [];
+    const published = (chosen: Evaluated, notice?: string): Evaluated => ({
+      ...chosen,
+      certification: {
+        ...chosen.certification,
+        searchNotice: notice,
+        comparison: compared.map(item => ({
+          label: item.label,
+          selected: item.target === chosen.target,
+          status: item.certification.status,
+          verified: isPhysicsTargetVerified(item.target, item.certification),
+          securingLevel: item.certification.securing.level,
+          maxHorizontalShiftM: item.certification.maxHorizontalShiftM,
+          maxTiltDeg: item.certification.maxTiltDeg,
+        })),
+      },
+    });
 
     try {
       for (let index = 0; index < candidates.length; index += 1) {
@@ -183,12 +210,18 @@ export default function DirectWorkOrderOptimizer() {
         setSearch(null);
         setProgress(null);
         setAttempt({ index: index + 1, total: candidates.length, label: candidate.label });
-        setMessage(`${automatic ? '최종 적재 자동검증' : '상자 재배치'} ${index + 1}/${candidates.length} · ${candidate.label}`);
+        say(`${automatic ? '최종 적재 자동검증' : '상자 재배치'} ${index + 1}/${candidates.length} · ${candidate.label}`);
+        // Automatic final loading publishes one verdict, for the plan this comparison selects
+        // (`finish`). The baseline is the live target, so its certification would otherwise be
+        // published the moment it is ready: the workflow would read 검증 통과 and unlock the
+        // results while the alternatives are still being certified, and the final publication
+        // would then reset that status and replace the plan under the operator.
         const initialCertification = await runInertiaCertification(
           candidate.target,
           next => { if (!cancelled()) setProgress(next); },
           undefined,
           cancelled,
+          { publish: !automatic },
         );
         if (cancelled()) return;
         checkCurrent();
@@ -204,12 +237,13 @@ export default function DirectWorkOrderOptimizer() {
         checkCurrent();
 
         const evaluated: Evaluated = { ...candidate, certification, risk: certificationRisk(certification) };
+        compared.push(evaluated);
         if (detail.preserveSelectedPlan) {
-          finish({ ...evaluated, certification: { ...certification, searchNotice: '사용자가 선택한 적재안을 유지한 채 관성 검증했습니다.' } }, automatic);
+          finish(published(evaluated, '사용자가 선택한 적재안을 유지한 채 관성 검증했습니다.'), automatic);
           return;
         }
         if (isLimitReviewTarget(candidate.target)) {
-          finish({ ...evaluated, certification: { ...certification, searchNotice: LIMIT_REVIEW_WARNING } }, automatic);
+          finish(published(evaluated, LIMIT_REVIEW_WARNING), automatic);
           return;
         }
         const approval = assessWorkOrderCertification(certification);
@@ -217,7 +251,7 @@ export default function DirectWorkOrderOptimizer() {
         // loading never short-circuits on the baseline: it compares the same cargo
         // quantity against lower/safer layouts before publishing the final scene.
         if (!automatic && (approval === 'pass' || approval === 'caution') && candidate.target.result.validationIssues.length === 0 && !(candidate.target.result.operationalFindings ?? []).some(finding => finding.severity === 'error')) {
-          finish({ ...evaluated, certification: { ...certification, searchNotice: searchNotice || undefined } }, false);
+          finish(published(evaluated, searchNotice || undefined), false);
           return;
         }
         if (!bestEvaluated || better(evaluated, bestEvaluated)) bestEvaluated = evaluated;
@@ -225,7 +259,7 @@ export default function DirectWorkOrderOptimizer() {
         if (index === 0) {
           setProgress(null);
           if (!certification.payloadWithinLimit) {
-            setMessage('보강재 중량을 확보하는 적재량 조정안을 계산 중입니다.');
+            say('보강재 중량을 확보하는 적재량 조정안을 계산 중입니다.');
             const adjusted = await buildSecuringPayloadAdjustmentCandidateAsync(current, currentLoadingStrategy(), controller.signal);
             if (cancelled()) return;
             checkCurrent();
@@ -248,7 +282,7 @@ export default function DirectWorkOrderOptimizer() {
             setNotice(searchNotice);
           }
           if (alternativeLimit === 0) continue;
-          setMessage('동일 수량을 유지하는 안전 재배치 후보를 계산 중입니다.');
+          say('동일 수량을 유지하는 안전 재배치 후보를 계산 중입니다.');
           const alternatives = await buildDirectResultReoptimizationCandidatesAsync(current, alternativeLimit, cancelled, {
             strategy: currentLoadingStrategy(),
             signal: controller.signal,
@@ -272,7 +306,7 @@ export default function DirectWorkOrderOptimizer() {
         return;
       }
 
-      finish({ ...bestEvaluated, certification: { ...bestEvaluated.certification, searchNotice: searchNotice || undefined } }, automatic);
+      finish(published(bestEvaluated, searchNotice || undefined), automatic);
     } catch (reason) {
       if (cancelled()) return;
       console.error('Direct work-order inertia search failed', reason);

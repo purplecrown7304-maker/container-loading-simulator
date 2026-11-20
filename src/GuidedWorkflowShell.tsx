@@ -1,5 +1,5 @@
 import { equipmentDisplayText } from './transportEquipmentPresentation';
-import { workflowFailureText } from './inspectionPresentation';
+import { inspectionProgressText, workflowFailureText } from './inspectionPresentation';
 import { palletDisplayText } from './palletCatalogPresentation';
 import { uiText as uiT, uiMessage, useUiLanguage } from './uiLanguage';
 import { useLoadingRuleset, aEquipmentDefault } from './loadingRulesPreference';
@@ -20,7 +20,7 @@ import { publishGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingU
 import { publishGuidedWorkflowState } from './guidedWorkflowState';
 import { INERTIA_CERTIFICATION_EVENT, readLatestInertiaCertification, type InertiaCertification } from './inertiaCertification';
 import { readPhysicsTarget } from './physicsTarget';
-import { certificationVerificationState, failedVerificationState, verificationEventMatchesTarget, verificationStatusLabel, WORKFLOW_VERIFICATION_CANCELLED_EVENT, WORKFLOW_VERIFICATION_ERROR_EVENT, type VerificationEventDetail, type WorkflowVerificationState } from './workflowVerificationState';
+import { certificationVerificationState, failedVerificationState, verificationEventMatchesTarget, verificationStatusLabel, WORKFLOW_VERIFICATION_CANCELLED_EVENT, WORKFLOW_VERIFICATION_ERROR_EVENT, WORKFLOW_VERIFICATION_STAGE_EVENT, type VerificationEventDetail, type VerificationStageDetail, type WorkflowVerificationState } from './workflowVerificationState';
 import { usePalletSnapshot } from './palletSnapshotStore';
 import { OPEN_RESULTS_MODAL_EVENT } from './resultsModalEvents';
 import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState } from './storage';
@@ -435,7 +435,7 @@ function JobSummary({ step, live, mode, finalReady, verification, selection, str
 
       <div className="guided-status-row" data-verification-status={verification.status}><dt>{uiT("상태")}</dt><dd><i className={verification.status === 'passed' ? 'good' : running ? 'running' : ''}/>{uiT(status)}</dd></div>
     </dl>
-    {verification.reason && <p className="guided-stage-help" role={verification.status === 'failed' ? 'alert' : 'status'}>{workflowFailureText(verification.reason)}</p>}
+    {verification.reason && <p className="guided-stage-help" data-verification-note={verification.status} role={verification.status === 'failed' ? 'alert' : 'status'}>{verification.status === 'running' ? inspectionProgressText(verification.reason) : workflowFailureText(verification.reason)}</p>}
     <div className="studio-capacity"><span>{uiT("공간 사용률")}<b className={mode === 'boxes' ? undefined : 'studio-capacity-note'}>{mode === 'boxes' ? `${fillRate.toFixed(1)}%` : uiT("팔레트 결과 참고")}</b></span><meter aria-label={uiT("공간 사용률")} min="0" max="100" value={mode === 'boxes' ? Math.min(100, fillRate) : 0}/><small>{uiT("전체 공간")} {maxVolume.toFixed(1)} m³</small></div>
     {step === 5 && !running && !finalReady && <div className="guided-loading-run-confirmation" aria-label={uiT("자동 적재 실행 설정 확인")}>
       <b>{uiT("실행 설정 확인")}</b>
@@ -738,6 +738,13 @@ export default function GuidedWorkflowShell() {
       setNoLoadComplete(false);
       lockResults();
     };
+    // A running verification says what it is working on (comparison of alternative layouts
+    // can take as long as the first certification). The note never changes the status.
+    const onStage = (event: Event) => {
+      const detail = (event as CustomEvent<VerificationStageDetail>).detail;
+      if (!detail?.note || !verificationEventMatchesTarget(detail, readPhysicsTarget())) return;
+      setVerification(previous => previous.status === 'running' ? { status: 'running', reason: detail.note } : previous);
+    };
     const onInputInvalidated = () => {
       setVerification({ status: 'unrun' }); setNoLoadComplete(false); completedEmpty.current = null;
       lockResults();
@@ -777,6 +784,7 @@ export default function GuidedWorkflowShell() {
     window.addEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
     window.addEventListener(WORKFLOW_VERIFICATION_CANCELLED_EVENT, onPhysicsError);
     window.addEventListener(WORKFLOW_VERIFICATION_ERROR_EVENT, onPhysicsError);
+    window.addEventListener(WORKFLOW_VERIFICATION_STAGE_EVENT, onStage);
     window.addEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
     window.addEventListener(OPEN_RESULTS_MODAL_EVENT, onResultsOpened);
     return () => {
@@ -787,6 +795,7 @@ export default function GuidedWorkflowShell() {
       window.removeEventListener(FINAL_PHYSICS_VALIDATION_ERROR_EVENT, onPhysicsError);
       window.removeEventListener(WORKFLOW_VERIFICATION_CANCELLED_EVENT, onPhysicsError);
       window.removeEventListener(WORKFLOW_VERIFICATION_ERROR_EVENT, onPhysicsError);
+      window.removeEventListener(WORKFLOW_VERIFICATION_STAGE_EVENT, onStage);
       window.removeEventListener(INERTIA_CERTIFICATION_EVENT, onCertification);
       window.removeEventListener(OPEN_RESULTS_MODAL_EVENT, onResultsOpened);
     };
