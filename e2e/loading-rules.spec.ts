@@ -57,6 +57,21 @@ test('A rules keep the canvas, run a real worker and invalidate results on switc
  await page.waitForTimeout(1500);
  expect(await page.evaluate(()=>(window as any).__containerLoadingLatestResult.result.placements.length)).toBe(0);
  await page.screenshot({path:test.info().outputPath('rules-invalidated.png'),fullPage:true});
+ // The same press when the rule set changes before the held request is replayed (two frames
+ // later): the order a slow runner produces. The request was made for the A rules, so nothing
+ // may run under the rules that replaced them.
+ await rules.selectOption('a-v1');
+ await expect.poll(()=>page.evaluate(()=>(window as any).__containerLoadingLatestResult?.container.rules?.version)).toBe('a-v1');
+ await page.evaluate(()=>{
+  window.dispatchEvent(new CustomEvent('container-loading:app-action',{detail:{action:'run-loading'}}));
+  localStorage.setItem('container-loading:ruleset:v1','legacy');
+  window.dispatchEvent(new Event('storage'));
+  window.dispatchEvent(new Event('container-loading:ruleset-changed'));
+ });
+ await expect(rules).toHaveValue('legacy');
+ await page.waitForTimeout(1500);
+ expect(await page.evaluate(()=>(window as any).__containerLoadingLatestResult.result.placements.length)).toBe(0);
+ expect(await page.evaluate(()=>(window as any).__containerLoadingLatestCertification)).toBeUndefined();
  expect(errors).toEqual([]);
 });
 

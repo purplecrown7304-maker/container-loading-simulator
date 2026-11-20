@@ -51,7 +51,7 @@ test('recovers the 74-carton truck load with allowed rotation and no invented lo
   const actual = await page.evaluate(() => {
     const target = (window as any).__containerLoadingPhysicsTarget;
     const cert = (window as any).__containerLoadingLatestCertification;
-    return { container: target.container, signature: JSON.parse(cert.targetSignature), statuses: (window as any).__orientationRecoveryStatuses,
+    return { container: target.container, signature: JSON.parse(cert.targetSignature), statuses: (window as any).__orientationRecoveryStatuses, comparison: cert.comparison,
       placements: target.result.placements, remaining: target.result.remaining,
       quantity: target.cargo.reduce((sum: number, c: any) => sum + c.quantity, 0),
       validationIssues: target.result.validationIssues, warnings: target.result.operationalFindings,
@@ -64,8 +64,13 @@ test('recovers the 74-carton truck load with allowed rotation and no invented lo
   expect(actual.signature.rulesMetadata).toBeUndefined();
   expect(actual.signature.materialUnitWeights).toMatchObject({ voidDoorBarMinSpanM: 2.261, voidDoorBarMaxSpanM: 2.642 });
   expect(actual.container.width).toBeLessThan(actual.signature.materialUnitWeights.voidDoorBarMinSpanM);
-  expect(actual.statuses).toContain('failed');
-  expect(actual.statuses.at(-1)).toBe('passed');
+  // One verdict is published, for the plan the comparison selected. The first plan's failed
+  // certification is no longer shown on the way (it used to read 검증 실패 and then flip); it
+  // stays on record with the plans it was compared with.
+  expect(actual.statuses).toEqual(['passed']);
+  expect(actual.comparison[0]).toMatchObject({ label: '현재 적재안', status: 'failed', verified: false, selected: false });
+  expect(actual.comparison.filter((plan: any) => plan.selected)).toMatchObject([{ status: 'passed', verified: true, securingLevel: 1 }]);
+  expect(actual.comparison.find((plan: any) => plan.selected).label).not.toBe('현재 적재안');
   expect(actual.placements).toHaveLength(74);
   expect(actual.quantity).toBe(74);
   expect(actual.remaining).toEqual([]);

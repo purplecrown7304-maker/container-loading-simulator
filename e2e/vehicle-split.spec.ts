@@ -49,9 +49,8 @@ async function runFinalLoading(page: Page) {
 
 /**
  * Opens the work order of the plan that is loaded, the way the other specs do: the request
- * re-checks the selected plan and opens the report. The footer button is not used because the
- * automatic comparison of alternative layouts may still re-publish the plan for a moment after
- * the first PASS, and a click in that moment lands on a button whose label has just changed.
+ * re-checks the selected plan and opens the report without leaving STEP 05, so the vehicle
+ * switch stays in reach. `verified-status-stable.spec.ts` covers the footer button.
  */
 async function openWorkOrder(page: Page) {
   const popup = page.waitForEvent('popup', { timeout: 120_000 });

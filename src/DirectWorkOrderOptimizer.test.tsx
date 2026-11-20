@@ -315,3 +315,94 @@ it('keeps blocked-popup and ready-report labels failed when inertia PASS has a s
   expect(host.textContent).not.toContain('검증 등급: PASS');
   expect(host.textContent).not.toContain('검사 완료 · PASS');
 });
+
+// One verdict for the plan that is published. The baseline is the live target, so a certification
+// that published itself would show 검증 통과 and unlock the results while the alternatives are
+// still being certified; the final publication then reset that status under the operator.
+describe('automatic final loading publishes its verdict once', () => {
+  const passing = (plan: PhysicsTarget, shiftM: number): InertiaCertification => {
+    const passed: InertiaCertification = { ...certification, status: 'passed', targetSignature: createPhysicsTargetSignature(plan),
+      testedScenarios: 3, passedScenarios: 3, failedScenarios: [], maxHorizontalShiftM: shiftM, maxTiltDeg: shiftM * 100, results: {} };
+    for (const scenario of ['acceleration', 'braking', 'cornering'] as const) passed.results[scenario] = { scenario, fps: 0, simulatedSeconds: 4, cargoCount: 1, supportCount: 0, frames: [], maxHorizontalShiftM: shiftM, maxTiltDeg: shiftM * 100 };
+    return passed;
+  };
+  const saferTarget: PhysicsTarget = { ...target, result: { ...target.result, placements: [{ ...target.result.placements[0], x: 0.8 }] } };
+  const listen = () => {
+    const verdicts: Array<{ status: string; plan: string }> = [];
+    const stages: string[] = [];
+    const onVerdict = (event: Event) => {
+      const detail = (event as CustomEvent<InertiaCertification | undefined>).detail;
+      if (detail) verdicts.push({ status: detail.status, plan: detail.targetSignature });
+    };
+    const onStage = (event: Event) => stages.push((event as CustomEvent<{ note: string }>).detail.note);
+    window.addEventListener('container-loading:inertia-certification-result', onVerdict);
+    window.addEventListener('container-loading:verification-stage', onStage);
+    return { verdicts, stages, stop: () => {
+      window.removeEventListener('container-loading:inertia-certification-result', onVerdict);
+      window.removeEventListener('container-loading:verification-stage', onStage);
+    } };
+  };
+
+  it('certifies the baseline and the alternatives without an interim verdict and publishes the selected plan', async () => {
+    const baselinePass = passing(target, 0.011), saferPass = passing(saferTarget, 0.002);
+    vi.mocked(runInertiaCertification).mockResolvedValueOnce(baselinePass).mockResolvedValueOnce(saferPass);
+    vi.mocked(completeCertificationForWorkOrder).mockResolvedValueOnce(baselinePass).mockResolvedValueOnce(saferPass);
+    vi.mocked(buildDirectResultReoptimizationCandidatesAsync).mockResolvedValue({
+      candidates: [{ label: '저중심 재배치', result: saferTarget.result, target: saferTarget, staticPenalty: -1 }], timedOut: false,
+    });
+    const heard = listen();
+    try {
+      await act(async () => {
+        requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false });
+        for (let i = 0; i < 6; i += 1) await Promise.resolve();
+      });
+    } finally { heard.stop(); }
+
+    // Neither certification may publish itself, the baseline's above all.
+    expect(vi.mocked(runInertiaCertification).mock.calls.map(call => call[4])).toEqual([{ publish: false }, { publish: false }]);
+    expect(heard.verdicts).toEqual([{ status: 'passed', plan: createPhysicsTargetSignature(saferTarget) }]);
+    expect(createPhysicsTargetSignature((window as any).__containerLoadingPhysicsTarget)).toBe(createPhysicsTargetSignature(saferTarget));
+    // What was compared stays on the published certification, the plan on screen first.
+    expect((window as any).__containerLoadingLatestCertification.comparison).toEqual([
+      { label: '현재 적재안', selected: false, status: 'passed', verified: false, securingLevel: 3, maxHorizontalShiftM: 0.011, maxTiltDeg: 0.011 * 100 },
+      { label: '저중심 재배치', selected: true, status: 'passed', verified: false, securingLevel: 3, maxHorizontalShiftM: 0.002, maxTiltDeg: 0.002 * 100 },
+    ]);
+    // No dialog is open in automatic mode: the workflow is told what the wait is for.
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(heard.stages).toEqual([
+      '최종 적재 진행 · 관성 3종과 안전 후보를 자동 검증합니다.',
+      '최종 적재 자동검증 1/1 · 현재 적재안',
+      '동일 수량을 유지하는 안전 재배치 후보를 계산 중입니다.',
+      '최종 적재 자동검증 2/2 · 저중심 재배치',
+    ]);
+  });
+
+  it('publishes the baseline once when no alternative is better', async () => {
+    const baselinePass = passing(target, 0.004);
+    vi.mocked(runInertiaCertification).mockResolvedValue(baselinePass);
+    vi.mocked(completeCertificationForWorkOrder).mockResolvedValue(baselinePass);
+    vi.mocked(buildDirectResultReoptimizationCandidatesAsync).mockResolvedValue({ candidates: [], timedOut: false });
+    const heard = listen();
+    try {
+      await act(async () => {
+        requestDirectWorkOrder(target.container, target.cargo, target.result, { openReport: false });
+        for (let i = 0; i < 6; i += 1) await Promise.resolve();
+      });
+    } finally { heard.stop(); }
+    expect(vi.mocked(runInertiaCertification).mock.calls.map(call => call[4])).toEqual([{ publish: false }]);
+    expect(heard.verdicts).toEqual([{ status: 'passed', plan: createPhysicsTargetSignature(target) }]);
+    expect((window as any).__containerLoadingLatestCertification.comparison).toMatchObject([{ label: '현재 적재안', selected: true, status: 'passed' }]);
+  });
+
+  it('keeps the immediate verdict for a work order the operator asked for, and sends no stage notes there', async () => {
+    const baselinePass = passing(target, 0.004);
+    vi.mocked(runInertiaCertification).mockResolvedValue(baselinePass);
+    vi.mocked(completeCertificationForWorkOrder).mockResolvedValue(baselinePass);
+    vi.mocked(openLoadingReport).mockReturnValue(true);
+    const heard = listen();
+    try { await request(); } finally { heard.stop(); }
+    expect(vi.mocked(runInertiaCertification).mock.calls.map(call => call[4])).toEqual([{ publish: true }]);
+    expect(heard.stages).toEqual([]);
+    expect(openLoadingReport).toHaveBeenCalledOnce();
+  });
+});

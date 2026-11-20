@@ -50,6 +50,18 @@ export type InertiaReinforcementAttempt = {
   scenarios: InertiaAttemptScenario[];
 };
 
+/** One plan a layout comparison certified, and whether it was the one published. */
+export type InertiaPlanComparison = {
+  label: string;
+  selected: boolean;
+  status: CertificationStatus;
+  /** Strict PASS of that plan: certification, payload and static checks together. */
+  verified: boolean;
+  securingLevel: SecuringLevel;
+  maxHorizontalShiftM: number;
+  maxTiltDeg: number;
+};
+
 export type InertiaCertification = {
   /** Full motion/bounds checks in the exact selected securing world. Legacy records remain review-only. */
   physicsValidation?: PhysicsValidationSuite;
@@ -58,6 +70,12 @@ export type InertiaCertification = {
   limitReview?: LimitReviewConfig;
   /** Discloses a bounded or operator-stopped optional layout search on the work order. */
   searchNotice?: string;
+  /**
+   * Every plan the layout comparison certified before this one was published, in the order it
+   * was certified. A record only: the verdict is this certification's own. The comparison
+   * publishes one verdict, so this is where a first plan that failed remains visible.
+   */
+  comparison?: InertiaPlanComparison[];
   status: CertificationStatus;
   mode: PhysicsTarget['mode'];
   targetSignature: string;
@@ -347,11 +365,23 @@ export function isNumericalLimitReviewTarget(target: PhysicsTarget): boolean {
 }
 
 
+export type InertiaCertificationOptions = {
+  /**
+   * false: certify and return without publishing the result as the live verdict, even when
+   * `target` is the live physics target. For a caller that compares several plans and
+   * publishes the verdict of the one it selects (the automatic final-loading comparison):
+   * a verdict published for the first plan would be shown to the operator, and unlock the
+   * results, before the comparison has decided which plan is final.
+   */
+  publish?: boolean;
+};
+
 export async function runInertiaCertification(
   target: PhysicsTarget,
   onProgress?: (progress: CertificationProgress) => void,
   onScenarioResult?: (result: InertiaAnimationResult, level: SecuringLevel) => void,
   shouldCancel?: () => boolean,
+  options: InertiaCertificationOptions = {},
 ): Promise<InertiaCertification> {
   // The three scenarios of a level are started together on the worker pool and read back in the
   // fixed order below. Intermediate levels may stop early, but the final level must record
@@ -360,7 +390,7 @@ export async function runInertiaCertification(
   const targetKey = inertiaTargetKey(target.container, target.result.placements);
   let completed = false;
   try {
-    const certification = await certifyLevels(target, session, targetKey, onProgress, onScenarioResult, shouldCancel);
+    const certification = await certifyLevels(target, session, targetKey, onProgress, onScenarioResult, shouldCancel, options);
     completed = true;
     return certification;
   } finally {
@@ -375,6 +405,7 @@ async function certifyLevels(
   onProgress?: (progress: CertificationProgress) => void,
   onScenarioResult?: (result: InertiaAnimationResult, level: SecuringLevel) => void,
   shouldCancel?: () => boolean,
+  options: InertiaCertificationOptions = {},
 ): Promise<InertiaCertification> {
   const limitReview = target.container.limitReview ?? target.result.limitReview?.config;
   const numericalReview = isNumericalLimitReviewTarget(target);
@@ -492,7 +523,7 @@ async function certifyLevels(
 
   certification = await completeSecuredPhysicsValidation(target, certification, onProgress, shouldCancel);
 
-  if (typeof window !== 'undefined') {
+  if (options.publish !== false && typeof window !== 'undefined') {
     const currentTarget = readPhysicsTarget();
     if (currentTarget && createPhysicsTargetSignature(currentTarget) === certification.targetSignature) {
       (window as CertificationWindow).__containerLoadingLatestCertification = certification;

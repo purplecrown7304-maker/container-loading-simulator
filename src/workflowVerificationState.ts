@@ -12,6 +12,9 @@ export type WorkflowVerificationState = {
 export const WORKFLOW_VERIFICATION_CANCELLED_EVENT = 'container-loading:verification-cancelled';
 export const WORKFLOW_VERIFICATION_ERROR_EVENT = 'container-loading:verification-error';
 export type VerificationEventDetail = { mode?: PhysicsTarget['mode']; signature?: string; error?: unknown };
+/** What a running verification is doing, for the operator. It carries no verdict. */
+export const WORKFLOW_VERIFICATION_STAGE_EVENT = 'container-loading:verification-stage';
+export type VerificationStageDetail = { mode?: PhysicsTarget['mode']; signature?: string; note: string };
 
 export function verificationEventMatchesTarget(detail: VerificationEventDetail | undefined, target: PhysicsTarget | undefined): boolean {
   if (detail?.mode && target && detail.mode !== target.mode) return false;
@@ -69,6 +72,14 @@ export function failedVerificationState(error: unknown): WorkflowVerificationSta
   const reason = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   const cancelled = /CANCELLED|CANCELED|ABORTED|취소/i.test(reason);
   return { status: cancelled ? 'cancelled' : 'failed', reason: reason || '최종 물리검증 실행에 실패했습니다. 다시 검사하세요.' };
+}
+
+/** Says what a verification that is still running is working on. Never a verdict. */
+export function publishVerificationStage(target: PhysicsTarget, note: string) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent<VerificationStageDetail>(WORKFLOW_VERIFICATION_STAGE_EVENT, {
+    detail: { mode: target.mode, signature: createPhysicsTargetSignature(target), note },
+  }));
 }
 
 /** Only explicit operator cancellation emits this; input changes reset to unrun. */

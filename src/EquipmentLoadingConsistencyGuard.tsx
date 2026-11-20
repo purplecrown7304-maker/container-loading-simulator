@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { loadingRunContextKey } from './loadingRunContext';
 import { recordDiagnosticTrace } from './runtimeDiagnostics';
 import { readStoredState, STORAGE_UPDATED_EVENT, writeStoredState, type StoredState } from './storage';
 import { readTransportEquipment } from './transportEquipment';
@@ -83,10 +84,17 @@ export default function EquipmentLoadingConsistencyGuard() {
       recordSync('run-loading');
       // Keep the other guards' replay marks, so one click is replayed once per guard at most.
       const replayDetail: GuardActionDetail = { ...custom.detail, action: 'run-loading', equipmentConsistencyReplay: true };
+      // Taken after the correction above: the request is for the corrected job. A change of the
+      // rules or the job before the replay withdraws it (see loadingRunContext.ts).
+      const requestedFor = loadingRunContextKey();
 
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           if (cancelled) return;
+          if (loadingRunContextKey() !== requestedFor) {
+            recordDiagnosticTrace('run-loading-replay-dropped', { guard: 'equipment-consistency' });
+            return;
+          }
           window.dispatchEvent(new CustomEvent<GuardActionDetail>(APP_ACTION_EVENT, { detail: replayDetail }));
         });
       });
