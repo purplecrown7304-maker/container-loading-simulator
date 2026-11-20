@@ -60,8 +60,12 @@ describe('pallet mixed-SKU grids follow actual support surfaces', () => {
     const result = packOnPallets(space, shipment, { ...spec, maxStackLevels: 2, maxStaticLoadKg: 1000 });
     expect(result.placements).toHaveLength(1660);
     expect(result.remaining).toEqual([]);
-    expect(result.palletCount).toBe(20);
-    expect(result.totalPalletizedWeightKg).toBeCloseTo(11716);
+    // 20 pallets until 2026-11-20, with twelve large cartons to a tier. The balanced layer
+    // build (LOADING_RULES 7D) sets fourteen to a tier (a strip of turned cartons beside the
+    // grid), four tiers high as the carton strength allows, and two tiers of small cartons
+    // inside them: 17 pallets, 11,596 kg of cargo + 17 × 6 kg of pallets.
+    expect(result.palletCount).toBe(17);
+    expect(result.totalPalletizedWeightKg).toBeCloseTo(11698);
     expect(validatePlacements(space, result.placements)).toEqual([]);
     const map = new Map(shipment.map(item => [item.id, item]));
     for (const load of result.pallets) {

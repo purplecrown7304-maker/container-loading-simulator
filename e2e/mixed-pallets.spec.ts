@@ -20,7 +20,7 @@ test('low-CBM mixed pallets stay on the floor through real workflow certificatio
   await expect(page.getByText('포장안 준비 완료')).toBeVisible();
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
   await page.getByRole('radio', { name: /파렛트 적재/ }).click();
-  await page.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await expect(page.getByRole('radio', { name: /안정성 우선/ })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   const snapshot = () => page.evaluate(() => {

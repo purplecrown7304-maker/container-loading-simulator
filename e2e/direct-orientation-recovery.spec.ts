@@ -30,7 +30,7 @@ test('recovers the 74-carton truck load with allowed rotation and no invented lo
       cargo: [full, { ...full, id: 'PKG-GST-002-PARTIAL', weightKg: .7399999999999999, quantity: 1 }],
     };
     localStorage.setItem('container-loading-simulator-v1', JSON.stringify(state));
-    localStorage.setItem('container-loading:guided-loading-strategy', 'capacity');
+    localStorage.setItem('container-loading:guided-loading-strategy', 'stability');
     localStorage.setItem('container-loading:guided-loading-unit', 'boxes');
     localStorage.setItem('container-loading-strategy', 'capacity');
     (window as any).__orientationRecoveryStatuses = [];
@@ -39,7 +39,7 @@ test('recovers the 74-carton truck load with allowed rotation and no invented lo
       if (cert) (window as any).__orientationRecoveryStatuses.push(cert.status);
     });
     window.dispatchEvent(new CustomEvent('container-loading-simulator:storage-updated', { detail: state }));
-    window.dispatchEvent(new CustomEvent('container-loading:guided-loading-strategy-updated', { detail: 'capacity' }));
+    window.dispatchEvent(new CustomEvent('container-loading:guided-loading-strategy-updated', { detail: 'stability' }));
     window.dispatchEvent(new CustomEvent('container-loading:guided-loading-unit-updated', { detail: 'boxes' }));
   }, truckSpec);
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingLatestResult?.container)).toMatchObject(truckSpec);

@@ -63,9 +63,12 @@ describe('staging inventory derives one conserved shipment', () => {
     expect(buildStagingInventory(input).yardUnits.map(unit => unit.id)).toEqual(buildStagingInventory(reordered).yardUnits.map(unit => unit.id));
     expect(stagingInputSignature(source({ cargo: [cargo({ quantity: 21 })] }))).not.toBe(stagingInputSignature(source()));
     expect(stagingInputSignature(source({ container: { ...input.container, width: 1.7 } }))).not.toBe(stagingInputSignature(source()));
-    expect(stagingInputSignature(source({ strategy: 'capacity' }))).toBe(stagingInputSignature(source()));
+    // An input without a goal is planned with the one goal the product offers (stability).
+    expect(stagingInputSignature(source({ strategy: 'stability' }))).toBe(stagingInputSignature(source()));
     expect(stagingInputSignature(source({ cargo: [cargo({ allowRotation: true })] }))).toBe(stagingInputSignature(source()));
-    expect(stagingInputSignature(source({ strategy: 'stability' }))).not.toBe(stagingInputSignature(source()));
+    expect(stagingInputSignature(source({ strategy: 'unloading' }))).not.toBe(stagingInputSignature(source()));
+    // A plan signed while the space-efficiency goal existed is a different input now.
+    expect(stagingInputSignature(source({ strategy: 'capacity' }))).not.toBe(stagingInputSignature(source()));
   });
   it('adds identities at the end without changing existing box IDs', () => {
     const old = buildStagingInventory(source({ cargo: [cargo({ quantity: 3 })] }));

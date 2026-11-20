@@ -25,7 +25,7 @@ import { readStoredState, STORAGE_RESET_EVENT, STORAGE_UPDATED_EVENT, writeStore
 import { ADMIN_ACCESS_EVENT, isAdminSession } from './adminAccess';
 import { LOCAL_OPERATOR_EVENT, readLocalOperator } from './localOperator';
 import { MEMBER_AUTH_EVENT, readSupabaseMember } from './memberAuth';
-import { LOADING_STRATEGY_PREFERENCE_EVENT, readLoadingStrategyPreference } from './loadingStrategyPreference';
+import { LOADING_STRATEGY_PREFERENCE_EVENT, currentLoadingStrategy } from './loadingStrategyPreference';
 import { readSecuringMaterialSettings } from './securingMaterialSettings';
 import { useTransportEquipment } from './transportEquipment';
 import { vehicleRigForEquipment } from './threeVehicleLayout';
@@ -84,7 +84,7 @@ export function stagingCommandContextForUnit(context: StagingCommandContext, uni
 export default function StagingWorkspace(props: StagingWorkspaceProps) {
   const [certification, setCertification] = useState(readLatestInertiaCertification);
   const [owner, setOwner] = useState(ownerKey);
-  const [strategy, setStrategy] = useState(() => readLoadingStrategyPreference() ?? 'capacity');
+  const [strategy, setStrategy] = useState(currentLoadingStrategy);
   const typeSelection = usePalletTypeSelection(), jobs = usePalletJobSpecs();
   const palletType = resolvePalletType(typeSelection);
   const spec = useMemo(() => palletJobSpec(palletType, jobs), [palletType, jobs]);
@@ -180,7 +180,7 @@ export default function StagingWorkspace(props: StagingWorkspaceProps) {
   }, []);
   useEffect(() => {
     const identity = () => setOwner(ownerKey());
-    const preference = () => setStrategy(readLoadingStrategyPreference() ?? 'capacity');
+    const preference = () => setStrategy(currentLoadingStrategy());
     const load = (event: Event) => {
       const now = live.current;
       now.flights.cancel();

@@ -95,13 +95,13 @@ test('product drafts and the packaging/strategy next flow survive closing and re
   await openWorkspace(page, 3);
   await expect(workspace.locator('.guided-packaging-list article')).toContainText('7 EA');
   await workspace.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
-  await workspace.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await expect(workspace.getByRole('radio', { name: /안정성 우선/ })).toHaveAttribute('aria-checked', 'true');
   await workspace.getByText('품목별 착지 번호 · 같은 배송지는 같은 번호', {exact:true}).click();
   const priority = workspace.getByRole('spinbutton', { name: /하역 순서/ });
   await priority.fill('3');
   await page.keyboard.press('Escape');
   await openWorkspace(page, 4);
-  await expect(workspace.getByRole('radio', { name: /공간효율 우선/ })).toHaveAttribute('aria-checked', 'true');
+  await expect(workspace.getByRole('radio', { name: /안정성 우선/ })).toHaveAttribute('aria-checked', 'true');
   await expect(priority).toHaveValue('3');
   await workspace.getByRole('button', { name: /다음 단계/ }).click();
   await expect(workspace).toBeHidden();
@@ -195,7 +195,7 @@ test('one real canvas survives equipment, product, packaging, loading-unit, resu
   await expect(countRow('전체 준비량')).toHaveText(['0', '6']);
   await expect(countRow('대기량')).toHaveText(['0', '6']);
   await expect(viewer).toHaveAttribute('data-three-count', '0');
-  await workspace.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await expect(workspace.getByRole('radio', { name: /안정성 우선/ })).toHaveAttribute('aria-checked', 'true');
   await workspace.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   const results = page.locator('.guided-bottom-bar:visible').getByRole('button', { name: /^결과 확인/ });

@@ -193,6 +193,94 @@ Owner instruction: "애매하게 남는 경우는 맨 뒷줄로 옮기는 게 �
 - Level loading, pallets, MIXED and the A-rules are unchanged. Height differences between
   blocks that come from each cargo's own stacking limit are not removed by this rule.
 
+## 2I. Owner-approved rule: heavy cartons on the floor, low blocks filled up (2026-11-20)
+
+Owner instructions: "앞부분이 비었잖아. 그 뒷줄 단이랑 높이를 맞추던가 해야지", "적재공간이 작은데 상자가
+많아 다 못 실으면 일단 차량을 두 대를 써야 한다. 우선 갯수가 많은 상자부터 채운다. 단 무게가 무거운 건
+바닥에 채우는 것을 우선으로 한다." Legacy **direct-box** weight sequence only
+(`engine/heavyInnerBlockPacker.ts`, `stackLedger.ts`). Full text: `docs/engine/LOADING_RULES.md`
+section 1.
+
+- The floor rows keep the weight sequence of 2A: heavier cartons take the floor first, from
+  the inner wall.
+- A block of rows that ends below the rows of lighter cargo behind it is filled up with
+  lighter cargo of the same stop, the cargo there is most of first, in whole tiers, until the
+  next tier would stand above that cargo's own rows. Every carton laid passes the checks a
+  carton on the open front passes (bounds, floor load, support, stack depth including
+  mixed-SKU chains, cumulative top load, unloading path). This replaces the last sentence
+  of 2H.
+- A cargo is stacked lower than its own limit only where that brings the finished block
+  higher; otherwise it keeps its own height.
+- Loaded quantity (LOADING_RULES 1, row 3) is compared cargo by cargo, the cargo there is
+  most of first (equal quantities: the heavier first; under strict unloading the stops keep
+  their order). This replaces the earlier comparison from the heaviest cargo, under which a
+  plan that left 1,320 light cartons behind beat one that left 22 heavier ones.
+- A filled load is shorter. Where it then fails the CG verdict although it stops short of
+  the door, the rows behind the inner rows stand one tier lower, with as few inner rows at
+  full height as still load as much, so that the top only steps down toward the door. This
+  is the one exception to "no step laid low to fit the centre of gravity" of LOADING_RULES 1.
+- Order of judgement: loaded quantity, CG verdict, weight sequence before level loading,
+  leftovers at the back (2H), filled before open (this rule), then the preferences. The plan
+  that leaves a block open is used only when the filled one loads less or fails the verdict
+  the open one passes.
+- Search sizes are fixed functions of the input (the plans kept for comparison, two step
+  searches). No hard limit and no certification threshold changes. Level loading, pallets,
+  MIXED and the A-rules are unchanged.
+- Planning a second vehicle for the cargo that still waits is not part of this rule and is
+  not built: the waiting cargo is listed with its reason as before.
+## 2J. Owner-approved pallet rule: fewer pallets (2026-11-20)
+
+Owner instruction: "파렛트를 더 적게 사용해야한다." Legacy **pallet** loading only
+(`engine/palletBalancedLayers.ts`, `palletOptimization.ts`). Full text:
+`docs/engine/LOADING_RULES.md` section 7D.
+
+- The planner fills pallets one cargo at a time. A little heavy cargo with a lot of light
+  cargo then gives short pallets that are full by weight and tall pallets held down by the
+  tipping limit of 2D, and both waste a base. The balanced layer build gives every pallet
+  its share of the heavy cartons as its lowest layer and fills it upward with the light
+  cargo: one unit uses its weight and its height together and its centre of gravity is low.
+- It replaces the chosen plan only when it uses fewer pallets and is not worse in anything
+  judged before pallet count: hard limits, loaded quantity, strict unloading and the tipping
+  limit of 2D, in that unchanged order. A plan it cannot beat is left exactly as it was.
+- Every carton passes the checks of the ordinary builder (pallet load, ceiling, no
+  overhang, support, stack depth, cumulative top load, floor load, payload with pallet
+  tare). Every unit stays inside the tipping limit and keeps the 50% top-tier rule (#97);
+  only the last pallet of a stop may be the mixed tail. Stops are not merged.
+- A carton stands on an equal or heavier carton. One exception, tried only for a pallet the
+  build cannot save without it: one closing layer of larger cartons, lighter than the
+  unit's base cartons, across a flat top of lighter ones. `HEAVY_ON_LIGHT` discloses it.
+- Pass counts are fixed (`BALANCED_PALLET_LAYER_PROFILE`); the result is deterministic.
+  Cargo with floor-only, unverified-strength, single-layer, offset-centre or
+  orientation-restricted cartons keeps the ordinary planner.
+- Fewer pallets make a shorter block. Where the longitudinal verdict of 2D then requires
+  it, the block stands off the inner wall by that distance; 2D itself is not changed.
+- The inertia certification and its thresholds, MIXED (its packaging stage opts out),
+  BOX_ONLY and the A-rules are unchanged.
+
+## 2K. Owner decision: no space-efficiency goal (2026-11-20)
+
+Owner instruction: "최적화 목표에 공간 효율 목표는 그냥 없애자." Product UI and stored
+preference only (`LoadingMethodStage.tsx`, `loadingStrategyPreference.ts`).
+
+- STEP 04 "최적화 목표" offers one goal, 안정성 우선 (`stability`). It is in force as soon as
+  the packaging is confirmed; the user does not pick it and no step waits for a goal.
+- A job with no stored goal plans with `stability`. A stored or legacy `capacity` is read
+  as `stability` everywhere the product reads the preference, and the product never stores
+  `capacity` again. A legacy `unloading` preference keeps its meaning; unloading order is
+  set by the stop numbers and the strict/soft policy as before.
+- A staging plan or pallet snapshot saved under `capacity` is a different input now: it is
+  kept as a reference only and the job is planned again. Nothing is restored as a current
+  plan under a goal the product no longer applies.
+- The STEP 04 estimate is one calculation for that goal, not a comparison of goals.
+- The engine keeps the `capacity` strategy and the `LoadingStrategy` type: its own tests,
+  the worker-parity fixtures and engine-internal defaults (for example the A-rule adapter's
+  parameter) still use it. Section 7's `capacity` bullet describes that engine strategy; it
+  is no longer selectable in the product, and every planner the product calls (legacy,
+  A-rules, pallet, MIXED) receives the stored goal.
+- No hard limit, certification threshold or loading rule is changed by this decision.
+  Pallet, MIXED and A-rule plans that were made under `capacity` can come out differently
+  under `stability`. The legacy direct-box plan is the same under both goals; only the
+  order in which alternative layouts are tried after a failed certification differs.
 ## 3. DIRECT BOX baseline algorithm
 The legacy fixed sequence of `CBM/weight sort -> full vertical stacks -> x shelf progression -> door-side tail mixing` is retired.
 

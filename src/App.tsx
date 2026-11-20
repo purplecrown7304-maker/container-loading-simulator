@@ -19,7 +19,7 @@ import { assessWeightBalance } from './engine/weightBalance';
 import { GUIDED_LOADING_UNIT_EVENT, publishGuidedLoadingUnit, readGuidedLoadingUnit, useGuidedLoadingUnit } from './guidedLoadingUnitState';
 import { shouldRenderGuidedViewer, useGuidedWorkflowState } from './guidedWorkflowState';
 import { clearLatestInertiaCertification } from './inertiaCertification';
-import { LOADING_STRATEGY_PREFERENCE_EVENT, readLoadingStrategyPreference } from './loadingStrategyPreference';
+import { LOADING_STRATEGY_PREFERENCE_EVENT, currentLoadingStrategy } from './loadingStrategyPreference';
 import { readWorkflowPreview, useWorkflowPreview, WORKFLOW_INPUT_INVALIDATED_EVENT, WORKFLOW_PREVIEW_EVENT } from './workflowPreview';
 import { createLatestInputRun } from './latestInputRun';
 import { resolvePalletType, usePalletTypeSelection } from './palletTypeSelection';
@@ -63,6 +63,9 @@ const emptyDraft: CargoDraft = {
   id: '', name: '', length: 0.5, width: 0.4, height: 0.3,
   weightKg: 10, quantity: 1, maxStackLayers: 7, maxTopLoadKg: 100, allowRotation: true,
 };
+// Names an engine candidate. The product has no space-efficiency goal (AGENTS.md 2K) and the
+// guided workflow always plans with one definite goal, so the middle name is only ever
+// reported by a search without a chosen goal, which the product does not run.
 const strategyLabel = (strategy: LoadingStrategy) => strategy === 'stability' ? '안정성 우선' : strategy === 'capacity' ? '적재율 우선' : '하역 우선';
 
 function LoadingFallback() {
@@ -101,7 +104,8 @@ export default function App() {
   const optimizationStartedAt = useRef<number | null>(null);
   const loadingRun = useRef(createLatestInputRun());
   useEffect(() => () => loadingRun.current.cancel(), []);
-  const [strategy, setStrategy] = useState(readLoadingStrategyPreference);
+  // The goal a plan is made with: a job that has stored none yet plans with the default.
+  const [strategy, setStrategy] = useState(currentLoadingStrategy);
   const [palletScene, setPalletScene] = useState<PalletViewerScene | null>(null);
   const workflowPreview = useWorkflowPreview();
   const [stagingUsesWorkflow, setStagingUsesWorkflow] = useState(() => !startingCargo.length);
@@ -233,7 +237,7 @@ export default function App() {
 
   useEffect(() => {
     const onStrategy = () => {
-      const next = readLoadingStrategyPreference();
+      const next = currentLoadingStrategy();
       if (next === strategy) return;
       invalidatePhysics();
       setStrategy(next);
@@ -360,8 +364,8 @@ export default function App() {
     const activeCargo = preflight.cargo;
     if (!activeCargo.length) return announce('warning', '적재할 화물이 없습니다. 본인의 박스 목록에서 화물을 등록하거나 선택하세요.');
     const guidedWorkflowActive = guidedWorkflowState.active;
-    const preferredStrategy = guidedWorkflowActive ? readLoadingStrategyPreference() : null;
-    if (guidedWorkflowActive && !preferredStrategy) return announce('warning', '적재 방식을 먼저 선택해 주세요.');
+    // The guided product always plans with one definite goal; nothing has to be chosen first.
+    const preferredStrategy = guidedWorkflowActive ? currentLoadingStrategy() : null;
     if (mode === 'pallets' || mode === 'mixed') {
       invalidatePhysics();
       setIsRunning(true);

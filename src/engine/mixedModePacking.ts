@@ -96,7 +96,9 @@ export function buildPalletPackaging(
       + (pallet.useCornerGuards ? pallet.cornerGuardExtraHeightM : 0)
       + (pallet.useWrapping ? pallet.wrappingExtraHeightM : 0) + 0.05);
   }
-  return packOnPallets(envelope, preparedCargo, buildSpec, strategy);
+  // The balanced layer build (LOADING_RULES 7D) belongs to pallet loading. This stage keeps
+  // its pallet units as they were: MIXED decides from their fill which become direct boxes.
+  return packOnPallets(envelope, preparedCargo, buildSpec, strategy, { balancedLayers: false });
 }
 
 function cargoCountsFromLoads(loads: PalletLoad[]) {

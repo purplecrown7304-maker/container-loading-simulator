@@ -39,7 +39,7 @@ test('sparse top tier moves to a final pallet and diagnostics download a local Z
   await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
   await page.getByRole('radio', { name: /파렛트 적재/ }).click();
   await page.getByRole('radio', { name: /T11 플라스틱 \(수출용 경량\)/ }).click();
-  await page.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await expect(page.getByRole('radio', { name: /안정성 우선/ })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__containerLoadingPalletSnapshot?.result.palletCount)).toBe(2);
@@ -62,9 +62,15 @@ test('sparse top tier moves to a final pallet and diagnostics download a local Z
   });
   expect(result.loaded).toBe(9);
   expect(result.remaining).toEqual([]);
-  expect(result.pallets.map((p: any) => p.count)).toEqual([8, 1]);
+  // Owner decision 2026-11-20 (AGENTS.md 2K): stability is the one goal. Its plan spreads the two
+  // full tiers over the two bases (4 and 4) where the removed space-efficiency goal stacked them
+  // on one (8 and 1). The sparse top tier of one carton still ends on the final pallet (#97),
+  // and the regular pallet keeps a full top tier.
+  expect(result.pallets.map((p: any) => p.count)).toEqual([4, 5]);
+  expect(result.pallets[0]).toMatchObject({ tail: false, count: 4 });
   expect(result.pallets[0].fill).toBeCloseTo(1);
-  expect(result.pallets[1]).toMatchObject({ tail: true, count: 1 });
+  expect(result.pallets[1]).toMatchObject({ tail: true, count: 5 });
+  expect(result.pallets[1].fill).toBeCloseTo(.25);
   await page.screenshot({ path: test.info().outputPath('pallet-top-layer.png'), fullPage: true });
 
   await page.getByRole('button', { name: '메뉴', exact: true }).click();

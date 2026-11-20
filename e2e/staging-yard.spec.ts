@@ -32,16 +32,16 @@ async function boot(page: Page, cargo: CargoItem[], mode: 'boxes' | 'pallets' | 
   const source: Record<string, unknown> = { container, cargo };
   if (wrapped && mode !== 'boxes') {
     const spec = { ...palletSpecForType(PALLET_CATALOG[0]), useWrapping: true, useCornerGuards: true, minimizePackaging: false };
-    const snapshot = { spec, result: mode === 'mixed' ? packMixedMode(container, [], spec, 'capacity') : packOnPallets(container, [], spec, 'capacity') };
+    const snapshot = { spec, result: mode === 'mixed' ? packMixedMode(container, [], spec, 'stability') : packOnPallets(container, [], spec, 'stability') };
     source.result = { placements: [], remaining: [], loadedWeightKg: 0, usedVolumeM3: 0, validationIssues: [] };
     source.staging = { version: 1, scopeKey: `operator:${userId}|active`, mode,
-      inputSignature: stagingInputSignature({ scopeKey: `operator:${userId}|active`, mode, container, cargo, palletSpec: spec, strategy: 'capacity' }),
+      inputSignature: stagingInputSignature({ scopeKey: `operator:${userId}|active`, mode, container, cargo, palletSpec: spec, strategy: 'stability' }),
       selectedUnitId: null, identity: { unitToStableId: {} }, palletSnapshot: snapshot, palletTypeId: 'company-default' };
   }
   let appState: Record<string, string> = {
     'container-loading-simulator-v1': JSON.stringify(source),
     'container-loading:guided-loading-unit': mode,
-    'container-loading:guided-loading-strategy': 'capacity',
+    'container-loading:guided-loading-strategy': 'stability',
   };
   await page.addInitScript(({ userId }) => sessionStorage.setItem('container-loading:supabase-member-session:v2', JSON.stringify({
     token: 'synthetic-staging-browser-token', expiresAt: new Date(Date.now() + 3600000).toISOString(),
@@ -71,7 +71,7 @@ async function boot(page: Page, cargo: CargoItem[], mode: 'boxes' | 'pallets' | 
   await expect(page.locator('[data-staging-yard-panel]')).toBeVisible();
   await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-ready', 'true', { timeout: 60000 });
   await expect(page.locator('.guided-job-summary > dl').getByText(mode === 'mixed' ? '혼합 적재' : mode === 'pallets' ? '파렛트 적재' : '박스 직접 적재', { exact: true })).toBeVisible();
-  await expect(page.locator('.guided-job-summary > dl').getByText('공간효율·적재량 우선형', { exact: true })).toBeVisible();
+  await expect(page.locator('.guided-job-summary > dl').getByText('무게중심·안정성 우선형', { exact: true })).toBeVisible();
   return { stored: () => JSON.parse(appState['container-loading-simulator-v1']) };
 }
 const panel = (page: Page) => page.locator('[data-staging-yard-panel]');

@@ -303,18 +303,6 @@ const baseUiMessages: Readonly<Record<string, readonly [string, string]>> = {
     "Place heavy cargo low and reduce weight concentration and unstable contact.",
     "Đặt hàng nặng ở thấp, giảm tập trung trọng lượng và tiếp xúc không ổn định."
   ],
-  "공간효율·적재량 우선형": [
-    "Space efficiency · Loaded quantity first",
-    "Ưu tiên không gian · Số lượng xếp"
-  ],
-  "안전 조건 안에서 빈 공간과 미적재를 최소화": [
-    "Minimize empty space and remaining cargo within safety limits",
-    "Giảm không gian trống và hàng chưa xếp trong giới hạn an toàn"
-  ],
-  "물리 안전 조건은 그대로 지키면서 컨테이너 공간 사용률과 적재 수량을 더 강하게 평가합니다.": [
-    "Give greater weight to space utilization and loaded quantity while retaining physical safety limits.",
-    "Ưu tiên sử dụng không gian và số lượng xếp, đồng thời giữ các giới hạn an toàn vật lý."
-  ],
   "하역 순서 우선형": [
     "Unloading order first",
     "Ưu tiên thứ tự dỡ hàng"
@@ -803,14 +791,6 @@ const baseUiMessages: Readonly<Record<string, readonly [string, string]>> = {
     "Keep heavy cargo low and balance left/right and front/rear.",
     "Giữ hàng nặng ở thấp và cân bằng trái/phải, trước/sau."
   ],
-  "공간효율 우선": [
-    "Space efficiency first",
-    "Ưu tiên hiệu quả không gian"
-  ],
-  "빈 공간과 미적재를 줄입니다.": [
-    "Reduce empty space and remaining cargo.",
-    "Giảm không gian trống và hàng chưa xếp."
-  ],
   "박스 직접 적재": [
     "Direct box loading",
     "Xếp thùng trực tiếp"
@@ -859,9 +839,9 @@ const baseUiMessages: Readonly<Record<string, readonly [string, string]>> = {
     "Other",
     "Khác"
   ],
-  "화물을 싣는 방식과 최적화 목표를 고릅니다. 같은 수량이면 팔레트를 적게 쓰는 후보를 우선합니다.": [
-    "Choose the load method and optimization goal. For equal quantity, candidates using fewer pallets take priority.",
-    "Chọn cách xếp và mục tiêu tối ưu. Cùng số lượng, ưu tiên phương án dùng ít pallet hơn."
+  "화물을 싣는 방식을 고릅니다. 같은 수량이면 팔레트를 적게 쓰는 후보를 우선합니다.": [
+    "Choose the load method. For equal quantity, candidates using fewer pallets take priority.",
+    "Chọn cách xếp. Cùng số lượng, ưu tiên phương án dùng ít pallet hơn."
   ],
   "제품 포장 확정 필요": [
     "Confirm product packaging first",
@@ -943,17 +923,13 @@ const baseUiMessages: Readonly<Record<string, readonly [string, string]>> = {
     "2. Optimization goal",
     "2. Mục tiêu tối ưu"
   ],
-  "팔레트 수가 같으면 선택한 목표로 비교합니다. 비교 예측은 최종 적재·관성 검사와 별개입니다.": [
-    "For equal pallet count, compare by the selected goal. Forecasts are separate from final loading and inertia checks.",
-    "Cùng số pallet, so sánh theo mục tiêu đã chọn. Dự kiến tách biệt với xếp cuối và kiểm tra quán tính."
+  "팔레트 수가 같으면 안정성을 기준으로 고릅니다. 예상 결과는 최종 적재·관성 검사와 별개입니다.": [
+    "For equal pallet count, the choice is made by stability. The forecast is separate from final loading and inertia checks.",
+    "Cùng số pallet, lựa chọn theo độ ổn định. Dự kiến tách biệt với xếp cuối và kiểm tra quán tính."
   ],
-  "예상 결과 비교": [
-    "Compare forecasts",
-    "So sánh dự kiến"
-  ],
-  "비교 취소": [
-    "Cancel comparison",
-    "Hủy so sánh"
+  "예상 결과 계산": [
+    "Calculate forecast",
+    "Tính dự kiến"
   ],
   "최적화 목표": [
     "Optimization goal",
@@ -991,9 +967,9 @@ const baseUiMessages: Readonly<Record<string, readonly [string, string]>> = {
     "issues",
     "vấn đề"
   ],
-  "목표 비교 계산 중 · {0}/2": [
-    "Comparing goals · {0}/2",
-    "Đang so sánh mục tiêu · {0}/2"
+  "예상 결과 계산 중…": [
+    "Calculating the forecast…",
+    "Đang tính dự kiến…"
   ],
   "편차는 적재공간 수평 중심에서 화물·팔레트 무게중심까지의 거리입니다. 입력 변경 시 이전 예측은 표시하지 않습니다.": [
     "Deviation is the distance from the space's horizontal center to the cargo/pallet CG. Previous forecasts are hidden when inputs change.",

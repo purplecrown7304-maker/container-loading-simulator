@@ -100,7 +100,7 @@ test('completed loading keeps result quantities visible after switching result t
   await page.goto('/');
   await advanceToStrategy(page, 'E2E-FINAL-RESULT');
   // Full-depth cargo satisfies the unchanged CG gate without shifting off X=0.
-  await page.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await expect(page.getByRole('radio', { name: /안정성 우선/ })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
 
@@ -180,7 +180,11 @@ test('a heavy inner-wall load fails longitudinal CG and keeps the final result s
     const button = choice.getByRole('button', { name, exact: true });
     await expect(button).toBeInViewport({ ratio: 1 });
     expect(await button.evaluate(element => { const box = element.getBoundingClientRect(); return element.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)); }), name).toBe(true);
-    await button.click({ trial: true, timeout: 5000 });
+    // No short bound of its own: with the software-rendered viewer on a slow CI runner an
+    // ordinary action takes several seconds (fill 6.8 s, click 4.1 s in the same run), and a
+    // 5 s bound here failed although the button was visible, enabled and stable. A covered
+    // button still fails: the trial never becomes actionable and the test times out.
+    await button.click({ trial: true, timeout: 30_000 });
     // And its label can be read: the text is not the colour of the button.
     expect(await button.evaluate(element => { const style = getComputedStyle(element); return style.color !== style.backgroundColor; }), `${name} label`).toBe(true);
   }

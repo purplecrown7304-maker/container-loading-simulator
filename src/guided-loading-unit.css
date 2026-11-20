@@ -88,6 +88,8 @@
 .step04-redesign button:disabled{opacity:.55;cursor:not-allowed}
 .step04-redesign .guided-loading-unit-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 .step04-redesign .guided-strategy-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+/* One goal is left (owner decision 2026-11-20): its card takes the whole row. */
+.step04-redesign .guided-strategy-grid.step04-goal-grid{grid-template-columns:1fr}
 .step04-redesign .guided-strategy-card strong{margin:0 0 8px}
 .step04-redesign .guided-strategy-status{max-width:420px;border-radius:6px;white-space:normal;font-weight:600;line-height:1.6}
 .step04-redesign .guided-strategy-status button{display:block;margin-top:4px}

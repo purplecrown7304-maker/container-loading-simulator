@@ -988,6 +988,20 @@ export function packOnPallets(container: ContainerSpec, cargo: CargoItem[], pall
   return finishPalletPacking(pallets, remaining, consolidated, cargoMap, container, pallet, strategy, floorBlockedIds);
 }
 
+/**
+ * Sets pallet loads that were composed elsewhere down in the vehicle with the base packer's
+ * own floor positions, stacking checks and waiting-cargo reasons. The loads stand at the
+ * origin as {@link buildPalletLoadFromDeckPlacements} returns them; cargo they do not carry
+ * is reported as waiting.
+ */
+export function arrangePrebuiltPalletLoads(loads: PalletLoad[], cargo: CargoItem[], container: ContainerSpec, pallet: PalletSpec, strategy: Strategy): PalletPackingResult {
+  const active = cargo.filter(item => item.quantity > 0);
+  const cargoMap = new Map(active.map(item => [item.id, item]));
+  const remaining = new Map(active.map(item => [item.id, Math.floor(item.quantity)]));
+  for (const load of loads) for (const placement of load.cargoPlacements) remaining.set(placement.cargoId, (remaining.get(placement.cargoId) ?? 0) - 1);
+  return finishPalletPacking(loads, remaining, 0, cargoMap, container, pallet, strategy);
+}
+
 /** Footprint at the highest occupied tier, measured against the usable pallet deck. */
 export function palletTopLayerFill(load: PalletLoad) {
   if (!load.cargoPlacements.length) return 0;

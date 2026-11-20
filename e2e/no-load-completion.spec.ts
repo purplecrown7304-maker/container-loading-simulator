@@ -25,7 +25,7 @@ for (const mode of ['boxes', 'pallets']) test(`an oversized ${mode} shipment fin
     // choice still allows the user to compute and inspect all waiting reasons.
     await page.getByRole('radio', { name: '사내 기본 T11 (허용 1,500kg)', exact:true }).click();
   }
-  await page.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await expect(page.getByRole('radio', { name: /안정성 우선/ })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: /다음 단계/ }).click();
   await page.getByRole('button', { name: /최종 적재 진행/ }).click();
   const result = page.locator('.guided-bottom-bar').getByRole('button', { name: /^결과 확인/ });

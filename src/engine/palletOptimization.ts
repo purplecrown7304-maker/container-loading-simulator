@@ -12,6 +12,7 @@ import {
   applyTopLayerFillPolicy,
   defaultPalletSpec,
   packOnPallets as packOnPalletsBase,
+  arrangePrebuiltPalletLoads,
   buildPalletLoadFromDeckPlacements,
   palletTopLayerFill,
   placeTopTierHolesInsideAll,
@@ -26,7 +27,8 @@ import type { LoadingStrategy } from './loadingEngine';
 import { operationalQuality, unloadingObstructions } from './operationalQuality';
 import { palletBuildStrategy, cargoWithUnloadingPolicy } from './unloadingPolicy';
 import { palletDestinationFit } from './palletDestination';
-import { planningContainer } from './constraints';
+import { planningContainer, validatePlacements } from './constraints';
+import { buildBalancedPalletLoads } from './palletBalancedLayers';
 
 export { defaultPalletSpec };
 export type { PalletLoad, PalletPackingResult, PalletSpec };
@@ -46,6 +48,12 @@ export type PalletOptimizationMeta = {
 
 export type OptimizedPalletPackingResult = PalletPackingResult & {
   optimization: PalletOptimizationMeta;
+};
+
+export type PalletPlanningOptions = {
+  /** `false` leaves out the balanced layer build (LOADING_RULES 7D). The MIXED packaging
+   * stage sets it: its pallet units and their conversion to direct boxes are unchanged. */
+  balancedLayers?: boolean;
 };
 
 function palletInputError(pallet: PalletSpec) {
@@ -627,6 +635,7 @@ export function packOnPallets(
   cargo: CargoItem[],
   pallet: PalletSpec = defaultPalletSpec,
   strategy: LoadingStrategy = 'capacity',
+  options: PalletPlanningOptions = {},
 ): OptimizedPalletPackingResult {
   if (container.limitReview !== undefined) return {...unsupportedReviewPalletResult(container,cargo),optimization:{strategy,selectedStackTarget:1,candidateCount:0,floorPositions:0,redistributedForLowUtilization:false,consolidationPasses:0}};
   const originalContainer=container;
@@ -784,9 +793,43 @@ export function packOnPallets(
   // the unused strip beside a homogeneous grid, lowering its tallest tier
   // without paying for another pallet or changing any declared safety limit.
   // A-rules retain their independent planner and final acceptance contract.
-  if (!isARules(originalContainer)) {
-    const flattened = flattenPalletLayers(selected.result, originalContainer, normalizedCargo, pallet);
-    if (flattened !== selected.result) selected.result = rebuildMetrics(flattened, flattened.pallets, 0, originalContainer);
+  const flattenLayers = (plan: PalletPackingResult) => {
+    if (isARules(originalContainer)) return plan;
+    const flattened = flattenPalletLayers(plan, originalContainer, normalizedCargo, pallet);
+    return flattened === plan ? plan : rebuildMetrics(flattened, flattened.pallets, 0, originalContainer);
+  };
+  selected.result = flattenLayers(selected.result);
+
+  // Fewer pallets (owner rule 2026-11-20, LOADING_RULES 7D). The plans above fill pallets
+  // one cargo at a time; the balanced layer build gives every pallet its share of the heavy
+  // cartons as its lowest layer and fills it upward with the light cargo. It goes through
+  // the same terminal passes as every plan (top-tier rule #97, final tail consolidation,
+  // floor spreading, layer flattening) and replaces the chosen plan only when it then uses
+  // fewer pallets and is not worse in anything judged before pallet count: hard limits,
+  // loaded quantity, unloading order and the tipping limit. First with every carton on an
+  // equal or heavier one; a closing layer of larger cartons across lighter ones is tried
+  // only for a pallet that the first build cannot save.
+  let balancedBuilds = 0;
+  if (options.balancedLayers !== false && !isARules(originalContainer) && selected.result.palletCount > 1) {
+    const fullHeightCargo = cargoForStackTarget(container, normalizedCargo, pallet, 1);
+    const operationalErrors = (plan: PalletPackingResult) => {
+      const centered = centerPalletPlan(plan, originalContainer);
+      return validatePlacements(originalContainer, centered.placements).length
+        + validateOperationalLoading(originalContainer, normalizedCargo, centered.placements, palletSupportBodies(centered)).filter(finding => finding.severity === 'error').length;
+    };
+    for (const allowCaps of [false, true]) {
+      const loads = buildBalancedPalletLoads(container, fullHeightCargo, pallet, buildStrategy, selected.result.palletCount - 1, allowCaps);
+      if (!loads) continue;
+      balancedBuilds += 1;
+      const arranged = arrangePrebuiltPalletLoads(loads, fullHeightCargo, container, pallet, buildStrategy);
+      const topLayered = applyTopLayerFillPolicy(arranged, normalizedCargo, pallet, container, buildStrategy);
+      let result = consolidateFinalSparsePallets(topLayered, container, normalizedCargo, pallet, buildStrategy).result;
+      if (strategy === 'stability' || resultVolumeUtilization(result, container) < LOW_UTILIZATION_THRESHOLD) result = spreadStacksToFreeFloor(result, container, pallet);
+      result = flattenLayers(result);
+      if (result.palletCount >= selected.result.palletCount || !preference(result, selected.result)) continue;
+      if (operationalErrors(result) > operationalErrors(selected.result)) continue;
+      selected = { result, target: Math.max(1, result.maxUsedStackLevel), passes: selected.result.palletCount - result.palletCount };
+    }
   }
 
   const redistributed = strategy === 'stability'
@@ -832,7 +875,7 @@ export function packOnPallets(
     optimization: {
       strategy,
       selectedStackTarget: selected.target,
-      candidateCount: candidates.length,
+      candidateCount: candidates.length + balancedBuilds,
       floorPositions: floorPositionCount(redistributed.result),
       redistributedForLowUtilization: redistributed.redistributed,
       consolidationPasses: selected.passes,

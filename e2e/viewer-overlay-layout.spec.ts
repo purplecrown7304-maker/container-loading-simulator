@@ -27,7 +27,7 @@ for (const viewport of [{ width: 1906, height: 905 }, { width: 1280, height: 720
     await page.getByRole('button', { name: /포장 확정 · 다음: 적재 방식 선택/ }).click();
     await page.getByRole('radio', { name: /파렛트 적재/ }).click();
     await page.getByRole('radio', { name: /T11 플라스틱 \(수출용 경량\)/ }).click();
-    await page.getByRole('radio', { name: /공간효율 우선/ }).click();
+    await expect(page.getByRole('radio', { name: /안정성 우선/ })).toHaveAttribute('aria-checked', 'true');
     await page.getByRole('button', { name: /다음 단계/ }).click();
     await page.getByRole('button', { name: /최종 적재 진행/ }).click();
     await expect(page.locator('.viewer-host .three-comparison-viewer')).toHaveAttribute('data-three-applied', 'true', { timeout: 150_000 });

@@ -1,7 +1,7 @@
 import { inspectionProgressText } from './inspectionPresentation';
 import { uiText as uiT, uiMessage, useUiLanguage } from './uiLanguage';
 import { isLimitReviewTarget, LIMIT_REVIEW_WARNING } from './limitReviewPresentation';
-import { readLoadingStrategyPreference } from './loadingStrategyPreference';
+import { currentLoadingStrategy } from './loadingStrategyPreference';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { REQUEST_DIRECT_WORK_ORDER_EVENT, type DirectWorkOrderRequest } from './directWorkOrderEvents';
 import { DIRECT_SEARCH_TIMEOUT_MS, automaticAlternativeLimit, buildDirectResultReoptimizationCandidatesAsync, buildSecuringPayloadAdjustmentCandidateAsync, type DirectResultReoptimizationCandidate, type DirectSearchProgress } from './engine/finalResultOptimization';
@@ -226,7 +226,7 @@ export default function DirectWorkOrderOptimizer() {
           setProgress(null);
           if (!certification.payloadWithinLimit) {
             setMessage('보강재 중량을 확보하는 적재량 조정안을 계산 중입니다.');
-            const adjusted = await buildSecuringPayloadAdjustmentCandidateAsync(current, readLoadingStrategyPreference() ?? 'capacity', controller.signal);
+            const adjusted = await buildSecuringPayloadAdjustmentCandidateAsync(current, currentLoadingStrategy(), controller.signal);
             if (cancelled()) return;
             checkCurrent();
             if (adjusted) {
@@ -250,7 +250,7 @@ export default function DirectWorkOrderOptimizer() {
           if (alternativeLimit === 0) continue;
           setMessage('동일 수량을 유지하는 안전 재배치 후보를 계산 중입니다.');
           const alternatives = await buildDirectResultReoptimizationCandidatesAsync(current, alternativeLimit, cancelled, {
-            strategy: readLoadingStrategyPreference() ?? undefined,
+            strategy: currentLoadingStrategy(),
             signal: controller.signal,
             onProgress: next => { if (!cancelled()) setSearch(next); },
           });

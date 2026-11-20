@@ -2,6 +2,7 @@ import { SPARSE_TOP_LAYER_RATIO, SPARSE_TOP_MIN_LEVELS } from './topLayerSettlin
 import { auditLoading } from './loadingAudit';
 import { isInsideContainer, overlaps } from './constraints';
 import { hasAdequateSupport, scenarioSupportRatio } from './support';
+import { createStackLedger } from './stackLedger';
 import { canPlaceByStackingRules, countStackLayersBelow } from './stacking';
 import { acceptsUnloadCandidate } from './unloadingPolicy';
 import { floorLoadLayerCap, withinFloorLoadLimit, FLOOR_LOAD_REASON } from './floorLoadLimit';
@@ -16,12 +17,28 @@ const EPS = 1e-8;
 const fit = (room: number, size: number) => Math.max(0, Math.floor((room + EPS) / size));
 const round = (value: number) => Math.round(value * 1e9) / 1e9;
 type FloorOrientation = { length: number; width: number; rotated: boolean };
-type Profile = { layerCap: number; lowerPrefix: number; lowerLayers: number; orientation: 'efficient' | 'normal' | 'rotated' };
+type Profile = { layerCap: number; lowerPrefix: number; lowerLayers: number; orientation: 'efficient' | 'normal' | 'rotated';
+  /** The rows that keep the whole tier cap, counted from the inner wall. The rows after them,
+   * toward the door, stand one tier lower. */
+  stepRow?: number };
 type Candidate = { output: StrictWallOutput; mode?: number; voids: number; counts: number[]; cgErrors: number; cgExcess: number; sparseTop: boolean; heightMoment: number; end: number; signature: string;
   /** The weight sequence exactly as built, with rows a cargo could not fill left where they
    * fell inside the load. Judged after the plan that takes those leftovers to the door end. */
-  leftoversInside?: boolean };
+  leftoversInside?: boolean;
+  /** A block was left lower than the rows behind it although lighter cartons could have
+   * filled it up. Judged after the plan that fills it. */
+  openAbove?: boolean;
+  /** Full rows built, counted from the inner wall: where a step toward the door can be set. */
+  rows?: number;
+  /** The centre of gravity stands on the inner side of the middle of the length. */
+  cgInner?: boolean;
+  /** The tier and orientation profile the plan was built with. */
+  profile?: Profile };
 type Phase = 'sequence' | 'rows' | 'leftover';
+/** Filled plans tried with a step toward the door when none passes the centre-of-gravity verdict. */
+const STEP_TRIALS = 2;
+/** Plans of the weight sequence kept for the final comparison. */
+const PORTFOLIO = 8;
 
 /** a rows of normal boxes equal b rows of rotated boxes in depth; choose the column mix covering most width. */
 export function pinwheelBlock(item: CargoItem, width: number) {
@@ -54,6 +71,17 @@ export function floorOrientations(item: CargoItem): FloorOrientation[] {
   return out;
 }
 
+/**
+ * Whole tiers of one cargo on a flat top: a grid in one floor orientation, the orientation
+ * that lays the most cartons first. Rows of both orientations in one tier were tried and
+ * dropped: more cartons per tier, but each carton underneath then carries more of them, and
+ * with the whole-weight top-load rule fewer tiers could be laid.
+ */
+function tierGrids(orientations: FloorOrientation[], length: number, width: number) {
+  return orientations.map(o => ({ o, nx: fit(length, o.length), ny: fit(width, o.width) }))
+    .filter(grid => grid.nx * grid.ny > 0).sort((a, b) => b.nx * b.ny - a.nx * a.ny || Number(a.o.rotated) - Number(b.o.rotated));
+}
+
 /** Homogeneous, floor-rooted columns transmit their entire load to their own footprint. */
 export function heavyInnerLayerLimit(container: ContainerSpec, item: CargoItem) {
   let limit = Math.min(fit(container.height, item.height), Math.floor(item.maxStackLayers ?? Infinity), floorLoadLayerCap(container, item));
@@ -74,8 +102,14 @@ export function heavyInnerLayerLimit(container: ContainerSpec, item: CargoItem) 
  * full height, in weight order from the inner wall. Then everything that could not fill such
  * a row, in the same weight order, behind them at the door end. Without it the cargo is
  * loaded in one pass and a row a cargo could not fill stays where it fell.
+ *
+ * `fillAbove` (owner rule 2026-11-20, "the front is empty; it has to match the height of the
+ * rows behind it" and "heavy cartons take the floor first, then the cartons there are most
+ * of"): with `leftoversLast`, the rows of a cargo that end below the rows of lighter cargo
+ * are filled up with that lighter cargo, whole tiers at a time, and the cargo itself is
+ * stacked only as high as lets them reach that height.
  */
-function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy: StrictWallStrategy, profile: Profile, leftoversLast = false): Candidate {
+function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy: StrictWallStrategy, profile: Profile, leftoversLast = false, fillAbove = false): Candidate {
   const placements: Placement[] = [];
   const remaining: StrictWallOutput['remaining'] = [];
   const stock = new Map(ordered.map(item => [item.id, item.quantity]));
@@ -106,6 +140,12 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
     if (!top || p.z > top.z) leftoverTops.set(key, p);
   };
   const advance = () => { x = round(x + rowDepth); y = 0; rowDepth = 0; rowId++; };
+  // The tier cap in force: the whole cap for the first `stepRow` full rows, one tier less after.
+  let fullRows = 0;
+  const lowerCap = (Number.isFinite(profile.layerCap) ? profile.layerCap : Math.max(1, ...ordered.map(item => heavyInnerLayerLimit(container, item)))) - 1;
+  const capNow = () => fullRows < (profile.stepRow ?? Infinity) ? profile.layerCap : lowerCap;
+  const rowCap = new Map<number, number>();
+  const closeFullRow = () => { rowCap.set(rowId, capNow()); fullRows++; advance(); };
 
   // Fill equal-weight side lanes before closing a front. This creates adjacent
   // continuous SKU lanes, not a lighter gap-fill behind later heavy rows.
@@ -113,7 +153,7 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
     for (const filler of ordered.slice(currentIndex + 1)) {
       if (Math.abs(filler.weightKg - current.weightKg) > EPS) continue;
       if (strict && (filler.unloadPriority ?? 1) !== (current.unloadPriority ?? 1)) continue;
-      const layers = Math.min(heavyInnerLayerLimit(container, filler), profile.layerCap);
+      const layers = Math.min(heavyInnerLayerLimit(container, filler), capNow());
       if (layers < 1 || (stock.get(filler.id) ?? 0) <= 0) continue;
       const options = floorOrientations(filler).flatMap(o => {
         if (Math.abs(o.length - rowDepth) > 1e-6) return [];
@@ -137,7 +177,7 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
     }
   };
   const fillCurrentFrontTop = (item: CargoItem, orientations: FloorOrientation[]) => {
-    if (item.floorOnly || item.strengthUnverified || Math.min(item.maxStackLayers ?? Infinity, profile.layerCap) < 2) return false;
+    if (item.floorOnly || item.strengthUnverified || Math.min(item.maxStackLayers ?? Infinity, capNow()) < 2) return false;
     for (const support of placements.filter(p => Math.abs(p.x - x) <= EPS && p.cargoId !== item.id && p.weightKg >= item.weightKg - EPS).sort((a, b) => a.z - b.z || a.y - b.y)) {
       for (const o of orientations) {
         if (scenarioSupportRatio(container,.999) >= .999 && (Math.abs(o.length - support.length) > EPS || Math.abs(o.width - support.width) > EPS)) continue;
@@ -145,7 +185,7 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
           length: o.length, width: o.width, height: item.height, weightKg: item.weightKg, rotated: o.rotated };
         if (!isInsideContainer(container, candidate) || !withinFloorLoadLimit(container, candidate, placements)) continue;
         if (placements.some(p => overlaps(p, candidate)) || !hasAdequateSupport(candidate, placements, undefined, scenarioSupportRatio(container,.999))) continue;
-        if (countStackLayersBelow(candidate, placements) > profile.layerCap || !canPlaceByStackingRules(byId.get(item.id)!, candidate, placements, byId)) continue;
+        if (countStackLayersBelow(candidate, placements) > capNow() || !canPlaceByStackingRules(byId.get(item.id)!, candidate, placements, byId)) continue;
         if (!acceptsUnloadCandidate(container, byId, placements, candidate)) continue;
         put(candidate);
         loadedWeightKg += item.weightKg;
@@ -161,7 +201,7 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
   // one is opened. It passes every check a carton set on the open front passes. A column
   // that refuses a cargo once stays closed for it: its limits only tighten as it grows.
   const stackOnLeftover = (item: CargoItem, orientations: FloorOrientation[], closed: Set<string>) => {
-    if (item.floorOnly || item.strengthUnverified || Math.min(item.maxStackLayers ?? Infinity, profile.layerCap) < 2) return false;
+    if (item.floorOnly || item.strengthUnverified || Math.min(item.maxStackLayers ?? Infinity, capNow()) < 2) return false;
     const tops = [...leftoverTops].filter(([key, top]) => !closed.has(key) && top.weightKg >= item.weightKg - EPS)
       .sort(([, a], [, b]) => (a.z + a.height) - (b.z + b.height) || a.x - b.x || a.y - b.y);
     for (const [key, support] of tops) {
@@ -170,7 +210,7 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
         length: o.length, width: o.width, height: item.height, weightKg: item.weightKg, rotated: o.rotated };
       if (candidate && isInsideContainer(container, candidate) && withinFloorLoadLimit(container, candidate, leftover)
         && !leftover.some(p => overlaps(p, candidate)) && hasAdequateSupport(candidate, leftover, undefined, scenarioSupportRatio(container, .999))
-        && countStackLayersBelow(candidate, leftover) <= profile.layerCap && canPlaceByStackingRules(byId.get(item.id)!, candidate, leftover, byId)
+        && countStackLayersBelow(candidate, leftover) <= capNow() && canPlaceByStackingRules(byId.get(item.id)!, candidate, leftover, byId)
         && acceptsUnloadCandidate(container, byId, placements, candidate)) {
         put(candidate, groupOf.get(support));
         loadedWeightKg += item.weightKg;
@@ -208,19 +248,20 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
     x = cursor; y = 0; rowDepth = 0;
   };
 
-  const load = (item: CargoItem, itemIndex: number, phase: Phase) => {
+  const load = (item: CargoItem, itemIndex: number, phase: Phase, layerLimit = Infinity) => {
     // The payload kept for this cargo's leftovers is its own again.
     if (phase === 'leftover') { reservedKg -= reserved.get(item.id) ?? 0; reserved.delete(item.id); }
     const closed = new Set<string>();
     const hardLayers = heavyInnerLayerLimit(container, item);
-    const maxLayers = Math.min(hardLayers, profile.layerCap);
+    const layersNow = () => Math.min(hardLayers, capNow(), layerLimit);
     const orientations = floorOrientations(item);
     let left = Math.max(0, Math.floor(stock.get(item.id) ?? 0));
     // A compact low-tier prefix is a geometry alternative, never a gap or wall permutation.
-    let lowerLeft = maxLayers > 1 ? Math.min(left, prefixRemaining) : 0;
+    let lowerLeft = layersNow() > 1 ? Math.min(left, prefixRemaining) : 0;
     prefixRemaining = Math.max(0, prefixRemaining - lowerLeft);
     let blocked = '';
     while (left > 0) {
+      const maxLayers = layersNow();
       const payloadCount = item.weightKg > EPS ? fit(container.maxPayloadKg - loadedWeightKg - reservedKg, item.weightKg) : left;
       if (payloadCount < 1) { blocked = 'PAYLOAD_LIMIT'; break; }
       if (item.height > container.height + EPS || !orientations.some(o => o.length <= container.length + EPS && o.width <= container.width + EPS)) { blocked = orientations.length ? 'SIZE_LIMIT' : 'ORIENTATION_RESTRICTED'; break; }
@@ -243,7 +284,7 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
           loadedWeightKg += count * item.weightKg;
           usedVolumeM3 += count * item.length * item.width * item.height;
           left -= count; stock.set(item.id, left); lowerLeft = Math.max(0, lowerLeft - count);
-          if (phase === 'rows') advance();
+          if (phase === 'rows') closeFullRow();
           continue;
         }
       }
@@ -293,7 +334,7 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
       left -= chosen.count;
       stock.set(item.id, left);
       lowerLeft = Math.max(0, lowerLeft - chosen.count);
-      if (phase === 'rows') advance();
+      if (phase === 'rows') closeFullRow();
     }
     if (phase === 'rows') {
       // What is left is loaded after every row of this stop. Its payload is kept for it
@@ -311,6 +352,124 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
               : '안쪽부터 중량순으로 진행하는 연속 작업 블록에 안전한 자리가 부족함' });
   };
 
+  // Everything a trial of one cargo's rows may change, so that the trial can be undone.
+  const mark = () => ({ count: placements.length, stock: new Map(stock), reserved: new Map(reserved), x, y, rowDepth, rowId, fullRows, loadedWeightKg, usedVolumeM3, prefixRemaining, reservedKg });
+  const undo = (state: ReturnType<typeof mark>) => {
+    for (const p of placements.splice(state.count)) groupOf.delete(p);
+    stock.clear(); for (const [id, quantity] of state.stock) stock.set(id, quantity);
+    reserved.clear(); for (const [id, kg] of state.reserved) reserved.set(id, kg);
+    ({ x, y, rowDepth, rowId, fullRows, loadedWeightKg, usedVolumeM3, prefixRemaining, reservedKg } = state);
+  };
+  // The rows a cargo has just filled form a flat block. Where that block ends below the
+  // height the rows of a lighter cargo will have, whole tiers of that cargo are laid on it,
+  // the cargo there is most of first, until the next tier would stand above its own rows.
+  // A tier is laid complete or not at all, and every carton in it passes the checks a carton
+  // set on the open front passes. `top` is the height the lowest block reached; `starved`
+  // says that no cargo had the cartons for even one tier, which more rows cannot change.
+  const fillBlocksOf = (item: CargoItem, itemIndex: number, stop: Array<[CargoItem, number]>, from: number) => {
+    const blocks: Array<{ x0: number; x1: number; y0: number; y1: number; z: number; cap: number; group: number; parts: Placement[] }> = [];
+    const rows = new Map<number, Placement[]>();
+    for (let i = from; i < placements.length; i++) { const p = placements[i], row = groupOf.get(p)!; const list = rows.get(row); if (list) list.push(p); else rows.set(row, [p]); }
+    for (const [row, parts] of rows) {
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z = 0;
+      for (const p of parts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x + p.length); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y + p.width); z = Math.max(z, p.z + p.height); }
+      const cap = rowCap.get(row) ?? profile.layerCap, last = blocks.at(-1);
+      if (last && last.cap === cap && Math.abs(last.x1 - x0) <= 1e-6 && Math.abs(last.z - z) <= 1e-6 && Math.abs(last.y0 - y0) <= 1e-6 && Math.abs(last.y1 - y1) <= 1e-6) { last.x1 = x1; last.parts.push(...parts); }
+      else blocks.push({ x0, x1, y0, y1, z, cap, group: row, parts: [...parts] });
+    }
+    const sources = stop.filter(([source, index]) => index > itemIndex && !source.floorOnly && !source.strengthUnverified && (source.maxStackLayers ?? Infinity) >= 2
+      && source.weightKg <= item.weightKg + EPS)
+      .sort((a, b) => b[0].quantity - a[0].quantity || a[0].weightKg - b[0].weightKg || a[1] - b[1]).map(([source]) => source);
+    const ratio = scenarioSupportRatio(container, .999);
+    let lowest = Infinity, filled = false, starved = true;
+    for (const block of blocks) {
+      // Rows are disjoint along the length: only this block and what is laid on it matter.
+      const bounds = { minX: block.x0, minY: 0, maxX: block.x1, maxY: container.width, cell: Math.min(2, Math.max(0.05, 1.5 * Math.min(item.length, item.width))) };
+      const stackOf = (parts: Placement[]) => { const ledger = createStackLedger(byId, bounds); for (const p of [...parts].sort((a, b) => a.z - b.z)) ledger.add(p); return ledger; };
+      let stack = stackOf(block.parts);
+      // Adds the carton when it passes every check; says whether it did.
+      const lay = (source: CargoItem, candidate: Placement) => {
+        const { touching, layers, allowed, add } = stack.examine(byId.get(source.id)!, candidate);
+        if (!allowed || layers > block.cap || !isInsideContainer(container, candidate) || touching.some(p => overlaps(p, candidate))) return false;
+        if (!withinFloorLoadLimit(container, candidate, touching) || !hasAdequateSupport(candidate, touching, undefined, ratio)) return false;
+        if (!acceptsUnloadCandidate(container, byId, placements, candidate)) return false;
+        add();
+        return true;
+      };
+      let surface = { x0: block.x0, x1: block.x1, y0: block.y0, y1: block.y1, z: block.z, weightKg: item.weightKg };
+      let tiers = 0;
+      for (let laid = true; laid;) {
+        laid = false;
+        for (const source of sources) {
+          const have = stock.get(source.id) ?? 0;
+          const grids = tierGrids(floorOrientations(source), surface.x1 - surface.x0, surface.y1 - surface.y0);
+          if (grids.some(grid => grid.nx * grid.ny <= have)) starved = false;
+          const level = Math.min(heavyInnerLayerLimit(container, source), block.cap) * source.height;
+          if (have < 1 || source.weightKg > surface.weightKg + EPS || surface.z + source.height > level + 1e-6) continue;
+          for (const { o, nx, ny } of grids) {
+            const count = nx * ny;
+            if (count > have || (source.weightKg > EPS && count > fit(container.maxPayloadKg - loadedWeightKg - reservedKg, source.weightKg))) continue;
+            const yStart = round(surface.y0 + (surface.y1 - surface.y0 - ny * o.width) / 2);
+            const before = stack.items.length;
+            let complete = true;
+            for (let ix = 0; ix < nx && complete; ix++) for (let iy = 0; iy < ny; iy++) {
+              const candidate: Placement = { cargoId: source.id, x: round(surface.x0 + ix * o.length), y: round(yStart + iy * o.width), z: round(surface.z),
+                length: o.length, width: o.width, height: source.height, weightKg: source.weightKg, rotated: o.rotated };
+              if (!lay(source, candidate)) { complete = false; break; }
+            }
+            if (!complete) { stack = stackOf(stack.items.slice(0, before)); continue; }
+            for (const p of stack.items.slice(before)) put(p, block.group);
+            stock.set(source.id, have - count);
+            loadedWeightKg += count * source.weightKg;
+            usedVolumeM3 += count * source.length * source.width * source.height;
+            surface = { x0: surface.x0, x1: round(surface.x0 + nx * o.length), y0: yStart, y1: round(yStart + ny * o.width), z: round(surface.z + source.height), weightKg: source.weightKg };
+            tiers++; laid = true;
+            break;
+          }
+          if (laid) break;
+        }
+      }
+      // The rows and what stands on them are one rigid group from here on.
+      if (tiers) { filled = true; for (const p of block.parts) groupOf.set(p, block.group); }
+      lowest = Math.min(lowest, surface.z);
+    }
+    return { top: blocks.length ? lowest : 0, filled, starved };
+  };
+  // Heavy cartons take the floor first: the cargo is stacked only as high as lets the block
+  // reach the height of the rows behind it. Fewer tiers are used only where that brings the
+  // finished block higher; otherwise the cargo keeps its own height.
+  const loadRowsAndFill = (item: CargoItem, itemIndex: number, stop: Array<[CargoItem, number]>) => {
+    const start = mark();
+    const limit = Math.min(heavyInnerLayerLimit(container, item), capNow());
+    // No block can be filled higher than the rows of the lighter cargo of this stop.
+    const ceiling = Math.max(0, ...stop.filter(([, index]) => index > itemIndex).map(([source]) => Math.min(heavyInnerLayerLimit(container, source), capNow()) * source.height));
+    let best: { top: number; state: ReturnType<typeof mark>; added: Array<[Placement, number]>; caps: Array<[number, number]> } | undefined, current = false;
+    for (let layers = limit; layers >= 1; layers--) {
+      undo(start);
+      load(item, itemIndex, 'rows', layers);
+      const unfilled = mark(), bare = placements.slice(start.count).map(p => [p, groupOf.get(p)!] as [Placement, number]);
+      const { top, filled, starved } = fillBlocksOf(item, itemIndex, stop, start.count);
+      current = false;
+      if (!best) {
+        // Whole height, as the cargo stands without this rule, unless tiers could be laid on it.
+        best = filled ? { top, state: mark(), added: placements.slice(start.count).map(p => [p, groupOf.get(p)!]), caps: [...rowCap] }
+          : { top, state: unfilled, added: bare, caps: [...rowCap] };
+        current = true;
+      } else if (filled && top > best.top + 1e-6) {
+        best = { top, state: mark(), added: placements.slice(start.count).map(p => [p, groupOf.get(p)!]), caps: [...rowCap] };
+        current = true;
+      }
+      if (starved || best.top >= ceiling - 1e-6) break;
+    }
+    if (!best) { load(item, itemIndex, 'rows'); return; }
+    if (current) return;
+    // Put the best trial back exactly as it was built.
+    undo(start);
+    for (const [p, row] of best.added) { placements.push(p); groupOf.set(p, row); }
+    undo(best.state);
+    rowCap.clear(); for (const [row, cap] of best.caps) rowCap.set(row, cap);
+  };
+
   // Under strict unloading every stop is a block of its own; otherwise the cargo is one block.
   const stops: Array<Array<[CargoItem, number]>> = [];
   for (const [index, item] of ordered.entries()) {
@@ -320,7 +479,7 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
   for (const stop of stops) {
     if (rowDepth > EPS) advance();
     if (!leftoversLast) { for (const [item, index] of stop) load(item, index, 'sequence'); continue; }
-    for (const [item, index] of stop) load(item, index, 'rows');
+    for (const [item, index] of stop) if (fillAbove) loadRowsAndFill(item, index, stop); else load(item, index, 'rows');
     inLeftoverRows = true; leftover.length = 0; leftoverTops.clear();
     for (const [item, index] of stop) load(item, index, 'leftover');
     if (rowDepth > EPS) advance();
@@ -347,10 +506,12 @@ function buildCandidate(container: ContainerSpec, ordered: CargoItem[], strategy
   const top = Math.max(0, ...tiers.keys());
   const sparseTop = tiers.size >= SPARSE_TOP_MIN_LEVELS && (tiers.get(top) ?? 0) <= Math.max(...tiers.values()) * SPARSE_TOP_LAYER_RATIO;
   const errors = validateOperationalWeightAndCog(container, centered).filter(f => f.severity === 'error');
-  return { output: { placements: centered, remaining, loadedWeightKg, usedVolumeM3 }, voids, counts: ordered.map(item => item.quantity - (stock.get(item.id) ?? 0)),
+  return { output: { placements: centered, remaining, loadedWeightKg, usedVolumeM3 }, voids,
+    counts: loadedPriority(container, ordered, strategy).map(index => ordered[index].quantity - (stock.get(ordered[index].id) ?? 0)),
     cgErrors: errors.length, sparseTop, cgExcess: errors.reduce((sum, f) => sum + Math.max(0, (f.value ?? 0) - (f.limit ?? 0)), 0),
     heightMoment: centered.reduce((sum, p) => sum + (p.z + p.height / 2) * p.weightKg, 0) / Math.max(EPS, loadedWeightKg),
-    end: x + rowDepth, signature: JSON.stringify(profile) };
+    end: x + rowDepth, signature: JSON.stringify(profile), rows: fullRows,
+    cgInner: centered.reduce((sum, p) => sum + (p.x + p.length / 2) * p.weightKg, 0) < container.length / 2 * centered.reduce((sum, p) => sum + p.weightKg, 0) };
 }
 
 /** The same cartons in the same places, whatever order they are listed in. */
@@ -361,12 +522,32 @@ function samePlacements(a: Placement[], b: Placement[]) {
   return left.every((value, index) => value === right[index]);
 }
 
+/**
+ * The order in which the loaded quantity of two plans is compared (LOADING_RULES 1, row 3;
+ * owner rule 2026-11-20, "fill the cartons there are most of first"): cargo by cargo, the
+ * cargo with the most cartons first and, between cargo of equal quantity, the heavier one.
+ * Under strict unloading the stops keep their order. Returns indexes into `ordered`.
+ */
+export function loadedPriority(container: ContainerSpec, ordered: CargoItem[], strategy: StrictWallStrategy) {
+  const strict = heavyInnerStrictUnloading(container, strategy);
+  return ordered.map((item, index) => ({ item, index }))
+    .sort((a, b) => (strict ? (b.item.unloadPriority ?? 1) - (a.item.unloadPriority ?? 1) : 0) || b.item.quantity - a.item.quantity || a.index - b.index)
+    .map(entry => entry.index);
+}
+
+/** Loaded quantity of two plans, counted in the order of `loadedPriority`. Negative when `a` loads more. */
+export function compareLoaded(a: number[], b: number[]) {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return b[i] - a[i];
+  return 0;
+}
+
 /** How two plans of the same cargo are judged (LOADING_RULES 1). Exported for its tests. */
 export function compareCandidates(a: Omit<Candidate, 'output'>, b: Omit<Candidate, 'output'>) {
   // Operational CG admissibility precedes preferences. If all candidates fail, preserve
   // the actual error for the final result; never silently call a closest candidate safe.
   // Loadable demand first; CG is a verdict that must not silently remove cargo.
-  for (let i = 0; i < a.counts.length; i++) if (a.counts[i] !== b.counts[i]) return b.counts[i] - a.counts[i];
+  const loaded = compareLoaded(a.counts, b.counts);
+  if (loaded) return loaded;
   if (Boolean(a.cgErrors) !== Boolean(b.cgErrors)) return a.cgErrors ? 1 : -1;
   // Owner sequence (inner-to-door by weight) stays preferred while it loads all cargo within CG.
   if ((a.mode ?? 0) !== (b.mode ?? 0)) return (a.mode ?? 0) - (b.mode ?? 0);
@@ -374,6 +555,9 @@ export function compareCandidates(a: Omit<Candidate, 'output'>, b: Omit<Candidat
   // row a cargo could not fill left inside the load, is used only when the other plan loads
   // less or fails the centre-of-gravity verdict it passes.
   if (Boolean(a.leftoversInside) !== Boolean(b.leftoversInside)) return a.leftoversInside ? 1 : -1;
+  // Owner rule 2026-11-20: a block is not left lower than the rows behind it. The plan that
+  // leaves it open is used only when the filled one loads less or fails the verdict it passes.
+  if (Boolean(a.openAbove) !== Boolean(b.openAbove)) return a.openAbove ? 1 : -1;
   if (Math.abs(a.voids - b.voids) > 1e-6) return a.voids - b.voids;
   if (a.cgErrors && Math.abs(a.cgExcess - b.cgExcess) > EPS) return a.cgExcess - b.cgExcess;
   if (a.sparseTop !== b.sparseTop) return a.sparseTop ? 1 : -1;
@@ -393,7 +577,7 @@ type LevelPlan = Pick<Candidate, 'counts' | 'cgErrors' | 'cgExcess' | 'heightMom
  * stays inside the load for no other reason.
  */
 export function judgedLevelPlans<T extends LevelPlan>(ordered: T[], asBuilt: () => T[]): T[] {
-  const rough = (a: T, b: T) => { for (let i = 0; i < a.counts.length; i++) if (a.counts[i] !== b.counts[i]) return b.counts[i] - a.counts[i];
+  const rough = (a: T, b: T) => { const loaded = compareLoaded(a.counts, b.counts); if (loaded) return loaded;
     return Number(Boolean(a.cgErrors)) - Number(Boolean(b.cgErrors)) || a.cgExcess - b.cgExcess || a.heightMoment - b.heightMoment; };
   const plans = [...ordered].sort(rough);
   if (plans[0]?.cgErrors) plans.push(...asBuilt().filter(plan => !plan.cgErrors));
@@ -417,16 +601,51 @@ export function packByHeavyInnerBlocks(container: ContainerSpec, cargo: CargoIte
   }
   // Keep a bounded portfolio in memory instead of retaining every generated carton.
   const candidates: Candidate[] = [];
+  const keep = (plan: Candidate) => { candidates.push(plan); candidates.sort(compareCandidates); if (candidates.length > PORTFOLIO) candidates.pop(); };
   for (const profile of profiles) {
     const asBuilt = buildCandidate(container, ordered, strategy, profile);
     const settled = buildCandidate(container, ordered, strategy, profile, true);
     // Where no row was left unfilled inside the load the two are the same plan.
-    const plans = samePlacements(asBuilt.output.placements, settled.output.placements) ? [asBuilt]
-      : [settled, { ...asBuilt, leftoversInside: true, signature: `${asBuilt.signature}-as-built` }];
-    for (const plan of plans) {
-      candidates.push(plan);
-      candidates.sort(compareCandidates);
-      if (candidates.length > 8) candidates.pop();
+    if (samePlacements(asBuilt.output.placements, settled.output.placements)) keep({ ...asBuilt, profile });
+    else { keep({ ...settled, profile }); keep({ ...asBuilt, profile, leftoversInside: true, signature: `${asBuilt.signature}-as-built` }); }
+  }
+  // Owner rule 2026-11-20: a block is not left lower than the rows behind it. The profiles of
+  // the plans kept so far are built once more with their low blocks filled up. Where that
+  // changes the plan, the plans of that profile that leave the block open are judged after it.
+  const filledPlans: Array<{ profile: Profile; plan: Candidate }> = [];
+  const filledFor = new Set<string>();
+  for (const { profile } of [...candidates]) {
+    if (!profile || filledFor.has(JSON.stringify(profile))) continue;
+    filledFor.add(JSON.stringify(profile));
+    const filled = buildCandidate(container, ordered, strategy, profile, true, true);
+    const kept = candidates.filter(plan => plan.profile === profile);
+    if (kept.some(plan => !plan.leftoversInside && samePlacements(plan.output.placements, filled.output.placements))) continue;
+    for (const plan of kept) { plan.openAbove = true; if (!plan.leftoversInside) plan.signature = `${plan.signature}-open`; }
+    filledPlans.push({ profile, plan: { ...filled, profile } });
+  }
+  for (const { plan } of filledPlans) keep(plan);
+  candidates.sort(compareCandidates);
+  // A filled load is shorter, and a light one may then stand too far inside for the centre-of-
+  // gravity verdict. Where the best plan so far is not a filled plan that passes it, the filled
+  // plans nearest to passing are tried with a step toward the door: the inner rows keep the
+  // whole tier cap and the rest stand one tier lower, as few inner rows as still load as much.
+  // The load is then as long and low as the container allows, and its top only steps down
+  // toward the door. The number of tries is a fixed function of the cargo.
+  if (candidates[0] && (candidates[0].openAbove || candidates[0].cgErrors)) {
+    const tried = new Set<string>();
+    // A step only helps a load whose weight stands too far inside and that stops short of
+    // the door by more than the centre of gravity is out by.
+    const inside = filledPlans.filter(({ plan }) => Boolean(plan.cgErrors) && plan.cgInner === true && (plan.rows ?? 0) > 0 && plan.cgExcess <= container.length - plan.end + EPS)
+      .sort((a, b) => compareCandidates(a.plan, b.plan))
+      .filter(({ plan }) => { const key = `${plan.counts}|${plan.end}|${plan.heightMoment}|${plan.cgExcess}`; if (tried.has(key)) return false; tried.add(key); return true; });
+    for (const { profile, plan } of inside.slice(0, STEP_TRIALS)) {
+      const build = (stepRow: number) => buildCandidate(container, ordered, strategy, { ...profile, stepRow }, true, true);
+      let low = 0, high = plan.rows!, best: Candidate | undefined;
+      while (low < high) {
+        const middle = Math.floor((low + high) / 2), stepped = build(middle);
+        if (compareLoaded(stepped.counts, plan.counts) <= 0) { high = middle; best = stepped; } else low = middle + 1;
+      }
+      if (best) keep(best);
     }
   }
   for (const candidate of candidates) candidate.voids = gapSecuringPlan(container, candidate.output.placements).volumeM3;
@@ -436,7 +655,7 @@ export function packByHeavyInnerBlocks(container: ContainerSpec, cargo: CargoIte
     const counted = new Map<string, number>();
     for (const p of output.placements) counted.set(p.cargoId, (counted.get(p.cargoId) ?? 0) + 1);
     const errors = validateOperationalWeightAndCog(container, output.placements).filter(f => f.severity === 'error');
-    levels.push({ output, mode: 1, voids: 0, counts: ordered.map(item => counted.get(item.id) ?? 0), cgErrors: errors.length,
+    levels.push({ output, mode: 1, voids: 0, counts: loadedPriority(container, ordered, strategy).map(index => counted.get(ordered[index].id) ?? 0), cgErrors: errors.length,
       cgExcess: errors.reduce((sum, f) => sum + Math.max(0, (f.value ?? 0) - (f.limit ?? 0)), 0), sparseTop: false,
       heightMoment: output.placements.reduce((sum, p) => sum + (p.z + p.height / 2) * p.weightKg, 0) / Math.max(EPS, output.loadedWeightKg),
       end: Math.max(0, ...output.placements.map(p => p.x + p.length)), signature: `level-${variant}-${cap}${stepDown ? '' : '-as-built'}` });

@@ -7,7 +7,7 @@ import { analyzeFloorLoad } from './engine/floorLoad';
 import { validatePlacements } from './engine/constraints';
 import { assessWeightBalance } from './engine/weightBalance';
 import { buildPlacementAddresses } from './engine/locationGrid';
-import { readLoadingStrategyPreference } from './loadingStrategyPreference';
+import { currentLoadingStrategy } from './loadingStrategyPreference';
 import { packOnPallets, type PalletSpec } from './engine/palletOptimization';
 import { packMixedMode } from './engine/mixedModePacking';
 import type { LoadingResult } from './engine/types';
@@ -104,7 +104,7 @@ export default function ResultsOverlay() {
     if (!detail || !palletSnapshot) return;
     const nextSpec = sanitizeResultsPalletSpec({ ...palletSnapshot.spec, [field]: Number(rawValue) });
     const pack = 'mixed' in palletSnapshot.result ? packMixedMode : packOnPallets;
-    const nextResult = pack(detail.container, detail.cargo.filter(item => item.quantity > 0), nextSpec, readLoadingStrategyPreference() ?? 'capacity');
+    const nextResult = pack(detail.container, detail.cargo.filter(item => item.quantity > 0), nextSpec, currentLoadingStrategy());
     const nextSnapshot: PalletSnapshot = { spec: nextSpec, result: nextResult };
     publishPalletSnapshot(nextSnapshot);
     window.dispatchEvent(new CustomEvent<PalletSpec>(PALLET_SPEC_FROM_RESULTS_EVENT, { detail: nextSpec }));

@@ -43,7 +43,7 @@ test('Three model failure offers retry while the fixed-height product workflow r
   await expect(page.locator('.workspace-modal iframe')).toHaveCount(0);
   await advanceToStrategy(page, 'SPACE-CHECK');
   // Full-depth cargo satisfies the unchanged CG gate without shifting off X=0.
-  await page.getByRole('radio', { name: /공간효율 우선/ }).click();
+  await expect(page.getByRole('radio', { name: /안정성 우선/ })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: /다음 단계/ }).click();
   await expect(page.locator('.three-comparison-error').getByRole('button', { name: '다시 시도', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /기존 3D/ })).toHaveCount(0);

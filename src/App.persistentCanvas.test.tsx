@@ -43,7 +43,7 @@ vi.mock('./engine/physicsOptimizer', () => ({ optimizeLoadingWithPhysics: (conta
 let root: Root, host: HTMLDivElement;
 const optimized = (): PhysicsOptimizedLoading => {
   const placements = [{ cargoId: 'A', x: 1, y: .5, z: 0, length: .5, width: .4, height: .3, weightKg: 10 }];
-  return { strategy: 'capacity', score: 95, candidates: [], physics: { score: 95 } as PhysicsOptimizedLoading['physics'], physicsPlacements: placements, result: {
+  return { strategy: 'stability', score: 95, candidates: [], physics: { score: 95 } as PhysicsOptimizedLoading['physics'], physicsPlacements: placements, result: {
     placements, remaining: [], validationIssues: [], usedVolumeM3: .06, loadedWeightKg: 10,
   } };
 };
@@ -54,7 +54,7 @@ beforeEach(async () => {
   vi.clearAllMocks(); localStorage.clear(); setUiLanguage('ko');
   setLoadingRuleset('legacy'); selectTransportEquipment(createCustomEquipment('container', container));
   publishGuidedWorkflowState({ active: true, step: 1 }); publishGuidedLoadingUnit('boxes'); publishWorkflowPreview(null);
-  writeLoadingStrategyPreference('capacity'); writeStoredState({ container, cargo });
+  writeLoadingStrategyPreference('stability'); writeStoredState({ container, cargo });
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   await import('./BoxLoadingViewer');
   await import('./StagingWorkspace');
@@ -171,7 +171,7 @@ it.each(['strategy', 'loading-unit', 'preview-data', 'review-mode'] as const)('c
   await run(); expect(captured.runs).toHaveLength(1);
   const previous = captured.runs[0];
   await act(async () => {
-    if (change === 'strategy') writeLoadingStrategyPreference('stability');
+    if (change === 'strategy') writeLoadingStrategyPreference('unloading');
     if (change === 'loading-unit') publishGuidedLoadingUnit('pallets');
     if (change === 'review-mode') host.querySelector<HTMLButtonElement>('.limit-review-header-button')!.click();
   });
@@ -266,9 +266,9 @@ it.each(['scope', 'strategy'] as const)('leaves a saved staging plan outside the
   const actualContainer = captured.props!.container, savedResult = optimized().result;
   await act(async () => root.unmount()); root = createRoot(host);
   sessionStorage.clear();
-  if (mismatch === 'strategy') writeLoadingStrategyPreference('stability');
+  if (mismatch === 'strategy') writeLoadingStrategyPreference('unloading');
   const input = { scopeKey: mismatch === 'scope' ? 'operator:someone-else|active' : 'operator:guest|active',
-    mode: 'boxes' as const, container: actualContainer, cargo, strategy: 'capacity' as const };
+    mode: 'boxes' as const, container: actualContainer, cargo, strategy: 'stability' as const };
   writeStoredState({ container: actualContainer, cargo, result: savedResult, staging: { version: 1,
     scopeKey: input.scopeKey, inputSignature: stagingInputSignature(input), mode: 'boxes',
     identity: { unitToStableId: {} }, selectedUnitId: null } });

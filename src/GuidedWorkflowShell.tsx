@@ -58,7 +58,7 @@ import EditableEquipmentCard from './EditableEquipmentCard';
 import WorkspaceModal from './WorkspaceModal';
 import { publishWorkflowPreview, WORKFLOW_INPUT_INVALIDATED_EVENT } from './workflowPreview';
 import { writeShipmentInstructionSnapshot } from './shipmentInstruction';
-import { readLoadingStrategyPreference, writeLoadingStrategyPreference } from './loadingStrategyPreference';
+import { DEFAULT_LOADING_STRATEGY, readLoadingStrategyPreference, writeLoadingStrategyPreference } from './loadingStrategyPreference';
 import { resolvePalletType, usePalletTypeSelection } from './palletTypeSelection';
 import CargoStackRestrictionNotice from './CargoStackRestrictionNotice';
 import LoadingMethodStage from './LoadingMethodStage';
@@ -102,12 +102,7 @@ const loadingStrategyOptions: Array<{
     summary: '낮은 무게중심과 좌우·전후 균형을 우선',
     detail: '무거운 화물을 낮게 두고 중량 편중과 불안정한 접촉을 줄이는 방향으로 배치합니다.',
   },
-  {
-    id: 'capacity',
-    title: '공간효율·적재량 우선형',
-    summary: '안전 조건 안에서 빈 공간과 미적재를 최소화',
-    detail: '물리 안전 조건은 그대로 지키면서 컨테이너 공간 사용률과 적재 수량을 더 강하게 평가합니다.',
-  },
+  // No space-efficiency entry: the product does not offer that goal (AGENTS.md 2K).
   {
     id: 'unloading',
     title: '하역 순서 우선형',
@@ -363,14 +358,13 @@ function ResultStage({ live }: { live: LiveDetail }) {
   </section>;
 }
 
-function StagePanel({ step, live, selection, strategy, onSelection, onBundle, onStrategy, packagingConfirmed, modalOpen, onPackaging }: {
+function StagePanel({ step, live, selection, onSelection, onBundle, onStrategy, packagingConfirmed, modalOpen, onPackaging }: {
   step: StepId;
   packagingConfirmed: boolean;
   modalOpen: boolean;
   onPackaging: () => void;
   live: LiveDetail;
   selection: ProductSelectionMap;
-  strategy: LoadingStrategy | null;
   onSelection: (next: ProductSelectionMap) => void;
   onBundle: (bundle: PackagingBundle) => void;
   onStrategy: (strategy: LoadingStrategy) => void;
@@ -380,7 +374,7 @@ function StagePanel({ step, live, selection, strategy, onSelection, onBundle, on
     <div hidden={step !== 1}><EquipmentSelectionStage /></div>
     <div hidden={step !== 2}><ProductSelectionStage container={live.container} selection={selection} onSelection={onSelection} /></div>
     <div hidden={step !== 3}><PackagingStage container={live.container} selection={selection} onBundle={onBundle} /></div>
-    <div hidden={step !== 4}><LoadingMethodStage strategy={strategy} onStrategy={onStrategy} input={live} confirmed={packagingConfirmed} active={step === 4 && modalOpen} onPackaging={onPackaging} /></div>
+    <div hidden={step !== 4}><LoadingMethodStage onStrategy={onStrategy} input={live} confirmed={packagingConfirmed} active={step === 4 && modalOpen} onPackaging={onPackaging} /></div>
     <div hidden={step !== 5}><section className="guided-stage-panel"><div className="guided-panel-title"><div><h1>{uiT("자동 적재")}</h1><p>{uiT("선택한 포장·적재 유형·전략을 확인한 뒤 최종 적재를 실행하세요. 계산과 검사는 메인 3D 화면에서 진행됩니다.")}</p></div></div></section></div>
     <div hidden={step !== 6}><ResultStage live={live} /></div>
   </>;
@@ -450,13 +444,12 @@ function JobSummary({ step, live, mode, finalReady, verification, selection, str
   </details>;
 }
 
-function BottomBar({ step, selectionCount, packagedReady, packagingConfirmed, strategy, running, finalReady, canReport, onAdvance, onApplyPackaging, blockReason }: {
+function BottomBar({ step, selectionCount, packagedReady, packagingConfirmed, running, finalReady, canReport, onAdvance, onApplyPackaging, blockReason }: {
   step: StepId;
   blockReason: string;
   selectionCount: number;
   packagedReady: boolean;
   packagingConfirmed: boolean;
-  strategy: LoadingStrategy | null;
   running: boolean;
   finalReady: boolean;
   canReport: boolean;
@@ -487,7 +480,7 @@ function BottomBar({ step, selectionCount, packagedReady, packagingConfirmed, st
   else if (step === 4) { label = '다음 단계'; disabled = Boolean(blockReason); action = () => onAdvance(5); }
   else if (step === 5) {
     if (finalReady) { label = '결과 확인'; action = () => onAdvance(6); }
-    else { label = running ? '최종 적재 검사 중…' : '최종 적재 진행'; disabled = running || !strategy || !packagingConfirmed; action = () => dispatchAppAction('run-loading'); }
+    else { label = running ? '최종 적재 검사 중…' : '최종 적재 진행'; disabled = running || !packagingConfirmed; action = () => dispatchAppAction('run-loading'); }
   } else if (step === 6) { label = canReport ? '통합 출하·적재 작업지시서 보기' : '미적재 사유 확인 · 조건을 변경해 다시 계산하세요'; disabled = !finalReady || !canReport; action = () => dispatchAppAction('print-report'); }
   return <div ref={barRef} className="guided-bottom-bar"><div className="studio-footer-left"><button type="button" className="guided-reset-link" onClick={() => dispatchAppAction('reset-all')}>{uiT("↻ 전체 초기화")}</button><span className="studio-footer-step">STEP {String(step).padStart(2, '0')} <i>/</i> 06</span></div><div className="studio-footer-actions">{step === 4 && blockReason && <span className="step04-block-reason" role="status">{uiT(blockReason)}</span>}{step > 1 && <button type="button" className="studio-back" onClick={() => onAdvance((step - 1) as StepId)}>{uiT("이전 단계")}</button>}<button type="button" className="guided-primary-cta" data-requires-general-cargo={step >= 5 ? "true" : undefined} data-workflow-action={step === 5 && finalReady ? "view-results" : undefined} disabled={disabled} onClick={action}>{uiT(label)}{!running && step !== 6 ? '  ›' : ''}</button></div></div>;
 }
@@ -551,8 +544,9 @@ export default function GuidedWorkflowShell() {
     writeShipmentInstructionSnapshot(packaging.products, packaging.assignments, packaging.cargo);
     writeStoredState({ container: live.container, cargo: packaging.cargo }, true);
     publishGuidedLoadingUnit('boxes');
-    setStrategy(null);
-    writeLoadingStrategyPreference(null);
+    // A confirmed shipment starts with the one goal there is; nobody has to pick it.
+    setStrategy(DEFAULT_LOADING_STRATEGY);
+    writeLoadingStrategyPreference(DEFAULT_LOADING_STRATEGY);
     setVerification({ status: 'unrun' });
     advance(4);
   };
@@ -586,7 +580,7 @@ export default function GuidedWorkflowShell() {
     const multipleStops = new Set(source.cargo.map(item => item.unloadPriority ?? 1)).size > 1;
     if (next === 'unloading' || (multipleStops && !source.container.unloadingPolicy)) {
       writeStoredState({ ...source, container: { ...source.container, unloadingPolicy: 'strict' } }, true);
-      if (next === 'unloading') next = 'capacity';
+      if (next === 'unloading') next = DEFAULT_LOADING_STRATEGY;
     }
     setStrategy(next);
     writeLoadingStrategyPreference(next);
@@ -770,12 +764,12 @@ export default function GuidedWorkflowShell() {
   const selectionCount = Object.keys(selection).length;
   const rail = hosts.left ? createPortal(<StepRail step={step} furthest={furthest} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} verification={verification} finalReady={finalReady} onStep={openWorkspace}/>, hosts.left) : null;
   const summary = hosts.right ? createPortal(<JobSummary step={step} live={live} mode={mode} finalReady={finalReady} verification={verification} selection={selection} strategy={strategy}/>, hosts.right) : null;
-  const blockReason = loadingMethodBlockReason(packagingConfirmed,strategy,mode,live,methodPalletSelection);
-  const footer = <BottomBar blockReason={blockReason} packagingConfirmed={packagingConfirmed} canReport={!noLoadComplete} step={step} selectionCount={selectionCount} packagedReady={packaging.ready} strategy={strategy} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>;
+  const blockReason = loadingMethodBlockReason(packagingConfirmed,mode,live,methodPalletSelection);
+  const footer = <BottomBar blockReason={blockReason} packagingConfirmed={packagingConfirmed} canReport={!noLoadComplete} step={step} selectionCount={selectionCount} packagedReady={packaging.ready} running={running} finalReady={finalReady} onAdvance={advance} onApplyPackaging={applyPackaging}/>;
   return <>{rail}{summary}{inspection && <Suspense fallback={<div role="status">{uiT("박스 내부 화면 준비 중…")}</div>}><PackagingContentsDialog inspection={inspection} onClose={() => setInspection(undefined)}/></Suspense>}{typeof document !== 'undefined' ? createPortal(<>
     <div hidden={modalOpen}>{footer}</div>
     <WorkspaceModal open={modalOpen} title={uiT(steps[step - 1].label)} onClose={() => setModalOpen(false)} footer={footer}>
-      <RetainedStagePanel packagingConfirmed={packagingConfirmed} modalOpen={modalOpen} onPackaging={() => advance(3)} step={step} live={live} selection={selection} strategy={strategy} onSelection={setSelection} onBundle={setPackaging} onStrategy={chooseStrategy}/>
+      <RetainedStagePanel packagingConfirmed={packagingConfirmed} modalOpen={modalOpen} onPackaging={() => advance(3)} step={step} live={live} selection={selection} onSelection={setSelection} onBundle={setPackaging} onStrategy={chooseStrategy}/>
     </WorkspaceModal>
   </>, document.body) : null}</>;
 }
