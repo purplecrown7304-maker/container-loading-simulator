@@ -1,0 +1,34 @@
+/* 차량 나누기 (AGENTS.md 2L): 한 대에 다 싣지 못한 화물을 여러 차량에 고르게 나눈다. */
+.vehicle-split-panel{display:grid;gap:8px;word-break:keep-all;margin-bottom:12px;padding:12px;border:1px solid var(--studio-line-strong,#cdd3dc);border-radius:var(--studio-radius,12px);background:var(--studio-surface,#fff);color:var(--studio-ink,#202630)}
+.vehicle-split-panel[data-vehicle-split="offer"]{border-color:var(--studio-warning,#945b15);background:var(--studio-warning-tint,#fff8ed)}
+.vehicle-split-panel[data-vehicle-split="active"]{border-color:var(--studio-blue,#2563eb)}
+.vehicle-split-panel>b{font-size:var(--font-sm,14px);font-weight:600;line-height:1.4}
+.vehicle-split-panel p{margin:0;font-size:var(--font-xs,13px);line-height:1.55;color:var(--studio-secondary,#535d6a);overflow-wrap:anywhere}
+.vehicle-split-panel button{min-height:36px;padding:8px 12px;border:1px solid var(--studio-line-strong,#cdd3dc);border-radius:var(--studio-radius-sm,8px);background:var(--studio-surface,#fff);color:var(--studio-ink,#202630);font:inherit;font-size:var(--font-xs,13px);font-weight:600;cursor:pointer}
+.vehicle-split-panel button:hover:not(:disabled){background:var(--studio-sunken,#f8f9fb)}
+.vehicle-split-panel button:disabled{opacity:.55;cursor:not-allowed}
+.vehicle-split-panel button:focus-visible{outline:2px solid var(--studio-blue,#2563eb);outline-offset:2px}
+.vehicle-split-panel .vehicle-split-primary{border-color:var(--studio-blue,#2563eb);background:var(--studio-blue,#2563eb);color:#fff}
+.vehicle-split-panel .vehicle-split-primary:hover:not(:disabled){background:var(--studio-blue-strong,#1d4ed8)}
+.vehicle-split-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.vehicle-split-head b{font-size:var(--font-sm,14px);font-weight:700}
+.vehicle-split-head span{font-size:var(--font-2xs,12px);color:var(--studio-faint,#67717e)}
+.vehicle-split-tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px}
+.vehicle-split-tabs button{display:grid;gap:2px;justify-items:start;padding:8px 12px;text-align:left}
+.vehicle-split-tabs button b{font-size:var(--font-xs,13px);font-weight:700}
+.vehicle-split-tabs button small{font-size:var(--font-2xs,12px);font-weight:500;color:var(--studio-secondary,#535d6a)}
+.vehicle-split-tabs button i{font-size:var(--font-2xs,12px);font-style:normal;font-weight:600;color:var(--studio-faint,#67717e)}
+.vehicle-split-tabs button.active{border-color:var(--studio-blue,#2563eb);background:var(--studio-blue-tint,#eef4ff)}
+.vehicle-split-tabs button[data-vehicle-status="passed"] i{color:var(--studio-green,#187047)}
+.vehicle-split-tabs button[data-vehicle-status="failed"] i{color:var(--studio-danger,#b83939)}
+.vehicle-split-tabs button[data-vehicle-status="review"] i{color:var(--studio-warning,#945b15)}
+.vehicle-split-help{font-size:var(--font-2xs,12px)!important}
+.vehicle-split-actions{display:flex;flex-wrap:wrap;gap:8px}
+.vehicle-split-notice{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:8px;border-radius:var(--studio-radius-sm,8px);background:var(--studio-warning-tint,#fff8ed);color:var(--studio-warning,#945b15)!important}
+.vehicle-split-notice button{flex:none}
+@media (max-width:760px){
+  .vehicle-split-panel button{min-height:var(--control-height-lg,44px)}
+  .vehicle-split-actions button{flex:1 1 140px}
+}
+/* The guided summary column floats over the 3D scene and passes pointer events through. */
+html[data-guided-workflow="true"] .dashboard-right>.vehicle-split-panel{pointer-events:auto;box-shadow:var(--studio-shadow,0 4px 16px #1118271a);box-sizing:border-box}

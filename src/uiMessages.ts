@@ -13,6 +13,7 @@ import { uiMessagesProduct } from './uiMessagesProduct';
 import { uiMessagesReports } from './uiMessagesReports';
 import { uiMessagesShipmentReports } from './uiMessagesShipmentReports';
 import { uiMessagesWorkflow } from './uiMessagesWorkflow';
+import { uiMessagesVehicleSplit } from './uiMessagesVehicleSplit';
 /** Presentation translations only. Saved identifiers, user content and calculation inputs stay unchanged. */
 const baseUiMessages: Readonly<Record<string, readonly [string, string]>> = {
   "회원 인증에 실패했습니다.": [
@@ -2682,6 +2683,7 @@ export const uiMessages: Readonly<Record<string, readonly [string, string]>> = {
   ...uiMessagesAdminMembers,
   ...uiMessagesStaging,
   ...uiMessagesPalletCatalog,
+  ...uiMessagesVehicleSplit,
   ...uiMessagesEngine,
   ...baseUiMessages,
   ...uiMessagesWorkInstructions,

@@ -16,6 +16,7 @@ import { LOADING_STRATEGY_PREFERENCE_KEY, readLoadingStrategyPreference, writeLo
 import { adoptRemoteOperator } from './localOperator';
 import { ADMIN_ACCESS_EVENT } from './adminAccess';
 import { MEMBER_SESSION_KEY } from './memberAuth';
+import { readVehicleSplit, resetVehicleSplitStateForTests } from './vehicleSplitState';
 
 // Keep the actual shell, stage components, product/packaging stores and modal lifecycle.
 // No renderer or packing/physics worker is needed to exercise DOM/confirmation ownership.
@@ -45,6 +46,7 @@ async function settle() { await act(async () => { await new Promise(resolve => s
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   localStorage.clear(); sessionStorage.clear(); delete latest.__containerLoadingLatestResult; clearLatestInertiaCertification(); clearPhysicsTarget();
+  resetVehicleSplitStateForTests();
   publishGuidedLoadingUnit(null); publishWorkflowPreview(null); commits = 0;
   localStorage.setItem('container-loading-product-packaging-v1:guest', JSON.stringify({ container,
     products: [{ id: 'RETAIN-1', name: 'Retained direct product', length: .2, width: .15, height: .1, weightKg: 1, quantity: 3, requiresBoxPackaging: false }], boxes: [], settings: { allowCustom: false },
@@ -283,4 +285,117 @@ it('does not unlock STEP 06 for an unverified modal-open event or a stale PASS',
   await act(async () => publishCertification({ targetSignature: 'obsolete' }));
   expect(step(6).disabled).toBe(true);
   expect(document.querySelector('.guided-status-row')?.getAttribute('data-verification-status')).toBe('unrun');
+});
+
+// Vehicle split (AGENTS.md 2L). The app's own reaction to a new job cargo (a pending plan and
+// an invalidated verification) is played by `appAdoptsStoredCargo`, since App is not mounted here.
+const splitPanel = () => document.querySelector<HTMLElement>('.vehicle-split-panel');
+const splitAction = (name: string) => splitPanel()!.querySelector<HTMLButtonElement>(`[data-vehicle-split-action="${name}"]`);
+const vehicleTab = (number: number) => splitPanel()!.querySelector<HTMLButtonElement>(`[data-vehicle-index="${number}"]`)!;
+const storedUnits = () => readStoredState()!.cargo.reduce((sum, item) => sum + item.quantity, 0);
+async function prepareJob(quantity: number) {
+  await act(async () => { writeProductSelection({ 'RETAIN-1': quantity }); });
+  await open(3);
+  await click(action());
+  await click(action());
+  expect(storedUnits()).toBe(quantity);
+}
+async function publishPlan(placed: number, waiting: number, certification?: Partial<InertiaCertification>) {
+  const stored = readStoredState()!;
+  const result: LoadingResult = {
+    placements: Array.from({ length: placed }, (_, index) => ({ cargoId: stored.cargo[0].id, x: index * .2, y: 0, z: 0, length: .2, width: .15, height: .1, weightKg: 1, rotated: false })),
+    remaining: waiting ? [{ cargoId: stored.cargo[0].id, quantity: waiting, reason: '바닥 자리가 부족함', reasonCode: 'NO_FEASIBLE_EMS' }] : [],
+    validationIssues: [], loadedWeightKg: placed, usedVolumeM3: placed * .003,
+  };
+  latest.__containerLoadingLatestResult = { ...stored, result };
+  await act(async () => {
+    window.dispatchEvent(new CustomEvent('container-loading:result', { detail: latest.__containerLoadingLatestResult }));
+    publishCertification(certification);
+  });
+}
+async function appAdoptsStoredCargo() {
+  const stored = readStoredState()!;
+  latest.__containerLoadingLatestResult = { ...stored, result: { placements: [], remaining: [], validationIssues: [], loadedWeightKg: 0, usedVolumeM3: 0 } };
+  await act(async () => {
+    clearPhysicsTarget(); clearLatestInertiaCertification();
+    window.dispatchEvent(new CustomEvent('container-loading:result', { detail: latest.__containerLoadingLatestResult }));
+    window.dispatchEvent(new CustomEvent(WORKFLOW_INPUT_INVALIDATED_EVENT));
+  });
+}
+
+it('offers to divide cargo one vehicle cannot carry, and plans, notes and restores each vehicle', async () => {
+  await mount(); await prepareJob(5);
+  expect(splitPanel()).toBeNull();
+
+  await publishPlan(3, 2);
+  expect(splitPanel()!.getAttribute('data-vehicle-split')).toBe('offer');
+  expect(splitPanel()!.textContent).toContain('한 대에 다 싣지 못했습니다');
+  expect(splitPanel()!.textContent).toContain('미적재 2 EA');
+  expect(splitAction('start')!.textContent).toBe('차량 2대로 나누기');
+
+  await click(splitAction('start')!);
+  await appAdoptsStoredCargo();
+  expect(storedUnits()).toBe(3);
+  expect(splitPanel()!.getAttribute('data-vehicle-split')).toBe('active');
+  expect(splitPanel()!.getAttribute('data-vehicle-active')).toBe('1');
+  expect(vehicleTab(1).textContent).toContain('3 EA');
+  expect(vehicleTab(2).textContent).toContain('2 EA');
+  expect(vehicleTab(2).textContent).toContain('계산 전');
+  expect(vehicleTab(1).getAttribute('data-vehicle-status')).toBe('unrun');
+  expect(step(6).disabled).toBe(true);
+
+  // Vehicle 1 is planned and verified by itself; nothing more is offered once it fits and passes.
+  await publishPlan(3, 0);
+  expect(vehicleTab(1).getAttribute('data-vehicle-status')).toBe('passed');
+  expect(readVehicleSplit()!.records[0]).toMatchObject({ status: 'passed', loaded: 3, waiting: 0 });
+  expect(splitAction('more')).toBeNull();
+  expect(step(6).disabled).toBe(false);
+
+  // Vehicle 2 starts unverified; what vehicle 1 achieved stays as a note only.
+  await click(vehicleTab(2));
+  await appAdoptsStoredCargo();
+  expect(storedUnits()).toBe(2);
+  expect(splitPanel()!.getAttribute('data-vehicle-active')).toBe('2');
+  expect(vehicleTab(1).textContent).toContain('검증 통과 기록');
+  expect(vehicleTab(2).getAttribute('data-vehicle-status')).toBe('unrun');
+  expect(readVehicleSplit()!.records).toMatchObject([{ status: 'passed' }, null]);
+  expect(step(6).disabled).toBe(true);
+
+  // A vehicle that still leaves cargo waiting can be divided once more.
+  await publishPlan(1, 1);
+  expect(splitAction('more')!.textContent).toBe('차량 3대로 다시 나누기');
+
+  await click(splitAction('end')!);
+  await appAdoptsStoredCargo();
+  expect(storedUnits()).toBe(5);
+  expect(readVehicleSplit()).toBeNull();
+  expect(splitPanel()).toBeNull();
+});
+
+it('offers a split for a load that fits but fails verification, and none where nothing could be loaded', async () => {
+  await mount(); await prepareJob(4);
+  await publishPlan(4, 0, { status: 'failed', testedScenarios: 0, passedScenarios: 0, payloadWithinLimit: false, results: {} });
+  expect(document.querySelector('.guided-status-row')?.getAttribute('data-verification-status')).toBe('failed');
+  expect(splitPanel()!.textContent).toContain('이 적재는 운송 검증을 통과하지 못했습니다');
+  expect(splitAction('start')).not.toBeNull();
+
+  // Cargo of which not one carton could be loaded gains nothing from a second vehicle.
+  await publishPlan(0, 4);
+  expect(splitPanel()).toBeNull();
+  // A load that fits and passes needs no second vehicle either.
+  await publishPlan(4, 0);
+  expect(splitPanel()).toBeNull();
+});
+
+it('gives the whole cargo back when a divided job leaves direct-box loading', async () => {
+  await mount(); await prepareJob(5);
+  await publishPlan(3, 2);
+  await click(splitAction('start')!);
+  await appAdoptsStoredCargo();
+  expect(storedUnits()).toBe(3);
+  await act(async () => { publishGuidedLoadingUnit('pallets'); });
+  await settle();
+  expect(readVehicleSplit()).toBeNull();
+  expect(storedUnits()).toBe(5);
+  expect(splitPanel()).toBeNull();
 });

@@ -16,6 +16,7 @@ import { readStoredState, STORAGE_UPDATED_EVENT } from './storage';
 import { isPhysicsTargetVerified } from './inertiaWorkOrderPolicy';
 import { physicsTargetFromPalletSnapshot } from './certifiedExport';
 import VoidFillSummary from './VoidFillSummary';
+import VehicleSplitPanel from './VehicleSplitPanel';
 import './loading-plan-choice.css';
 
 type ResultTab = 'result' | 'unloaded' | 'weight' | 'safety';
@@ -174,6 +175,8 @@ export default function GuidedResultTabsEnhancer() {
       </section>}
 
       {tab === 'unloaded' && <section className="guided-result-tab-panel">
+        {/* Cargo left waiting can be divided over two vehicles (AGENTS.md 2L): offered where the waiting cargo is listed. */}
+        {detail && result && loadingUnit !== 'pallets' && loadingUnit !== 'mixed' && <VehicleSplitPanel container={detail.container} cargo={detail.cargo} result={result} mode="boxes" verification={{ status: analyses?.verified ? 'passed' : 'unrun' }} />}
         {result?.remaining.length ? <div className="guided-unloaded-list enhanced">
           {result.remaining.map(item => <article key={`${item.cargoId}-${uiMessage(item.reason)}`}>
             <span><b>{item.cargoId}</b><small>{uiMessage(item.reason)}</small></span><strong>{item.quantity} EA</strong>
