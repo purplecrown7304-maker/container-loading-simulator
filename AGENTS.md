@@ -228,6 +228,35 @@ section 1.
   MIXED and the A-rules are unchanged.
 - Planning a second vehicle for the cargo that still waits is not part of this rule and is
   not built: the waiting cargo is listed with its reason as before.
+## 2J. Owner-approved pallet rule: fewer pallets (2026-11-20)
+
+Owner instruction: "파렛트를 더 적게 사용해야한다." Legacy **pallet** loading only
+(`engine/palletBalancedLayers.ts`, `palletOptimization.ts`). Full text:
+`docs/engine/LOADING_RULES.md` section 7D.
+
+- The planner fills pallets one cargo at a time. A little heavy cargo with a lot of light
+  cargo then gives short pallets that are full by weight and tall pallets held down by the
+  tipping limit of 2D, and both waste a base. The balanced layer build gives every pallet
+  its share of the heavy cartons as its lowest layer and fills it upward with the light
+  cargo: one unit uses its weight and its height together and its centre of gravity is low.
+- It replaces the chosen plan only when it uses fewer pallets and is not worse in anything
+  judged before pallet count: hard limits, loaded quantity, strict unloading and the tipping
+  limit of 2D, in that unchanged order. A plan it cannot beat is left exactly as it was.
+- Every carton passes the checks of the ordinary builder (pallet load, ceiling, no
+  overhang, support, stack depth, cumulative top load, floor load, payload with pallet
+  tare). Every unit stays inside the tipping limit and keeps the 50% top-tier rule (#97);
+  only the last pallet of a stop may be the mixed tail. Stops are not merged.
+- A carton stands on an equal or heavier carton. One exception, tried only for a pallet the
+  build cannot save without it: one closing layer of larger cartons, lighter than the
+  unit's base cartons, across a flat top of lighter ones. `HEAVY_ON_LIGHT` discloses it.
+- Pass counts are fixed (`BALANCED_PALLET_LAYER_PROFILE`); the result is deterministic.
+  Cargo with floor-only, unverified-strength, single-layer, offset-centre or
+  orientation-restricted cartons keeps the ordinary planner.
+- Fewer pallets make a shorter block. Where the longitudinal verdict of 2D then requires
+  it, the block stands off the inner wall by that distance; 2D itself is not changed.
+- The inertia certification and its thresholds, MIXED (its packaging stage opts out),
+  BOX_ONLY and the A-rules are unchanged.
+
 ## 2K. Owner decision: no space-efficiency goal (2026-11-20)
 
 Owner instruction: "최적화 목표에 공간 효율 목표는 그냥 없애자." Product UI and stored
@@ -252,7 +281,6 @@ preference only (`LoadingMethodStage.tsx`, `loadingStrategyPreference.ts`).
   Pallet, MIXED and A-rule plans that were made under `capacity` can come out differently
   under `stability`. The legacy direct-box plan is the same under both goals; only the
   order in which alternative layouts are tried after a failed certification differs.
-
 ## 3. DIRECT BOX baseline algorithm
 The legacy fixed sequence of `CBM/weight sort -> full vertical stacks -> x shelf progression -> door-side tail mixing` is retired.
 

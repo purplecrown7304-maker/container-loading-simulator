@@ -11,13 +11,13 @@ import type { CargoItem, ContainerSpec, Placement } from './types';
 
 const EPS = 1e-9;
 const MAX_STRIP_SPLITS = 16;
-type Grid = { x: number; y: number; cols: number; rows: number; length: number; width: number; rotated: boolean };
-type LayerPattern = { grids: Grid[]; count: number };
+export type Grid = { x: number; y: number; cols: number; rows: number; length: number; width: number; rotated: boolean };
+export type LayerPattern = { grids: Grid[]; count: number };
 const fit = (space: number, size: number) => Math.max(0, Math.floor((space + EPS) / size));
 const same = (a: number, b: number) => Math.abs(a - b) <= EPS;
 
 /** Fixed-size search; grids describe slots without allocating the entire pallet deck. */
-function layerPatterns(item: CargoItem, spec: PalletSpec): LayerPattern[] {
+export function layerPatterns(item: Pick<CargoItem, 'length' | 'width'>, spec: Pick<PalletSpec, 'length' | 'width'>): LayerPattern[] {
   const patterns: LayerPattern[] = [];
   const seen = new Set<string>();
   const add = (grids: Grid[]) => {
@@ -55,7 +55,7 @@ function layerPatterns(item: CargoItem, spec: PalletSpec): LayerPattern[] {
   return patterns.sort((a, b) => b.count - a.count);
 }
 
-function slotAt(pattern: LayerPattern, index: number) {
+export function slotAt(pattern: LayerPattern, index: number) {
   for (const grid of pattern.grids) {
     const count = grid.cols * grid.rows;
     if (index < count) return { x: grid.x + Math.floor(index / grid.rows) * grid.length,
